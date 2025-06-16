@@ -31,8 +31,7 @@ class GRINEnrichmentPipeline:
         directory: str = "Harvard",
         db_path: str = "output/default/books.db",
         rate_limit_delay: float = 0.2,  # 5 QPS
-        batch_size: int = 1000,
-        grin_batch_size: int = 200,  # Barcodes per GRIN request
+        batch_size: int = 2000,
         max_concurrent_requests: int = 5,  # Concurrent GRIN requests
         secrets_dir: str | None = None,  # Directory containing secrets files
         timeout: int = 60,
@@ -41,7 +40,6 @@ class GRINEnrichmentPipeline:
         self.db_path = db_path
         self.rate_limit_delay = rate_limit_delay
         self.batch_size = batch_size
-        self.grin_batch_size = grin_batch_size
         self.max_concurrent_requests = max_concurrent_requests
         self.timeout = timeout
 
@@ -123,7 +121,7 @@ class GRINEnrichmentPipeline:
     def _calculate_max_batch_size(self, barcodes: list[str]) -> int:
         """Calculate maximum batch size that fits in URL length limit."""
         if not barcodes:
-            return self.grin_batch_size
+            return 1000  # Default fallback
 
         # Base URL components
         base_url = f"https://books.google.com/libraries/{self.directory}/_barcode_search?execute_query=true&format=text&mode=full&barcodes="
@@ -279,8 +277,8 @@ class GRINEnrichmentPipeline:
             # Calculate maximum batch size that fits in URL for remaining barcodes
             max_url_batch_size = self._calculate_max_batch_size(remaining_barcodes)
 
-            # Use the smaller of user's setting or URL limit
-            effective_batch_size = min(self.grin_batch_size, max_url_batch_size, len(remaining_barcodes))
+            # Use the maximum possible URL batch size (ignore user setting, maximize throughput)
+            effective_batch_size = min(max_url_batch_size, len(remaining_barcodes))
 
             # Take the calculated number of barcodes for this batch
             grin_batch = remaining_barcodes[:effective_batch_size]
@@ -291,10 +289,11 @@ class GRINEnrichmentPipeline:
 
         batch_sizes = [len(batch) for batch in grin_batches]
         avg_batch_size = sum(batch_sizes) / len(batch_sizes) if batch_sizes else 0
-        print(
+        split_info = (
             f"  → Split into {len(grin_batches)} GRIN API calls (sizes: {batch_sizes}, avg: {avg_batch_size:.1f}) "
             f"with up to {self.max_concurrent_requests} concurrent requests"
         )
+        logger.info(split_info)
 
         # Process batches concurrently with rate limiting
         batch_tasks = []
@@ -396,16 +395,16 @@ class GRINEnrichmentPipeline:
     async def run_enrichment(self, limit: int | None = None, resume: bool = True, reset: bool = False) -> None:
         """Run the complete enrichment pipeline."""
         print("Starting GRIN metadata enrichment pipeline")
-        print(f"Database: {self.db_path}")
-        print(f"Directory: {self.directory}")
-        print(f"Rate limit: {1 / self.rate_limit_delay:.1f} requests/second")
-        print(f"Concurrent requests: {self.max_concurrent_requests}")
-        print(f"GRIN batch size: {self.grin_batch_size} barcodes per request")
+        logger.info("Starting GRIN metadata enrichment pipeline")
+        logger.info(f"Database: {self.db_path}")
+        logger.info(f"Directory: {self.directory}")
+        logger.info(f"Rate limit: {1 / self.rate_limit_delay:.1f} requests/second")
+        logger.info(f"Concurrent requests: {self.max_concurrent_requests}")
+        logger.info("GRIN batch size: Dynamic (maximum URL length)")
         if limit:
-            print(f"Limit: {limit:,} {pluralize(limit, 'book')}")
+            logger.info(f"Limit: {limit:,} {pluralize(limit, 'book')}")
         if reset:
-            print("Reset mode: Will clear existing enrichment data")
-        print()
+            logger.info("Reset mode: Will clear existing enrichment data")
 
         # Backup database before starting work
         print("Backing up SQLite database...")
@@ -433,11 +432,11 @@ class GRINEnrichmentPipeline:
         enriched_books = await self.sqlite_tracker.get_enriched_book_count()
         remaining_books = total_books - enriched_books
 
-        print("Database status:")
-        print(f"  Total books: {total_books:,}")
-        print(f"  Already enriched: {enriched_books:,}")
-        print(f"  Remaining: {remaining_books:,}")
-        print()
+        print(f"Database: {total_books:,} total, {enriched_books:,} enriched, {remaining_books:,} remaining")
+        logger.info("Database status:")
+        logger.info(f"  Total books: {total_books:,}")
+        logger.info(f"  Already enriched: {enriched_books:,}")
+        logger.info(f"  Remaining: {remaining_books:,}")
 
         if remaining_books == 0:
             print("✅ All books are already enriched!")
@@ -448,7 +447,7 @@ class GRINEnrichmentPipeline:
         processed_count = 0
         total_enriched = 0
 
-        print(f"Starting enrichment of {remaining_books:,} books...")
+        logger.info(f"Starting enrichment of {remaining_books:,} books...")
 
         try:
             while True:
@@ -471,7 +470,7 @@ class GRINEnrichmentPipeline:
                     break
 
                 batch_start = time.time()
-                print(f"Processing batch of {len(barcodes)} books...")
+                logger.info(f"Processing batch of {len(barcodes)} books...")
 
                 # Enrich the batch
                 enriched_in_batch = await self.enrich_books_batch(barcodes)
@@ -484,8 +483,16 @@ class GRINEnrichmentPipeline:
                 overall_elapsed = time.time() - start_time
                 rate = processed_count / max(1, overall_elapsed)
 
-                print(f"  Batch completed: {enriched_in_batch}/{len(barcodes)} enriched in {batch_elapsed:.1f}s")
-                print(f"  Overall progress: {processed_count:,}/{remaining_books:,} processed ({rate:.1f} books/sec)")
+                # Calculate ETA if we have enough data (after 2+ batches)
+                eta_text = ""
+                if processed_count >= self.batch_size * 2 and rate > 0:
+                    books_remaining = remaining_books - processed_count
+                    eta_seconds = books_remaining / rate
+                    eta_text = f" (ETA: {format_duration(eta_seconds)})"
+
+                logger.info(f"  Batch completed: {enriched_in_batch}/{len(barcodes)} enriched in {batch_elapsed:.1f}s")
+                print(f"Progress: {processed_count:,}/{remaining_books:,} processed ({rate:.1f} books/sec){eta_text}")
+                logger.info(f"  Overall progress: {processed_count:,}/{remaining_books:,} processed ({rate:.1f} books/sec){eta_text}")
 
                 if limit and processed_count >= limit:
                     print(f"Reached limit of {limit} books")
@@ -496,13 +503,17 @@ class GRINEnrichmentPipeline:
 
         except KeyboardInterrupt:
             print("\nEnrichment interrupted by user")
-            print("Cleaning up resources...")
+            logger.info("Enrichment interrupted by user")
+            logger.info("Cleaning up resources...")
 
         except Exception as e:
             print(f"\nEnrichment failed: {e}")
+            logger.error(f"Enrichment failed: {e}")
             import traceback
-
+            
             traceback.print_exc()
+            # Also log the full traceback
+            logger.error("Full traceback:", exc_info=True)
 
         finally:
             # Clean up resources
@@ -512,12 +523,13 @@ class GRINEnrichmentPipeline:
             total_elapsed = time.time() - start_time
             final_enriched = await self.sqlite_tracker.get_enriched_book_count()
 
-            print("\nEnrichment pipeline completed:")
-            print(f"  Total runtime: {format_duration(total_elapsed)}")
-            print(f"  Books processed: {processed_count:,}")
-            print(f"  Books enriched: {total_enriched:,}")
-            print(f"  Total enriched in database: {final_enriched:,}")
-            print(f"  Average rate: {processed_count / max(1, total_elapsed):.1f} books/second")
+            print(f"\nCompleted: {processed_count:,} processed, {total_enriched:,} enriched in {format_duration(total_elapsed)} ({processed_count / max(1, total_elapsed):.1f} books/sec)")
+            logger.info("Enrichment pipeline completed:")
+            logger.info(f"  Total runtime: {format_duration(total_elapsed)}")
+            logger.info(f"  Books processed: {processed_count:,}")
+            logger.info(f"  Books enriched: {total_enriched:,}")
+            logger.info(f"  Total enriched in database: {final_enriched:,}")
+            logger.info(f"  Average rate: {processed_count / max(1, total_elapsed):.1f} books/second")
 
 
 async def export_enriched_csv(db_path: str, output_file: str) -> None:
@@ -578,9 +590,9 @@ def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
 
-    # Add console handler for INFO and above
+    # Add console handler for ERROR and above (minimizes console spam during enrichment)
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(logging.ERROR)
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
 
@@ -680,10 +692,7 @@ async def main() -> None:
     enrich_parser.add_argument(
         "--rate-limit", type=float, default=0.2, help="Delay between requests (default: 0.2s for 5 QPS)"
     )
-    enrich_parser.add_argument("--batch-size", type=int, default=1000, help="Batch size for processing")
-    enrich_parser.add_argument(
-        "--grin-batch-size", type=int, default=200, help="Number of barcodes per GRIN request (default: 200)"
-    )
+    enrich_parser.add_argument("--batch-size", type=int, default=2000, help="Batch size for processing")
     enrich_parser.add_argument(
         "--max-concurrent", type=int, default=5, help="Maximum concurrent GRIN requests (default: 5)"
     )
@@ -735,7 +744,6 @@ async def main() -> None:
                     db_path=args.db_path,
                     rate_limit_delay=args.rate_limit,
                     batch_size=args.batch_size,
-                    grin_batch_size=args.grin_batch_size,
                     max_concurrent_requests=args.max_concurrent,
                     secrets_dir=args.secrets_dir,
                 )

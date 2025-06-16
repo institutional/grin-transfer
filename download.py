@@ -16,7 +16,7 @@ from pathlib import Path
 
 import aiofiles
 
-from auth import GRINAuth
+from client import GRINClient
 from common import (
     calculate_transfer_speed,
     create_http_session,
@@ -34,8 +34,7 @@ async def download_book(
     storage_config: dict | None = None,
     base_url: str = "https://books.google.com/libraries/",
     directory: str = "Harvard",
-    credentials_file: str = ".creds.json",
-    secrets_file: str = ".secrets",
+    secrets_dir: str | None = None,
 ) -> dict:
     """
     Download a book from GRIN to local filesystem or block storage.
@@ -47,28 +46,36 @@ async def download_book(
         storage_config: Configuration for storage backend
         base_url: GRIN base URL
         directory: Library directory
-        credentials_file: OAuth2 credentials
-        secrets_file: OAuth2 secrets
+        secrets_dir: Directory containing GRIN secrets (searches home directory if not specified)
 
     Returns:
         Dict with download results
     """
     print(f"Downloading book: {barcode}")
 
-    # Set up GRIN authentication
-    auth = GRINAuth(secrets_file=secrets_file, credentials_file=credentials_file)
+    # Set up GRIN client
+    client = GRINClient(base_url=base_url, secrets_dir=secrets_dir)
 
     # Construct GRIN URL
     archive_filename = f"{barcode}.tar.gz.gpg"
-    grin_url = f"{base_url}{directory}/{archive_filename}"
+    grin_url = f"{base_url.rstrip('/')}/{directory}/{archive_filename}"
 
     print(f"Source: {grin_url}")
+
+    # Check if file exists first
+    print("Checking if archive exists...")
+    file_exists = await client.check_file_exists(directory, archive_filename)
+    if not file_exists:
+        raise FileNotFoundError(f"Archive {archive_filename} not found in GRIN directory {directory}. "
+                               f"Book may not be processed yet or may not be available for download.")
+
+    print("Archive found! Starting download...")
 
     # Download from GRIN
     download_start = datetime.now()
 
     async with create_http_session() as session:
-        response = await auth.make_authenticated_request(session, grin_url)
+        response = await client.auth.make_authenticated_request(session, grin_url)
 
         # Collect data
         chunks = []
@@ -173,8 +180,12 @@ Examples:
     # GRIN options
     parser.add_argument("--base-url", default="https://books.google.com/libraries/")
     parser.add_argument("--directory", default="Harvard")
-    parser.add_argument("--grin-credentials", default=".creds.json", help="GRIN OAuth2 credentials")
-    parser.add_argument("--grin-secrets", default=".secrets", help="GRIN OAuth2 secrets")
+    parser.add_argument(
+        "--secrets-dir",
+        type=str,
+        help="Directory containing GRIN secrets files (searches home directory if not specified)",
+    )
+    parser.add_argument("--test-mode", action="store_true", help="Test with mock data (creates dummy archive)")
 
     args = parser.parse_args()
 
@@ -225,8 +236,7 @@ Examples:
             storage_config=storage_config,
             base_url=args.base_url,
             directory=args.directory,
-            credentials_file=args.grin_credentials,
-            secrets_file=args.grin_secrets,
+            secrets_dir=args.secrets_dir,
         )
 
         # Show results

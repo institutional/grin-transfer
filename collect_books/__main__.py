@@ -104,7 +104,7 @@ def print_resume_command(args, run_name: str) -> None:
         run_name: The run name for this collection
     """
     print("\n" + "=" * 60)
-    print("📋 TO RESUME THIS COLLECTION:")
+    print("TO RESUME THIS COLLECTION:")
     print("=" * 60)
 
     # Build the resume command
@@ -122,8 +122,6 @@ def print_resume_command(args, run_name: str) -> None:
 
     if args.rate_limit != 5.0:  # Only if not default
         cmd_parts.append(f"--rate-limit {args.rate_limit}")
-
-    # data_mode removed - only HTML mode supported
 
     if args.test_mode:
         cmd_parts.append("--test-mode")
@@ -154,7 +152,7 @@ def print_resume_command(args, run_name: str) -> None:
 async def main():
     """CLI interface for book collection pipeline."""
     parser = argparse.ArgumentParser(
-        description="Collect library book metadata and export to CSV with progress tracking",
+        description="Collect library book metadata in local db with progress tracking",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
