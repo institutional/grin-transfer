@@ -27,6 +27,197 @@ from common import (
 from storage import BookStorage
 
 
+async def ensure_bucket_exists_with_storage(storage, storage_type: str, storage_config: dict) -> bool:
+    """Ensure the bucket exists using the provided storage instance."""
+    if storage_type == "local":
+        return True
+    
+    bucket = storage_config.get("bucket")
+    if not bucket:
+        print("No bucket specified in storage config")
+        return True
+    
+    print(f"Debug: Checking bucket '{bucket}' for {storage_type}")
+    print(f"Debug: Storage config keys: {list(storage_config.keys())}")
+    print(f"Debug: Using provided storage object of type: {type(storage)}")
+    
+    try:
+        # Check if bucket exists by trying to list it
+        try:
+            print(f"Debug: Attempting to list objects in bucket '{bucket}'...")
+            objects = await storage.list_objects("")
+            print(f"Debug: Successfully listed {len(objects)} objects in bucket '{bucket}'")
+            print(f"Debug: Bucket '{bucket}' exists and is accessible")
+            return True
+        except Exception as e:
+            # Bucket doesn't exist or isn't accessible
+            print(f"Debug: Cannot access bucket '{bucket}': {type(e).__name__}: {e}")
+            
+            # Try with bucket prefix
+            try:
+                print(f"Debug: Trying to list with bucket prefix '{bucket}/'...")
+                bucket_objects = await storage.list_objects(bucket)
+                print(f"Debug: Successfully listed {len(bucket_objects)} objects with bucket prefix")
+                print(f"Debug: Bucket '{bucket}' exists and is accessible via prefix")
+                return True
+            except Exception as e2:
+                print(f"Debug: Bucket prefix check also failed: {type(e2).__name__}: {e2}")
+                pass
+        
+        # Ask user if they want to create the bucket
+        print(f"Bucket '{bucket}' does not exist.")
+        response = input(f"Create bucket '{bucket}'? [y/N]: ").strip().lower()
+        
+        if response in ('y', 'yes'):
+            # For MinIO/S3, we need to use boto3 directly since fsspec doesn't support bucket creation
+            if storage_type in ("minio", "s3"):
+                import boto3
+                from botocore.exceptions import ClientError
+                
+                s3_config = {
+                    "aws_access_key_id": storage_config.get("access_key"),
+                    "aws_secret_access_key": storage_config.get("secret_key"),
+                }
+                
+                if storage_type == "minio":
+                    s3_config["endpoint_url"] = storage_config.get("endpoint_url")
+                
+                print(f"Debug: boto3 config: {list(s3_config.keys())} (endpoint: {s3_config.get('endpoint_url', 'N/A')})")
+                s3_client = boto3.client("s3", **s3_config)
+                
+                try:
+                    print(f"Debug: Creating bucket '{bucket}' with boto3...")
+                    s3_client.create_bucket(Bucket=bucket)
+                    print(f"Debug: boto3.create_bucket() succeeded")
+                    
+                    # Verify the bucket was actually created
+                    print(f"Debug: Verifying bucket creation by listing buckets...")
+                    buckets_response = s3_client.list_buckets()
+                    bucket_names = [b['Name'] for b in buckets_response.get('Buckets', [])]
+                    print(f"Debug: Available buckets: {bucket_names}")
+                    
+                    if bucket in bucket_names:
+                        print(f"✅ Created and verified bucket '{bucket}'")
+                        return True
+                    else:
+                        print(f"❌ Bucket '{bucket}' not found in list after creation")
+                        return False
+                        
+                except ClientError as e:
+                    print(f"❌ Failed to create bucket '{bucket}': {e}")
+                    print(f"Debug: ClientError details: {e.response}")
+                    return False
+            else:
+                print(f"❌ Bucket creation not supported for {storage_type}")
+                return False
+        else:
+            print("❌ Bucket does not exist and will not be created")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error checking bucket: {type(e).__name__}: {e}")
+        import traceback
+        print(f"Debug: Full traceback:\n{traceback.format_exc()}")
+        return False
+
+
+async def ensure_bucket_exists(storage_type: str, storage_config: dict) -> bool:
+    """Ensure the bucket exists, offer to create if it doesn't."""
+    if storage_type == "local":
+        return True
+    
+    bucket = storage_config.get("bucket")
+    if not bucket:
+        print("No bucket specified in storage config")
+        return True
+    
+    print(f"Debug: Checking bucket '{bucket}' for {storage_type}")
+    print(f"Debug: Storage config keys: {list(storage_config.keys())}")
+    
+    try:
+        from common import create_storage_from_config
+        storage = create_storage_from_config(storage_type, storage_config)
+        print(f"Debug: Created storage object of type: {type(storage)}")
+        
+        # Check if bucket exists by trying to list it
+        try:
+            print(f"Debug: Attempting to list objects in bucket '{bucket}'...")
+            objects = await storage.list_objects("")
+            print(f"Debug: Successfully listed {len(objects)} objects in bucket '{bucket}'")
+            print(f"Debug: Bucket '{bucket}' exists and is accessible")
+            return True
+        except Exception as e:
+            # Bucket doesn't exist or isn't accessible
+            print(f"Debug: Cannot access bucket '{bucket}': {type(e).__name__}: {e}")
+            
+            # Try with bucket prefix
+            try:
+                print(f"Debug: Trying to list with bucket prefix '{bucket}/'...")
+                bucket_objects = await storage.list_objects(bucket)
+                print(f"Debug: Successfully listed {len(bucket_objects)} objects with bucket prefix")
+                print(f"Debug: Bucket '{bucket}' exists and is accessible via prefix")
+                return True
+            except Exception as e2:
+                print(f"Debug: Bucket prefix check also failed: {type(e2).__name__}: {e2}")
+                pass
+        
+        # Ask user if they want to create the bucket
+        print(f"Bucket '{bucket}' does not exist.")
+        response = input(f"Create bucket '{bucket}'? [y/N]: ").strip().lower()
+        
+        if response in ('y', 'yes'):
+            # For MinIO/S3, we need to use boto3 directly since fsspec doesn't support bucket creation
+            if storage_type in ("minio", "s3"):
+                import boto3
+                from botocore.exceptions import ClientError
+                
+                s3_config = {
+                    "aws_access_key_id": storage_config.get("access_key"),
+                    "aws_secret_access_key": storage_config.get("secret_key"),
+                }
+                
+                if storage_type == "minio":
+                    s3_config["endpoint_url"] = storage_config.get("endpoint_url")
+                
+                print(f"Debug: boto3 config: {list(s3_config.keys())} (endpoint: {s3_config.get('endpoint_url', 'N/A')})")
+                s3_client = boto3.client("s3", **s3_config)
+                
+                try:
+                    print(f"Debug: Creating bucket '{bucket}' with boto3...")
+                    s3_client.create_bucket(Bucket=bucket)
+                    print(f"Debug: boto3.create_bucket() succeeded")
+                    
+                    # Verify the bucket was actually created
+                    print(f"Debug: Verifying bucket creation by listing buckets...")
+                    buckets_response = s3_client.list_buckets()
+                    bucket_names = [b['Name'] for b in buckets_response.get('Buckets', [])]
+                    print(f"Debug: Available buckets: {bucket_names}")
+                    
+                    if bucket in bucket_names:
+                        print(f"✅ Created and verified bucket '{bucket}'")
+                        return True
+                    else:
+                        print(f"❌ Bucket '{bucket}' not found in list after creation")
+                        return False
+                        
+                except ClientError as e:
+                    print(f"❌ Failed to create bucket '{bucket}': {e}")
+                    print(f"Debug: ClientError details: {e.response}")
+                    return False
+            else:
+                print(f"❌ Bucket creation not supported for {storage_type}")
+                return False
+        else:
+            print("❌ Bucket does not exist and will not be created")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Error checking bucket: {type(e).__name__}: {e}")
+        import traceback
+        print(f"Debug: Full traceback:\n{traceback.format_exc()}")
+        return False
+
+
 async def download_book(
     barcode: str,
     output_dir: str = ".",
@@ -62,17 +253,92 @@ async def download_book(
 
     print(f"Source: {grin_url}")
 
-    # Check if file exists first
-    print("Checking if archive exists...")
+    # Check if book is in converted state first
+    print("Checking if book is converted...")
+    try:
+        converted_text = await client.fetch_resource(directory, "_converted?format=text")
+        converted_files = {line.split("\t")[0] for line in converted_text.strip().split("\n") if line.strip()}
+        
+        if archive_filename not in converted_files:
+            raise ValueError(f"Book {barcode} is not in converted state. "
+                           f"Only converted books have downloadable archives. "
+                           f"Check GRIN /_converted endpoint to see available books.")
+        
+        print("Book is converted. Checking if archive file exists...")
+        
+    except Exception as e:
+        print(f"Error checking converted status: {e}")
+        raise
+    
+    # Check if archive file exists
     file_exists = await client.check_file_exists(directory, archive_filename)
     if not file_exists:
         raise FileNotFoundError(f"Archive {archive_filename} not found in GRIN directory {directory}. "
-                               f"Book may not be processed yet or may not be available for download.")
+                               f"Book is converted but archive file is not accessible.")
 
     print("Archive found! Starting download...")
 
+    # First check headers to see if we can avoid downloading
+    print("Checking file headers...")
+    
+    async with create_http_session() as session:
+        # Make HEAD request to get headers without downloading content
+        head_response = await client.auth.make_authenticated_request(session, grin_url, method="HEAD")
+        
+        # Look for ETag or Content-MD5 headers
+        etag = head_response.headers.get('ETag', '').strip('"')
+        content_md5 = head_response.headers.get('Content-MD5', '')
+        content_length = head_response.headers.get('Content-Length', '')
+        
+        print(f"File size: {format_bytes(int(content_length)) if content_length else 'unknown'}")
+        if etag:
+            print(f"Google ETag: {etag}")
+        if content_md5:
+            print(f"Google Content-MD5: {content_md5}")
+        
+        # Check if we can skip download entirely
+        if storage_type and storage_type != "local" and (etag or content_md5):
+            # Create storage early to check existing file
+            storage = create_storage_from_config(storage_type, storage_config or {})
+            
+            # For S3-like storage, include bucket in the path
+            base_prefix = (storage_config or {}).get("prefix", "grin-books")
+            if storage_type in ("minio", "s3", "r2"):
+                bucket = (storage_config or {}).get("bucket")
+                if bucket:
+                    base_prefix = f"{bucket}/{base_prefix}"
+            
+            book_storage = BookStorage(storage, base_prefix=base_prefix)
+            
+            if await book_storage.archive_exists(barcode):
+                print("Archive already exists, checking if Google's version matches...")
+                
+                # Check if we have the same Google file using stored metadata
+                if etag and await book_storage.archive_matches_google_etag(barcode, etag):
+                    print("✅ File already exists with identical content (matched Google's ETag), skipping download entirely")
+                    await book_storage.save_timestamp(barcode)
+                    
+                    return {
+                        "barcode": barcode,
+                        "storage_type": storage_type or "local",
+                        "archive_path": book_storage._book_path(barcode, f"{barcode}.tar.gz.gpg"),
+                        "file_size": int(content_length) if content_length else 0,
+                        "download_time": 0.0,
+                        "storage_time": 0.0,
+                        "total_time": 0.0,
+                        "download_speed_mbps": 0.0,
+                        "skipped": True,
+                    }
+        
+        print("Proceeding with download...")
+
     # Download from GRIN
     download_start = datetime.now()
+    
+    # Capture Google ETag for later use (from the HEAD request above)
+    google_etag = None
+    if 'etag' in locals():
+        google_etag = etag
 
     async with create_http_session() as session:
         response = await client.auth.make_authenticated_request(session, grin_url)
@@ -80,13 +346,17 @@ async def download_book(
         # Collect data
         chunks = []
         total_bytes = 0
+        last_progress_bytes = 0
+        progress_threshold = 25 * 1024 * 1024  # 25MB
 
         async for chunk in response.content.iter_chunked(1024 * 1024):  # 1MB chunks
             chunks.append(chunk)
             total_bytes += len(chunk)
 
-            if len(chunks) % 10 == 0:  # Progress every 10MB
+            # Print progress every 25MB
+            if total_bytes - last_progress_bytes >= progress_threshold:
                 print(f"Downloaded {format_bytes(total_bytes)}...")
+                last_progress_bytes = total_bytes
 
     archive_data = b"".join(chunks)
     download_time = (datetime.now() - download_start).total_seconds()
@@ -98,13 +368,74 @@ async def download_book(
     storage_start = datetime.now()
 
     if storage_type and storage_type != "local":
-        # Use block storage
+        # Create storage first
         storage = create_storage_from_config(storage_type, storage_config or {})
-        book_storage = BookStorage(storage, base_prefix=(storage_config or {}).get("prefix", "grin-books"))
+        
+        # Ensure bucket exists for MinIO/S3
+        bucket_name = (storage_config or {}).get("bucket", "UNKNOWN")
+        print(f"Checking bucket '{bucket_name}' for {storage_type}...")
+        
+        # Use direct boto3 approach to check and create bucket
+        if storage_type in ("minio", "s3"):
+            import boto3
+            from botocore.exceptions import ClientError, NoCredentialsError
+            
+            try:
+                s3_config = {
+                    "aws_access_key_id": storage_config.get("access_key"),
+                    "aws_secret_access_key": storage_config.get("secret_key"),
+                }
+                
+                if storage_type == "minio":
+                    s3_config["endpoint_url"] = storage_config.get("endpoint_url")
+                
+                s3_client = boto3.client("s3", **s3_config)
+                
+                # Check if bucket exists
+                try:
+                    s3_client.head_bucket(Bucket=bucket_name)
+                    print(f"Bucket '{bucket_name}' exists")
+                except ClientError as e:
+                    error_code = e.response['Error']['Code']
+                    if error_code == '404':
+                        print(f"Bucket '{bucket_name}' does not exist. Creating...")
+                        s3_client.create_bucket(Bucket=bucket_name)
+                        print(f"✅ Created bucket '{bucket_name}'")
+                    else:
+                        raise RuntimeError(f"Cannot access bucket '{bucket_name}': {e}")
+                        
+            except NoCredentialsError:
+                raise RuntimeError(f"No credentials available for {storage_type}")
+            except Exception as e:
+                raise RuntimeError(f"Bucket check failed: {e}")
+        
+        print(f"Bucket '{bucket_name}' is ready!")
+        
+        # For S3-like storage, include bucket in the path
+        base_prefix = (storage_config or {}).get("prefix", "grin-books")
+        if storage_type in ("minio", "s3", "r2"):
+            bucket = (storage_config or {}).get("bucket")
+            if bucket:
+                base_prefix = f"{bucket}/{base_prefix}"
+        
+        book_storage = BookStorage(storage, base_prefix=base_prefix)
 
-        print(f"Saving to {storage_type} storage...")
-        archive_path = await book_storage.save_archive(barcode, archive_data)
-        await book_storage.save_timestamp(barcode)
+
+        # Check if file already exists with same Google ETag  
+        if await book_storage.archive_exists(barcode):
+            if google_etag and await book_storage.archive_matches_google_etag(barcode, google_etag):
+                print("✅ Archive already exists with identical content (Google ETag match), skipping upload")
+                archive_path = book_storage._book_path(barcode, f"{barcode}.tar.gz.gpg")
+                # Still update timestamp to record this download attempt
+                await book_storage.save_timestamp(barcode)
+            else:
+                print("Archive exists but Google ETag differs (or missing), uploading new version...")
+                archive_path = await book_storage.save_archive(barcode, archive_data, google_etag)
+                await book_storage.save_timestamp(barcode)
+        else:
+            print(f"Saving to {storage_type} storage...")
+            archive_path = await book_storage.save_archive(barcode, archive_data, google_etag)
+            await book_storage.save_timestamp(barcode)
 
     else:
         # Use local filesystem
@@ -148,8 +479,11 @@ Examples:
   # Download to MinIO
   python download.py TZ1XH8 --storage=minio
 
-  # Download to Cloudflare R2
-  python download.py TZ1XH8 --storage=r2 --credentials-file=~/r2-creds.json
+  # Download to Cloudflare R2 (uses ~/.config/grin-to-s3/r2_credentials.json)
+  python download.py TZ1XH8 --storage=r2 --bucket=my-bucket
+  
+  # Download to R2 with custom credentials file
+  python download.py TZ1XH8 --storage=r2 --bucket=my-bucket --credentials-file=~/my-r2-creds.json
 
   # Download to AWS S3
   python download.py TZ1XH8 --storage=s3 --bucket=my-bucket
@@ -174,8 +508,8 @@ Examples:
     parser.add_argument("--access-key", help="Access key")
     parser.add_argument("--secret-key", help="Secret key")
     parser.add_argument("--account-id", help="Account ID (R2)")
-    parser.add_argument("--credentials-file", help="Credentials JSON file (R2)")
-    parser.add_argument("--bucket", help="Bucket name (S3)")
+    parser.add_argument("--credentials-file", help="Custom R2 credentials file path (default: ~/.config/grin-to-s3/r2_credentials.json)")
+    parser.add_argument("--bucket", help="Bucket name")
 
     # GRIN options
     parser.add_argument("--base-url", default="https://books.google.com/libraries/")
@@ -193,6 +527,52 @@ Examples:
     storage_config = {}
     if args.prefix:
         storage_config["prefix"] = args.prefix
+    
+    # Auto-configure MinIO from docker-compose file if using minio storage
+    if args.storage == "minio" and not (args.endpoint_url and args.access_key and args.secret_key):
+        try:
+            import yaml
+            from pathlib import Path
+            
+            compose_file = Path("docker-compose.minio.yml")
+            if compose_file.exists():
+                with open(compose_file) as f:
+                    compose_config = yaml.safe_load(f)
+                
+                minio_service = compose_config.get("services", {}).get("minio", {})
+                env = minio_service.get("environment", {})
+                ports = minio_service.get("ports", [])
+                
+                # Extract MinIO configuration
+                if not args.endpoint_url:
+                    # Find API port (9000)
+                    api_port = "9000"
+                    for port_mapping in ports:
+                        if isinstance(port_mapping, str) and ":9000" in port_mapping:
+                            api_port = port_mapping.split(":")[0]
+                            break
+                    storage_config["endpoint_url"] = f"http://localhost:{api_port}"
+                
+                if not args.access_key:
+                    storage_config["access_key"] = env.get("MINIO_ROOT_USER", "minioadmin")
+                
+                if not args.secret_key:
+                    storage_config["secret_key"] = env.get("MINIO_ROOT_PASSWORD", "minioadmin123")
+                
+                # Note: Bucket is still required as a parameter
+                
+                print(f"Auto-configured MinIO from docker-compose.minio.yml:")
+                print(f"  Endpoint: {storage_config.get('endpoint_url')}")
+                
+            else:
+                print("Warning: docker-compose.minio.yml not found, using manual MinIO configuration")
+                
+        except ImportError:
+            print("Warning: PyYAML not available, cannot auto-configure MinIO from docker-compose")
+        except Exception as e:
+            print(f"Warning: Failed to read docker-compose.minio.yml: {e}")
+    
+    # Override with explicit arguments if provided
     if args.endpoint_url:
         storage_config["endpoint_url"] = args.endpoint_url
     if args.access_key:
@@ -205,6 +585,11 @@ Examples:
         storage_config["credentials_file"] = args.credentials_file
     if args.bucket:
         storage_config["bucket"] = args.bucket
+    
+    # Validate bucket is provided for cloud storage
+    if args.storage and args.storage != "local" and not storage_config.get("bucket"):
+        print(f"Error: --bucket is required when using {args.storage} storage")
+        return 1
 
     try:
         # Show configuration
@@ -219,7 +604,7 @@ Examples:
                 if args.credentials_file:
                     print(f"Credentials: {args.credentials_file}")
                 else:
-                    print(f"Account: {storage_config.get('account_id', 'from environment')}")
+                    print(f"Credentials: ~/.config/grin-to-s3/r2_credentials.json (default)")
             elif args.storage == "s3":
                 print(f"Bucket: {args.bucket}")
         else:
