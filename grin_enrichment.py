@@ -18,7 +18,7 @@ from typing import Any
 # Check Python version requirement
 from client import GRINClient
 from collect_books.models import BookRecord, SQLiteProgressTracker
-from common import format_duration, pluralize
+from common import BackupManager, format_duration, pluralize
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,18 @@ class GRINEnrichmentPipeline:
             logger.warning(f"Error closing database connection: {e}")
 
         logger.info("Cleanup completed")
+
+    async def _backup_database(self) -> bool:
+        """Create a timestamped backup of the SQLite database before starting work.
+        
+        Returns True if backup was successful or not needed, False if failed.
+        """
+        db_path = Path(self.db_path)
+        backup_dir = db_path.parent / "backups"
+        
+        # Use shared backup manager
+        backup_manager = BackupManager(backup_dir)
+        return await backup_manager.backup_file(db_path, "database")
 
     async def _rate_limit(self) -> None:
         """Apply rate limiting for concurrent GRIN requests."""
@@ -394,6 +406,11 @@ class GRINEnrichmentPipeline:
             print(f"Limit: {limit:,} {pluralize(limit, 'book')}")
         if reset:
             print("Reset mode: Will clear existing enrichment data")
+        print()
+
+        # Backup database before starting work
+        print("Backing up SQLite database...")
+        await self._backup_database()
         print()
 
         # Reset enrichment data if requested

@@ -23,7 +23,7 @@ from pathlib import Path
 import aiofiles
 
 from client import GRINClient
-from common import ProgressReporter, create_storage_from_config, format_bytes, format_duration, pluralize
+from common import BackupManager, ProgressReporter, create_storage_from_config, format_bytes, format_duration, pluralize
 from storage import BookStorage
 
 from .config import ExportConfig
@@ -314,6 +314,18 @@ class BookCollector:
             print(f"⚠️  Failed to archive progress file: {e}")
             print("   Proceeding with execution, but progress file corruption risk exists")
             return False
+
+    async def _backup_database(self) -> bool:
+        """Create a timestamped backup of the SQLite database before starting work.
+        
+        Returns True if backup was successful or not needed, False if failed.
+        """
+        db_path = Path(self.sqlite_tracker.db_path)
+        backup_dir = db_path.parent / "backups"
+        
+        # Use shared backup manager
+        backup_manager = BackupManager(backup_dir)
+        return await backup_manager.backup_file(db_path, "database")
 
     async def load_progress(self) -> dict:
         """Load progress from resume file."""
@@ -781,6 +793,10 @@ class BookCollector:
         # Archive existing progress file before starting execution
         print("Archiving progress file for safety...")
         await self._archive_progress_file()
+        
+        # Backup database before starting work
+        print("Backing up SQLite database...")
+        await self._backup_database()
 
         # Set up async-friendly signal handling
         loop = asyncio.get_running_loop()

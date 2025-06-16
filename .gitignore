@@ -24,6 +24,9 @@ CLAUDE.local.md
 logs/
 *.log
 
+# Database backups
+**/backups/
+
 # Temporary files
 **/temp_*
 **/*_temp.py
