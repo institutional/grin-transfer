@@ -36,22 +36,6 @@ services:
     networks:
       - minio-network
 
-  # Optional: Create bucket automatically
-  minio-setup:
-    image: minio/mc:latest
-    container_name: v2-minio-setup
-    depends_on:
-      - minio
-    entrypoint: |
-      sh -c "
-      sleep 5
-      mc alias set local http://minio:9000 minioadmin minioadmin123
-      mc mb local/v2-test-bucket --ignore-existing
-      mc policy set public local/v2-test-bucket
-      echo 'MinIO setup complete!'
-      "
-    networks:
-      - minio-network
 
 volumes:
   minio-data:

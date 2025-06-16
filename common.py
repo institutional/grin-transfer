@@ -7,6 +7,7 @@ Shared functions and patterns to eliminate code duplication across V2 modules.
 import json
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import aiohttp
 
@@ -122,30 +123,33 @@ def create_storage_from_config(storage_type: str, config: dict) -> V2Storage:
             )
 
         case "r2":
-            # Try credentials file first
+            # Check for credentials file (custom path or default)
             credentials_file = config.get("credentials_file")
-            if credentials_file:
-                try:
-                    creds = load_json_credentials(credentials_file)
-                    validate_required_keys(creds, ["account_id", "access_key", "secret_key"], "R2 credentials")
-                    return create_r2_storage(
-                        account_id=creds["account_id"], access_key=creds["access_key"], secret_key=creds["secret_key"]
-                    )
-                except (FileNotFoundError, ValueError):
-                    pass  # Fall back to individual params
+            if not credentials_file:
+                # Use default path in config directory
+                home = Path.home()
+                credentials_file = home / ".config" / "grin-to-s3" / "r2_credentials.json"
 
-            # Fall back to individual parameters or environment variables
-            account_id = config.get("account_id") or os.getenv("R2_ACCOUNT_ID")
-            access_key = config.get("access_key") or os.getenv("R2_ACCESS_KEY")
-            secret_key = config.get("secret_key") or os.getenv("R2_SECRET_KEY")
-
-            if not all([account_id, access_key, secret_key]):
-                raise ValueError(
-                    "R2 storage requires account_id, access_key, and secret_key "
-                    "(via config, credentials file, or environment variables)"
+            try:
+                creds = load_json_credentials(str(credentials_file))
+                validate_required_keys(creds, ["account_id", "access_key", "secret_key"], "R2 credentials")
+                return create_r2_storage(
+                    account_id=creds["account_id"],
+                    access_key=creds["access_key"],
+                    secret_key=creds["secret_key"]
                 )
-
-            return create_r2_storage(account_id or "", access_key or "", secret_key or "")
+            except FileNotFoundError as e:
+                if config.get("credentials_file"):
+                    # Custom path was specified but file doesn't exist
+                    raise ValueError(f"R2 credentials file not found: {credentials_file}") from e
+                else:
+                    # Default path doesn't exist, provide helpful error
+                    raise ValueError(
+                        f"R2 credentials file not found at {credentials_file}. "
+                        f"Create this file with your R2 credentials or specify a custom path with --credentials-file"
+                    ) from e
+            except (ValueError, KeyError) as e:
+                raise ValueError(f"Invalid R2 credentials file {credentials_file}: {e}") from e
 
         case "s3":
             bucket = config.get("bucket")

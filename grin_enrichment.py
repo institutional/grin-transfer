@@ -492,7 +492,9 @@ class GRINEnrichmentPipeline:
 
                 logger.info(f"  Batch completed: {enriched_in_batch}/{len(barcodes)} enriched in {batch_elapsed:.1f}s")
                 print(f"Progress: {processed_count:,}/{remaining_books:,} processed ({rate:.1f} books/sec){eta_text}")
-                logger.info(f"  Overall progress: {processed_count:,}/{remaining_books:,} processed ({rate:.1f} books/sec){eta_text}")
+                progress_msg = f"  Overall progress: {processed_count:,}/{remaining_books:,} processed"
+                rate_msg = f" ({rate:.1f} books/sec){eta_text}"
+                logger.info(progress_msg + rate_msg)
 
                 if limit and processed_count >= limit:
                     print(f"Reached limit of {limit} books")
@@ -510,7 +512,7 @@ class GRINEnrichmentPipeline:
             print(f"\nEnrichment failed: {e}")
             logger.error(f"Enrichment failed: {e}")
             import traceback
-            
+
             traceback.print_exc()
             # Also log the full traceback
             logger.error("Full traceback:", exc_info=True)
@@ -523,7 +525,10 @@ class GRINEnrichmentPipeline:
             total_elapsed = time.time() - start_time
             final_enriched = await self.sqlite_tracker.get_enriched_book_count()
 
-            print(f"\nCompleted: {processed_count:,} processed, {total_enriched:,} enriched in {format_duration(total_elapsed)} ({processed_count / max(1, total_elapsed):.1f} books/sec)")
+            completion_msg = f"\nCompleted: {processed_count:,} processed, {total_enriched:,} enriched"
+            rate = processed_count / max(1, total_elapsed)
+            timing_msg = f" in {format_duration(total_elapsed)} ({rate:.1f} books/sec)"
+            print(completion_msg + timing_msg)
             logger.info("Enrichment pipeline completed:")
             logger.info(f"  Total runtime: {format_duration(total_elapsed)}")
             logger.info(f"  Books processed: {processed_count:,}")

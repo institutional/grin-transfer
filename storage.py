@@ -6,7 +6,6 @@ Supports S3, Azure Blob, GCS, local filesystem, and more through fsspec.
 """
 
 import asyncio
-import hashlib
 import json
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -143,26 +142,26 @@ class V2Storage:
             # Fall back to regular write for non-S3 storage
             await self.write_bytes(path, data)
             return
-        
+
         loop = asyncio.get_event_loop()
         normalized_path = self._normalize_path(path)
 
         def _write_with_boto3():
             try:
                 import boto3
-                
+
                 # Use the credentials from the storage config
                 session_kwargs = {
                     'aws_access_key_id': self.config.options.get('key'),
                     'aws_secret_access_key': self.config.options.get('secret'),
                 }
-                
+
                 # Add endpoint URL if present
                 if self.config.endpoint_url:
                     session_kwargs['endpoint_url'] = self.config.endpoint_url
-                
+
                 s3_client = boto3.client('s3', **session_kwargs)
-                
+
                 # Parse bucket and key from path
                 path_parts = normalized_path.split('/', 1)
                 if len(path_parts) == 2:
@@ -262,7 +261,7 @@ class BookStorage:
         """Save encrypted archive (.tar.gz.gpg) with optional Google ETag metadata."""
         filename = f"{barcode}.tar.gz.gpg"
         path = self._book_path(barcode, filename)
-        
+
         if self.storage.config.protocol == "s3" and google_etag:
             # Store Google's ETag as metadata for future comparison
             await self.storage.write_bytes_with_metadata(path, archive_data, {"google-etag": google_etag})
@@ -304,31 +303,31 @@ class BookStorage:
         if self.storage.config.protocol != "s3":
             # Only supported for S3-compatible storage
             return False
-            
+
         try:
             filename = f"{barcode}.tar.gz.gpg"
             path = self._book_path(barcode, filename)
-            
+
             # Get object metadata using boto3 directly
             import asyncio
             loop = asyncio.get_event_loop()
-            
+
             def _get_metadata_boto3():
                 try:
                     import boto3
-                    
+
                     # Use the credentials from the storage config
                     session_kwargs = {
                         'aws_access_key_id': self.storage.config.options.get('key'),
                         'aws_secret_access_key': self.storage.config.options.get('secret'),
                     }
-                    
+
                     # Add endpoint URL if present
                     if self.storage.config.endpoint_url:
                         session_kwargs['endpoint_url'] = self.storage.config.endpoint_url
-                    
+
                     s3_client = boto3.client('s3', **session_kwargs)
-                    
+
                     # Parse bucket and key from path
                     normalized_path = self.storage._normalize_path(path)
                     path_parts = normalized_path.split('/', 1)
@@ -339,13 +338,13 @@ class BookStorage:
                 except Exception:
                     return {}
                 return {}
-            
+
             metadata = await loop.run_in_executor(None, _get_metadata_boto3)
-            
+
             # Check if stored Google ETag matches
             stored_google_etag = metadata.get('google-etag', '')
             return stored_google_etag == google_etag
-            
+
         except Exception:
             # If anything fails, assume no match
             return False

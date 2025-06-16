@@ -297,7 +297,7 @@ class TestGRINEnrichmentPipeline:
         """Test enriching a batch of books"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
-        pipeline = GRINEnrichmentPipeline(db_path=temp_db, grin_batch_size=2)
+        pipeline = GRINEnrichmentPipeline(db_path=temp_db)
         pipeline.grin_client = mock_client
 
         # Enrich all books
@@ -349,8 +349,8 @@ class TestGRINEnrichmentPipeline:
         assert book1_after.viewability is None
 
     @pytest.mark.asyncio
-    async def test_grin_batch_size_splitting(self, temp_db, mock_enrichment_data):
-        """Test that large batches are split according to grin_batch_size"""
+    async def test_dynamic_batch_size_splitting(self, temp_db, mock_enrichment_data):
+        """Test that batches use dynamic sizing based on URL length"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
         # Track calls to fetch_resource
@@ -364,16 +364,15 @@ class TestGRINEnrichmentPipeline:
 
         mock_client.fetch_resource = counting_fetch_resource
 
-        # Set small GRIN batch size to force splitting
-        pipeline = GRINEnrichmentPipeline(db_path=temp_db, grin_batch_size=2)
+        pipeline = GRINEnrichmentPipeline(db_path=temp_db)
         pipeline.grin_client = mock_client
 
-        # Process 3 books with batch size of 2 - should make 2 GRIN requests
+        # Process 3 books - with dynamic sizing, should fit in one request for small batches
         barcodes = ["TEST001", "TEST002", "TEST003"]
         enriched_count = await pipeline.enrich_books_batch(barcodes)
 
         assert enriched_count == 3
-        assert call_count == 2  # Should split into 2 GRIN requests (2 + 1)
+        assert call_count == 1  # Should fit in one GRIN request for small batches
 
     @pytest.mark.asyncio
     async def test_pipeline_initialization(self):
@@ -383,7 +382,6 @@ class TestGRINEnrichmentPipeline:
             db_path="/test/path.db",
             rate_limit_delay=0.5,
             batch_size=500,
-            grin_batch_size=250,
             timeout=30,
         )
 
@@ -391,7 +389,6 @@ class TestGRINEnrichmentPipeline:
         assert pipeline.db_path == "/test/path.db"
         assert pipeline.rate_limit_delay == 0.5
         assert pipeline.batch_size == 500
-        assert pipeline.grin_batch_size == 250
         assert pipeline.timeout == 30
 
     @pytest.mark.asyncio
