@@ -100,6 +100,10 @@ warn_unreachable = false
 strict_equality = true
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "tests.mocks"
+ignore_errors = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -110,4 +114,7 @@ addopts = "-v --tb=short"
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",
+    "ignore::pytest.PytestUnhandledThreadExceptionWarning",
+    "ignore::RuntimeWarning:asyncio",
+    "ignore::UserWarning:aiosqlite",
 ]

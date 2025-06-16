@@ -68,7 +68,9 @@ async def test_streaming():
         sample_books = []
 
         # Stream first few books using HTML streaming method
-        async for barcode in client.stream_book_list_html(directory="Harvard", list_type="_all_books", page_size=10, max_pages=2):
+        async for barcode in client.stream_book_list_html(
+            directory="Harvard", list_type="_all_books", page_size=10, max_pages=2
+        ):
             count += 1
             if len(sample_books) < 3:
                 sample_books.append(barcode)
@@ -89,7 +91,6 @@ async def test_streaming():
         return False
 
 
-
 async def test_bearer_token():
     """Test bearer token functionality."""
     print("Testing Bearer Token")
@@ -104,7 +105,6 @@ async def test_bearer_token():
     except Exception as e:
         print(f"✗ Bearer token failed: {e}")
         return False
-
 
 
 async def main():

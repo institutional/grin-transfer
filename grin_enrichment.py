@@ -53,7 +53,6 @@ class GRINEnrichmentPipeline:
         self._rate_limit_semaphore = asyncio.Semaphore(max_concurrent_requests)
         self._request_timestamps: list[float] = []  # Track request timestamps for rate limiting
 
-
         # Track if pipeline is shutting down for cleanup
         self._shutdown_requested = False
 
@@ -85,12 +84,12 @@ class GRINEnrichmentPipeline:
 
     async def _backup_database(self) -> bool:
         """Create a timestamped backup of the SQLite database before starting work.
-        
+
         Returns True if backup was successful or not needed, False if failed.
         """
         db_path = Path(self.db_path)
         backup_dir = db_path.parent / "backups"
-        
+
         # Use shared backup manager
         backup_manager = BackupManager(backup_dir)
         return await backup_manager.backup_file(db_path, "database")
@@ -134,17 +133,17 @@ class GRINEnrichmentPipeline:
         # Build barcode string incrementally until we hit the limit
         barcode_string = ""
         max_batch_size = 0
-        
+
         for i, barcode in enumerate(barcodes):
             # Add space separator if not first barcode
             test_string = barcode_string + (" " if barcode_string else "") + barcode
-            
+
             if len(test_string) <= available_length:
                 barcode_string = test_string
                 max_batch_size = i + 1
             else:
                 break  # Would exceed URL limit
-        
+
         # Ensure we have at least 1 barcode per batch
         result = max(1, max_batch_size)
         logger.debug(f"Calculated max batch size: {result} (total URL length: {len(base_url + barcode_string)})")
@@ -275,18 +274,18 @@ class GRINEnrichmentPipeline:
         # Split barcodes into GRIN batches, calculating max size for each batch
         grin_batches = []
         remaining_barcodes = barcodes[:]
-        
+
         while remaining_barcodes:
             # Calculate maximum batch size that fits in URL for remaining barcodes
             max_url_batch_size = self._calculate_max_batch_size(remaining_barcodes)
-            
+
             # Use the smaller of user's setting or URL limit
             effective_batch_size = min(self.grin_batch_size, max_url_batch_size, len(remaining_barcodes))
-            
+
             # Take the calculated number of barcodes for this batch
             grin_batch = remaining_barcodes[:effective_batch_size]
             grin_batches.append(grin_batch)
-            
+
             # Remove processed barcodes
             remaining_barcodes = remaining_barcodes[effective_batch_size:]
 

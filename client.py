@@ -401,7 +401,6 @@ class GRINClient:
             logger.error(f"selectolax parsing failed: {e}")
             raise
 
-
     def _extract_next_button_url(self, html_content: str, directory: str) -> str | None:
         """
         Extract Next button URL from GRIN HTML response using selectolax.
@@ -484,5 +483,3 @@ class GRINClient:
         except GRINPermissionError:
             # Permission denied might mean file exists but we can't access it
             return False
-
-

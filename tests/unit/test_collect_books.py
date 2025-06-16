@@ -107,6 +107,13 @@ class TestBookCollector:
         self.temp_dir = tempfile.mkdtemp()
         self.exporter = setup_mock_exporter(self.temp_dir)
 
+    def teardown_method(self):
+        """Clean up test fixtures."""
+        import shutil
+
+        # Remove temporary directory
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
     def test_parse_grin_line(self):
         """Test GRIN line parsing."""
         grin_line = "TEST123\t2024/01/01 10:00\t2024/01/02 11:00\t2024/01/03 12:00\t2024/01/04 13:00\t2024/01/05 14:00\t\t2024/01/06 15:00\thttps://books.google.com/books?id=test"
@@ -293,6 +300,10 @@ class TestBookCollector:
         assert record.scanned_date == "2024-01-01T10:00:00"
         assert record.csv_exported  # Should have timestamp
 
+        # Ensure all background tasks complete before test ends
+        if hasattr(self.exporter, "_background_tasks") and self.exporter._background_tasks:
+            await asyncio.gather(*self.exporter._background_tasks, return_exceptions=True)
+
     @pytest.mark.asyncio
     async def test_process_book_invalid_line(self):
         """Test processing invalid GRIN line."""
@@ -315,6 +326,10 @@ class TestBookCollector:
         record = await self.exporter.process_book(grin_line, processing_states)
 
         assert record is None
+
+        # Ensure all background tasks complete before test ends
+        if hasattr(self.exporter, "_background_tasks") and self.exporter._background_tasks:
+            await asyncio.gather(*self.exporter._background_tasks, return_exceptions=True)
 
 
 class TestBookCollectionIntegration:
@@ -348,6 +363,10 @@ class TestBookCollectionIntegration:
             barcodes = {row[0].strip('"') for row in rows}
             expected_barcodes = {"TEST001", "TEST002", "TEST003"}
             assert barcodes == expected_barcodes
+
+            # Ensure all background tasks complete before test ends
+            if hasattr(exporter, "_background_tasks") and exporter._background_tasks:
+                await asyncio.gather(*exporter._background_tasks, return_exceptions=True)
 
     @pytest.mark.asyncio
     async def test_collect_books_resume_functionality(self):
@@ -398,6 +417,10 @@ class TestBookCollectionIntegration:
             barcodes = {row[0].strip('"') for row in rows}
             assert "TEST001" in barcodes
             assert "TEST002" in barcodes
+
+            # Ensure all background tasks complete before test ends
+            if hasattr(exporter, "_background_tasks") and exporter._background_tasks:
+                await asyncio.gather(*exporter._background_tasks, return_exceptions=True)
 
 
 # Pytest configuration for async tests

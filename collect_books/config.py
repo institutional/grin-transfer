@@ -41,11 +41,8 @@ class ExportConfig:
     directory: str = "Harvard"
     rate_limit: float = 5.0  # API requests per second
 
-    # Data source mode
-    data_mode: str = "html"  # "html" (paginated tables) or "text" (streaming plaintext)
-
     # Pagination settings
-    pagination: PaginationConfig = None
+    pagination: PaginationConfig | None = None
 
     # Progress tracking
     resume_file: str = "output/default/progress.json"
@@ -73,9 +70,7 @@ class ExportConfig:
         if self.pagination is None:
             self.pagination = PaginationConfig()
 
-        # Validate data mode
-        if self.data_mode not in ("html", "text"):
-            raise ValueError("data_mode must be 'html' or 'text'")
+        # No additional validation needed
 
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> "ExportConfig":
@@ -172,9 +167,10 @@ class ConfigManager:
                 config = ExportConfig()
 
         # Apply CLI overrides
-        config.update_from_args(**cli_overrides)
+        if config is not None:
+            config.update_from_args(**cli_overrides)
 
-        return config
+        return config or ExportConfig()
 
     @classmethod
     def create_default_config(cls, output_path: Path = None) -> ExportConfig:

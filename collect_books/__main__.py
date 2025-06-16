@@ -18,8 +18,10 @@ from .exporter import BookCollector
 # Check Python version requirement
 
 # Force unbuffered output for immediate logging
-sys.stdout.reconfigure(line_buffering=True)
-sys.stderr.reconfigure(line_buffering=True)
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
+if hasattr(sys.stderr, 'reconfigure'):
+    sys.stderr.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 
 # Set up module logger
 logger = logging.getLogger(__name__)
@@ -68,7 +70,8 @@ def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
         def make_flush_func(h):
             return lambda: h.stream.flush() if hasattr(h, "stream") else None
 
-        handler.flush = make_flush_func(handler)
+        # Replace flush method - type ignore for dynamic assignment
+        handler.flush = make_flush_func(handler)  # type: ignore[method-assign]
 
     # File handler (auto-generate timestamped filename if not provided)
     if log_file is None:
@@ -78,13 +81,13 @@ def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
 
         # Generate timestamped filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = logs_dir / f"collect_books_{timestamp}.log"
+        log_file = str(logs_dir / f"collect_books_{timestamp}.log")
     else:
         # Ensure parent directory exists for custom log file
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    file_handler = logging.FileHandler(log_file)
+    file_handler = logging.FileHandler(str(log_file))
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
     logger.info(f"Logging to file: {log_file}")
@@ -120,8 +123,7 @@ def print_resume_command(args, run_name: str) -> None:
     if args.rate_limit != 5.0:  # Only if not default
         cmd_parts.append(f"--rate-limit {args.rate_limit}")
 
-    if args.data_mode and args.data_mode != "html":  # Only if not default
-        cmd_parts.append(f"--data-mode {args.data_mode}")
+    # data_mode removed - only HTML mode supported
 
     if args.test_mode:
         cmd_parts.append("--test-mode")
@@ -218,12 +220,7 @@ Examples:
         help="Directory containing GRIN secrets files (searches home directory if not specified)",
     )
 
-    # Data source options
-    parser.add_argument(
-        "--data-mode",
-        choices=["html", "text"],
-        help="Data source mode: 'html' for paginated tables (default) or 'text' for streaming plaintext",
-    )
+    # Data source options (removed - only HTML mode supported)
 
     # Pagination options
     parser.add_argument("--page-size", type=int, help="Records per page for API requests (default: 10000)")
@@ -297,14 +294,14 @@ Examples:
     # Build storage configuration
     storage_config = None
     if args.storage:
-        config = {}
+        storage_dict: dict[str, str] = {}
         if args.storage_config:
             for item in args.storage_config:
                 if "=" in item:
                     key, value = item.split("=", 1)
-                    config[key] = value
+                    storage_dict[key] = value
 
-        storage_config = {"type": args.storage, "config": config, "prefix": args.storage_prefix or "grin-books"}
+        storage_config = {"type": args.storage, "config": storage_dict, "prefix": args.storage_prefix or "grin-books"}
 
     try:
         # Load configuration with CLI overrides
@@ -313,7 +310,6 @@ Examples:
             directory=args.directory,
             rate_limit=args.rate_limit,
             resume_file=progress_file,  # Use generated progress file
-            data_mode=args.data_mode,
             pagination_page_size=args.page_size,
             pagination_max_pages=args.max_pages,
             pagination_start_page=args.start_page,

@@ -146,25 +146,28 @@ class V2Storage:
         loop = asyncio.get_event_loop()
         fs = self._get_fs()
         normalized_path = self._normalize_path(path)
-        
+
         try:
             # Use fsspec's open method for streaming
             def _open_file():
                 return fs.open(normalized_path, "rb")
-            
+
             file_obj = await loop.run_in_executor(None, _open_file)
             try:
                 while True:
+
                     def _read_chunk():
                         return file_obj.read(chunk_size)
-                    
+
                     chunk = await loop.run_in_executor(None, _read_chunk)
                     if not chunk:
                         break
                     yield chunk
             finally:
+
                 def _close_file():
                     file_obj.close()
+
                 await loop.run_in_executor(None, _close_file)
         except FileNotFoundError:
             raise StorageNotFoundError(f"Object not found: {path}") from None

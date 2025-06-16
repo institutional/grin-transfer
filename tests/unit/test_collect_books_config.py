@@ -59,7 +59,6 @@ class TestExportConfig:
 
         assert config.directory == "Harvard"
         assert config.rate_limit == 5.0
-        assert config.data_mode == "html"
         assert config.pagination.page_size == 10000
         assert config.burst_limit == 10
         assert config.processing_chunk_size == 1000
@@ -211,30 +210,22 @@ class TestConfigManager:
 
             assert saved_data["directory"] == "Harvard"
             assert saved_data["rate_limit"] == 5.0
-            assert saved_data["data_mode"] == "html"
+            # data_mode was removed - only HTML mode is supported
             assert saved_data["pagination"]["page_size"] == 10000
 
     def test_export_config_data_mode_validation(self):
-        """Test data_mode validation."""
-        # Valid modes should work
-        config_html = ExportConfig(data_mode="html")
-        assert config_html.data_mode == "html"
-
-        config_text = ExportConfig(data_mode="text")
-        assert config_text.data_mode == "text"
-
-        # Invalid mode should raise error
-        with pytest.raises(ValueError, match="data_mode must be 'html' or 'text'"):
-            ExportConfig(data_mode="invalid")
+        """Test that only HTML mode is supported (data_mode removed)."""
+        # Only HTML mode is supported now - no data_mode parameter
+        # Verify config can be created without data_mode
+        ExportConfig()
 
     def test_export_config_update_data_mode_from_args(self):
-        """Test updating data_mode from CLI arguments."""
+        """Test updating config from CLI arguments (data_mode removed)."""
         config = ExportConfig()
-        assert config.data_mode == "html"  # Default
 
-        # Update to text mode
-        config.update_from_args(data_mode="text")
-        assert config.data_mode == "text"
+        # Test updating other parameters
+        config.update_from_args(rate_limit=10.0)
+        assert config.rate_limit == 10.0
 
 
 if __name__ == "__main__":

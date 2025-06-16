@@ -577,8 +577,8 @@ def setup_credentials(secrets_file: str | None = None, credentials_file: str | N
     print(f"User credentials: {creds_path}")
     print("OAuth2 authentication working")
 
-
     return True
+
 
 def main() -> None:
     """

@@ -125,7 +125,7 @@ class RateLimiter:
     def __init__(self, requests_per_second: float = 1.0, burst_limit: int = 5):
         self.requests_per_second = requests_per_second
         self.burst_limit = burst_limit
-        self.tokens = burst_limit
+        self.tokens = float(burst_limit)
         self.last_update = time.time()
 
     async def acquire(self):
@@ -156,7 +156,7 @@ class BoundedSet:
 
     def __init__(self, max_size: int = 50000):
         self.max_size = max_size
-        self._data = OrderedDict()  # Maintains insertion order for LRU
+        self._data: OrderedDict[str, bool] = OrderedDict()  # Maintains insertion order for LRU
 
     def add(self, item: str) -> None:
         """Add an item to the set, evicting oldest if necessary."""
@@ -212,6 +212,7 @@ class SQLiteProgressTracker:
         # Small LRU cache to avoid repeated SQLite queries for same barcodes
         self._known_cache = BoundedSet(max_size=cache_size)
         self._unknown_cache = BoundedSet(max_size=cache_size)
+        self._db_connections: set[aiosqlite.Connection] = set()  # Track connections for cleanup
 
     async def init_db(self) -> None:
         """Initialize database schema if not exists."""
@@ -358,7 +359,7 @@ class SQLiteProgressTracker:
             return set()
 
         await self.init_db()
-        known_barcodes = set()
+        known_barcodes: set[str] = set()
 
         # Convert to list for SQL query
         barcode_list = list(barcodes)
@@ -384,7 +385,7 @@ class SQLiteProgressTracker:
         Use carefully - only for small to medium datasets.
         """
         await self.init_db()
-        known_barcodes = set()
+        known_barcodes: set[str] = set()
 
         async with aiosqlite.connect(self.db_path) as db:
             # Get all processed barcodes
@@ -424,10 +425,12 @@ class SQLiteProgressTracker:
         async with aiosqlite.connect(self.db_path) as db:
             # Current session counts
             cursor = await db.execute("SELECT COUNT(*) FROM processed WHERE session_id = ?", (self.session_id,))
-            session_processed = (await cursor.fetchone())[0]
+            session_processed_row = await cursor.fetchone()
+            session_processed = session_processed_row[0] if session_processed_row else 0
 
             cursor = await db.execute("SELECT COUNT(*) FROM failed WHERE session_id = ?", (self.session_id,))
-            session_failed = (await cursor.fetchone())[0]
+            session_failed_row = await cursor.fetchone()
+            session_failed = session_failed_row[0] if session_failed_row else 0
 
             # Total counts
             total_processed = await self.get_processed_count()
@@ -470,6 +473,20 @@ class SQLiteProgressTracker:
                 await db.execute(f"DELETE FROM failed WHERE session_id NOT IN ({placeholders})", keep_session_ids)
 
                 await db.commit()
+
+    async def close(self) -> None:
+        """Close any open database connections and clean up resources."""
+        # Clear caches
+        self._known_cache.clear()
+        self._unknown_cache.clear()
+
+        # Close any tracked connections
+        for conn in list(self._db_connections):
+            try:
+                await conn.close()
+            except Exception:
+                pass
+        self._db_connections.clear()
 
     async def save_book(self, book: BookRecord) -> None:
         """Save or update a book record in the database."""
@@ -596,7 +613,7 @@ class SQLiteProgressTracker:
             cursor = await db.execute(
                 """
                 SELECT barcode FROM books
-                WHERE enrichment_timestamp IS NULL OR enrichment_timestamp = '' OR LENGTH(enrichment_timestamp) = 0
+                WHERE enrichment_timestamp IS NULL
                 ORDER BY created_at
                 LIMIT ?
             """,
@@ -640,7 +657,7 @@ class SQLiteProgressTracker:
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute("""
                 SELECT COUNT(*) FROM books
-                WHERE enrichment_timestamp IS NOT NULL AND enrichment_timestamp != '' AND LENGTH(enrichment_timestamp) > 0
+                WHERE enrichment_timestamp IS NOT NULL
             """)
             row = await cursor.fetchone()
             return row[0] if row else 0
