@@ -28,13 +28,26 @@ from common import (
 from storage import BookStorage
 
 
-async def _decrypt_and_save_archive(barcode: str, encrypted_data: bytes, book_storage: BookStorage) -> None:
+async def _decrypt_and_save_archive(
+    barcode: str, encrypted_data: bytes, book_storage: BookStorage, gpg_key_file: str | None = None
+) -> None:
     """Decrypt the archive and save the decrypted version."""
     try:
         print("Decrypting archive...")
-        decrypted_data = await decrypt_gpg_data(encrypted_data)
+        decrypted_data = await decrypt_gpg_data(encrypted_data, gpg_key_file)
         await book_storage.save_decrypted_archive(barcode, decrypted_data)
         print(f"✅ Saved decrypted archive: {book_storage._book_path(barcode, f'{barcode}.tar.gz')}")
+    except RuntimeError as e:
+        error_msg = str(e)
+        if "GPG command not found" in error_msg:
+            print("⚠️ Warning: GPG is not installed - skipping decryption")
+            print("Install GPG to automatically decrypt archives: https://gnupg.org/download/")
+        elif "private key not found" in error_msg or "public key not found" in error_msg:
+            print("⚠️ Warning: GPG keys not configured - skipping decryption")
+            print("Import your GPG private key to decrypt archives automatically")
+        else:
+            print(f"⚠️ Failed to decrypt archive: {e}")
+        print("Encrypted archive saved successfully, decryption skipped")
     except Exception as e:
         print(f"⚠️ Failed to decrypt archive: {e}")
         print("Encrypted archive saved successfully, but decryption failed")
@@ -242,6 +255,7 @@ async def download_book(
     directory: str = "Harvard",
     secrets_dir: str | None = None,
     force: bool = False,
+    gpg_key_file: str | None = None,
 ) -> dict:
     """
     Download a book from GRIN to local filesystem or block storage.
@@ -255,6 +269,7 @@ async def download_book(
         directory: Library directory
         secrets_dir: Directory containing GRIN secrets (searches home directory if not specified)
         force: Force download and overwrite existing files (skip ETag check)
+        gpg_key_file: Path to GPG key file for decryption (default: ~/.config/grin-to-s3/gpg_key.asc)
 
     Returns:
         Dict with download results
@@ -456,7 +471,7 @@ async def download_book(
                 await book_storage.save_timestamp(barcode)
 
                 # Decrypt and save decrypted version
-                await _decrypt_and_save_archive(barcode, archive_data, book_storage)
+                await _decrypt_and_save_archive(barcode, archive_data, book_storage, gpg_key_file)
         else:
             if force and await book_storage.archive_exists(barcode):
                 print(f"Overwriting existing archive in {storage_type} storage...")
@@ -466,7 +481,7 @@ async def download_book(
             await book_storage.save_timestamp(barcode)
 
             # Decrypt and save decrypted version
-            await _decrypt_and_save_archive(barcode, archive_data, book_storage)
+            await _decrypt_and_save_archive(barcode, archive_data, book_storage, gpg_key_file)
 
     else:
         # Use local filesystem
@@ -488,7 +503,7 @@ async def download_book(
         # Save decrypted archive
         try:
             print("Decrypting archive...")
-            decrypted_data = await decrypt_gpg_data(archive_data)
+            decrypted_data = await decrypt_gpg_data(archive_data, gpg_key_file)
             decrypted_filename = f"{barcode}.tar.gz"
             decrypted_path = output_path / decrypted_filename
             if force and decrypted_path.exists():
@@ -500,6 +515,17 @@ async def download_book(
                 await f.write(decrypted_data)
 
             print(f"✅ Saved decrypted archive: {decrypted_path}")
+        except RuntimeError as e:
+            error_msg = str(e)
+            if "GPG command not found" in error_msg:
+                print("⚠️ Warning: GPG is not installed - skipping decryption")
+                print("Install GPG to automatically decrypt archives: https://gnupg.org/download/")
+            elif "private key not found" in error_msg or "public key not found" in error_msg:
+                print("⚠️ Warning: GPG keys not configured - skipping decryption")
+                print("Import your GPG private key to decrypt archives automatically")
+            else:
+                print(f"⚠️ Failed to decrypt archive: {e}")
+            print("Encrypted archive saved successfully, decryption skipped")
         except Exception as e:
             print(f"⚠️ Failed to decrypt archive: {e}")
             print("Encrypted archive saved successfully, but decryption failed")
@@ -583,6 +609,10 @@ Examples:
     parser.add_argument("--test-mode", action="store_true", help="Test with mock data (creates dummy archive)")
     parser.add_argument(
         "--force", action="store_true", help="Force download and overwrite existing files (skip ETag check)"
+    )
+    parser.add_argument(
+        "--gpg-key-file",
+        help="Custom GPG key file path (default: ~/.config/grin-to-s3/gpg_key.asc)"
     )
 
     args = parser.parse_args()
@@ -688,6 +718,7 @@ Examples:
             directory=args.directory,
             secrets_dir=args.secrets_dir,
             force=args.force,
+            gpg_key_file=args.gpg_key_file,
         )
 
         # Show results

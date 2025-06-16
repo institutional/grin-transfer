@@ -177,6 +177,9 @@ python download.py TZ1XH8 --storage=r2 --bucket=grin-raw --credentials-file=~/my
 
 # Force download and overwrite existing files (skip ETag check)
 python download.py TZ1XH8 --force
+
+# Use custom GPG key file for decryption
+python download.py TZ1XH8 --gpg-key-file=~/my-gpg-key.asc
 ```
 
 ### Finding Downloadable Books
@@ -232,7 +235,13 @@ python download.py TZ1XH8 --storage=minio --bucket=grin-raw
 
 **Force Mode**: Use `--force` to skip ETag checks and overwrite existing files. This forces a fresh download regardless of whether the file already exists.
 
-**GPG Requirements**: The system requires `gpg` to be installed and configured for automatic decryption. If decryption fails, the encrypted archive is still saved successfully.
+**GPG Requirements**: The system requires `gpg` to be installed and configured for automatic decryption. GPG keys can be provided in several ways:
+
+1. **Default location**: Place your GPG key at `~/.config/grin-to-s3/gpg_key.asc`
+2. **Custom file**: Use `--gpg-key-file` to specify a different key file location
+3. **System keyring**: Import keys manually with `gpg --import <key_file>`
+
+If GPG is not installed or keys are not configured, the system will show a warning and skip decryption while still saving the encrypted archive successfully.
 
 ## Performance Characteristics
 
