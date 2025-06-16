@@ -241,6 +241,7 @@ async def download_book(
     base_url: str = "https://books.google.com/libraries/",
     directory: str = "Harvard",
     secrets_dir: str | None = None,
+    force: bool = False,
 ) -> dict:
     """
     Download a book from GRIN to local filesystem or block storage.
@@ -253,6 +254,7 @@ async def download_book(
         base_url: GRIN base URL
         directory: Library directory
         secrets_dir: Directory containing GRIN secrets (searches home directory if not specified)
+        force: Force download and overwrite existing files (skip ETag check)
 
     Returns:
         Dict with download results
@@ -311,8 +313,8 @@ async def download_book(
         if content_md5:
             print(f"Google Content-MD5: {content_md5}")
 
-        # Check if we can skip download entirely
-        if storage_type and storage_type != "local" and (etag or content_md5):
+        # Check if we can skip download entirely (unless forced)
+        if not force and storage_type and storage_type != "local" and (etag or content_md5):
             # Create storage early to check existing file
             storage = create_storage_from_config(storage_type, storage_config or {})
 
@@ -345,6 +347,9 @@ async def download_book(
                         "download_speed_mbps": 0.0,
                         "skipped": True,
                     }
+
+        if force:
+            print("Force mode enabled - will overwrite existing files")
 
         print("Proceeding with download...")
 
@@ -438,8 +443,8 @@ async def download_book(
         book_storage = BookStorage(storage, base_prefix=base_prefix)
 
 
-        # Check if file already exists with same Google ETag
-        if await book_storage.archive_exists(barcode):
+        # Check if file already exists with same Google ETag (unless forced)
+        if not force and await book_storage.archive_exists(barcode):
             if google_etag and await book_storage.archive_matches_google_etag(barcode, google_etag):
                 print("✅ Archive already exists with identical content (Google ETag match), skipping upload")
                 archive_path = book_storage._book_path(barcode, f"{barcode}.tar.gz.gpg")
@@ -453,7 +458,10 @@ async def download_book(
                 # Decrypt and save decrypted version
                 await _decrypt_and_save_archive(barcode, archive_data, book_storage)
         else:
-            print(f"Saving to {storage_type} storage...")
+            if force and await book_storage.archive_exists(barcode):
+                print(f"Overwriting existing archive in {storage_type} storage...")
+            else:
+                print(f"Saving to {storage_type} storage...")
             archive_path = await book_storage.save_archive(barcode, archive_data, google_etag)
             await book_storage.save_timestamp(barcode)
 
@@ -467,7 +475,10 @@ async def download_book(
 
         # Save encrypted archive
         file_path = output_path / archive_filename
-        print(f"Saving encrypted archive to: {file_path}")
+        if force and file_path.exists():
+            print(f"Overwriting existing encrypted archive: {file_path}")
+        else:
+            print(f"Saving encrypted archive to: {file_path}")
 
         async with aiofiles.open(file_path, "wb") as f:
             await f.write(archive_data)
@@ -480,7 +491,10 @@ async def download_book(
             decrypted_data = await decrypt_gpg_data(archive_data)
             decrypted_filename = f"{barcode}.tar.gz"
             decrypted_path = output_path / decrypted_filename
-            print(f"Saving decrypted archive to: {decrypted_path}")
+            if force and decrypted_path.exists():
+                print(f"Overwriting existing decrypted archive: {decrypted_path}")
+            else:
+                print(f"Saving decrypted archive to: {decrypted_path}")
 
             async with aiofiles.open(decrypted_path, "wb") as f:
                 await f.write(decrypted_data)
@@ -528,6 +542,9 @@ Examples:
 
   # Download to AWS S3
   python download.py TZ1XH8 --storage=s3 --bucket=my-bucket
+
+  # Force download and overwrite existing files
+  python download.py TZ1XH8 --force
         """,
     )
 
@@ -564,6 +581,9 @@ Examples:
         help="Directory containing GRIN secrets files (searches home directory if not specified)",
     )
     parser.add_argument("--test-mode", action="store_true", help="Test with mock data (creates dummy archive)")
+    parser.add_argument(
+        "--force", action="store_true", help="Force download and overwrite existing files (skip ETag check)"
+    )
 
     args = parser.parse_args()
 
@@ -667,6 +687,7 @@ Examples:
             base_url=args.base_url,
             directory=args.directory,
             secrets_dir=args.secrets_dir,
+            force=args.force,
         )
 
         # Show results

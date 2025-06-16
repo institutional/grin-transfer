@@ -174,6 +174,9 @@ python download.py TZ1XH8 --storage=r2 --bucket=grin-raw
 
 # Download to R2 with custom credentials file
 python download.py TZ1XH8 --storage=r2 --bucket=grin-raw --credentials-file=~/my-r2-creds.json
+
+# Force download and overwrite existing files (skip ETag check)
+python download.py TZ1XH8 --force
 ```
 
 ### Finding Downloadable Books
@@ -226,6 +229,8 @@ python download.py TZ1XH8 --storage=minio --bucket=grin-raw
 - **Decrypted**: Ready-to-use `.tar.gz` archives containing book page images and metadata
 
 **Duplicate Detection**: For S3-compatible storage, the download system uses Google's native ETags to avoid redundant downloads. When a file already exists with the same ETag, the download is skipped entirely, saving bandwidth and time.
+
+**Force Mode**: Use `--force` to skip ETag checks and overwrite existing files. This forces a fresh download regardless of whether the file already exists.
 
 **GPG Requirements**: The system requires `gpg` to be installed and configured for automatic decryption. If decryption fails, the encrypted archive is still saved successfully.
 
