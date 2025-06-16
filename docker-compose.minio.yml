@@ -1,0 +1,61 @@
+# MinIO Local Development Environment for V2 Storage Testing
+#
+# Purpose:
+# - Provides S3-compatible storage for local V2 development and testing
+# - Allows testing V2 storage abstraction without cloud credentials
+# - Simulates production S3/R2 behavior in a local environment
+# - Used for developing and debugging storage operations before deployment
+#
+# Usage:
+# docker-compose -f docker-compose.minio.yml up -d    # Start MinIO
+# docker-compose -f docker-compose.minio.yml down     # Stop MinIO
+#
+# Access:
+# API: http://localhost:9000
+# Console: http://localhost:9001 (minioadmin/minioadmin123)
+#
+# V2 Integration:
+# python download_to_storage.py BARCODE --storage=minio
+# python test_minio_storage.py
+
+version: '3.8'
+
+services:
+  minio:
+    image: minio/minio:latest
+    container_name: v2-minio
+    ports:
+      - "9000:9000"  # MinIO API
+      - "9001:9001"  # MinIO Console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    networks:
+      - minio-network
+
+  # Optional: Create bucket automatically
+  minio-setup:
+    image: minio/mc:latest
+    container_name: v2-minio-setup
+    depends_on:
+      - minio
+    entrypoint: |
+      sh -c "
+      sleep 5
+      mc alias set local http://minio:9000 minioadmin minioadmin123
+      mc mb local/v2-test-bucket --ignore-existing
+      mc policy set public local/v2-test-bucket
+      echo 'MinIO setup complete!'
+      "
+    networks:
+      - minio-network
+
+volumes:
+  minio-data:
+
+networks:
+  minio-network:
+    driver: bridge

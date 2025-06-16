@@ -1,0 +1,4 @@
+# This directory contains manual tests that require credentials
+# and should not be run by pytest autodiscovery
+[pytest]
+ignore = *

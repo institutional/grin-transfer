@@ -1,0 +1,43 @@
+.vscode/*
+.secrets
+.creds
+.creds.json
+*.creds.json
+output/*
+__pycache__/
+*/__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*DS_Store
+.claude 
+CLAUDE.local.md
+/.secrets
+/.creds.json
+/.creds_v2.json
+/.r2-config.json
+/.env.r2
+.env.r2
+.r2-config.json
+
+# Log files
+logs/
+*.log
+
+# Temporary files
+**/temp_*
+**/*_temp.py
+
+# Virtual environments
+venv/
+
+# Build artifacts
+*.egg-info/
+build/
+dist/
+
+# GPG keys and sensitive files
+GPG_KEY_GRIN
+**/GPG_KEY_GRIN
+*.gpg.key
+*.passphrase
