@@ -204,11 +204,11 @@ grep ",converted," converted_books.csv | head -10
 The download script automatically:
 1. **Verifies converted state**: Checks if book is in GRIN's `_converted` endpoint
 2. **Confirms file availability**: Uses HEAD request to verify archive exists and get Google's ETag
-3. **Checks for duplicates**: Compares Google's ETag with stored metadata to skip identical files
-4. **Downloads encrypted archive**: Retrieves `.tar.gz.gpg` file (typically 20-80 MB) only if needed
-5. **Saves encrypted version**: Stores original `.tar.gz.gpg` with Google's ETag as S3 metadata
-6. **Decrypts and saves**: Automatically decrypts the archive and saves `.tar.gz` version
-7. **Records timestamp**: Saves download completion time
+3. **Shows download progress**: Displays percentage complete when file size is known
+4. **Checks for duplicates**: Compares Google's ETag with stored metadata to skip identical files
+5. **Downloads encrypted archive**: Retrieves `.tar.gz.gpg` file (typically 20-80 MB) only if needed
+6. **Parallel async uploads**: Saves encrypted archive, timestamp, and decrypted version simultaneously using non-blocking operations
+7. **Reports completion**: Shows paths for both encrypted and decrypted archives after upload
 
 **Supported Storage Backends:**
 - Local filesystem (default)
@@ -235,13 +235,15 @@ python download.py TZ1XH8 --storage=minio --bucket=grin-raw
 
 **Force Mode**: Use `--force` to skip ETag checks and overwrite existing files. This forces a fresh download regardless of whether the file already exists.
 
-**GPG Requirements**: The system requires `gpg` to be installed and configured for automatic decryption. GPG keys can be provided in several ways:
+**GPG Requirements**: The system requires `gpg` to be installed and configured for automatic decryption. GPG keys and passphrases can be provided in several ways:
 
-1. **Default location**: Place your GPG key at `~/.config/grin-to-s3/gpg_key.asc`
+1. **Default locations**: 
+   - Place your GPG key at `~/.config/grin-to-s3/gpg_key.asc`
+   - Place your passphrase at `~/.config/grin-to-s3/gpg_passphrase.asc` (if key is passphrase-protected)
 2. **Custom file**: Use `--gpg-key-file` to specify a different key file location
 3. **System keyring**: Import keys manually with `gpg --import <key_file>`
 
-If GPG is not installed or keys are not configured, the system will show a warning and skip decryption while still saving the encrypted archive successfully.
+The passphrase file should contain only the passphrase text (no encryption). The system will throw an error if the passphrase file is missing or empty when required. If GPG is not installed or keys are not configured, the system will show a warning and skip decryption while still saving the encrypted archive successfully.
 
 ## Performance Characteristics
 

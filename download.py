@@ -29,12 +29,16 @@ from storage import BookStorage
 
 
 async def _decrypt_and_save_archive(
-    barcode: str, encrypted_data: bytes, book_storage: BookStorage, gpg_key_file: str | None = None
+    barcode: str,
+    encrypted_data: bytes,
+    book_storage: BookStorage,
+    gpg_key_file: str | None = None,
+    secrets_dir: str | None = None,
 ) -> None:
     """Decrypt the archive and save the decrypted version."""
     try:
         print("Decrypting archive...")
-        decrypted_data = await decrypt_gpg_data(encrypted_data, gpg_key_file)
+        decrypted_data = await decrypt_gpg_data(encrypted_data, gpg_key_file, secrets_dir)
         await book_storage.save_decrypted_archive(barcode, decrypted_data)
         print(f"✅ Saved decrypted archive: {book_storage._book_path(barcode, f'{barcode}.tar.gz')}")
     except RuntimeError as e:
@@ -379,6 +383,9 @@ async def download_book(
     async with create_http_session() as session:
         response = await client.auth.make_authenticated_request(session, grin_url)
 
+        # Get expected file size from headers
+        expected_size = int(content_length) if content_length else None
+
         # Collect data
         chunks = []
         total_bytes = 0
@@ -391,7 +398,11 @@ async def download_book(
 
             # Print progress every 25MB
             if total_bytes - last_progress_bytes >= progress_threshold:
-                print(f"Downloaded {format_bytes(total_bytes)}...")
+                if expected_size:
+                    percentage = (total_bytes / expected_size) * 100
+                    print(f"Downloaded {format_bytes(total_bytes)} ({percentage:.1f}%)...")
+                else:
+                    print(f"Downloaded {format_bytes(total_bytes)}...")
                 last_progress_bytes = total_bytes
 
     archive_data = b"".join(chunks)
@@ -467,21 +478,44 @@ async def download_book(
                 await book_storage.save_timestamp(barcode)
             else:
                 print("Archive exists but Google ETag differs (or missing), uploading new version...")
-                archive_path = await book_storage.save_archive(barcode, archive_data, google_etag)
-                await book_storage.save_timestamp(barcode)
+                archive_path = book_storage._book_path(barcode, f"{barcode}.tar.gz.gpg")
 
-                # Decrypt and save decrypted version
-                await _decrypt_and_save_archive(barcode, archive_data, book_storage, gpg_key_file)
+                # Run upload tasks in parallel
+                results = await asyncio.gather(
+                    book_storage.save_archive(barcode, archive_data, google_etag),
+                    book_storage.save_timestamp(barcode),
+                    _decrypt_and_save_archive(barcode, archive_data, book_storage, gpg_key_file, secrets_dir),
+                    return_exceptions=True
+                )
+
+                # Report upload paths
+                encrypted_path = results[0] if not isinstance(results[0], Exception) else archive_path
+                decrypted_path = book_storage._book_path(barcode, f"{barcode}.tar.gz")
+                print("✅ Upload completed:")
+                print(f"  Encrypted: {encrypted_path}")
+                print(f"  Decrypted: {decrypted_path}")
         else:
             if force and await book_storage.archive_exists(barcode):
                 print(f"Overwriting existing archive in {storage_type} storage...")
             else:
                 print(f"Saving to {storage_type} storage...")
-            archive_path = await book_storage.save_archive(barcode, archive_data, google_etag)
-            await book_storage.save_timestamp(barcode)
 
-            # Decrypt and save decrypted version
-            await _decrypt_and_save_archive(barcode, archive_data, book_storage, gpg_key_file)
+            archive_path = book_storage._book_path(barcode, f"{barcode}.tar.gz.gpg")
+
+            # Run upload tasks in parallel
+            results = await asyncio.gather(
+                book_storage.save_archive(barcode, archive_data, google_etag),
+                book_storage.save_timestamp(barcode),
+                _decrypt_and_save_archive(barcode, archive_data, book_storage, gpg_key_file, secrets_dir),
+                return_exceptions=True
+            )
+
+            # Report upload paths
+            encrypted_path = results[0] if not isinstance(results[0], Exception) else archive_path
+            decrypted_path = book_storage._book_path(barcode, f"{barcode}.tar.gz")
+            print("✅ Upload completed:")
+            print(f"  Encrypted: {encrypted_path}")
+            print(f"  Decrypted: {decrypted_path}")
 
     else:
         # Use local filesystem
@@ -503,10 +537,11 @@ async def download_book(
         # Save decrypted archive
         try:
             print("Decrypting archive...")
-            decrypted_data = await decrypt_gpg_data(archive_data, gpg_key_file)
+            decrypted_data = await decrypt_gpg_data(archive_data, gpg_key_file, secrets_dir)
             decrypted_filename = f"{barcode}.tar.gz"
-            decrypted_path = output_path / decrypted_filename
-            if force and decrypted_path.exists():
+            decrypted_path_obj = output_path / decrypted_filename
+            decrypted_path = str(decrypted_path_obj)
+            if force and decrypted_path_obj.exists():
                 print(f"Overwriting existing decrypted archive: {decrypted_path}")
             else:
                 print(f"Saving decrypted archive to: {decrypted_path}")
@@ -514,7 +549,9 @@ async def download_book(
             async with aiofiles.open(decrypted_path, "wb") as f:
                 await f.write(decrypted_data)
 
-            print(f"✅ Saved decrypted archive: {decrypted_path}")
+            print("✅ Saved both archives:")
+            print(f"  Encrypted: {file_path}")
+            print(f"  Decrypted: {decrypted_path}")
         except RuntimeError as e:
             error_msg = str(e)
             if "GPG command not found" in error_msg:
@@ -526,9 +563,11 @@ async def download_book(
             else:
                 print(f"⚠️ Failed to decrypt archive: {e}")
             print("Encrypted archive saved successfully, decryption skipped")
+            print(f"  Encrypted: {file_path}")
         except Exception as e:
             print(f"⚠️ Failed to decrypt archive: {e}")
             print("Encrypted archive saved successfully, but decryption failed")
+            print(f"  Encrypted: {file_path}")
 
     storage_time = (datetime.now() - storage_start).total_seconds()
 

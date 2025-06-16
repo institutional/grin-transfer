@@ -125,6 +125,40 @@ class V2Storage:
 
     async def write_bytes(self, path: str, data: bytes) -> None:
         """Write bytes to file."""
+        if self.config.protocol == "s3":
+            # Use aioboto3 for non-blocking S3 uploads
+            try:
+                import aioboto3
+
+                normalized_path = self._normalize_path(path)
+
+                # Use the credentials from the storage config
+                session_kwargs = {
+                    'aws_access_key_id': self.config.options.get('key'),
+                    'aws_secret_access_key': self.config.options.get('secret'),
+                }
+
+                # Add endpoint URL if present
+                if self.config.endpoint_url:
+                    session_kwargs['endpoint_url'] = self.config.endpoint_url
+
+                session = aioboto3.Session()
+                async with session.client('s3', **session_kwargs) as s3_client:
+                    # Parse bucket and key from path
+                    path_parts = normalized_path.split('/', 1)
+                    if len(path_parts) == 2:
+                        bucket, key = path_parts
+                        await s3_client.put_object(
+                            Bucket=bucket,
+                            Key=key,
+                            Body=data
+                        )
+                        return
+            except Exception as e:
+                print(f"Failed to write with aioboto3, falling back to sync: {e}")
+                # Fall through to sync method
+
+        # Use sync method for local filesystem or as fallback
         loop = asyncio.get_event_loop()
         fs = self._get_fs()
         normalized_path = self._normalize_path(path)
@@ -143,43 +177,35 @@ class V2Storage:
             await self.write_bytes(path, data)
             return
 
-        loop = asyncio.get_event_loop()
         normalized_path = self._normalize_path(path)
 
-        def _write_with_boto3():
-            try:
-                import boto3
+        try:
+            import aioboto3
 
-                # Use the credentials from the storage config
-                session_kwargs = {
-                    'aws_access_key_id': self.config.options.get('key'),
-                    'aws_secret_access_key': self.config.options.get('secret'),
-                }
+            # Use the credentials from the storage config
+            session_kwargs = {
+                'aws_access_key_id': self.config.options.get('key'),
+                'aws_secret_access_key': self.config.options.get('secret'),
+            }
 
-                # Add endpoint URL if present
-                if self.config.endpoint_url:
-                    session_kwargs['endpoint_url'] = self.config.endpoint_url
+            # Add endpoint URL if present
+            if self.config.endpoint_url:
+                session_kwargs['endpoint_url'] = self.config.endpoint_url
 
-                s3_client = boto3.client('s3', **session_kwargs)
-
+            session = aioboto3.Session()
+            async with session.client('s3', **session_kwargs) as s3_client:
                 # Parse bucket and key from path
                 path_parts = normalized_path.split('/', 1)
                 if len(path_parts) == 2:
                     bucket, key = path_parts
-                    s3_client.put_object(
+                    await s3_client.put_object(
                         Bucket=bucket,
                         Key=key,
                         Body=data,
                         Metadata=metadata
                     )
-                    return True
-            except Exception as e:
-                print(f"Failed to write with metadata: {e}")
-                return False
-            return False
-
-        success = await loop.run_in_executor(None, _write_with_boto3)
-        if not success:
+        except Exception as e:
+            print(f"Failed to write with metadata: {e}")
             # Fall back to regular write
             await self.write_bytes(path, data)
 
@@ -308,38 +334,33 @@ class BookStorage:
             filename = f"{barcode}.tar.gz.gpg"
             path = self._book_path(barcode, filename)
 
-            # Get object metadata using boto3 directly
-            import asyncio
-            loop = asyncio.get_event_loop()
+            # Get object metadata using aioboto3 directly
+            try:
+                import aioboto3
 
-            def _get_metadata_boto3():
-                try:
-                    import boto3
+                # Use the credentials from the storage config
+                session_kwargs = {
+                    'aws_access_key_id': self.storage.config.options.get('key'),
+                    'aws_secret_access_key': self.storage.config.options.get('secret'),
+                }
 
-                    # Use the credentials from the storage config
-                    session_kwargs = {
-                        'aws_access_key_id': self.storage.config.options.get('key'),
-                        'aws_secret_access_key': self.storage.config.options.get('secret'),
-                    }
+                # Add endpoint URL if present
+                if self.storage.config.endpoint_url:
+                    session_kwargs['endpoint_url'] = self.storage.config.endpoint_url
 
-                    # Add endpoint URL if present
-                    if self.storage.config.endpoint_url:
-                        session_kwargs['endpoint_url'] = self.storage.config.endpoint_url
-
-                    s3_client = boto3.client('s3', **session_kwargs)
-
+                session = aioboto3.Session()
+                async with session.client('s3', **session_kwargs) as s3_client:
                     # Parse bucket and key from path
                     normalized_path = self.storage._normalize_path(path)
                     path_parts = normalized_path.split('/', 1)
                     if len(path_parts) == 2:
                         bucket, key = path_parts
-                        response = s3_client.head_object(Bucket=bucket, Key=key)
-                        return response.get('Metadata', {})
-                except Exception:
-                    return {}
-                return {}
-
-            metadata = await loop.run_in_executor(None, _get_metadata_boto3)
+                        response = await s3_client.head_object(Bucket=bucket, Key=key)
+                        metadata = response.get('Metadata', {})
+                    else:
+                        metadata = {}
+            except Exception:
+                metadata = {}
 
             # Check if stored Google ETag matches
             stored_google_etag = metadata.get('google-etag', '')

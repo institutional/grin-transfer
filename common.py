@@ -443,6 +443,72 @@ def get_gpg_key_path(custom_path: str | None = None) -> Path:
     return home / ".config" / "grin-to-s3" / "gpg_key.asc"
 
 
+def get_gpg_passphrase_from_secrets(secrets_dir: str | None = None) -> str:
+    """
+    Get GPG passphrase from gpg_passphrase.asc file in secrets directory.
+
+    Args:
+        secrets_dir: Directory containing secrets files (searches home directory if not specified)
+
+    Returns:
+        GPG passphrase
+
+    Raises:
+        FileNotFoundError: If passphrase file is not found
+        ValueError: If passphrase file is empty
+    """
+    # Search for passphrase file in the same way as GRIN credentials
+    search_paths = []
+
+    if secrets_dir:
+        search_paths.append(Path(secrets_dir).expanduser())
+    else:
+        # Search common locations in home directory
+        home = Path.home()
+        search_paths.extend([
+            home / ".config" / "grin-to-s3",
+            home,
+            home / ".grin",
+            home / ".config"
+        ])
+
+    # Look for gpg_passphrase.asc file
+    for search_path in search_paths:
+        passphrase_file = search_path / "gpg_passphrase.asc"
+        if passphrase_file.exists():
+            try:
+                passphrase = passphrase_file.read_text(encoding='utf-8').strip()
+                if not passphrase:
+                    raise ValueError(f"GPG passphrase file is empty: {passphrase_file}")
+                return passphrase
+            except UnicodeDecodeError as e:
+                raise ValueError(f"GPG passphrase file has invalid encoding: {passphrase_file}") from e
+
+    # If we get here, no passphrase file was found
+    default_path = Path.home() / ".config" / "grin-to-s3" / "gpg_passphrase.asc"
+    raise FileNotFoundError(f"GPG passphrase file not found. Expected at: {default_path}")
+
+
+def check_gpg_keys_available() -> bool:
+    """
+    Check if GPG has any secret keys available for decryption.
+
+    Returns:
+        True if secret keys are available, False otherwise
+    """
+    try:
+        result = subprocess.run(
+            ["gpg", "--list-secret-keys", "--batch", "--no-tty"],
+            capture_output=True,
+            check=True,
+            timeout=10
+        )
+        # If we have any output, we have secret keys
+        return len(result.stdout.strip()) > 0
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+
+
 async def import_gpg_key_if_available(gpg_key_file: str | None = None) -> bool:
     """
     Import GPG key from file if available.
@@ -461,7 +527,7 @@ async def import_gpg_key_if_available(gpg_key_file: str | None = None) -> bool:
     try:
         # Import the key
         subprocess.run(
-            ["gpg", "--quiet", "--batch", "--import", str(gpg_key_path)],
+            ["gpg", "--quiet", "--batch", "--no-tty", "--import", str(gpg_key_path)],
             capture_output=True,
             check=True,
             timeout=30
@@ -471,13 +537,16 @@ async def import_gpg_key_if_available(gpg_key_file: str | None = None) -> bool:
         return False
 
 
-async def decrypt_gpg_data(encrypted_data: bytes, gpg_key_file: str | None = None) -> bytes:
+async def decrypt_gpg_data(
+    encrypted_data: bytes, gpg_key_file: str | None = None, secrets_dir: str | None = None
+) -> bytes:
     """
     Decrypt GPG-encrypted data using the system's gpg command.
 
     Args:
         encrypted_data: The GPG-encrypted bytes
         gpg_key_file: Optional path to GPG key file to import
+        secrets_dir: Directory containing secrets files (searches home directory if not specified)
 
     Returns:
         The decrypted bytes
@@ -486,6 +555,14 @@ async def decrypt_gpg_data(encrypted_data: bytes, gpg_key_file: str | None = Non
         subprocess.CalledProcessError: If GPG decryption fails
         RuntimeError: If GPG is not available or other issues occur
     """
+    # Get passphrase from secrets directory if needed
+    passphrase = None
+    try:
+        passphrase = get_gpg_passphrase_from_secrets(secrets_dir)
+    except (FileNotFoundError, ValueError):
+        # No passphrase file found or empty - will try without passphrase
+        pass
+
     # Try to import key from file if specified or available in default location
     if gpg_key_file or get_gpg_key_path().exists():
         await import_gpg_key_if_available(gpg_key_file)
@@ -494,15 +571,41 @@ async def decrypt_gpg_data(encrypted_data: bytes, gpg_key_file: str | None = Non
 
     def _decrypt_with_gpg():
         try:
-            # Use gpg command to decrypt data
-            # --quiet: suppress output, --batch: non-interactive, --decrypt: decrypt mode
-            result = subprocess.run(
-                ["gpg", "--quiet", "--batch", "--decrypt"],
-                input=encrypted_data,
-                capture_output=True,
-                check=True,
-                timeout=60  # 60 second timeout for decryption
-            )
+            if passphrase:
+                # Use gpg command with passphrase via stdin
+                # --quiet: suppress output
+                # --batch: non-interactive mode
+                # --no-tty: don't use TTY for passphrase prompts
+                # --pinentry-mode loopback: read passphrase from stdin
+                # --passphrase-fd 0: read passphrase from stdin (fd 0)
+                # --decrypt: decrypt mode
+                gpg_input = passphrase.encode('utf-8') + b'\n' + encrypted_data
+                result = subprocess.run(
+                    [
+                        "gpg", "--quiet", "--batch", "--no-tty",
+                        "--pinentry-mode", "loopback", "--passphrase-fd", "0", "--decrypt"
+                    ],
+                    input=gpg_input,
+                    capture_output=True,
+                    check=True,
+                    timeout=60,  # 60 second timeout for decryption
+                    env={**os.environ, "GPG_TTY": ""}  # Disable TTY usage
+                )
+            else:
+                # Use gpg command without passphrase (key has no passphrase)
+                # --quiet: suppress output
+                # --batch: non-interactive mode
+                # --no-tty: don't use TTY for passphrase prompts
+                # --yes: assume yes for questions
+                # --decrypt: decrypt mode
+                result = subprocess.run(
+                    ["gpg", "--quiet", "--batch", "--no-tty", "--yes", "--decrypt"],
+                    input=encrypted_data,
+                    capture_output=True,
+                    check=True,
+                    timeout=60,  # 60 second timeout for decryption
+                    env={**os.environ, "GPG_TTY": ""}  # Disable TTY usage
+                )
             return result.stdout
         except FileNotFoundError:
             raise RuntimeError("GPG command not found. Please install GPG on your system.") from None
@@ -526,6 +629,15 @@ async def decrypt_gpg_data(encrypted_data: bytes, gpg_key_file: str | None = Non
                     ) from e
             elif "public key not found" in stderr_msg.lower():
                 raise RuntimeError("GPG public key not found. Please import the appropriate GPG keys.") from e
+            elif "bad session key" in stderr_msg.lower() or "inappropriate ioctl" in stderr_msg.lower():
+                raise RuntimeError(
+                    "GPG passphrase required but not available in non-interactive mode. "
+                    "Please decrypt the key manually or use a key without passphrase for automated processing."
+                ) from e
+            elif "problem with the agent" in stderr_msg.lower():
+                raise RuntimeError(
+                    "GPG agent error. Try running 'gpg-connect-agent reloadagent /bye' or use a key without passphrase."
+                ) from e
             else:
                 raise RuntimeError(f"GPG decryption failed: {stderr_msg}") from e
 
