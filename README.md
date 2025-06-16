@@ -200,8 +200,9 @@ The download script automatically:
 2. **Confirms file availability**: Uses HEAD request to verify archive exists and get Google's ETag
 3. **Checks for duplicates**: Compares Google's ETag with stored metadata to skip identical files
 4. **Downloads encrypted archive**: Retrieves `.tar.gz.gpg` file (typically 20-80 MB) only if needed
-5. **Saves with metadata**: Stores Google's ETag as S3 metadata for future comparison
-6. **Records timestamp**: Saves download completion time
+5. **Saves encrypted version**: Stores original `.tar.gz.gpg` with Google's ETag as S3 metadata
+6. **Decrypts and saves**: Automatically decrypts the archive and saves `.tar.gz` version
+7. **Records timestamp**: Saves download completion time
 
 **Supported Storage Backends:**
 - Local filesystem (default)
@@ -220,9 +221,13 @@ python download.py TZ1XH8 --storage=minio --bucket=grin-raw
 # Access MinIO console: http://localhost:9001 (minioadmin/minioadmin123)
 ```
 
-**File Format**: Downloaded files are GPG-encrypted tar.gz archives containing book page images and metadata.
+**File Formats**: 
+- **Encrypted**: Original `.tar.gz.gpg` files from Google (used for ETag comparison)
+- **Decrypted**: Ready-to-use `.tar.gz` archives containing book page images and metadata
 
 **Duplicate Detection**: For S3-compatible storage, the download system uses Google's native ETags to avoid redundant downloads. When a file already exists with the same ETag, the download is skipped entirely, saving bandwidth and time.
+
+**GPG Requirements**: The system requires `gpg` to be installed and configured for automatic decryption. If decryption fails, the encrypted archive is still saved successfully.
 
 ## Performance Characteristics
 

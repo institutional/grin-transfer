@@ -4,8 +4,10 @@ Common utilities for V2 architecture
 Shared functions and patterns to eliminate code duplication across V2 modules.
 """
 
+import asyncio
 import json
 import os
+import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -421,3 +423,42 @@ class BackupManager:
 
         except Exception as e:
             print(f"⚠️  Failed to cleanup old backups: {e}")
+
+
+async def decrypt_gpg_data(encrypted_data: bytes) -> bytes:
+    """
+    Decrypt GPG-encrypted data using the system's gpg command.
+
+    Args:
+        encrypted_data: The GPG-encrypted bytes
+
+    Returns:
+        The decrypted bytes
+
+    Raises:
+        subprocess.CalledProcessError: If GPG decryption fails
+        RuntimeError: If GPG is not available or other issues occur
+    """
+    loop = asyncio.get_event_loop()
+
+    def _decrypt_with_gpg():
+        try:
+            # Use gpg command to decrypt data
+            # --quiet: suppress output, --batch: non-interactive, --decrypt: decrypt mode
+            result = subprocess.run(
+                ["gpg", "--quiet", "--batch", "--decrypt"],
+                input=encrypted_data,
+                capture_output=True,
+                check=True,
+                timeout=60  # 60 second timeout for decryption
+            )
+            return result.stdout
+        except FileNotFoundError:
+            raise RuntimeError("GPG command not found. Please install GPG on your system.") from None
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("GPG decryption timed out after 60 seconds.") from None
+        except subprocess.CalledProcessError as e:
+            stderr_msg = e.stderr.decode('utf-8', errors='replace') if e.stderr else "Unknown error"
+            raise RuntimeError(f"GPG decryption failed: {stderr_msg}") from e
+
+    return await loop.run_in_executor(None, _decrypt_with_gpg)

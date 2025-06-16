@@ -21,10 +21,23 @@ from common import (
     calculate_transfer_speed,
     create_http_session,
     create_storage_from_config,
+    decrypt_gpg_data,
     format_bytes,
     format_duration,
 )
 from storage import BookStorage
+
+
+async def _decrypt_and_save_archive(barcode: str, encrypted_data: bytes, book_storage: BookStorage) -> None:
+    """Decrypt the archive and save the decrypted version."""
+    try:
+        print("Decrypting archive...")
+        decrypted_data = await decrypt_gpg_data(encrypted_data)
+        await book_storage.save_decrypted_archive(barcode, decrypted_data)
+        print(f"✅ Saved decrypted archive: {book_storage._book_path(barcode, f'{barcode}.tar.gz')}")
+    except Exception as e:
+        print(f"⚠️ Failed to decrypt archive: {e}")
+        print("Encrypted archive saved successfully, but decryption failed")
 
 
 async def ensure_bucket_exists_with_storage(storage, storage_type: str, storage_config: dict) -> bool:
@@ -436,23 +449,46 @@ async def download_book(
                 print("Archive exists but Google ETag differs (or missing), uploading new version...")
                 archive_path = await book_storage.save_archive(barcode, archive_data, google_etag)
                 await book_storage.save_timestamp(barcode)
+
+                # Decrypt and save decrypted version
+                await _decrypt_and_save_archive(barcode, archive_data, book_storage)
         else:
             print(f"Saving to {storage_type} storage...")
             archive_path = await book_storage.save_archive(barcode, archive_data, google_etag)
             await book_storage.save_timestamp(barcode)
+
+            # Decrypt and save decrypted version
+            await _decrypt_and_save_archive(barcode, archive_data, book_storage)
 
     else:
         # Use local filesystem
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
 
+        # Save encrypted archive
         file_path = output_path / archive_filename
-        print(f"Saving to: {file_path}")
+        print(f"Saving encrypted archive to: {file_path}")
 
         async with aiofiles.open(file_path, "wb") as f:
             await f.write(archive_data)
 
         archive_path = str(file_path)
+
+        # Save decrypted archive
+        try:
+            print("Decrypting archive...")
+            decrypted_data = await decrypt_gpg_data(archive_data)
+            decrypted_filename = f"{barcode}.tar.gz"
+            decrypted_path = output_path / decrypted_filename
+            print(f"Saving decrypted archive to: {decrypted_path}")
+
+            async with aiofiles.open(decrypted_path, "wb") as f:
+                await f.write(decrypted_data)
+
+            print(f"✅ Saved decrypted archive: {decrypted_path}")
+        except Exception as e:
+            print(f"⚠️ Failed to decrypt archive: {e}")
+            print("Encrypted archive saved successfully, but decryption failed")
 
     storage_time = (datetime.now() - storage_start).total_seconds()
 
@@ -472,7 +508,8 @@ async def download_book(
 async def main() -> int:
     """CLI interface for downloading books."""
     parser = argparse.ArgumentParser(
-        description="Download GRIN books to local filesystem or block storage",
+        description="Download GRIN books to local filesystem or block storage "
+                    "(saves both encrypted and decrypted archives)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
