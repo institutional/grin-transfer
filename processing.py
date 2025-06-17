@@ -691,11 +691,11 @@ class ProcessingMonitor:
         in_process = await self.get_in_process_books()
         failed = await self.get_failed_books()
 
-        print(f"📗 Converted (ready for download): {len(converted):,}")
-        print(f"⏳ In process (being converted):    {len(in_process):,}")
-        print(f"❌ Failed (conversion failed):     {len(failed):,}")
-        print(f"📊 Total processed:                {len(converted) + len(in_process) + len(failed):,}")
-        print(f"🎯 Queue space available:          {50000 - len(in_process):,}")
+        print(f"Converted (ready for download): {len(converted):,}")
+        print(f"In process (being converted):    {len(in_process):,}")
+        print(f"Failed (conversion failed):     {len(failed):,}")
+        print(f"Total processed:                {len(converted) + len(in_process) + len(failed):,}")
+        print(f"Queue space available:          {50000 - len(in_process):,}")
 
     async def show_converted_books(self, limit: int = 50) -> None:
         """Show list of converted books ready for download."""
@@ -761,19 +761,19 @@ class ProcessingMonitor:
         found = False
 
         if barcode in converted:
-            print(f"✅ Found in CONVERTED - ready for download!")
+            print(f"Found in CONVERTED - ready for download!")
             found = True
 
         if barcode in in_process:
-            print(f"⏳ Found in IN_PROCESS - currently being converted")
+            print(f"Found in IN_PROCESS - currently being converted")
             found = True
 
         if barcode in failed:
-            print(f"❌ Found in FAILED - conversion failed")
+            print(f"Found in FAILED - conversion failed")
             found = True
 
         if not found:
-            print(f"❓ Not found in GRIN system - may not have been requested for processing")
+            print(f"Not found in GRIN system - may not have been requested for processing")
 
     async def export_converted_list(self, output_file: str) -> None:
         """Export list of converted books to a file."""
@@ -791,6 +791,37 @@ class ProcessingMonitor:
                 f.write(f"{barcode}\n")
         
         print(f"Exported {len(converted):,} converted books to: {output_file}")
+
+    async def get_grin_status_summary(self) -> dict:
+        """Get GRIN processing status as a dictionary for change tracking."""
+        try:
+            # Get lists of books in different states
+            converted = await self.get_converted_books()
+            in_process = await self.get_in_process_books()
+            failed = await self.get_failed_books()
+            
+            # Calculate queue space available (max 50000 books in process)
+            queue_space_available = 50000 - len(in_process)
+            
+            return {
+                "converted": len(converted),
+                "in_process": len(in_process),
+                "failed": len(failed),
+                "queue_space_available": queue_space_available,
+                "total_processed": len(converted) + len(in_process) + len(failed),
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+        except Exception as e:
+            logger.warning(f"Failed to get GRIN status summary: {e}")
+            return {
+                "converted": 0,
+                "in_process": 0,
+                "failed": 0,
+                "queue_space_available": 50000,
+                "total_processed": 0,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "error": str(e),
+            }
 
 
 def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
@@ -936,25 +967,12 @@ async def cmd_monitor(args) -> None:
             print(f"Error: Credential validation failed: {e}")
             sys.exit(1)
 
-        # Show status summary unless specific action requested
-        if not any([args.converted, args.in_process, args.failed, args.search, args.export]):
-            await monitor.show_status_summary()
-        
-        # Handle specific requests
-        if args.converted:
-            await monitor.show_converted_books(limit=args.limit)
-        
-        if args.in_process:
-            await monitor.show_in_process_books(limit=args.limit)
-        
-        if args.failed:
-            await monitor.show_failed_books(limit=args.limit)
-        
-        if args.search:
-            await monitor.search_barcode(args.search)
-        
-        if args.export:
-            await monitor.export_converted_list(args.export)
+        if args.watch:
+            # Watch mode: continuously poll GRIN every 5 minutes
+            await run_watch_mode(monitor, args)
+        else:
+            # Single execution mode
+            await run_single_monitor(monitor, args)
 
         await monitor.cleanup()
 
@@ -963,6 +981,124 @@ async def cmd_monitor(args) -> None:
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
+
+
+async def run_single_monitor(monitor: "ProcessingMonitor", args) -> None:
+    """Run monitor in single execution mode."""
+    # Show status summary unless specific action requested
+    if not any([args.converted, args.in_process, args.failed, args.search, args.export]):
+        await monitor.show_status_summary()
+    
+    # Handle specific requests
+    if args.converted:
+        await monitor.show_converted_books(limit=args.limit)
+    
+    if args.in_process:
+        await monitor.show_in_process_books(limit=args.limit)
+    
+    if args.failed:
+        await monitor.show_failed_books(limit=args.limit)
+    
+    if args.search:
+        await monitor.search_barcode(args.search)
+    
+    if args.export:
+        await monitor.export_converted_list(args.export)
+
+
+async def run_watch_mode(monitor: "ProcessingMonitor", args) -> None:
+    """Run monitor in watch mode with periodic polling."""
+    import signal
+    from datetime import datetime, UTC
+    
+    print("Starting watch mode - polling GRIN every 5 minutes")
+    print("Press Ctrl+C to stop\n")
+    
+    # Set up graceful shutdown
+    shutdown_requested = False
+    
+    def signal_handler(signum: int, frame) -> None:
+        nonlocal shutdown_requested
+        shutdown_requested = True
+        print("\nShutdown requested, stopping watch mode...")
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # Track previous state for change detection
+    previous_status = None
+    poll_count = 0
+    
+    while not shutdown_requested:
+        poll_count += 1
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+        
+        try:
+            print(f"[{timestamp}] Poll #{poll_count} - Checking GRIN status...")
+            
+            # Get current status
+            current_status = await monitor.get_grin_status_summary()
+            
+            # Show status summary
+            await monitor.show_status_summary()
+            
+            # Detect and report changes
+            if previous_status is not None:
+                changes = detect_status_changes(previous_status, current_status)
+                if changes:
+                    print(f"\nChanges detected since last poll:")
+                    for change in changes:
+                        print(f"  {change}")
+                else:
+                    print("No changes detected since last poll")
+            
+            previous_status = current_status
+            
+            if shutdown_requested:
+                break
+            
+            # Wait 5 minutes (300 seconds) between polls
+            print(f"\nNext poll in 5 minutes...")
+            print("-" * 50)
+            
+            # Sleep with interruption checking
+            for _ in range(300):  # 300 seconds = 5 minutes
+                if shutdown_requested:
+                    break
+                await asyncio.sleep(1)
+                
+        except Exception as e:
+            print(f"Error during polling: {e}")
+            print("Retrying in 5 minutes...")
+            
+            # Sleep with interruption checking on error
+            for _ in range(300):
+                if shutdown_requested:
+                    break
+                await asyncio.sleep(1)
+    
+    print("Watch mode stopped")
+
+
+def detect_status_changes(previous: dict, current: dict) -> list[str]:
+    """Detect changes between status snapshots."""
+    changes = []
+    
+    # Check for changes in key metrics
+    metrics = ['converted', 'in_process', 'failed', 'queue_space_available', 'total_processed']
+    
+    for metric in metrics:
+        prev_val = previous.get(metric, 0)
+        curr_val = current.get(metric, 0)
+        
+        if prev_val != curr_val:
+            diff = curr_val - prev_val
+            if diff > 0:
+                changes.append(f"{metric}: {prev_val:,} → {curr_val:,} (+{diff:,})")
+            else:
+                changes.append(f"{metric}: {prev_val:,} → {curr_val:,} ({diff:,})")
+    
+    return changes
 
 
 async def main() -> None:
@@ -1049,6 +1185,9 @@ Examples:
 
   # Show more results
   python processing.py monitor --run-name harvard_2024 --converted --limit 100
+
+  # Watch mode: continuously monitor with 5-minute polling
+  python processing.py monitor --run-name harvard_2024 --watch
         """,
     )
 
@@ -1065,6 +1204,7 @@ Examples:
 
     # Options
     monitor_parser.add_argument("--limit", type=int, default=50, help="Limit number of results to show (default: 50)")
+    monitor_parser.add_argument("--watch", action="store_true", help="Watch mode: poll GRIN every 5 minutes for status updates")
 
     args = parser.parse_args()
     

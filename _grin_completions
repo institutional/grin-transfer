@@ -83,7 +83,13 @@ _processing() {
                     ;;
                 monitor)
                     _arguments \
-                        '--interval[Monitoring interval]:seconds:' \
+                        '--converted[Show converted books]' \
+                        '--in-process[Show books being processed]' \
+                        '--failed[Show failed books]' \
+                        '--search[Search for specific barcode]:barcode:' \
+                        '--export[Export converted books]:file:_files' \
+                        '--limit[Limit results]:number:' \
+                        '--watch[Watch mode - poll every 5 minutes]' \
                         '--directory[GRIN directory]:directory:' \
                         '--secrets-dir[Directory with GRIN secrets]:directory:_directories' \
                         '--log-level[Logging level]:level:_grin_log_levels'
