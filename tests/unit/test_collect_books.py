@@ -234,7 +234,16 @@ class TestBookCollector:
         """Test progress tracking functionality."""
         with tempfile.TemporaryDirectory() as temp_dir:
             progress_file = Path(temp_dir) / "test_progress.json"
-            exporter = BookCollector(resume_file=str(progress_file))
+            test_db_path = Path(temp_dir) / "test_books.db"
+            
+            # Create config with test database path
+            from collect_books.config import ExportConfig
+            config = ExportConfig(
+                resume_file=str(progress_file),
+                sqlite_db_path=str(test_db_path)
+            )
+            
+            exporter = BookCollector(config=config)
 
             # Add some processed items via SQLite tracker
             await exporter.sqlite_tracker.mark_processed("TEST001")
@@ -247,7 +256,11 @@ class TestBookCollector:
             assert progress_file.exists()
 
             # Create new exporter and load progress
-            exporter2 = BookCollector(resume_file=str(progress_file))
+            config2 = ExportConfig(
+                resume_file=str(progress_file),
+                sqlite_db_path=str(test_db_path)
+            )
+            exporter2 = BookCollector(config=config2)
             await exporter2.load_progress()
 
             # Check that progress was loaded via SQLite

@@ -6,13 +6,17 @@ Contains BookRecord and other data classes used in the CSV export system.
 """
 
 import asyncio
+import logging
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import aiosqlite
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,6 +38,10 @@ class BookRecord:
 
     # Processing state (inferred from GRIN endpoint presence)
     processing_state: str = "unknown"  # all_books, converted, failed, pending
+    
+    # Processing request tracking
+    processing_request_status: str | None = None  # "pending", "requested", "in_process", "converted", "failed"
+    processing_request_timestamp: str | None = None  # ISO timestamp when processing was requested
 
     # GRIN enrichment fields (populated by separate enrichment pipeline)
     grin_state: str | None = None
@@ -55,6 +63,17 @@ class BookRecord:
     csv_exported: str | None = None
     csv_updated: str | None = None
 
+    # Sync tracking for storage pipeline
+    storage_type: str | None = None  # e.g., "r2", "minio", "s3", "local"
+    storage_path: str | None = None  # Path to the encrypted archive in storage
+    storage_decrypted_path: str | None = None  # Path to the decrypted archive in storage
+    last_etag_check: str | None = None  # ISO timestamp of last ETag verification
+    google_etag: str | None = None  # Google's ETag for the file
+    is_decrypted: bool = False  # Whether decrypted version exists
+    sync_status: str | None = None  # "pending", "syncing", "completed", "failed"
+    sync_timestamp: str | None = None  # ISO timestamp of last sync attempt
+    sync_error: str | None = None  # Error message if sync failed
+
     @classmethod
     def csv_headers(cls) -> list:
         """Get CSV column headers."""
@@ -69,6 +88,8 @@ class BookRecord:
             "OCR Date",
             "Google Books Link",
             "Processing State",
+            "Processing Request Status",
+            "Processing Request Timestamp",
             "GRIN State",
             "Viewability",
             "Opted Out",
@@ -85,6 +106,15 @@ class BookRecord:
             "Enrichment Timestamp",
             "CSV Exported",
             "CSV Updated",
+            "Storage Type",
+            "Storage Path",
+            "Storage Decrypted Path",
+            "Last ETag Check",
+            "Google ETag",
+            "Is Decrypted",
+            "Sync Status",
+            "Sync Timestamp",
+            "Sync Error",
         ]
 
     def to_csv_row(self) -> list[str]:
@@ -100,6 +130,8 @@ class BookRecord:
             self.ocr_date or "",
             self.google_books_link,
             self.processing_state,
+            self.processing_request_status or "",
+            self.processing_request_timestamp or "",
             self.grin_state or "",
             self.viewability or "",
             self.opted_out or "",
@@ -116,6 +148,15 @@ class BookRecord:
             self.enrichment_timestamp or "",
             self.csv_exported or "",
             self.csv_updated or "",
+            self.storage_type or "",
+            self.storage_path or "",
+            self.storage_decrypted_path or "",
+            self.last_etag_check or "",
+            self.google_etag or "",
+            str(self.is_decrypted) if self.is_decrypted else "",
+            self.sync_status or "",
+            self.sync_timestamp or "",
+            self.sync_error or "",
         ]
 
 
@@ -222,68 +263,22 @@ class SQLiteProgressTracker:
         # Ensure directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
 
+        # Load schema from SQL file
+        schema_file = Path(__file__).parent.parent / "docs" / "schema.sql"
+        if not schema_file.exists():
+            raise FileNotFoundError(f"Database schema file not found: {schema_file}")
+        
+        schema_sql = schema_file.read_text(encoding='utf-8')
+        
         async with aiosqlite.connect(self.db_path) as db:
-            # Create tables
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS processed (
-                    barcode TEXT PRIMARY KEY,
-                    timestamp TEXT NOT NULL,
-                    session_id INTEGER NOT NULL
-                )
-            """)
-
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS failed (
-                    barcode TEXT PRIMARY KEY,
-                    timestamp TEXT NOT NULL,
-                    session_id INTEGER NOT NULL,
-                    error_message TEXT
-                )
-            """)
-
-            # Create books table for storing all book data
-            await db.execute("""
-                CREATE TABLE IF NOT EXISTS books (
-                    barcode TEXT PRIMARY KEY,
-                    title TEXT,
-                    scanned_date TEXT,
-                    converted_date TEXT,
-                    downloaded_date TEXT,
-                    processed_date TEXT,
-                    analyzed_date TEXT,
-                    ocr_date TEXT,
-                    google_books_link TEXT,
-                    processing_state TEXT,
-                    grin_state TEXT,
-                    viewability TEXT,
-                    opted_out TEXT,
-                    conditions TEXT,
-                    scannable TEXT,
-                    tagging TEXT,
-                    audit TEXT,
-                    material_error_percent TEXT,
-                    overall_error_percent TEXT,
-                    claimed TEXT,
-                    ocr_analysis_score TEXT,
-                    ocr_gtd_score TEXT,
-                    digitization_method TEXT,
-                    enrichment_timestamp TEXT,
-                    csv_exported TEXT,
-                    csv_updated TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-            """)
-
-            # Create indexes for fast lookups
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_processed_barcode ON processed(barcode)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_failed_barcode ON failed(barcode)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_processed_session ON processed(session_id)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_failed_session ON failed(session_id)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_books_barcode ON books(barcode)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_books_processing_state ON books(processing_state)")
-            await db.execute("CREATE INDEX IF NOT EXISTS idx_books_enrichment ON books(enrichment_timestamp)")
-
+            # Execute the complete schema
+            # Split by semicolon and execute each statement separately
+            statements = [stmt.strip() for stmt in schema_sql.split(';') if stmt.strip()]
+            
+            for statement in statements:
+                if statement.strip():
+                    await db.execute(statement)
+            
             await db.commit()
 
         self._initialized = True
@@ -500,12 +495,15 @@ class SQLiteProgressTracker:
                 INSERT OR REPLACE INTO books (
                     barcode, title, scanned_date, converted_date, downloaded_date,
                     processed_date, analyzed_date, ocr_date, google_books_link,
-                    processing_state, grin_state, viewability, opted_out,
-                    conditions, scannable, tagging, audit, material_error_percent,
-                    overall_error_percent, claimed, ocr_analysis_score,
+                    processing_state, processing_request_status, processing_request_timestamp,
+                    grin_state, viewability, opted_out, conditions, scannable, tagging, audit,
+                    material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
                     ocr_gtd_score, digitization_method, enrichment_timestamp,
-                    csv_exported, csv_updated, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    csv_exported, csv_updated, storage_type, storage_path,
+                    storage_decrypted_path, last_etag_check, google_etag,
+                    is_decrypted, sync_status, sync_timestamp, sync_error,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     book.barcode,
@@ -518,6 +516,8 @@ class SQLiteProgressTracker:
                     book.ocr_date,
                     book.google_books_link,
                     book.processing_state,
+                    getattr(book, 'processing_request_status', None),
+                    getattr(book, 'processing_request_timestamp', None),
                     book.grin_state,
                     book.viewability,
                     book.opted_out,
@@ -534,6 +534,15 @@ class SQLiteProgressTracker:
                     book.enrichment_timestamp,
                     book.csv_exported,
                     book.csv_updated,
+                    getattr(book, 'storage_type', None),
+                    getattr(book, 'storage_path', None),
+                    getattr(book, 'storage_decrypted_path', None),
+                    getattr(book, 'last_etag_check', None),
+                    getattr(book, 'google_etag', None),
+                    getattr(book, 'is_decrypted', False),
+                    getattr(book, 'sync_status', None),
+                    getattr(book, 'sync_timestamp', None),
+                    getattr(book, 'sync_error', None),
                     now,
                     now,
                 ),
@@ -549,11 +558,13 @@ class SQLiteProgressTracker:
                 """
                 SELECT barcode, title, scanned_date, converted_date, downloaded_date,
                        processed_date, analyzed_date, ocr_date, google_books_link,
-                       processing_state, grin_state, viewability, opted_out,
-                       conditions, scannable, tagging, audit, material_error_percent,
-                       overall_error_percent, claimed, ocr_analysis_score,
+                       processing_state, processing_request_status, processing_request_timestamp,
+                       grin_state, viewability, opted_out, conditions, scannable, tagging, audit, 
+                       material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
                        ocr_gtd_score, digitization_method, enrichment_timestamp,
-                       csv_exported, csv_updated
+                       csv_exported, csv_updated, storage_type, storage_path,
+                       storage_decrypted_path, last_etag_check, google_etag,
+                       is_decrypted, sync_status, sync_timestamp, sync_error
                 FROM books WHERE barcode = ?
             """,
                 (barcode,),
@@ -631,10 +642,13 @@ class SQLiteProgressTracker:
             cursor = await db.execute("""
                 SELECT barcode, title, scanned_date, converted_date, downloaded_date,
                        processed_date, analyzed_date, ocr_date, google_books_link,
-                       processing_state, grin_state, viewability, opted_out,
-                       conditions, scannable, tagging, audit, material_error_percent,
-                       overall_error_percent, claimed, ocr_analysis_score,
-                       ocr_gtd_score, digitization_method, enrichment_timestamp
+                       processing_state, processing_request_status, processing_request_timestamp,
+                       grin_state, viewability, opted_out, conditions, scannable, tagging, audit, 
+                       material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
+                       ocr_gtd_score, digitization_method, enrichment_timestamp,
+                       csv_exported, csv_updated, storage_type, storage_path,
+                       storage_decrypted_path, last_etag_check, google_etag,
+                       is_decrypted, sync_status, sync_timestamp, sync_error
                 FROM books ORDER BY barcode
             """)
 
@@ -658,6 +672,204 @@ class SQLiteProgressTracker:
             cursor = await db.execute("""
                 SELECT COUNT(*) FROM books
                 WHERE enrichment_timestamp IS NOT NULL
+            """)
+            row = await cursor.fetchone()
+            return row[0] if row else 0
+
+    async def update_sync_status(self, barcode: str, sync_data: dict) -> bool:
+        """Update sync tracking fields for a book record."""
+        await self.init_db()
+
+        now = datetime.now(UTC).isoformat()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                UPDATE books SET
+                    storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
+                    last_etag_check = ?, google_etag = ?, is_decrypted = ?,
+                    sync_status = ?, sync_timestamp = ?, sync_error = ?,
+                    updated_at = ?
+                WHERE barcode = ?
+            """,
+                (
+                    sync_data.get("storage_type"),
+                    sync_data.get("storage_path"),
+                    sync_data.get("storage_decrypted_path"),
+                    sync_data.get("last_etag_check"),
+                    sync_data.get("google_etag"),
+                    sync_data.get("is_decrypted", False),
+                    sync_data.get("sync_status"),
+                    sync_data.get("sync_timestamp", now),
+                    sync_data.get("sync_error"),
+                    now,
+                    barcode,
+                ),
+            )
+
+            rows_affected = db.total_changes
+            await db.commit()
+            return rows_affected > 0
+
+    async def update_processing_status_to_converted(self, barcodes: set[str]) -> int:
+        """Update processing request status to 'converted' for books that appear in GRIN's converted list.
+        
+        Args:
+            barcodes: Set of barcodes that are now converted in GRIN
+            
+        Returns:
+            Number of books updated
+        """
+        if not barcodes:
+            return 0
+            
+        await self.init_db()
+        now = datetime.now(UTC).isoformat()
+        
+        placeholders = ','.join('?' * len(barcodes))
+        params = list(barcodes) + [now]
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                f"""
+                UPDATE books 
+                SET processing_request_status = 'converted', updated_at = ?
+                WHERE barcode IN ({placeholders}) 
+                AND processing_request_status = 'requested'
+                """,
+                params
+            )
+            
+            rows_affected = cursor.rowcount
+            await db.commit()
+            
+        logger.info(f"Updated {rows_affected} books from 'requested' to 'converted' status")
+        return rows_affected
+
+    async def get_books_for_sync(self, storage_type: str, limit: int = 100, status_filter: str | None = None, converted_barcodes: set[str] | None = None) -> list[str]:
+        """Get barcodes for books that need syncing to storage.
+        
+        Args:
+            storage_type: Target storage type ("r2", "minio", "s3", "local")
+            limit: Maximum number of books to return
+            status_filter: Optional sync status filter ("pending", "failed", etc.)
+            converted_barcodes: Optional set of barcodes known to be converted/ready for download
+            
+        Returns:
+            List of barcodes that need syncing
+        """
+        await self.init_db()
+
+        if converted_barcodes:
+            # Filter to only books that are known to be converted AND exist in our database
+            placeholders = ','.join('?' * len(converted_barcodes))
+            base_query = f"""
+                SELECT barcode FROM books
+                WHERE barcode IN ({placeholders})
+            """
+            params: list[Any] = list(converted_barcodes)
+        else:
+            # Original behavior - check all books in database
+            base_query = """
+                SELECT barcode FROM books
+                WHERE 1=1
+            """
+            params = []
+        
+        # Only sync books that have been requested for processing
+        base_query += " AND processing_request_status = 'requested'"
+        
+        if status_filter:
+            base_query += " AND sync_status = ?"
+            params.append(status_filter)
+        else:
+            # Default: get books that haven't been synced yet or failed
+            base_query += " AND (sync_status IS NULL OR sync_status = 'failed')"
+        
+        # Optionally filter by storage type (for re-syncing)
+        if storage_type:
+            base_query += " AND (storage_type IS NULL OR storage_type = ?)"
+            params.append(storage_type)
+            
+        base_query += " ORDER BY created_at LIMIT ?"
+        params.append(limit)
+
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(base_query, params)
+            rows = await cursor.fetchall()
+            return [row[0] for row in rows]
+
+    async def get_sync_stats(self, storage_type: str | None = None) -> dict:
+        """Get sync statistics for books.
+        
+        Note: This method returns stats for all books in the database since the actual
+        download availability is determined dynamically by checking GRIN's _converted endpoint.
+        
+        Args:
+            storage_type: Optional storage type filter
+            
+        Returns:
+            Dictionary with sync statistics
+        """
+        await self.init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            # Base filters - check all books since availability is determined at download time
+            where_clause = "WHERE 1=1"
+            params = []
+            
+            if storage_type:
+                where_clause += " AND (storage_type IS NULL OR storage_type = ?)"
+                params.append(storage_type)
+
+            # Total books (potential candidates for download)
+            cursor = await db.execute(f"SELECT COUNT(*) FROM books {where_clause}", params)
+            row = await cursor.fetchone()
+            total_converted = row[0] if row else 0
+
+            # Synced books (completed status)
+            cursor = await db.execute(f"SELECT COUNT(*) FROM books {where_clause} AND sync_status = 'completed'", params)
+            row = await cursor.fetchone()
+            synced_count = row[0] if row else 0
+
+            # Failed sync books
+            cursor = await db.execute(f"SELECT COUNT(*) FROM books {where_clause} AND sync_status = 'failed'", params)
+            row = await cursor.fetchone()
+            failed_count = row[0] if row else 0
+
+            # Pending/not started
+            cursor = await db.execute(f"SELECT COUNT(*) FROM books {where_clause} AND (sync_status IS NULL OR sync_status = 'pending')", params)
+            row = await cursor.fetchone()
+            pending_count = row[0] if row else 0
+
+            # Currently syncing
+            cursor = await db.execute(f"SELECT COUNT(*) FROM books {where_clause} AND sync_status = 'syncing'", params)
+            row = await cursor.fetchone()
+            syncing_count = row[0] if row else 0
+
+            # Decrypted count
+            cursor = await db.execute(f"SELECT COUNT(*) FROM books {where_clause} AND is_decrypted = 1", params)
+            row = await cursor.fetchone()
+            decrypted_count = row[0] if row else 0
+
+            return {
+                "total_converted": total_converted,
+                "synced": synced_count,
+                "failed": failed_count,
+                "pending": pending_count,
+                "syncing": syncing_count,
+                "decrypted": decrypted_count,
+                "storage_type": storage_type,
+            }
+
+    async def get_converted_books_count(self) -> int:
+        """Get count of books in converted state (ready for sync)."""
+        await self.init_db()
+
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute("""
+                SELECT COUNT(*) FROM books
+                WHERE grin_state = 'converted'
             """)
             row = await cursor.fetchone()
             return row[0] if row else 0

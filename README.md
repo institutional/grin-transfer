@@ -152,6 +152,70 @@ Both collection and enrichment automatically save progress:
 - No duplicate processing or API calls
 - File locking prevents concurrent runs
 
+## Sync Pipeline for Storage
+
+The sync pipeline automatically downloads all converted books from GRIN to your chosen storage backend with comprehensive database tracking.
+
+### Quick Start
+
+```bash
+# Sync all converted books to Cloudflare R2
+python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw
+
+# Check sync status
+python sync_status.py output/harvard_2024/books.db
+
+# Retry failed syncs
+python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --status=failed
+```
+
+### Sync Pipeline Features
+
+- **Concurrent Downloads**: Download multiple books simultaneously (default: 3)
+- **Database Tracking**: Complete sync status tracking in SQLite database
+- **Resume Capability**: Automatically resumes from interruptions
+- **Progress Monitoring**: Real-time progress with ETA calculations
+- **Error Recovery**: Retry failed downloads with `--status=failed`
+- **Duplicate Detection**: Uses Google ETags to avoid redundant downloads
+- **Parallel Processing**: Saves encrypted archive, timestamp, and decrypted version simultaneously
+
+### Sync Status Tracking
+
+The database tracks comprehensive sync metadata for each book:
+- **Storage Type**: Target storage backend (r2, minio, s3, local)
+- **Storage Paths**: Both encrypted and decrypted archive locations
+- **ETag Verification**: Google's ETag for duplicate detection
+- **Sync Status**: pending, syncing, completed, failed
+- **Decryption Status**: Whether decrypted version exists
+- **Error Tracking**: Detailed error messages for failed syncs
+
+```bash
+# Check overall sync status
+python sync_status.py output/harvard_2024/books.db
+
+# Check status for specific storage type
+python sync_status.py output/harvard_2024/books.db --storage-type=r2
+```
+
+### Sync Pipeline Options
+
+```bash
+# Basic sync to R2
+python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw
+
+# Sync with custom concurrency and batch size
+python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --concurrent=5 --batch-size=50
+
+# Sync limited number of books
+python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --limit=1000
+
+# Force re-sync (overwrite existing files)
+python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --force
+
+# Retry only failed syncs
+python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --status=failed
+```
+
 ## Download Individual Books
 
 Download specific book archives from GRIN. **Note**: Only books in "converted" state have downloadable archives.

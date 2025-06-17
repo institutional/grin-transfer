@@ -1,0 +1,737 @@
+#!/usr/bin/env python3
+"""
+GRIN Book Processing Request System
+
+Submits books for conversion processing via GRIN's _process endpoint.
+Based on v1 conversion system with modern async architecture.
+"""
+
+import argparse
+import asyncio
+import logging
+import sys
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from client import GRINClient
+from collect_books.models import SQLiteProgressTracker
+from common import SlidingWindowRateCalculator, format_duration, pluralize
+
+logger = logging.getLogger(__name__)
+
+
+class ProcessingRequestError(Exception):
+    """Raised when book processing request fails."""
+
+
+class ProcessingClient:
+    """Client for requesting book processing via GRIN _process endpoint."""
+
+    def __init__(
+        self,
+        directory: str = "Harvard",
+        rate_limit_delay: float = 0.2,  # 5 QPS
+        secrets_dir: str | None = None,
+        timeout: int = 60,
+    ):
+        self.directory = directory
+        self.rate_limit_delay = rate_limit_delay
+        self.grin_client = GRINClient(timeout=timeout, secrets_dir=secrets_dir)
+        self._request_timestamps: list[float] = []
+
+    async def cleanup(self) -> None:
+        """Clean up resources and close connections safely."""
+        try:
+            if hasattr(self.grin_client, "session") and self.grin_client.session:
+                await self.grin_client.session.close()
+                logger.debug("Closed GRIN client session")
+        except Exception as e:
+            logger.warning(f"Error closing GRIN client session: {e}")
+
+    async def _rate_limit(self) -> None:
+        """Apply rate limiting for GRIN requests."""
+        if self.rate_limit_delay <= 0:
+            return
+
+        current_time = time.time()
+
+        # Clean up old timestamps (keep only last second for QPS calculation)
+        cutoff_time = current_time - 1.0
+        self._request_timestamps = [t for t in self._request_timestamps if t > cutoff_time]
+
+        # Calculate how many requests we can make per second
+        max_requests_per_second = 1.0 / self.rate_limit_delay
+
+        # If we're at the rate limit, wait until we can make another request
+        if len(self._request_timestamps) >= max_requests_per_second:
+            # Wait until the oldest timestamp is more than 1 second old
+            oldest_timestamp = min(self._request_timestamps)
+            wait_time = oldest_timestamp + 1.0 - current_time
+            if wait_time > 0:
+                await asyncio.sleep(wait_time)
+                current_time = time.time()
+
+        # Record this request timestamp
+        self._request_timestamps.append(current_time)
+
+    async def request_processing_batch(self, barcodes: list[str]) -> dict[str, str]:
+        """
+        Request processing for a batch of books.
+
+        Args:
+            barcodes: List of book barcodes to request processing for
+
+        Returns:
+            Dict mapping barcode to status message
+
+        Raises:
+            ProcessingRequestError: If the request fails
+        """
+        if not barcodes:
+            return {}
+            
+        await self._rate_limit()
+
+        try:
+            # Use GRIN's _process endpoint with comma-separated barcodes
+            barcodes_param = ",".join(barcodes)
+            process_url = f"_process?barcodes={barcodes_param}"
+            response_text = await self.grin_client.fetch_resource(self.directory, process_url)
+
+            # Parse TSV response (should be "Barcode\tStatus" format)
+            lines = response_text.strip().split("\n")
+            if len(lines) < 2:
+                raise ProcessingRequestError(f"Invalid response format: got {len(lines)} lines, expected at least 2")
+
+            # Check header
+            header = lines[0]
+            expected_header = "Barcode\tStatus"
+            if header != expected_header:
+                raise ProcessingRequestError(f"Unexpected response header: '{header}', expected '{expected_header}'")
+
+            # Parse results for all barcodes
+            results = {}
+            result_lines = lines[1:]
+            
+            if len(result_lines) != len(barcodes):
+                logger.warning(f"Expected {len(barcodes)} result lines, got {len(result_lines)}")
+            
+            for line in result_lines:
+                if not line.strip():
+                    continue
+                    
+                parts = line.split("\t")
+                if len(parts) != 2:
+                    raise ProcessingRequestError(f"Invalid result format: '{line}'")
+
+                returned_barcode, status = parts
+                results[returned_barcode] = status
+                
+                if status == "Success":
+                    logger.info(f"Successfully requested processing for {returned_barcode}")
+                else:
+                    logger.warning(f"Processing request failed for {returned_barcode}: {status}")
+
+            return results
+
+        except Exception as e:
+            if isinstance(e, ProcessingRequestError):
+                raise
+            else:
+                raise ProcessingRequestError(f"Batch request failed for {len(barcodes)} books: {e}") from e
+
+    async def request_processing(self, barcode: str) -> str:
+        """
+        Request processing for a single book (wrapper around batch method).
+
+        Args:
+            barcode: Book barcode to request processing for
+
+        Returns:
+            Success status message
+
+        Raises:
+            ProcessingRequestError: If the request fails
+        """
+        results = await self.request_processing_batch([barcode])
+        if barcode not in results:
+            raise ProcessingRequestError(f"No result returned for {barcode}")
+        
+        status = results[barcode]
+        if status != "Success":
+            raise ProcessingRequestError(f"Processing request failed for {barcode}: {status}")
+            
+        return status
+
+    async def get_in_process_books(self) -> set[str]:
+        """Get list of books currently in processing queue."""
+        try:
+            response_text = await self.grin_client.fetch_resource(self.directory, "_in_process?format=text")
+            lines = response_text.strip().split("\n")
+            return {line.strip() for line in lines if line.strip()}
+        except Exception as e:
+            logger.warning(f"Failed to get in-process books: {e}")
+            return set()
+
+    async def get_failed_books(self) -> set[str]:
+        """Get list of books that failed processing."""
+        try:
+            response_text = await self.grin_client.fetch_resource(self.directory, "_failed?format=text")
+            lines = response_text.strip().split("\n")
+            return {line.strip() for line in lines if line.strip()}
+        except Exception as e:
+            logger.warning(f"Failed to get failed books: {e}")
+            return set()
+
+    async def get_converted_books(self) -> set[str]:
+        """Get list of books that have been converted (available for download)."""
+        try:
+            response_text = await self.grin_client.fetch_resource(self.directory, "_converted?format=text")
+            lines = response_text.strip().split("\n")
+            # Remove .tar.gz.gpg suffix to get barcodes
+            converted_barcodes = set()
+            for line in lines:
+                if line.strip() and ".tar.gz.gpg" in line:
+                    barcode = line.strip().replace(".tar.gz.gpg", "")
+                    converted_barcodes.add(barcode)
+            return converted_barcodes
+        except Exception as e:
+            logger.warning(f"Failed to get converted books: {e}")
+            return set()
+
+
+class ProcessingPipeline:
+    """Pipeline for requesting book processing with database tracking."""
+
+    def __init__(
+        self,
+        db_path: str,
+        directory: str = "Harvard",
+        rate_limit_delay: float = 0.2,  # 5 QPS
+        batch_size: int = 200,  # Increased from 100 based on testing
+        max_in_process: int = 50000,  # GRIN's max queue limit
+        secrets_dir: str | None = None,
+    ):
+        self.db_path = db_path
+        self.directory = directory
+        self.rate_limit_delay = rate_limit_delay
+        self.batch_size = batch_size
+        self.max_in_process = max_in_process
+        
+        # Initialize components
+        self.processing_client = ProcessingClient(
+            directory=directory,
+            rate_limit_delay=rate_limit_delay,
+            secrets_dir=secrets_dir,
+        )
+        self.db_tracker = SQLiteProgressTracker(db_path)
+        
+        # Concurrency control - limit concurrent batch requests
+        self.max_concurrent_batches = 5  # Maximum parallel batch requests
+        self._batch_semaphore = asyncio.Semaphore(self.max_concurrent_batches)
+
+        # Statistics
+        self.stats = {
+            "requested": 0,
+            "successful": 0,
+            "failed": 0,
+            "skipped": 0,
+        }
+
+    async def cleanup(self) -> None:
+        """Clean up resources and close connections safely."""
+        await self.processing_client.cleanup()
+        try:
+            if hasattr(self.db_tracker, "_db") and self.db_tracker._db:
+                await self.db_tracker._db.close()
+        except Exception as e:
+            logger.warning(f"Error closing database connection: {e}")
+
+    async def get_processing_status(self) -> dict:
+        """Get current processing status from GRIN."""
+        in_process = await self.processing_client.get_in_process_books()
+
+        return {
+            "in_process": len(in_process),
+            "queue_space": max(0, self.max_in_process - len(in_process)),
+        }
+
+    async def run_processing_requests(self, limit: int | None = None) -> None:
+        """Run the complete processing request pipeline."""
+        print(f"Starting GRIN book processing request pipeline")
+        print(f"Database: {self.db_path}")
+        print(f"Directory: {self.directory}")
+        print(f"Rate limit: {1 / self.rate_limit_delay:.1f} requests/second")
+        print(f"Max in process: {self.max_in_process:,}")
+        if limit:
+            print(f"Limit: {limit:,} {pluralize(limit, 'request')}")
+        print()
+
+        logger.info("Starting processing request pipeline")
+        logger.info(f"Database: {self.db_path}")
+        logger.info(f"Directory: {self.directory}")
+        
+        start_time = time.time()
+
+        try:
+            # Validate credentials
+            print("Validating GRIN credentials...")
+            try:
+                await asyncio.wait_for(
+                    self.processing_client.grin_client.auth.validate_credentials(self.directory),
+                    timeout=30.0
+                )
+                print("✅ Credentials validated")
+            except asyncio.TimeoutError:
+                print("❌ Credential validation timed out after 30 seconds")
+                return
+            except Exception as e:
+                print(f"❌ Credential validation failed: {e}")
+                return
+            print()
+
+            # Get initial status
+            print("Checking current GRIN processing status...")
+            try:
+                status = await asyncio.wait_for(self.get_processing_status(), timeout=60.0)
+                print(f"GRIN status: {status['in_process']:,} in process")
+                print(f"Queue space available: {status['queue_space']:,} slots")
+            except asyncio.TimeoutError:
+                print("❌ Getting GRIN status timed out after 60 seconds")
+                return
+            except Exception as e:
+                print(f"❌ Failed to get GRIN status: {e}")
+                return
+            print()
+
+            if status["queue_space"] <= 0:
+                print("GRIN processing queue is full. Cannot submit new requests.")
+                return
+
+            # Get books from database that could be processed
+            total_books = await self.db_tracker.get_book_count()
+            print(f"Database contains {total_books:,} books")
+
+            # Get current GRIN in-process books to avoid duplicate requests
+            print("Getting current GRIN in-process books to avoid duplicates...")
+            try:
+                in_process_books = await asyncio.wait_for(
+                    self.processing_client.get_in_process_books(), 
+                    timeout=60.0
+                )
+                print(f"Found {len(in_process_books):,} books currently in GRIN processing queue")
+            except asyncio.TimeoutError:
+                print("❌ Getting in-process books timed out after 60 seconds")
+                print("Proceeding without filtering duplicates...")
+                in_process_books = set()
+            except Exception as e:
+                print(f"❌ Failed to get in-process books: {e}")
+                print("Proceeding without filtering duplicates...")
+                in_process_books = set()
+            print()
+            
+            books_to_request = min(limit or status["queue_space"], status["queue_space"])
+            if books_to_request <= 0:
+                print("No requests to make")
+                return
+
+            print(f"Will attempt to request processing for up to {books_to_request:,} new books")
+            print()
+
+            # Get books from database, filtering out those already in GRIN
+            import aiosqlite
+            
+            candidate_barcodes: list[str] = []
+            fetch_offset = 0
+            fetch_batch_size = min(books_to_request * 100, 50000)  # Start with reasonable batch
+            
+            print("Searching for books that haven't been requested for processing...")
+            
+            while len(candidate_barcodes) < books_to_request and fetch_offset < total_books:
+                # Fetch next batch of books from database that haven't been requested
+                async with aiosqlite.connect(self.db_path) as db:
+                    cursor = await db.execute(
+                        """
+                        SELECT barcode FROM books 
+                        WHERE processing_request_status IS NULL 
+                        ORDER BY created_at LIMIT ? OFFSET ?
+                        """,
+                        (fetch_batch_size, fetch_offset)
+                    )
+                    rows = await cursor.fetchall()
+                    batch_barcodes = [row[0] for row in rows]
+
+                if not batch_barcodes:
+                    # No more unrequested books in database
+                    break
+
+                # Filter out books currently in GRIN's processing queue
+                new_candidates = [
+                    barcode for barcode in batch_barcodes 
+                    if barcode not in in_process_books
+                ]
+                
+                candidate_barcodes.extend(new_candidates)
+                fetch_offset += len(batch_barcodes)
+                
+                print(f"  Searched {fetch_offset:,}/{total_books:,} books, found {len(candidate_barcodes):,} new candidates")
+                
+                # If we found enough candidates, we can stop
+                if len(candidate_barcodes) >= books_to_request:
+                    break
+                    
+                # If we didn't find any new candidates in this batch, try a larger batch
+                if not new_candidates and len(batch_barcodes) == fetch_batch_size:
+                    fetch_batch_size = min(fetch_batch_size * 2, 100000)
+                    print(f"  No new candidates found, increasing batch size to {fetch_batch_size:,}")
+
+            # Limit to the requested number
+            candidate_barcodes = candidate_barcodes[:books_to_request]
+
+            print(f"Final result: {len(candidate_barcodes):,} books ready for processing requests")
+            
+            if not candidate_barcodes:
+                print("No new books to request processing for - all searched books are already in GRIN system")
+                print(f"Searched {fetch_offset:,}/{total_books:,} books in database")
+                if fetch_offset < total_books:
+                    print("You may want to try again with a higher limit to search more books")
+                return
+
+            # Process requests with async concurrency
+            await self._process_batches_concurrently(candidate_barcodes, limit, start_time)
+
+        except KeyboardInterrupt:
+            print("\nProcessing requests interrupted by user")
+            logger.info("Processing requests interrupted by user")
+
+        except Exception as e:
+            print(f"\nProcessing requests failed: {e}")
+            logger.error(f"Processing requests failed: {e}", exc_info=True)
+
+        finally:
+            # Clean up resources
+            await self.cleanup()
+
+            # Final statistics
+            total_elapsed = time.time() - start_time
+            final_status = await self.get_processing_status()
+
+            print(f"\nProcessing requests completed:")
+            print(f"  Total runtime: {format_duration(total_elapsed)}")
+            print(f"  Requests attempted: {self.stats['requested']:,}")
+            print(f"  Successful requests: {self.stats['successful']:,}")
+            print(f"  Failed requests: {self.stats['failed']:,}")
+            if total_elapsed > 0:
+                print(f"  Average rate: {self.stats['requested'] / total_elapsed:.1f} requests/second")
+            
+            print(f"\nFinal GRIN status:")
+            print(f"  In process: {final_status['in_process']:,}")
+            print(f"  Queue space: {final_status['queue_space']:,}")
+
+            logger.info("Processing request pipeline completed")
+
+    async def _mark_book_as_requested(self, barcode: str) -> None:
+        """Mark a book as requested in the database with current timestamp."""
+        try:
+            # Get the book record from database
+            book = await self.db_tracker.get_book(barcode)
+            if book:
+                # Update the processing request fields
+                book.processing_request_status = "requested"
+                book.processing_request_timestamp = datetime.now(UTC).isoformat()
+                
+                # Save the updated book record
+                await self.db_tracker.save_book(book)
+                logger.debug(f"Marked book {barcode} as requested in database")
+            else:
+                logger.warning(f"Book {barcode} not found in database when trying to mark as requested")
+        except Exception as e:
+            logger.error(f"Failed to mark book {barcode} as requested in database: {e}")
+
+    async def _process_single_batch(self, batch: list[str], batch_num: int) -> dict:
+        """Process a single batch of books with rate limiting."""
+        async with self._batch_semaphore:
+            batch_start = time.time()
+            batch_size = len(batch)
+            
+            print(f"Starting batch {batch_num}: {batch_size} books")
+            
+            try:
+                # Mark all books in batch as requested in database before making the request
+                for barcode in batch:
+                    await self._mark_book_as_requested(barcode)
+                
+                # Make the batch processing request to GRIN
+                batch_results = await self.processing_client.request_processing_batch(batch)
+                
+                # Process results
+                successful = 0
+                failed = 0
+                
+                for barcode in batch:
+                    if barcode in batch_results:
+                        status = batch_results[barcode]
+                        if status == "Success":
+                            successful += 1
+                            logger.info(f"Successfully requested processing for {barcode}")
+                        else:
+                            failed += 1
+                            logger.error(f"Failed to request processing for {barcode}: {status}")
+                    else:
+                        failed += 1
+                        logger.error(f"No result returned for {barcode}")
+                
+                batch_elapsed = time.time() - batch_start
+                rate = batch_size / batch_elapsed if batch_elapsed > 0 else 0
+                
+                print(f"Completed batch {batch_num}: {successful}/{batch_size} successful in {batch_elapsed:.1f}s ({rate:.1f} req/s)")
+                
+                return {
+                    "batch_num": batch_num,
+                    "total": batch_size,
+                    "successful": successful,
+                    "failed": failed,
+                    "elapsed": batch_elapsed,
+                }
+                
+            except ProcessingRequestError as e:
+                batch_elapsed = time.time() - batch_start
+                logger.error(f"Batch {batch_num} processing request failed: {e}")
+                print(f"❌ Batch {batch_num} failed: {e}")
+                
+                return {
+                    "batch_num": batch_num,
+                    "total": batch_size,
+                    "successful": 0,
+                    "failed": batch_size,
+                    "elapsed": batch_elapsed,
+                    "error": str(e),
+                }
+
+    async def _process_batches_concurrently(self, candidate_barcodes: list[str], limit: int | None, start_time: float) -> None:
+        """Process multiple batches concurrently with rate limiting."""
+        # Split into batches
+        batches: list[list[str]] = []
+        for i in range(0, len(candidate_barcodes), self.batch_size):
+            batch = candidate_barcodes[i:i + self.batch_size]
+            if limit:
+                # Calculate how many books we still need
+                books_processed = sum(len(b) for b in batches)
+                remaining_needed = limit - books_processed
+                if remaining_needed <= 0:
+                    break
+                if len(batch) > remaining_needed:
+                    batch = batch[:remaining_needed]
+            batches.append(batch)
+        
+        print(f"\nProcessing {len(candidate_barcodes)} books in {len(batches)} batches with up to {self.max_concurrent_batches} concurrent batches")
+        print()
+        
+        # Create tasks for all batches
+        tasks = [
+            self._process_single_batch(batch, i + 1)
+            for i, batch in enumerate(batches)
+        ]
+        
+        # Process all batches concurrently
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Aggregate results
+        total_processed = 0
+        total_successful = 0
+        total_failed = 0
+        
+        for i, result in enumerate(batch_results):
+            if isinstance(result, Exception):
+                print(f"❌ Batch {i + 1} failed with exception: {result}")
+                batch_size = len(batches[i])
+                total_processed += batch_size
+                total_failed += batch_size
+                self.stats["failed"] += batch_size
+                self.stats["requested"] += batch_size
+            elif isinstance(result, dict):
+                total_processed += result["total"]
+                total_successful += result["successful"]
+                total_failed += result["failed"]
+                self.stats["successful"] += result["successful"]
+                self.stats["failed"] += result["failed"]
+                self.stats["requested"] += result["total"]
+        
+        total_elapsed = time.time() - start_time
+        overall_rate = total_processed / total_elapsed if total_elapsed > 0 else 0
+        
+        print(f"\n✅ All batches completed:")
+        print(f"  Total processed: {total_processed}")
+        print(f"  Successful: {total_successful}")
+        print(f"  Failed: {total_failed}")
+        print(f"  Total time: {total_elapsed:.1f}s")
+        print(f"  Overall rate: {overall_rate:.1f} requests/sec")
+
+
+def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
+    """Setup logging configuration."""
+    log_level = getattr(logging, level.upper())
+
+    # Create formatters
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+    # Set up root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    # Clear any existing handlers
+    root_logger.handlers.clear()
+
+    # Add file handler if log_file specified
+    if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+
+    # Add console handler for warnings and above
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.WARNING)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+
+    # Suppress debug logs from dependencies
+    logging.getLogger("aiohttp").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+
+
+def validate_database_file(db_path: str) -> None:
+    """Validate that the database file exists and contains books."""
+    import sqlite3
+
+    db_file = Path(db_path)
+
+    if not db_file.exists():
+        print(f"Error: Database file does not exist: {db_path}")
+        print("\nRun a book collection first:")
+        print("python collect_books.py --run-name <your_run_name>")
+        sys.exit(1)
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM books")
+            count = cursor.fetchone()[0]
+            
+            if count == 0:
+                print(f"Error: Database contains no books: {db_path}")
+                sys.exit(1)
+            
+            print(f"Using database: {db_path} ({count:,} books)")
+
+    except sqlite3.Error as e:
+        print(f"Error: Cannot read SQLite database: {e}")
+        sys.exit(1)
+
+
+async def main() -> None:
+    """Main CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="Request GRIN book processing with database integration",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Request processing for books from database
+  python request_processing.py output/harvard_2024/books.db
+
+  # Request processing with limits
+  python request_processing.py output/harvard_2024/books.db --limit=100
+
+  # Check current status only
+  python request_processing.py output/harvard_2024/books.db --status-only
+
+  # Custom rate limiting
+  python request_processing.py output/harvard_2024/books.db --rate-limit=0.1
+        """,
+    )
+
+    parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
+
+    # Processing options
+    parser.add_argument("--directory", default="Harvard", help="GRIN directory (default: Harvard)")
+    parser.add_argument(
+        "--rate-limit", type=float, default=0.2, help="Delay between requests (default: 0.2s for 5 QPS)"
+    )
+    parser.add_argument("--batch-size", type=int, default=200, help="Batch size for processing (default: 200)")
+    parser.add_argument(
+        "--max-in-process", type=int, default=50000, help="Maximum books in GRIN queue (default: 50000)"
+    )
+    parser.add_argument("--limit", type=int, help="Limit number of processing requests to make")
+    parser.add_argument("--status-only", action="store_true", help="Only check current status, don't make requests")
+
+    # GRIN options
+    parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets files")
+
+    # Logging
+    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
+
+    args = parser.parse_args()
+
+    # Validate database
+    validate_database_file(args.db_path)
+
+    # Set up logging
+    db_name = Path(args.db_path).stem
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = f"logs/request_processing_{db_name}_{timestamp}.log"
+    setup_logging(args.log_level, log_file)
+    print(f"Logging to file: {log_file}")
+
+    # Create and run pipeline
+    try:
+        pipeline = ProcessingPipeline(
+            db_path=args.db_path,
+            directory=args.directory,
+            rate_limit_delay=args.rate_limit,
+            batch_size=args.batch_size,
+            max_in_process=args.max_in_process,
+            secrets_dir=args.secrets_dir,
+        )
+        
+        if args.status_only:
+            # Just show status
+            status = await pipeline.get_processing_status()
+            print("GRIN Processing Status:")
+            print(f"  In process: {status['in_process']:,}")
+            print(f"  Queue space: {status['queue_space']:,}")
+            
+            # Show database status
+            total_books = await pipeline.db_tracker.get_book_count()
+            print(f"\nDatabase Status:")
+            print(f"  Total books: {total_books:,}")
+            
+            # Count books by processing request status
+            import aiosqlite
+            async with aiosqlite.connect(pipeline.db_path) as db:
+                cursor = await db.execute(
+                    "SELECT processing_request_status, COUNT(*) FROM books GROUP BY processing_request_status"
+                )
+                status_counts = await cursor.fetchall()
+                for status, count in status_counts:
+                    status_name = status if status else "not requested"
+                    print(f"  {status_name}: {count:,}")
+        else:
+            # Run processing requests
+            await pipeline.run_processing_requests(limit=args.limit)
+
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user")
+    except Exception as e:
+        print(f"Pipeline failed: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

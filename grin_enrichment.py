@@ -18,7 +18,7 @@ from typing import Any
 # Check Python version requirement
 from client import GRINClient
 from collect_books.models import BookRecord, SQLiteProgressTracker
-from common import BackupManager, format_duration, pluralize
+from common import BackupManager, SlidingWindowRateCalculator, format_duration, pluralize
 
 logger = logging.getLogger(__name__)
 
@@ -446,6 +446,9 @@ class GRINEnrichmentPipeline:
         start_time = time.time()
         processed_count = 0
         total_enriched = 0
+        
+        # Initialize sliding window rate calculator
+        rate_calculator = SlidingWindowRateCalculator(window_size=5)
 
         logger.info(f"Starting enrichment of {remaining_books:,} books...")
 
@@ -478,14 +481,17 @@ class GRINEnrichmentPipeline:
                 batch_elapsed = time.time() - batch_start
                 processed_count += len(barcodes)
                 total_enriched += enriched_in_batch
+                
+                # Track batch completion for sliding window rate calculation
+                current_time = time.time()
+                rate_calculator.add_batch(current_time, processed_count)
 
-                # Progress report
-                overall_elapsed = time.time() - start_time
-                rate = processed_count / max(1, overall_elapsed)
+                # Calculate rate using sliding window
+                rate = rate_calculator.get_rate(start_time, processed_count)
 
                 # Calculate ETA if we have enough data (after 2+ batches)
                 eta_text = ""
-                if processed_count >= self.batch_size * 2 and rate > 0:
+                if len(rate_calculator.batch_times) >= 2 and rate > 0:
                     books_remaining = remaining_books - processed_count
                     eta_seconds = books_remaining / rate
                     eta_text = f" (ETA: {format_duration(eta_seconds)})"

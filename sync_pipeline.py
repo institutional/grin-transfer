@@ -1,0 +1,591 @@
+#!/usr/bin/env python3
+"""
+Sync Pipeline for GRIN Books to Storage
+
+Downloads and decrypts converted books from GRIN to S3-compatible storage
+with comprehensive database tracking and progress monitoring.
+"""
+
+import argparse
+import asyncio
+import logging
+import signal
+import sys
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from collect_books.models import SQLiteProgressTracker
+from common import ProgressReporter, SlidingWindowRateCalculator, create_storage_from_config, format_duration, pluralize
+from download import download_book, reset_bucket_cache
+from client import GRINClient
+
+logger = logging.getLogger(__name__)
+
+
+class SyncPipeline:
+    """Pipeline for syncing converted books from GRIN to storage with database tracking."""
+
+    def __init__(
+        self,
+        db_path: str,
+        storage_type: str,
+        storage_config: dict,
+        concurrent_downloads: int = 3,
+        batch_size: int = 100,
+        directory: str = "Harvard",
+        secrets_dir: str | None = None,
+        gpg_key_file: str | None = None,
+        force: bool = False,
+    ):
+        self.db_path = db_path
+        self.storage_type = storage_type
+        self.storage_config = storage_config
+        self.concurrent_downloads = concurrent_downloads
+        self.batch_size = batch_size
+        self.directory = directory
+        self.secrets_dir = secrets_dir
+        self.gpg_key_file = gpg_key_file
+        self.force = force
+
+        # Initialize components
+        self.db_tracker = SQLiteProgressTracker(db_path)
+        self.progress_reporter = ProgressReporter("sync", None)
+        self.grin_client = GRINClient(secrets_dir=secrets_dir)
+
+        # Concurrency control
+        self._download_semaphore = asyncio.Semaphore(concurrent_downloads)
+        self._shutdown_requested = False
+
+        # Statistics
+        self.stats = {
+            "processed": 0,
+            "completed": 0,
+            "failed": 0,
+            "skipped": 0,
+            "total_bytes": 0,
+        }
+
+    async def cleanup(self) -> None:
+        """Clean up resources and close connections safely."""
+        if self._shutdown_requested:
+            return
+
+        self._shutdown_requested = True
+        logger.info("Shutting down sync pipeline...")
+
+        try:
+            if hasattr(self.db_tracker, "_db") and self.db_tracker._db:
+                await self.db_tracker._db.close()
+                logger.debug("Closed database connection")
+        except Exception as e:
+            logger.warning(f"Error closing database connection: {e}")
+
+        try:
+            if hasattr(self.grin_client, "session") and self.grin_client.session:
+                await self.grin_client.session.close()
+                logger.debug("Closed GRIN client session")
+        except Exception as e:
+            logger.warning(f"Error closing GRIN client session: {e}")
+
+        logger.info("Cleanup completed")
+
+    async def _mark_book_as_converted(self, barcode: str) -> None:
+        """Mark a book as converted in our database after successful download."""
+        try:
+            from datetime import UTC
+            book = await self.db_tracker.get_book(barcode)
+            if book:
+                book.processing_request_status = "converted"
+                await self.db_tracker.save_book(book)
+                logger.debug(f"Marked {barcode} as converted in database")
+        except Exception as e:
+            logger.warning(f"Failed to mark {barcode} as converted: {e}")
+
+    async def get_converted_books(self) -> set[str]:
+        """Get set of books that are converted and ready for download."""
+        try:
+            response_text = await self.grin_client.fetch_resource(self.directory, "_converted?format=text")
+            lines = response_text.strip().split("\n")
+            converted_barcodes = set()
+            for line in lines:
+                if line.strip() and ".tar.gz.gpg" in line:
+                    barcode = line.strip().replace(".tar.gz.gpg", "")
+                    converted_barcodes.add(barcode)
+            return converted_barcodes
+        except Exception as e:
+            logger.warning(f"Failed to get converted books: {e}")
+            return set()
+
+    async def _download_with_semaphore(self, barcode: str) -> dict:
+        """Download a single book with concurrency control."""
+        async with self._download_semaphore:
+            try:
+                result = await download_book(
+                    barcode=barcode,
+                    storage_type=self.storage_type,
+                    storage_config=self.storage_config,
+                    directory=self.directory,
+                    secrets_dir=self.secrets_dir,
+                    force=self.force,
+                    gpg_key_file=self.gpg_key_file,
+                    db_tracker=self.db_tracker,
+                    verbose=True,  # Enable verbose output for debug logging
+                    show_progress=False,  # Disable percentage progress in pipeline
+                )
+                
+                self.stats["completed"] += 1
+                self.stats["total_bytes"] += result.get("file_size", 0)
+                
+                # Mark book as converted since we successfully downloaded it
+                await self._mark_book_as_converted(barcode)
+                
+                return {
+                    "barcode": barcode,
+                    "status": "completed",
+                    "size": result.get("file_size", 0),
+                    "duration": result.get("total_time", 0),
+                    "decrypted": result.get("is_decrypted", False),
+                }
+                
+            except Exception as e:
+                self.stats["failed"] += 1
+                logger.error(f"Failed to download {barcode}: {e}")
+                
+                return {
+                    "barcode": barcode,
+                    "status": "failed",
+                    "error": str(e),
+                }
+
+    async def process_batch(self, barcodes: list[str]) -> list[dict]:
+        """Process a batch of downloads concurrently."""
+        if not barcodes:
+            return []
+
+        # Create download tasks
+        tasks = [self._download_with_semaphore(barcode) for barcode in barcodes]
+        
+        # Execute all downloads concurrently
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Process results
+        processed_results: list[dict[str, Any]] = []
+        for i, result in enumerate(results):
+            barcode = barcodes[i]
+            self.stats["processed"] += 1
+            
+            if isinstance(result, Exception):
+                self.stats["failed"] += 1
+                logger.error(f"Download task failed for {barcode}: {result}")
+                processed_results.append({
+                    "barcode": barcode,
+                    "status": "failed",
+                    "error": str(result),
+                })
+            elif isinstance(result, dict):
+                processed_results.append(result)
+            else:
+                # Unexpected result type, treat as error
+                self.stats["failed"] += 1
+                logger.error(f"Unexpected result type for {barcode}: {type(result)}")
+                processed_results.append({
+                    "barcode": barcode,
+                    "status": "failed",
+                    "error": f"Unexpected result type: {type(result)}",
+                })
+                
+        return processed_results
+
+    async def get_sync_status(self) -> dict:
+        """Get current sync status and statistics."""
+        stats = await self.db_tracker.get_sync_stats(self.storage_type)
+        return {
+            **stats,
+            "session_stats": self.stats,
+        }
+
+    async def run_sync(self, limit: int | None = None, status_filter: str | None = None) -> None:
+        """Run the complete sync pipeline."""
+        print(f"Starting GRIN-to-Storage sync pipeline")
+        print(f"Database: {self.db_path}")
+        print(f"Storage: {self.storage_type}")
+        print(f"Concurrent downloads: {self.concurrent_downloads}")
+        print(f"Batch size: {self.batch_size}")
+        if limit:
+            print(f"Limit: {limit:,} {pluralize(limit, 'book')}")
+        if status_filter:
+            print(f"Status filter: {status_filter}")
+        print()
+
+        logger.info("Starting sync pipeline")
+        logger.info(f"Database: {self.db_path}")
+        logger.info(f"Storage type: {self.storage_type}")
+        logger.info(f"Concurrent downloads: {self.concurrent_downloads}")
+        
+        # Reset bucket cache at start of sync
+        reset_bucket_cache()
+        
+        start_time = time.time()
+
+        try:
+            # We don't fetch GRIN's converted list since it's unreliable
+            # Instead, we'll try to download requested books and mark them as converted when successful
+            print("Using database as source of truth for processing status")
+            
+            # Get initial status
+            initial_status = await self.get_sync_status()
+            total_converted = initial_status["total_converted"]
+            already_synced = initial_status["synced"]
+            failed_count = initial_status["failed"]
+            pending_count = initial_status["pending"]
+
+            print(f"Database sync status: {total_converted:,} total, {already_synced:,} synced, "
+                  f"{failed_count:,} failed, {pending_count:,} pending")
+
+            # Check how many requested books need syncing
+            available_to_sync = await self.db_tracker.get_books_for_sync(
+                storage_type=self.storage_type,
+                limit=999999,  # Get all available
+                status_filter=status_filter,
+                converted_barcodes=None  # Don't filter by GRIN's list
+            )
+            
+            print(f"Found {len(available_to_sync):,} requested books that need syncing")
+            
+            if not available_to_sync:
+                print("No requested books found that need syncing")
+                return
+
+            # Set up progress tracking
+            books_to_process = min(limit or len(available_to_sync), len(available_to_sync))
+            self.progress_reporter = ProgressReporter("sync", books_to_process)
+            self.progress_reporter.start()
+
+            processed_count = 0
+            
+            # Initialize sliding window rate calculator
+            rate_calculator = SlidingWindowRateCalculator(window_size=5)
+
+            while True:
+                # Check for shutdown request
+                if self._shutdown_requested:
+                    print("\nShutdown requested, stopping sync...")
+                    break
+
+                # Get batch of books to sync
+                remaining_limit = None
+                if limit:
+                    remaining_limit = limit - processed_count
+                    if remaining_limit <= 0:
+                        break
+
+                batch_limit = min(self.batch_size, remaining_limit or self.batch_size)
+                barcodes = await self.db_tracker.get_books_for_sync(
+                    storage_type=self.storage_type,
+                    limit=batch_limit,
+                    status_filter=status_filter,
+                    converted_barcodes=None  # Don't filter by GRIN's list
+                )
+
+                if not barcodes:
+                    print("✅ No more books to sync")
+                    break
+
+                logger.info(f"Processing batch of {len(barcodes)} books...")
+
+                # Process the batch
+                batch_start = time.time()
+                batch_results = await self.process_batch(barcodes)
+                batch_elapsed = time.time() - batch_start
+
+                # Update progress
+                processed_count += len(barcodes)
+                self.progress_reporter.update(
+                    items=len(barcodes),
+                    bytes_count=sum(r.get("size", 0) for r in batch_results),
+                    force=True
+                )
+                
+                # Track batch completion for sliding window rate calculation
+                current_time = time.time()
+                rate_calculator.add_batch(current_time, processed_count)
+
+                # Log batch completion
+                completed_in_batch = sum(1 for r in batch_results if r["status"] == "completed")
+                failed_in_batch = sum(1 for r in batch_results if r["status"] == "failed")
+                
+                logger.info(f"Batch completed: {completed_in_batch}/{len(barcodes)} successful "
+                           f"in {batch_elapsed:.1f}s")
+
+                # Calculate rate using sliding window
+                rate = rate_calculator.get_rate(start_time, processed_count)
+                
+                if books_to_process > 0:
+                    percentage = (processed_count / books_to_process) * 100
+                    remaining = books_to_process - processed_count
+                    eta_seconds = remaining / rate if rate > 0 else 0
+                    eta_text = f" (ETA: {format_duration(eta_seconds)})" if eta_seconds > 0 else ""
+                    
+                    print(f"Progress: {processed_count:,}/{books_to_process:,} "
+                          f"({percentage:.1f}%) - {rate:.1f} books/sec{eta_text}")
+
+                if limit and processed_count >= limit:
+                    print(f"Reached limit of {limit:,} books")
+                    break
+
+                # Small delay between batches
+                await asyncio.sleep(0.1)
+
+        except KeyboardInterrupt:
+            print("\nSync interrupted by user")
+            logger.info("Sync interrupted by user")
+
+        except Exception as e:
+            print(f"\nSync failed: {e}")
+            logger.error(f"Sync failed: {e}", exc_info=True)
+
+        finally:
+            # Clean up resources
+            await self.cleanup()
+
+            # Final statistics
+            self.progress_reporter.finish()
+            
+            total_elapsed = time.time() - start_time
+            final_status = await self.get_sync_status()
+
+            print(f"\nSync completed:")
+            print(f"  Total runtime: {format_duration(total_elapsed)}")
+            print(f"  Books processed: {self.stats['processed']:,}")
+            print(f"  Successful downloads: {self.stats['completed']:,}")
+            print(f"  Failed downloads: {self.stats['failed']:,}")
+            print(f"  Total data: {self.stats['total_bytes'] / 1024 / 1024:.1f} MB")
+            if total_elapsed > 0:
+                print(f"  Average rate: {self.stats['processed'] / total_elapsed:.1f} books/second")
+            
+            print(f"\nFinal sync status:")
+            print(f"  Total converted books: {final_status['total_converted']:,}")
+            print(f"  Successfully synced: {final_status['synced']:,}")
+            print(f"  Failed syncs: {final_status['failed']:,}")
+            print(f"  Pending syncs: {final_status['pending']:,}")
+            print(f"  Decrypted books: {final_status['decrypted']:,}")
+
+            logger.info("Sync pipeline completed")
+
+
+def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
+    """Setup logging configuration."""
+    log_level = getattr(logging, level.upper())
+
+    # Create formatters
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+    # Set up root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    # Clear any existing handlers
+    root_logger.handlers.clear()
+
+    # Add file handler if log_file specified
+    if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+
+    # Add console handler for ERROR and above (minimal console output)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.ERROR)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+
+    # Suppress debug logs from dependencies
+    logging.getLogger("aiohttp").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
+
+
+def validate_database_file(db_path: str) -> None:
+    """Validate that the database file exists and contains the required tables."""
+    import sqlite3
+
+    db_file = Path(db_path)
+
+    if not db_file.exists():
+        print(f"❌ Error: Database file does not exist: {db_path}")
+        print("\nRun a book collection first:")
+        print("python collect_books.py --run-name <your_run_name>")
+        sys.exit(1)
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+            tables = cursor.fetchall()
+
+            table_names = [table[0] for table in tables]
+            required_tables = ["books", "processed", "failed"]
+            missing_tables = [table for table in required_tables if table not in table_names]
+
+            if missing_tables:
+                print(f"❌ Error: Database is missing required tables: {missing_tables}")
+                sys.exit(1)
+
+    except sqlite3.Error as e:
+        print(f"❌ Error: Cannot read SQLite database: {e}")
+        sys.exit(1)
+
+    print(f"✅ Using database: {db_path}")
+
+
+async def main() -> None:
+    """Main CLI entry point."""
+    # Set up signal handlers for graceful shutdown
+    def signal_handler(signum: int, frame: Any) -> None:
+        print(f"\nReceived signal {signum}, shutting down gracefully...")
+        raise KeyboardInterrupt()
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    parser = argparse.ArgumentParser(
+        description="Sync converted GRIN books to storage with database tracking",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Sync to Cloudflare R2
+  python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw
+
+  # Sync to MinIO with custom concurrency
+  python sync_pipeline.py output/harvard_2024/books.db --storage=minio --bucket=grin-raw --concurrent=5
+
+  # Retry failed syncs only
+  python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --status=failed
+
+  # Sync with limit and force overwrite
+  python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --limit=100 --force
+        """,
+    )
+
+    parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
+
+    # Storage configuration
+    parser.add_argument("--storage", choices=["minio", "r2", "s3"], required=True, help="Storage backend")
+    parser.add_argument("--bucket", required=True, help="Storage bucket name")
+    parser.add_argument("--prefix", help="Storage prefix/path")
+
+    # Storage credentials
+    parser.add_argument("--endpoint-url", help="Custom endpoint URL (MinIO)")
+    parser.add_argument("--access-key", help="Access key")
+    parser.add_argument("--secret-key", help="Secret key")
+    parser.add_argument("--account-id", help="Account ID (R2)")
+    parser.add_argument("--credentials-file", help="Custom credentials file path")
+
+    # Pipeline options
+    parser.add_argument("--concurrent", type=int, default=3, help="Concurrent downloads (default: 3)")
+    parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing (default: 100)")
+    parser.add_argument("--limit", type=int, help="Limit number of books to sync")
+    parser.add_argument("--status", choices=["pending", "failed"], help="Only sync books with this status")
+    parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
+
+    # GRIN options
+    parser.add_argument("--directory", default="Harvard", help="GRIN directory (default: Harvard)")
+    parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets")
+    parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
+
+    # Logging
+    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
+
+    args = parser.parse_args()
+
+    # Validate database
+    validate_database_file(args.db_path)
+
+    # Build storage configuration
+    storage_config = {"bucket": args.bucket}
+    if args.prefix:
+        storage_config["prefix"] = args.prefix
+    if args.endpoint_url:
+        storage_config["endpoint_url"] = args.endpoint_url
+    if args.access_key:
+        storage_config["access_key"] = args.access_key
+    if args.secret_key:
+        storage_config["secret_key"] = args.secret_key
+    if args.account_id:
+        storage_config["account_id"] = args.account_id
+    if args.credentials_file:
+        storage_config["credentials_file"] = args.credentials_file
+
+    # Auto-configure MinIO from docker-compose file if needed
+    if args.storage == "minio" and not (args.endpoint_url and args.access_key and args.secret_key):
+        try:
+            import yaml
+            
+            compose_file = Path("docker-compose.minio.yml")
+            if compose_file.exists():
+                with open(compose_file) as f:
+                    compose_config = yaml.safe_load(f)
+
+                minio_service = compose_config.get("services", {}).get("minio", {})
+                env = minio_service.get("environment", {})
+                ports = minio_service.get("ports", [])
+
+                if not args.endpoint_url:
+                    api_port = "9000"
+                    for port_mapping in ports:
+                        if isinstance(port_mapping, str) and ":9000" in port_mapping:
+                            api_port = port_mapping.split(":")[0]
+                            break
+                    storage_config["endpoint_url"] = f"http://localhost:{api_port}"
+
+                if not args.access_key:
+                    storage_config["access_key"] = env.get("MINIO_ROOT_USER", "minioadmin")
+
+                if not args.secret_key:
+                    storage_config["secret_key"] = env.get("MINIO_ROOT_PASSWORD", "minioadmin123")
+
+                print("Auto-configured MinIO from docker-compose.minio.yml")
+
+        except ImportError:
+            print("Warning: PyYAML not available, cannot auto-configure MinIO")
+        except Exception as e:
+            print(f"Warning: Failed to read docker-compose.minio.yml: {e}")
+
+    # Set up logging
+    db_name = Path(args.db_path).stem
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = f"logs/sync_pipeline_{args.storage}_{db_name}_{timestamp}.log"
+    setup_logging(args.log_level, log_file)
+    print(f"Logging to file: {log_file}")
+
+    # Create and run pipeline
+    try:
+        pipeline = SyncPipeline(
+            db_path=args.db_path,
+            storage_type=args.storage,
+            storage_config=storage_config,
+            concurrent_downloads=args.concurrent,
+            batch_size=args.batch_size,
+            directory=args.directory,
+            secrets_dir=args.secrets_dir,
+            gpg_key_file=args.gpg_key_file,
+            force=args.force,
+        )
+        
+        await pipeline.run_sync(limit=args.limit, status_filter=args.status)
+
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user")
+    except Exception as e:
+        print(f"Pipeline failed: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
