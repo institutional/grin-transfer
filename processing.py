@@ -691,11 +691,14 @@ class ProcessingMonitor:
         in_process = await self.get_in_process_books()
         failed = await self.get_failed_books()
 
-        print(f"Converted (ready for download): {len(converted):,}")
-        print(f"In process (being converted):    {len(in_process):,}")
-        print(f"Failed (conversion failed):     {len(failed):,}")
-        print(f"Total processed:                {len(converted) + len(in_process) + len(failed):,}")
-        print(f"Queue space available:          {50000 - len(in_process):,}")
+        total_processed = len(converted) + len(in_process) + len(failed)
+        queue_space = 50000 - len(in_process)
+        
+        print(f"Converted (ready for download): {len(converted):>8,}")
+        print(f"In process (being converted):   {len(in_process):>8,}")
+        print(f"Failed (conversion failed):     {len(failed):>8,}")
+        print(f"Total processed:                {total_processed:>8,}")
+        print(f"Queue space available:          {queue_space:>8,}")
 
     async def show_converted_books(self, limit: int = 50) -> None:
         """Show list of converted books ready for download."""
