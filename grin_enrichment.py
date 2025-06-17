@@ -19,7 +19,7 @@ from typing import Any
 from client import GRINClient
 from collect_books.models import BookRecord, SQLiteProgressTracker
 from common import BackupManager, SlidingWindowRateCalculator, format_duration, pluralize
-from run_config import find_run_config, apply_run_config_to_args, setup_run_database_path
+from run_config import apply_run_config_to_args, setup_run_database_path
 
 logger = logging.getLogger(__name__)
 
@@ -447,7 +447,7 @@ class GRINEnrichmentPipeline:
         start_time = time.time()
         processed_count = 0
         total_enriched = 0
-        
+
         # Initialize sliding window rate calculator
         rate_calculator = SlidingWindowRateCalculator(window_size=5)
 
@@ -482,7 +482,7 @@ class GRINEnrichmentPipeline:
                 batch_elapsed = time.time() - batch_start
                 processed_count += len(barcodes)
                 total_enriched += enriched_in_batch
-                
+
                 # Track batch completion for sliding window rate calculation
                 current_time = time.time()
                 rate_calculator.add_batch(current_time, processed_count)
@@ -743,10 +743,10 @@ Examples:
     db_path = setup_run_database_path(args, args.run_name)
     print(f"Using run: {args.run_name}")
     print(f"Database: {db_path}")
-    
+
     # Validate database file exists and is accessible
     validate_database_file(args.db_path)
-    
+
     # Apply run configuration defaults for the command
     if args.command in ["enrich"]:
         apply_run_config_to_args(args, args.db_path)

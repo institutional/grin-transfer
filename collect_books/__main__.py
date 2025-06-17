@@ -163,25 +163,36 @@ async def main():
         epilog="""
 Examples:
   # Basic collection with timestamp-based run name
-  python -m collect_books --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
+  python -m collect_books --storage r2 --bucket-raw grin-raw \
+                         --bucket-meta grin-meta --bucket-full grin-full
 
   # Named collection run
-  python -m collect_books --run-name "harvard_fall_2024" --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
+  python -m collect_books --run-name "harvard_fall_2024" --storage r2 \
+                         --bucket-raw grin-raw --bucket-meta grin-meta \
+                         --bucket-full grin-full
 
   # Specific output file with custom run
-  python -m collect_books books.csv --run-name "test_run" --limit 100 --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
+  python -m collect_books books.csv --run-name "test_run" --limit 100 \
+                         --storage r2 --bucket-raw grin-raw \
+                         --bucket-meta grin-meta --bucket-full grin-full
 
   # With rate limiting and storage checking
-  python -m collect_books --rate-limit 0.5 --storage s3 --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
+  python -m collect_books --rate-limit 0.5 --storage s3 \
+                         --bucket-raw my-raw --bucket-meta my-meta \
+                         --bucket-full my-full
 
   # With additional storage configuration
-  python -m collect_books --storage minio --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full --storage-config endpoint_url=localhost:9000
+  python -m collect_books --storage minio --bucket-raw grin-raw \
+                         --bucket-meta grin-meta --bucket-full grin-full \
+                         --storage-config endpoint_url=localhost:9000
 
   # Local storage (no buckets required)
   python -m collect_books --storage local --run-name "local_test"
 
   # Resume interrupted collection (uses run-specific progress files and saved config)
-  python -m collect_books --run-name "harvard_fall_2024" --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
+  python -m collect_books --run-name "harvard_fall_2024" --storage r2 \
+                         --bucket-raw grin-raw --bucket-meta grin-meta \
+                         --bucket-full grin-full
         """,
     )
 
@@ -189,14 +200,21 @@ Examples:
 
     # Run identification
     parser.add_argument(
-        "--run-name", help="Name for this collection run (defaults to timestamp). Used for all output files."
+        "--run-name",
+        help="Name for this collection run (defaults to timestamp). Used for all output files."
     )
 
     # Export options
-    parser.add_argument("--directory", default="Harvard", help="Library directory name (default: Harvard)")
+    parser.add_argument(
+        "--directory", default="Harvard", help="Library directory name (default: Harvard)"
+    )
     parser.add_argument("--limit", type=int, help="Limit number of books to process (for testing)")
-    parser.add_argument("--rate-limit", type=float, default=5.0, help="API requests per second (default: 5.0)")
-    parser.add_argument("--test-mode", action="store_true", help="Use mock data for testing (no network calls)")
+    parser.add_argument(
+        "--rate-limit", type=float, default=5.0, help="API requests per second (default: 5.0)"
+    )
+    parser.add_argument(
+        "--test-mode", action="store_true", help="Use mock data for testing (no network calls)"
+    )
 
     # Logging options
     parser.add_argument(
@@ -206,28 +224,55 @@ Examples:
         help="Logging level (default: INFO)",
     )
     parser.add_argument(
-        "--log-file", help="Log file path (default: auto-generated timestamped file in logs/ directory)"
+        "--log-file",
+        help="Log file path (default: auto-generated timestamped file in logs/ directory)"
     )
 
     # Storage options
     parser.add_argument(
-        "--storage", choices=["local", "minio", "r2", "s3"], required=True, help="Storage backend for run configuration"
+        "--storage",
+        choices=["local", "minio", "r2", "s3"],
+        required=True,
+        help="Storage backend for run configuration"
     )
-    parser.add_argument("--bucket-raw", help="Raw data bucket (for sync archives, required unless storage=local)")
-    parser.add_argument("--bucket-meta", help="Metadata bucket (for CSV/database outputs, required unless storage=local)")
-    parser.add_argument("--bucket-full", help="Full-text bucket (for OCR outputs, required unless storage=local)")
-    parser.add_argument("--storage-config", action="append", help="Additional storage config key=value")
+    parser.add_argument(
+        "--bucket-raw",
+        help="Raw data bucket (for sync archives, required unless storage=local)"
+    )
+    parser.add_argument(
+        "--bucket-meta",
+        help="Metadata bucket (for CSV/database outputs, required unless storage=local)"
+    )
+    parser.add_argument(
+        "--bucket-full",
+        help="Full-text bucket (for OCR outputs, required unless storage=local)"
+    )
+    parser.add_argument(
+        "--storage-config", action="append", help="Additional storage config key=value"
+    )
     parser.add_argument("--storage-prefix", help="Storage prefix/path")
 
     # Resume/progress options
     parser.add_argument(
-        "--resume-file", default="output/default/progress.json", help="Progress tracking file for resume capability"
+        "--resume-file",
+        default="output/default/progress.json",
+        help="Progress tracking file for resume capability"
     )
 
     # Configuration options
-    parser.add_argument("--config-file", type=str, help="Configuration file path (JSON format)")
-    parser.add_argument("--create-config", type=str, help="Create default config file at specified path and exit")
-    parser.add_argument("--write-config", action="store_true", help="Write configuration to run directory and exit (requires storage options)")
+    parser.add_argument(
+        "--config-file", type=str, help="Configuration file path (JSON format)"
+    )
+    parser.add_argument(
+        "--create-config",
+        type=str,
+        help="Create default config file at specified path and exit"
+    )
+    parser.add_argument(
+        "--write-config",
+        action="store_true",
+        help="Write configuration to run directory and exit (requires storage options)"
+    )
     parser.add_argument(
         "--secrets-dir",
         type=str,
@@ -237,12 +282,22 @@ Examples:
     # Data source options (removed - only HTML mode supported)
 
     # Pagination options
-    parser.add_argument("--page-size", type=int, help="Records per page for API requests (default: 10000)")
-    parser.add_argument("--max-pages", type=int, help="Maximum pages to fetch (default: 1000)")
-    parser.add_argument("--start-page", type=int, help="Starting page number (default: 1)")
+    parser.add_argument(
+        "--page-size", type=int, help="Records per page for API requests (default: 10000)"
+    )
+    parser.add_argument(
+        "--max-pages", type=int, help="Maximum pages to fetch (default: 1000)"
+    )
+    parser.add_argument(
+        "--start-page", type=int, help="Starting page number (default: 1)"
+    )
 
     # Performance options
-    parser.add_argument("--disable-prefetch", action="store_true", help="Disable HTTP prefetching for next page")
+    parser.add_argument(
+        "--disable-prefetch",
+        action="store_true",
+        help="Disable HTTP prefetching for next page"
+    )
 
     args = parser.parse_args()
 
@@ -255,9 +310,12 @@ Examples:
             missing_buckets.append("--bucket-meta")
         if not args.bucket_full:
             missing_buckets.append("--bucket-full")
-        
+
         if missing_buckets:
-            parser.error(f"The following bucket parameters are required when using --storage={args.storage}: {', '.join(missing_buckets)}")
+            parser.error(
+                f"The following bucket parameters are required when using "
+                f"--storage={args.storage}: {', '.join(missing_buckets)}"
+            )
 
     # Handle config creation
     if args.create_config:
@@ -273,7 +331,9 @@ Examples:
 
     if args.run_name:
         # Use provided run name (make it filename-safe)
-        run_name = "".join(c for c in args.run_name if c.isalnum() or c in ("-", "_")).strip()
+        run_name = "".join(
+            c for c in args.run_name if c.isalnum() or c in ("-", "_")
+        ).strip()
         if not run_name:
             parser.error("Run name must contain valid filename characters")
     else:
@@ -281,7 +341,9 @@ Examples:
         run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
 
     # Extract the actual identifier from run_name (remove "run_" prefix if present)
-    run_identifier = run_name.removeprefix("run_") if run_name.startswith("run_") else run_name
+    run_identifier = (
+        run_name.removeprefix("run_") if run_name.startswith("run_") else run_name
+    )
 
     # Generate timestamp for output files (not resume files)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -307,7 +369,7 @@ Examples:
         storage_config = None
         if args.storage:
             storage_dict: dict[str, str] = {}
-            
+
             # Add bucket names if provided
             if args.bucket_raw:
                 storage_dict["bucket_raw"] = args.bucket_raw
@@ -315,7 +377,7 @@ Examples:
                 storage_dict["bucket_meta"] = args.bucket_meta
             if args.bucket_full:
                 storage_dict["bucket_full"] = args.bucket_full
-                
+
             # Add additional storage config
             if args.storage_config:
                 for item in args.storage_config:
@@ -323,7 +385,11 @@ Examples:
                         key, value = item.split("=", 1)
                         storage_dict[key] = value
 
-            storage_config = {"type": args.storage, "config": storage_dict, "prefix": args.storage_prefix or "grin-books"}
+            storage_config = {
+                "type": args.storage,
+                "config": storage_dict,
+                "prefix": args.storage_prefix or "grin-books"
+            }
 
         # Load configuration with CLI overrides
         config = ConfigManager.load_config(
@@ -356,11 +422,11 @@ Examples:
         # Write config to run directory
         config_path = Path(f"output/{run_name}/run_config.json")
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(config_path, "w") as f:
             import json
             json.dump(config_dict, f, indent=2)
-        
+
         print(f"Configuration written to {config_path}")
         print(f"Run directory: output/{run_name}/")
         print(f"Database: {sqlite_db}")
@@ -387,7 +453,7 @@ Examples:
     storage_config = None
     if args.storage:
         final_storage_dict: dict[str, str] = {}
-        
+
         # Add bucket names if provided
         if args.bucket_raw:
             final_storage_dict["bucket_raw"] = args.bucket_raw
@@ -395,7 +461,7 @@ Examples:
             final_storage_dict["bucket_meta"] = args.bucket_meta
         if args.bucket_full:
             final_storage_dict["bucket_full"] = args.bucket_full
-            
+
         # Add additional storage config
         if args.storage_config:
             for item in args.storage_config:
@@ -403,7 +469,11 @@ Examples:
                     key, value = item.split("=", 1)
                     final_storage_dict[key] = value
 
-        storage_config = {"type": args.storage, "config": final_storage_dict, "prefix": args.storage_prefix or "grin-books"}
+        storage_config = {
+            "type": args.storage,
+            "config": final_storage_dict,
+            "prefix": args.storage_prefix or "grin-books"
+        }
 
     try:
         # Load configuration with CLI overrides
@@ -436,16 +506,19 @@ Examples:
 
         config_path = Path(f"output/{run_name}/run_config.json")
         config_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         with open(config_path, "w") as f:
             import json
             json.dump(config_dict, f, indent=2)
-        
+
         logger.info(f"Configuration written to {config_path}")
 
         # Create book collector with configuration
         collector = BookCollector(
-            storage_config=storage_config, test_mode=args.test_mode, config=config, secrets_dir=args.secrets_dir
+            storage_config=storage_config,
+            test_mode=args.test_mode,
+            config=config,
+            secrets_dir=args.secrets_dir
         )
 
         # Run book collection with pagination

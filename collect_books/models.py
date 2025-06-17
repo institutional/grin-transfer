@@ -38,7 +38,7 @@ class BookRecord:
 
     # Processing state (inferred from GRIN endpoint presence)
     processing_state: str = "unknown"  # all_books, converted, failed, pending
-    
+
     # Processing request tracking
     processing_request_status: str | None = None  # "pending", "requested", "in_process", "converted", "failed"
     processing_request_timestamp: str | None = None  # ISO timestamp when processing was requested
@@ -267,18 +267,18 @@ class SQLiteProgressTracker:
         schema_file = Path(__file__).parent.parent / "docs" / "schema.sql"
         if not schema_file.exists():
             raise FileNotFoundError(f"Database schema file not found: {schema_file}")
-        
+
         schema_sql = schema_file.read_text(encoding='utf-8')
-        
+
         async with aiosqlite.connect(self.db_path) as db:
             # Execute the complete schema
             # Split by semicolon and execute each statement separately
             statements = [stmt.strip() for stmt in schema_sql.split(';') if stmt.strip()]
-            
+
             for statement in statements:
                 if statement.strip():
                     await db.execute(statement)
-            
+
             await db.commit()
 
         self._initialized = True
@@ -503,7 +503,11 @@ class SQLiteProgressTracker:
                     storage_decrypted_path, last_etag_check, google_etag,
                     is_decrypted, sync_status, sync_timestamp, sync_error,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )
             """,
                 (
                     book.barcode,
@@ -559,7 +563,7 @@ class SQLiteProgressTracker:
                 SELECT barcode, title, scanned_date, converted_date, downloaded_date,
                        processed_date, analyzed_date, ocr_date, google_books_link,
                        processing_state, processing_request_status, processing_request_timestamp,
-                       grin_state, viewability, opted_out, conditions, scannable, tagging, audit, 
+                       grin_state, viewability, opted_out, conditions, scannable, tagging, audit,
                        material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
                        ocr_gtd_score, digitization_method, enrichment_timestamp,
                        csv_exported, csv_updated, storage_type, storage_path,
@@ -643,7 +647,7 @@ class SQLiteProgressTracker:
                 SELECT barcode, title, scanned_date, converted_date, downloaded_date,
                        processed_date, analyzed_date, ocr_date, google_books_link,
                        processing_state, processing_request_status, processing_request_timestamp,
-                       grin_state, viewability, opted_out, conditions, scannable, tagging, audit, 
+                       grin_state, viewability, opted_out, conditions, scannable, tagging, audit,
                        material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
                        ocr_gtd_score, digitization_method, enrichment_timestamp,
                        csv_exported, csv_updated, storage_type, storage_path,
@@ -713,48 +717,54 @@ class SQLiteProgressTracker:
 
     async def update_processing_status_to_converted(self, barcodes: set[str]) -> int:
         """Update processing request status to 'converted' for books that appear in GRIN's converted list.
-        
+
         Args:
             barcodes: Set of barcodes that are now converted in GRIN
-            
+
         Returns:
             Number of books updated
         """
         if not barcodes:
             return 0
-            
+
         await self.init_db()
         now = datetime.now(UTC).isoformat()
-        
+
         placeholders = ','.join('?' * len(barcodes))
         params = list(barcodes) + [now]
-        
+
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 f"""
-                UPDATE books 
+                UPDATE books
                 SET processing_request_status = 'converted', updated_at = ?
-                WHERE barcode IN ({placeholders}) 
+                WHERE barcode IN ({placeholders})
                 AND processing_request_status = 'requested'
                 """,
                 params
             )
-            
+
             rows_affected = cursor.rowcount
             await db.commit()
-            
+
         logger.info(f"Updated {rows_affected} books from 'requested' to 'converted' status")
         return rows_affected
 
-    async def get_books_for_sync(self, storage_type: str, limit: int = 100, status_filter: str | None = None, converted_barcodes: set[str] | None = None) -> list[str]:
+    async def get_books_for_sync(
+        self,
+        storage_type: str,
+        limit: int = 100,
+        status_filter: str | None = None,
+        converted_barcodes: set[str] | None = None
+    ) -> list[str]:
         """Get barcodes for books that need syncing to storage.
-        
+
         Args:
             storage_type: Target storage type ("r2", "minio", "s3", "local")
             limit: Maximum number of books to return
             status_filter: Optional sync status filter ("pending", "failed", etc.)
             converted_barcodes: Optional set of barcodes known to be converted/ready for download
-            
+
         Returns:
             List of barcodes that need syncing
         """
@@ -775,22 +785,22 @@ class SQLiteProgressTracker:
                 WHERE 1=1
             """
             params = []
-        
+
         # Only sync books that have been requested for processing
         base_query += " AND processing_request_status = 'requested'"
-        
+
         if status_filter:
             base_query += " AND sync_status = ?"
             params.append(status_filter)
         else:
             # Default: get books that haven't been synced yet or failed
             base_query += " AND (sync_status IS NULL OR sync_status = 'failed')"
-        
+
         # Optionally filter by storage type (for re-syncing)
         if storage_type:
             base_query += " AND (storage_type IS NULL OR storage_type = ?)"
             params.append(storage_type)
-            
+
         base_query += " ORDER BY created_at LIMIT ?"
         params.append(limit)
 
@@ -801,13 +811,13 @@ class SQLiteProgressTracker:
 
     async def get_sync_stats(self, storage_type: str | None = None) -> dict:
         """Get sync statistics for books.
-        
+
         Note: This method returns stats for all books in the database since the actual
         download availability is determined dynamically by checking GRIN's _converted endpoint.
-        
+
         Args:
             storage_type: Optional storage type filter
-            
+
         Returns:
             Dictionary with sync statistics
         """
@@ -817,7 +827,7 @@ class SQLiteProgressTracker:
             # Base filters - check all books since availability is determined at download time
             where_clause = "WHERE 1=1"
             params = []
-            
+
             if storage_type:
                 where_clause += " AND (storage_type IS NULL OR storage_type = ?)"
                 params.append(storage_type)
@@ -828,7 +838,10 @@ class SQLiteProgressTracker:
             total_converted = row[0] if row else 0
 
             # Synced books (completed status)
-            cursor = await db.execute(f"SELECT COUNT(*) FROM books {where_clause} AND sync_status = 'completed'", params)
+            cursor = await db.execute(
+                f"SELECT COUNT(*) FROM books {where_clause} AND sync_status = 'completed'",
+                params
+            )
             row = await cursor.fetchone()
             synced_count = row[0] if row else 0
 
@@ -838,7 +851,11 @@ class SQLiteProgressTracker:
             failed_count = row[0] if row else 0
 
             # Pending/not started
-            cursor = await db.execute(f"SELECT COUNT(*) FROM books {where_clause} AND (sync_status IS NULL OR sync_status = 'pending')", params)
+            cursor = await db.execute(
+                f"SELECT COUNT(*) FROM books {where_clause} AND "
+                f"(sync_status IS NULL OR sync_status = 'pending')",
+                params
+            )
             row = await cursor.fetchone()
             pending_count = row[0] if row else 0
 

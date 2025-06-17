@@ -12,16 +12,21 @@ import logging
 import signal
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
-from collect_books.models import SQLiteProgressTracker
-from common import ProgressReporter, SlidingWindowRateCalculator, create_storage_from_config, format_duration, pluralize
-from download import download_book, reset_bucket_cache
+
 from client import GRINClient
-from run_config import find_run_config, apply_run_config_to_args, setup_run_database_path, validate_bucket_arguments, build_storage_config_dict
+from collect_books.models import SQLiteProgressTracker
+from common import ProgressReporter, SlidingWindowRateCalculator, format_duration, pluralize
+from download import download_book, reset_bucket_cache
+from run_config import (
+    build_storage_config_dict,
+    setup_run_database_path,
+    validate_bucket_arguments,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +101,6 @@ class SyncPipeline:
     async def _mark_book_as_converted(self, barcode: str) -> None:
         """Mark a book as converted in our database after successful download."""
         try:
-            from datetime import UTC
             book = await self.db_tracker.get_book(barcode)
             if book:
                 book.processing_request_status = "converted"
@@ -136,13 +140,13 @@ class SyncPipeline:
                     verbose=True,  # Enable verbose output for debug logging
                     show_progress=False,  # Disable percentage progress in pipeline
                 )
-                
+
                 self.stats["completed"] += 1
                 self.stats["total_bytes"] += result.get("file_size", 0)
-                
+
                 # Mark book as converted since we successfully downloaded it
                 await self._mark_book_as_converted(barcode)
-                
+
                 return {
                     "barcode": barcode,
                     "status": "completed",
@@ -150,11 +154,11 @@ class SyncPipeline:
                     "duration": result.get("total_time", 0),
                     "decrypted": result.get("is_decrypted", False),
                 }
-                
+
             except Exception as e:
                 self.stats["failed"] += 1
                 logger.error(f"Failed to download {barcode}: {e}")
-                
+
                 return {
                     "barcode": barcode,
                     "status": "failed",
@@ -168,16 +172,16 @@ class SyncPipeline:
 
         # Create download tasks
         tasks = [self._download_with_semaphore(barcode) for barcode in barcodes]
-        
+
         # Execute all downloads concurrently
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Process results
         processed_results: list[dict[str, Any]] = []
         for i, result in enumerate(results):
             barcode = barcodes[i]
             self.stats["processed"] += 1
-            
+
             if isinstance(result, Exception):
                 self.stats["failed"] += 1
                 logger.error(f"Download task failed for {barcode}: {result}")
@@ -197,7 +201,7 @@ class SyncPipeline:
                     "status": "failed",
                     "error": f"Unexpected result type: {type(result)}",
                 })
-                
+
         return processed_results
 
     async def get_sync_status(self) -> dict:
@@ -210,7 +214,7 @@ class SyncPipeline:
 
     async def run_sync(self, limit: int | None = None, status_filter: str | None = None) -> None:
         """Run the complete sync pipeline."""
-        print(f"Starting GRIN-to-Storage sync pipeline")
+        print("Starting GRIN-to-Storage sync pipeline")
         print(f"Database: {self.db_path}")
         print(f"Storage: {self.storage_type}")
         print(f"Concurrent downloads: {self.concurrent_downloads}")
@@ -225,10 +229,10 @@ class SyncPipeline:
         logger.info(f"Database: {self.db_path}")
         logger.info(f"Storage type: {self.storage_type}")
         logger.info(f"Concurrent downloads: {self.concurrent_downloads}")
-        
+
         # Reset bucket cache at start of sync
         reset_bucket_cache()
-        
+
         start_time = time.time()
 
         try:
@@ -239,7 +243,7 @@ class SyncPipeline:
                 print("Warning: GRIN reports no converted books available (this could indicate an API issue)")
             else:
                 print(f"GRIN reports {len(converted_barcodes):,} converted books available for download")
-            
+
             # Get initial status
             initial_status = await self.get_sync_status()
             total_converted = initial_status["total_converted"]
@@ -257,15 +261,15 @@ class SyncPipeline:
                 status_filter=status_filter,
                 converted_barcodes=converted_barcodes  # Only sync books that GRIN reports as converted
             )
-            
+
             print(f"Found {len(available_to_sync):,} converted books that need syncing")
-            
+
             if not available_to_sync:
                 if len(converted_barcodes) == 0:
                     print("No converted books available from GRIN")
                 else:
                     print("No converted books found that need syncing (all may already be synced)")
-                
+
                 # Report on pending books
                 pending_books = await self.db_tracker.get_books_for_sync(
                     storage_type=self.storage_type,
@@ -273,14 +277,17 @@ class SyncPipeline:
                     status_filter=status_filter,
                     converted_barcodes=None  # Get all requested books regardless of conversion
                 )
-                
+
                 if pending_books:
-                    print(f"Status summary:")
+                    print("Status summary:")
                     print(f"  - {len(pending_books):,} books requested for processing but not yet converted")
                     print(f"  - {len(converted_barcodes):,} books available from GRIN (from other requests)")
-                    print(f"  - 0 books ready to sync (no overlap between requested and converted)")
-                    print(f"\nTip: Use 'python processing.py monitor --run-name {Path(self.db_path).parent.name}' to check processing progress")
-                
+                    print("  - 0 books ready to sync (no overlap between requested and converted)")
+                    print(
+                        f"\nTip: Use 'python processing.py monitor --run-name "
+                        f"{Path(self.db_path).parent.name}' to check processing progress"
+                    )
+
                 return
 
             # Set up progress tracking
@@ -289,7 +296,7 @@ class SyncPipeline:
             self.progress_reporter.start()
 
             processed_count = 0
-            
+
             # Initialize sliding window rate calculator
             rate_calculator = SlidingWindowRateCalculator(window_size=5)
 
@@ -332,27 +339,27 @@ class SyncPipeline:
                     bytes_count=sum(r.get("size", 0) for r in batch_results),
                     force=True
                 )
-                
+
                 # Track batch completion for sliding window rate calculation
                 current_time = time.time()
                 rate_calculator.add_batch(current_time, processed_count)
 
                 # Log batch completion
                 completed_in_batch = sum(1 for r in batch_results if r["status"] == "completed")
-                failed_in_batch = sum(1 for r in batch_results if r["status"] == "failed")
-                
+                # failed_in_batch = sum(1 for r in batch_results if r["status"] == "failed")
+
                 logger.info(f"Batch completed: {completed_in_batch}/{len(barcodes)} successful "
                            f"in {batch_elapsed:.1f}s")
 
                 # Calculate rate using sliding window
                 rate = rate_calculator.get_rate(start_time, processed_count)
-                
+
                 if books_to_process > 0:
                     percentage = (processed_count / books_to_process) * 100
                     remaining = books_to_process - processed_count
                     eta_seconds = remaining / rate if rate > 0 else 0
                     eta_text = f" (ETA: {format_duration(eta_seconds)})" if eta_seconds > 0 else ""
-                    
+
                     print(f"Progress: {processed_count:,}/{books_to_process:,} "
                           f"({percentage:.1f}%) - {rate:.1f} books/sec{eta_text}")
 
@@ -377,11 +384,11 @@ class SyncPipeline:
 
             # Final statistics
             self.progress_reporter.finish()
-            
+
             total_elapsed = time.time() - start_time
             final_status = await self.get_sync_status()
 
-            print(f"\nSync completed:")
+            print("\nSync completed:")
             print(f"  Total runtime: {format_duration(total_elapsed)}")
             print(f"  Books processed: {self.stats['processed']:,}")
             print(f"  Successful downloads: {self.stats['completed']:,}")
@@ -389,8 +396,8 @@ class SyncPipeline:
             print(f"  Total data: {self.stats['total_bytes'] / 1024 / 1024:.1f} MB")
             if total_elapsed > 0:
                 print(f"  Average rate: {self.stats['processed'] / total_elapsed:.1f} books/second")
-            
-            print(f"\nFinal sync status:")
+
+            print("\nFinal sync status:")
             print(f"  Total converted books: {final_status['total_converted']:,}")
             print(f"  Successfully synced: {final_status['synced']:,}")
             print(f"  Failed syncs: {final_status['failed']:,}")
@@ -402,65 +409,65 @@ class SyncPipeline:
 
 async def show_sync_status(db_path: str, storage_type: str | None = None) -> None:
     """Show sync status for books in the database."""
-    
+
     # Validate database file
     db_file = Path(db_path)
     if not db_file.exists():
         print(f"❌ Error: Database file does not exist: {db_path}")
         return
 
-    print(f"Sync Status Report")
+    print("Sync Status Report")
     print(f"Database: {db_path}")
     if storage_type:
         print(f"Storage Type: {storage_type}")
     print("=" * 50)
 
     tracker = SQLiteProgressTracker(db_path)
-    
+
     try:
         # Get overall book counts
         total_books = await tracker.get_book_count()
         enriched_books = await tracker.get_enriched_book_count()
         converted_books = await tracker.get_converted_books_count()
-        
-        print(f"Overall Book Counts:")
+
+        print("Overall Book Counts:")
         print(f"  Total books in database: {total_books:,}")
         print(f"  Books with enrichment data: {enriched_books:,}")
         print(f"  Books in converted state: {converted_books:,}")
         print()
-        
+
         # Get sync statistics
         sync_stats = await tracker.get_sync_stats(storage_type)
-        
-        print(f"Sync Status:")
+
+        print("Sync Status:")
         print(f"  Total converted books: {sync_stats['total_converted']:,}")
         print(f"  Successfully synced: {sync_stats['synced']:,}")
         print(f"  Failed syncs: {sync_stats['failed']:,}")
         print(f"  Pending syncs: {sync_stats['pending']:,}")
         print(f"  Currently syncing: {sync_stats['syncing']:,}")
         print(f"  Books with decrypted archives: {sync_stats['decrypted']:,}")
-        
+
         if sync_stats['total_converted'] > 0:
             sync_percentage = (sync_stats['synced'] / sync_stats['total_converted']) * 100
             print(f"  Sync completion: {sync_percentage:.1f}%")
-        
+
         print()
-        
+
         # Show breakdown by storage type if not filtered
         if not storage_type:
             print("Storage Type Breakdown:")
-            
+
             # Get books by storage type and extract bucket from storage_path
             async with aiosqlite.connect(db_path) as db:
                 cursor = await db.execute("""
                     SELECT storage_type, storage_path, COUNT(*) as count
-                    FROM books 
+                    FROM books
                     WHERE storage_type IS NOT NULL AND storage_path IS NOT NULL
                     GROUP BY storage_type, storage_path
                     ORDER BY storage_type, count DESC
                 """)
                 storage_breakdown = await cursor.fetchall()
-                
+
                 if storage_breakdown:
                     # Group by storage type and extract bucket from path
                     storage_buckets: dict[str, int] = {}
@@ -472,36 +479,36 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
                             parts = path.split("/")
                             if parts:
                                 bucket = parts[0]
-                        
+
                         key = f"{storage}/{bucket}"
                         storage_buckets[key] = storage_buckets.get(key, 0) + count
-                    
+
                     for storage_bucket, count in sorted(storage_buckets.items()):
                         print(f"  {storage_bucket}: {count:,} books")
                 else:
                     print("  No books have been synced to any storage yet")
-                    
+
                 print()
-        
+
         # Show recent sync activity
         print("Recent Sync Activity (last 10):")
         async with aiosqlite.connect(db_path) as db:
             query = """
                 SELECT barcode, sync_status, sync_timestamp, sync_error, storage_type
-                FROM books 
+                FROM books
                 WHERE sync_timestamp IS NOT NULL
             """
             params = []
-            
+
             if storage_type:
                 query += " AND storage_type = ?"
                 params.append(storage_type)
-                
+
             query += " ORDER BY sync_timestamp DESC LIMIT 10"
-            
+
             cursor = await db.execute(query, params)
             recent_syncs = await cursor.fetchall()
-            
+
             if recent_syncs:
                 for barcode, status, timestamp, error, st_type in recent_syncs:
                     status_icon = "✅" if status == "completed" else "❌" if status == "failed" else "🔄"
@@ -510,11 +517,11 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
                         print(f"      Error: {error}")
             else:
                 print("  No recent sync activity found")
-                
+
     except Exception as e:
         print(f"❌ Error reading database: {e}")
         return
-        
+
     finally:
         # Clean up database connections
         try:
@@ -599,7 +606,7 @@ async def cmd_pipeline(args) -> None:
     db_path = setup_run_database_path(args, args.run_name)
     print(f"Using run: {args.run_name}")
     print(f"Database: {db_path}")
-    
+
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum: int, frame: Any) -> None:
         print(f"\nReceived signal {signum}, shutting down gracefully...")
@@ -615,10 +622,13 @@ async def cmd_pipeline(args) -> None:
     if not args.storage:
         print("Error: --storage argument is required (or must be in run config)")
         sys.exit(1)
-    
+
     missing_buckets = validate_bucket_arguments(args)
     if missing_buckets:
-        print(f"Error: The following bucket arguments are required (or must be in run config): {', '.join(missing_buckets)}")
+        print(
+            f"Error: The following bucket arguments are required (or must be in run config): "
+            f"{', '.join(missing_buckets)}"
+        )
         sys.exit(1)
 
     # Build storage configuration
@@ -631,22 +641,22 @@ async def cmd_pipeline(args) -> None:
             # Read existing config
             with open(config_path) as f:
                 run_config = json.load(f)
-            
+
             # Update storage configuration
             storage_config_dict = {
                 "type": args.storage,
                 "config": {k: v for k, v in storage_config.items() if v is not None},
                 "prefix": storage_config.get("prefix", "grin-books")
             }
-            
+
             run_config["storage_config"] = storage_config_dict
-            
+
             # Write back to config file
             with open(config_path, "w") as f:
                 json.dump(run_config, f, indent=2)
-            
+
             print(f"Updated storage configuration in {config_path}")
-            
+
         except (json.JSONDecodeError, OSError) as e:
             print(f"Warning: Could not update run config: {e}")
     else:
@@ -656,7 +666,7 @@ async def cmd_pipeline(args) -> None:
     if args.storage == "minio" and not (args.endpoint_url and args.access_key and args.secret_key):
         try:
             import yaml
-            
+
             compose_file = Path("docker-compose.minio.yml")
             if compose_file.exists():
                 with open(compose_file) as f:
@@ -707,7 +717,7 @@ async def cmd_pipeline(args) -> None:
             gpg_key_file=args.gpg_key_file,
             force=args.force,
         )
-        
+
         await pipeline.run_sync(limit=args.limit, status_filter=args.status)
 
     except KeyboardInterrupt:
@@ -723,7 +733,7 @@ async def cmd_status(args) -> None:
     db_path = setup_run_database_path(args, args.run_name)
     print(f"Using run: {args.run_name}")
     print(f"Database: {db_path}")
-    
+
     try:
         await show_sync_status(args.db_path, args.storage_type)
     except KeyboardInterrupt:
@@ -745,9 +755,9 @@ Examples:
   python sync.py status --run-name harvard_2024
         """,
     )
-    
+
     subparsers = parser.add_subparsers(dest="command", help="Commands")
-    
+
     # Pipeline command
     pipeline_parser = subparsers.add_parser(
         "pipeline",
@@ -759,7 +769,8 @@ Examples:
   python sync.py pipeline --run-name harvard_2024
 
   # Sync with explicit storage configuration
-  python sync.py pipeline --run-name harvard_2024 --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
+  python sync.py pipeline --run-name harvard_2024 --storage r2 \
+                          --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
   # Sync with custom concurrency
   python sync.py pipeline --run-name harvard_2024 --concurrent 5
@@ -775,10 +786,23 @@ Examples:
     pipeline_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
 
     # Storage configuration
-    pipeline_parser.add_argument("--storage", choices=["minio", "r2", "s3"], help="Storage backend (auto-detected from run config if not specified)")
-    pipeline_parser.add_argument("--bucket-raw", help="Raw data bucket (auto-detected from run config if not specified)")
-    pipeline_parser.add_argument("--bucket-meta", help="Metadata bucket (auto-detected from run config if not specified)")
-    pipeline_parser.add_argument("--bucket-full", help="Full-text bucket (auto-detected from run config if not specified)")
+    pipeline_parser.add_argument(
+        "--storage",
+        choices=["minio", "r2", "s3"],
+        help="Storage backend (auto-detected from run config if not specified)"
+    )
+    pipeline_parser.add_argument(
+        "--bucket-raw",
+        help="Raw data bucket (auto-detected from run config if not specified)"
+    )
+    pipeline_parser.add_argument(
+        "--bucket-meta",
+        help="Metadata bucket (auto-detected from run config if not specified)"
+    )
+    pipeline_parser.add_argument(
+        "--bucket-full",
+        help="Full-text bucket (auto-detected from run config if not specified)"
+    )
     pipeline_parser.add_argument("--prefix", help="Storage prefix/path")
 
     # Storage credentials
@@ -797,7 +821,10 @@ Examples:
 
     # GRIN options
     pipeline_parser.add_argument("--directory", help="GRIN directory (auto-detected from run config if not specified)")
-    pipeline_parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets (auto-detected from run config if not specified)")
+    pipeline_parser.add_argument(
+        "--secrets-dir",
+        help="Directory containing GRIN secrets (auto-detected from run config if not specified)"
+    )
     pipeline_parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
 
     # Logging
@@ -819,15 +846,15 @@ Examples:
     )
 
     status_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
-    status_parser.add_argument("--storage-type", choices=["local", "minio", "r2", "s3"], 
+    status_parser.add_argument("--storage-type", choices=["local", "minio", "r2", "s3"],
                               help="Filter by storage type")
 
     args = parser.parse_args()
-    
+
     if not args.command:
         parser.print_help()
         sys.exit(1)
-    
+
     if args.command == "pipeline":
         await cmd_pipeline(args)
     elif args.command == "status":

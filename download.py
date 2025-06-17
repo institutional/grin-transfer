@@ -18,6 +18,7 @@ from pathlib import Path
 import aiofiles
 
 from client import GRINClient
+from collect_books.models import SQLiteProgressTracker
 from common import (
     calculate_transfer_speed,
     create_http_session,
@@ -27,7 +28,6 @@ from common import (
     format_duration,
 )
 from storage import BookStorage
-from collect_books.models import SQLiteProgressTracker
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ async def _decrypt_and_save_archive(
     verbose: bool = True,
 ) -> bool:
     """Decrypt the archive and save the decrypted version.
-    
+
     Returns:
         True if decryption was successful, False otherwise
     """
@@ -305,7 +305,7 @@ async def download_book(
     """
     if verbose:
         print(f"Downloading book: {barcode}")
-    
+
     # Mark as syncing in database if tracker provided
     if db_tracker:
         await db_tracker.update_sync_status(barcode, {
@@ -324,7 +324,7 @@ async def download_book(
     # Console: minimal status
     if verbose:
         print(f"Starting {barcode}")
-    
+
     # Log: detailed info
     logger.info(f"Starting download for {barcode} from {grin_url}")
     logger.debug(f"Source URL: {grin_url}")
@@ -347,7 +347,7 @@ async def download_book(
         error_msg = f"Error checking converted status: {e}"
         if verbose:
             print(error_msg)
-        
+
         # Update database with error if tracker provided
         if db_tracker:
             await db_tracker.update_sync_status(barcode, {
@@ -403,7 +403,10 @@ async def download_book(
 
                 # Check if we have the same Google file using stored metadata
                 if etag and await book_storage.archive_matches_google_etag(barcode, etag):
-                    logger.info("File already exists with identical content (matched Google's ETag), skipping download entirely")
+                    logger.info(
+                        "File already exists with identical content (matched Google's ETag), "
+                        "skipping download entirely"
+                    )
                     if verbose:
                         print(f"  ✅ {barcode} already exists")
                     await book_storage.save_timestamp(barcode)
@@ -478,7 +481,7 @@ async def download_book(
         # Ensure bucket exists for MinIO/S3 (only check once per bucket)
         bucket_name = (storage_config or {}).get("bucket", "UNKNOWN")
         bucket_key = f"{storage_type}:{bucket_name}"
-        
+
         if bucket_key not in _bucket_checked_cache:
             print(f"Checking bucket '{bucket_name}' for {storage_type} ({barcode})...")
 
@@ -535,7 +538,10 @@ async def download_book(
         # Check if file already exists with same Google ETag (unless forced)
         if not force and await book_storage.archive_exists(barcode):
             if google_etag and await book_storage.archive_matches_google_etag(barcode, google_etag):
-                print(f"✅ {barcode} archive already exists with identical content (Google ETag match), skipping upload")
+                print(
+                    f"✅ {barcode} archive already exists with identical content "
+                    f"(Google ETag match), skipping upload"
+                )
                 archive_path = book_storage._book_path(barcode, f"{barcode}.tar.gz.gpg")
                 # Still update timestamp to record this download attempt
                 await book_storage.save_timestamp(barcode)
@@ -641,7 +647,7 @@ async def download_book(
     storage_time = (datetime.now() - storage_start).total_seconds()
 
     storage_time = (datetime.now() - storage_start).total_seconds()
-    
+
     # Determine if decryption was successful
     is_decrypted = False
     if storage_type and storage_type != "local":
@@ -652,15 +658,15 @@ async def download_book(
         # For local storage, check if decrypted file exists
         if 'decrypted_path' in locals():
             is_decrypted = Path(decrypted_path).exists()
-    
+
     # Update database with successful sync if tracker provided
     if db_tracker:
         from datetime import UTC
         sync_data = {
             "storage_type": storage_type or "local",
             "storage_path": archive_path,
-            "storage_decrypted_path": (book_storage._book_path(barcode, f"{barcode}.tar.gz") 
-                                      if storage_type and storage_type != "local" 
+            "storage_decrypted_path": (book_storage._book_path(barcode, f"{barcode}.tar.gz")
+                                      if storage_type and storage_type != "local"
                                       else locals().get('decrypted_path')),
             "last_etag_check": datetime.now(UTC).isoformat(),
             "google_etag": google_etag,

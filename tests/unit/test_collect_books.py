@@ -235,14 +235,14 @@ class TestBookCollector:
         with tempfile.TemporaryDirectory() as temp_dir:
             progress_file = Path(temp_dir) / "test_progress.json"
             test_db_path = Path(temp_dir) / "test_books.db"
-            
+
             # Create config with test database path
             from collect_books.config import ExportConfig
             config = ExportConfig(
                 resume_file=str(progress_file),
                 sqlite_db_path=str(test_db_path)
             )
-            
+
             exporter = BookCollector(config=config)
 
             # Add some processed items via SQLite tracker
