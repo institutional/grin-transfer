@@ -214,6 +214,31 @@ mypy --explicit-package-bases *.py
 python -m pytest
 ```
 
+## Shell Completion (Optional)
+
+For enhanced command-line experience with auto-completion of commands, arguments, and run names:
+
+```bash
+# Install zsh completions
+./install-completions.sh
+
+# Restart terminal or reload shell
+source ~/.zshrc
+```
+
+**Features:**
+- Tab completion for all script commands and subcommands
+- Auto-completion of run names from `output/` directory
+- Argument validation and help text
+- Storage type and log level suggestions
+
+**Examples:**
+```bash
+python sync.py <TAB>          # Shows: pipeline, status
+python sync.py pipeline <TAB> # Shows all available arguments
+python processing.py --run-name <TAB>  # Shows available run names
+```
+
 ## File Outputs
 
 Each run creates organized output in `output/{run_name}/`:
