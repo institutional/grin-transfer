@@ -425,20 +425,21 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
         if not storage_type:
             print("Storage Type Breakdown:")
             
-            # Get books by storage type
+            # Get books by storage type and bucket
             async with aiosqlite.connect(db_path) as db:
                 cursor = await db.execute("""
-                    SELECT storage_type, COUNT(*) as count
+                    SELECT storage_type, storage_bucket, COUNT(*) as count
                     FROM books 
                     WHERE storage_type IS NOT NULL
-                    GROUP BY storage_type
-                    ORDER BY count DESC
+                    GROUP BY storage_type, storage_bucket
+                    ORDER BY storage_type, count DESC
                 """)
                 storage_breakdown = await cursor.fetchall()
                 
                 if storage_breakdown:
-                    for storage, count in storage_breakdown:
-                        print(f"  {storage}: {count:,} books")
+                    for storage, bucket, count in storage_breakdown:
+                        bucket_text = f"/{bucket}" if bucket else ""
+                        print(f"  {storage}{bucket_text}: {count:,} books")
                 else:
                     print("  No books have been synced to any storage yet")
                     
