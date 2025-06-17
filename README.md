@@ -160,13 +160,13 @@ The sync pipeline automatically downloads all converted books from GRIN to your 
 
 ```bash
 # Sync all converted books to Cloudflare R2
-python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw
+python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw
 
 # Check sync status
-python sync_status.py output/harvard_2024/books.db
+python sync.py status output/harvard_2024/books.db
 
 # Retry failed syncs
-python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --status=failed
+python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --status=failed
 ```
 
 ### Sync Pipeline Features
@@ -191,29 +191,29 @@ The database tracks comprehensive sync metadata for each book:
 
 ```bash
 # Check overall sync status
-python sync_status.py output/harvard_2024/books.db
+python sync.py status output/harvard_2024/books.db
 
 # Check status for specific storage type
-python sync_status.py output/harvard_2024/books.db --storage-type=r2
+python sync.py status output/harvard_2024/books.db --storage-type=r2
 ```
 
 ### Sync Pipeline Options
 
 ```bash
 # Basic sync to R2
-python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw
+python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw
 
 # Sync with custom concurrency and batch size
-python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --concurrent=5 --batch-size=50
+python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --concurrent=5 --batch-size=50
 
 # Sync limited number of books
-python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --limit=1000
+python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --limit=1000
 
 # Force re-sync (overwrite existing files)
-python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --force
+python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --force
 
 # Retry only failed syncs
-python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --status=failed
+python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --status=failed
 ```
 
 ## Download Individual Books

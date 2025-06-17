@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-Sync Pipeline for GRIN Books to Storage
+GRIN Sync Management
 
-Downloads and decrypts converted books from GRIN to S3-compatible storage
-with comprehensive database tracking and progress monitoring.
+Unified script to sync books from GRIN to storage and check sync status.
 """
 
 import argparse
@@ -16,6 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import aiosqlite
 from collect_books.models import SQLiteProgressTracker
 from common import ProgressReporter, SlidingWindowRateCalculator, create_storage_from_config, format_duration, pluralize
 from download import download_book, reset_bucket_cache
@@ -375,6 +375,116 @@ class SyncPipeline:
             logger.info("Sync pipeline completed")
 
 
+async def show_sync_status(db_path: str, storage_type: str | None = None) -> None:
+    """Show sync status for books in the database."""
+    
+    # Validate database file
+    db_file = Path(db_path)
+    if not db_file.exists():
+        print(f"❌ Error: Database file does not exist: {db_path}")
+        return
+
+    print(f"Sync Status Report")
+    print(f"Database: {db_path}")
+    if storage_type:
+        print(f"Storage Type: {storage_type}")
+    print("=" * 50)
+
+    tracker = SQLiteProgressTracker(db_path)
+    
+    try:
+        # Get overall book counts
+        total_books = await tracker.get_book_count()
+        enriched_books = await tracker.get_enriched_book_count()
+        converted_books = await tracker.get_converted_books_count()
+        
+        print(f"Overall Book Counts:")
+        print(f"  Total books in database: {total_books:,}")
+        print(f"  Books with enrichment data: {enriched_books:,}")
+        print(f"  Books in converted state: {converted_books:,}")
+        print()
+        
+        # Get sync statistics
+        sync_stats = await tracker.get_sync_stats(storage_type)
+        
+        print(f"Sync Status:")
+        print(f"  Total converted books: {sync_stats['total_converted']:,}")
+        print(f"  Successfully synced: {sync_stats['synced']:,}")
+        print(f"  Failed syncs: {sync_stats['failed']:,}")
+        print(f"  Pending syncs: {sync_stats['pending']:,}")
+        print(f"  Currently syncing: {sync_stats['syncing']:,}")
+        print(f"  Books with decrypted archives: {sync_stats['decrypted']:,}")
+        
+        if sync_stats['total_converted'] > 0:
+            sync_percentage = (sync_stats['synced'] / sync_stats['total_converted']) * 100
+            print(f"  Sync completion: {sync_percentage:.1f}%")
+        
+        print()
+        
+        # Show breakdown by storage type if not filtered
+        if not storage_type:
+            print("Storage Type Breakdown:")
+            
+            # Get books by storage type
+            async with aiosqlite.connect(db_path) as db:
+                cursor = await db.execute("""
+                    SELECT storage_type, COUNT(*) as count
+                    FROM books 
+                    WHERE storage_type IS NOT NULL
+                    GROUP BY storage_type
+                    ORDER BY count DESC
+                """)
+                storage_breakdown = await cursor.fetchall()
+                
+                if storage_breakdown:
+                    for storage, count in storage_breakdown:
+                        print(f"  {storage}: {count:,} books")
+                else:
+                    print("  No books have been synced to any storage yet")
+                    
+                print()
+        
+        # Show recent sync activity
+        print("Recent Sync Activity (last 10):")
+        async with aiosqlite.connect(db_path) as db:
+            query = """
+                SELECT barcode, sync_status, sync_timestamp, sync_error, storage_type
+                FROM books 
+                WHERE sync_timestamp IS NOT NULL
+            """
+            params = []
+            
+            if storage_type:
+                query += " AND storage_type = ?"
+                params.append(storage_type)
+                
+            query += " ORDER BY sync_timestamp DESC LIMIT 10"
+            
+            cursor = await db.execute(query, params)
+            recent_syncs = await cursor.fetchall()
+            
+            if recent_syncs:
+                for barcode, status, timestamp, error, st_type in recent_syncs:
+                    status_icon = "✅" if status == "completed" else "❌" if status == "failed" else "🔄"
+                    print(f"  {status_icon} {barcode} ({st_type}) - {status} at {timestamp}")
+                    if error:
+                        print(f"      Error: {error}")
+            else:
+                print("  No recent sync activity found")
+                
+    except Exception as e:
+        print(f"❌ Error reading database: {e}")
+        return
+        
+    finally:
+        # Clean up database connections
+        try:
+            if hasattr(tracker, "_db") and tracker._db:
+                await tracker._db.close()
+        except Exception:
+            pass
+
+
 def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
     """Setup logging configuration."""
     log_level = getattr(logging, level.upper())
@@ -444,8 +554,8 @@ def validate_database_file(db_path: str) -> None:
     print(f"✅ Using database: {db_path}")
 
 
-async def main() -> None:
-    """Main CLI entry point."""
+async def cmd_pipeline(args) -> None:
+    """Handle the 'pipeline' command."""
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum: int, frame: Any) -> None:
         print(f"\nReceived signal {signum}, shutting down gracefully...")
@@ -453,56 +563,6 @@ async def main() -> None:
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-
-    parser = argparse.ArgumentParser(
-        description="Sync converted GRIN books to storage with database tracking",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Sync to Cloudflare R2
-  python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw
-
-  # Sync to MinIO with custom concurrency
-  python sync_pipeline.py output/harvard_2024/books.db --storage=minio --bucket=grin-raw --concurrent=5
-
-  # Retry failed syncs only
-  python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --status=failed
-
-  # Sync with limit and force overwrite
-  python sync_pipeline.py output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --limit=100 --force
-        """,
-    )
-
-    parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
-
-    # Storage configuration
-    parser.add_argument("--storage", choices=["minio", "r2", "s3"], required=True, help="Storage backend")
-    parser.add_argument("--bucket", required=True, help="Storage bucket name")
-    parser.add_argument("--prefix", help="Storage prefix/path")
-
-    # Storage credentials
-    parser.add_argument("--endpoint-url", help="Custom endpoint URL (MinIO)")
-    parser.add_argument("--access-key", help="Access key")
-    parser.add_argument("--secret-key", help="Secret key")
-    parser.add_argument("--account-id", help="Account ID (R2)")
-    parser.add_argument("--credentials-file", help="Custom credentials file path")
-
-    # Pipeline options
-    parser.add_argument("--concurrent", type=int, default=3, help="Concurrent downloads (default: 3)")
-    parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing (default: 100)")
-    parser.add_argument("--limit", type=int, help="Limit number of books to sync")
-    parser.add_argument("--status", choices=["pending", "failed"], help="Only sync books with this status")
-    parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
-
-    # GRIN options
-    parser.add_argument("--directory", default="Harvard", help="GRIN directory (default: Harvard)")
-    parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets")
-    parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
-
-    # Logging
-    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
-
-    args = parser.parse_args()
 
     # Validate database
     validate_database_file(args.db_path)
@@ -585,6 +645,108 @@ Examples:
     except Exception as e:
         print(f"Pipeline failed: {e}")
         sys.exit(1)
+
+
+async def cmd_status(args) -> None:
+    """Handle the 'status' command."""
+    try:
+        await show_sync_status(args.db_path, args.storage_type)
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+
+async def main() -> None:
+    """Main CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="GRIN sync management",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
+    
+    # Pipeline command
+    pipeline_parser = subparsers.add_parser(
+        "pipeline",
+        help="Sync converted books to storage",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Sync to Cloudflare R2
+  python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw
+
+  # Sync to MinIO with custom concurrency
+  python sync.py pipeline output/harvard_2024/books.db --storage=minio --bucket=grin-raw --concurrent=5
+
+  # Retry failed syncs only
+  python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --status=failed
+
+  # Sync with limit and force overwrite
+  python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --limit=100 --force
+        """,
+    )
+
+    pipeline_parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
+
+    # Storage configuration
+    pipeline_parser.add_argument("--storage", choices=["minio", "r2", "s3"], required=True, help="Storage backend")
+    pipeline_parser.add_argument("--bucket", required=True, help="Storage bucket name")
+    pipeline_parser.add_argument("--prefix", help="Storage prefix/path")
+
+    # Storage credentials
+    pipeline_parser.add_argument("--endpoint-url", help="Custom endpoint URL (MinIO)")
+    pipeline_parser.add_argument("--access-key", help="Access key")
+    pipeline_parser.add_argument("--secret-key", help="Secret key")
+    pipeline_parser.add_argument("--account-id", help="Account ID (R2)")
+    pipeline_parser.add_argument("--credentials-file", help="Custom credentials file path")
+
+    # Pipeline options
+    pipeline_parser.add_argument("--concurrent", type=int, default=3, help="Concurrent downloads (default: 3)")
+    pipeline_parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing (default: 100)")
+    pipeline_parser.add_argument("--limit", type=int, help="Limit number of books to sync")
+    pipeline_parser.add_argument("--status", choices=["pending", "failed"], help="Only sync books with this status")
+    pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
+
+    # GRIN options
+    pipeline_parser.add_argument("--directory", default="Harvard", help="GRIN directory (default: Harvard)")
+    pipeline_parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets")
+    pipeline_parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
+
+    # Logging
+    pipeline_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
+
+    # Status command
+    status_parser = subparsers.add_parser(
+        "status",
+        help="Check sync status",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Check overall sync status
+  python sync.py status output/harvard_2024/books.db
+
+  # Check sync status for specific storage type
+  python sync.py status output/harvard_2024/books.db --storage-type=r2
+        """,
+    )
+
+    status_parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
+    status_parser.add_argument("--storage-type", choices=["local", "minio", "r2", "s3"], 
+                              help="Filter by storage type")
+
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+    
+    if args.command == "pipeline":
+        await cmd_pipeline(args)
+    elif args.command == "status":
+        await cmd_status(args)
 
 
 if __name__ == "__main__":
