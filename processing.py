@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-GRIN Book Processing Request System
+GRIN Book Processing Management
 
-Submits books for conversion processing via GRIN's _process endpoint.
+Unified script to request and monitor book processing via GRIN.
 Based on v1 conversion system with modern async architecture.
 """
 
@@ -570,6 +570,170 @@ class ProcessingPipeline:
         print(f"  Overall rate: {overall_rate:.1f} requests/sec")
 
 
+class ProcessingMonitor:
+    """Monitor for GRIN book processing status."""
+
+    def __init__(self, directory: str = "Harvard", secrets_dir: str | None = None):
+        self.directory = directory
+        self.grin_client = GRINClient(secrets_dir=secrets_dir)
+
+    async def cleanup(self) -> None:
+        """Clean up resources and close connections safely."""
+        try:
+            if hasattr(self.grin_client, "session") and self.grin_client.session:
+                await self.grin_client.session.close()
+        except Exception as e:
+            print(f"Warning: Error closing GRIN client session: {e}")
+
+    async def get_converted_books(self) -> list[str]:
+        """Get list of books that have been converted (ready for download)."""
+        try:
+            response_text = await self.grin_client.fetch_resource(self.directory, "_converted?format=text")
+            lines = response_text.strip().split("\n")
+            converted_barcodes = []
+            for line in lines:
+                if line.strip() and ".tar.gz.gpg" in line:
+                    barcode = line.strip().replace(".tar.gz.gpg", "")
+                    converted_barcodes.append(barcode)
+            return converted_barcodes
+        except Exception as e:
+            print(f"Error getting converted books: {e}")
+            return []
+
+    async def get_in_process_books(self) -> list[str]:
+        """Get list of books currently in processing queue."""
+        try:
+            response_text = await self.grin_client.fetch_resource(self.directory, "_in_process?format=text")
+            lines = response_text.strip().split("\n")
+            return [line.strip() for line in lines if line.strip()]
+        except Exception as e:
+            print(f"Error getting in-process books: {e}")
+            return []
+
+    async def get_failed_books(self) -> list[str]:
+        """Get list of books that failed processing."""
+        try:
+            response_text = await self.grin_client.fetch_resource(self.directory, "_failed?format=text")
+            lines = response_text.strip().split("\n")
+            return [line.strip() for line in lines if line.strip()]
+        except Exception as e:
+            print(f"Error getting failed books: {e}")
+            return []
+
+    async def show_status_summary(self) -> None:
+        """Show overall processing status summary."""
+        print("GRIN Processing Status Summary")
+        print("=" * 50)
+        print(f"Directory: {self.directory}")
+        print(f"Checked at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print()
+
+        converted = await self.get_converted_books()
+        in_process = await self.get_in_process_books()
+        failed = await self.get_failed_books()
+
+        print(f"📗 Converted (ready for download): {len(converted):,}")
+        print(f"⏳ In process (being converted):    {len(in_process):,}")
+        print(f"❌ Failed (conversion failed):     {len(failed):,}")
+        print(f"📊 Total processed:                {len(converted) + len(in_process) + len(failed):,}")
+        print(f"🎯 Queue space available:          {50000 - len(in_process):,}")
+
+    async def show_converted_books(self, limit: int = 50) -> None:
+        """Show list of converted books ready for download."""
+        converted = await self.get_converted_books()
+        
+        print(f"\nConverted Books Ready for Download ({len(converted):,} total)")
+        print("=" * 60)
+        
+        if not converted:
+            print("No converted books found.")
+            return
+
+        for i, barcode in enumerate(converted[:limit], 1):
+            print(f"{i:4}. {barcode}")
+            
+        if len(converted) > limit:
+            print(f"... and {len(converted) - limit:,} more")
+            print(f"\nUse --limit={len(converted)} to see all converted books")
+
+    async def show_in_process_books(self, limit: int = 50) -> None:
+        """Show list of books currently being processed."""
+        in_process = await self.get_in_process_books()
+        
+        print(f"\nBooks Currently Being Processed ({len(in_process):,} total)")
+        print("=" * 60)
+        
+        if not in_process:
+            print("No books currently in process.")
+            return
+
+        for i, barcode in enumerate(in_process[:limit], 1):
+            print(f"{i:4}. {barcode}")
+            
+        if len(in_process) > limit:
+            print(f"... and {len(in_process) - limit:,} more")
+
+    async def show_failed_books(self, limit: int = 50) -> None:
+        """Show list of books that failed processing."""
+        failed = await self.get_failed_books()
+        
+        print(f"\nBooks That Failed Processing ({len(failed):,} total)")
+        print("=" * 60)
+        
+        if not failed:
+            print("No failed books.")
+            return
+
+        for i, barcode in enumerate(failed[:limit], 1):
+            print(f"{i:4}. {barcode}")
+            
+        if len(failed) > limit:
+            print(f"... and {len(failed) - limit:,} more")
+
+    async def search_barcode(self, barcode: str) -> None:
+        """Search for a specific barcode across all GRIN states."""
+        print(f"Searching for barcode: {barcode}")
+        print("=" * 40)
+
+        converted = await self.get_converted_books()
+        in_process = await self.get_in_process_books()
+        failed = await self.get_failed_books()
+
+        found = False
+
+        if barcode in converted:
+            print(f"✅ Found in CONVERTED - ready for download!")
+            found = True
+
+        if barcode in in_process:
+            print(f"⏳ Found in IN_PROCESS - currently being converted")
+            found = True
+
+        if barcode in failed:
+            print(f"❌ Found in FAILED - conversion failed")
+            found = True
+
+        if not found:
+            print(f"❓ Not found in GRIN system - may not have been requested for processing")
+
+    async def export_converted_list(self, output_file: str) -> None:
+        """Export list of converted books to a file."""
+        converted = await self.get_converted_books()
+        
+        output_path = Path(output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(output_path, 'w') as f:
+            f.write(f"# Converted books ready for download\n")
+            f.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"# Total: {len(converted):,} books\n")
+            f.write(f"#\n")
+            for barcode in converted:
+                f.write(f"{barcode}\n")
+        
+        print(f"Exported {len(converted):,} converted books to: {output_file}")
+
+
 def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
     """Setup logging configuration."""
     log_level = getattr(logging, level.upper())
@@ -636,56 +800,15 @@ def validate_database_file(db_path: str) -> None:
         sys.exit(1)
 
 
-async def main() -> None:
-    """Main CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Request GRIN book processing with database integration",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Request processing for books from database
-  python request_processing.py output/harvard_2024/books.db
-
-  # Request processing with limits
-  python request_processing.py output/harvard_2024/books.db --limit=100
-
-  # Check current status only
-  python request_processing.py output/harvard_2024/books.db --status-only
-
-  # Custom rate limiting
-  python request_processing.py output/harvard_2024/books.db --rate-limit=0.1
-        """,
-    )
-
-    parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
-
-    # Processing options
-    parser.add_argument("--directory", default="Harvard", help="GRIN directory (default: Harvard)")
-    parser.add_argument(
-        "--rate-limit", type=float, default=0.2, help="Delay between requests (default: 0.2s for 5 QPS)"
-    )
-    parser.add_argument("--batch-size", type=int, default=200, help="Batch size for processing (default: 200)")
-    parser.add_argument(
-        "--max-in-process", type=int, default=50000, help="Maximum books in GRIN queue (default: 50000)"
-    )
-    parser.add_argument("--limit", type=int, help="Limit number of processing requests to make")
-    parser.add_argument("--status-only", action="store_true", help="Only check current status, don't make requests")
-
-    # GRIN options
-    parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets files")
-
-    # Logging
-    parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
-
-    args = parser.parse_args()
-
+async def cmd_request(args) -> None:
+    """Handle the 'request' command."""
     # Validate database
     validate_database_file(args.db_path)
 
     # Set up logging
     db_name = Path(args.db_path).stem
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"logs/request_processing_{db_name}_{timestamp}.log"
+    log_file = f"logs/processing_request_{db_name}_{timestamp}.log"
     setup_logging(args.log_level, log_file)
     print(f"Logging to file: {log_file}")
 
@@ -731,6 +854,155 @@ Examples:
     except Exception as e:
         print(f"Pipeline failed: {e}")
         sys.exit(1)
+
+
+async def cmd_monitor(args) -> None:
+    """Handle the 'monitor' command."""
+    try:
+        monitor = ProcessingMonitor(
+            directory=args.directory,
+            secrets_dir=args.secrets_dir,
+        )
+
+        # Validate credentials
+        try:
+            await monitor.grin_client.auth.validate_credentials(args.directory)
+        except Exception as e:
+            print(f"Error: Credential validation failed: {e}")
+            sys.exit(1)
+
+        # Show status summary unless specific action requested
+        if not any([args.converted, args.in_process, args.failed, args.search, args.export]):
+            await monitor.show_status_summary()
+        
+        # Handle specific requests
+        if args.converted:
+            await monitor.show_converted_books(limit=args.limit)
+        
+        if args.in_process:
+            await monitor.show_in_process_books(limit=args.limit)
+        
+        if args.failed:
+            await monitor.show_failed_books(limit=args.limit)
+        
+        if args.search:
+            await monitor.search_barcode(args.search)
+        
+        if args.export:
+            await monitor.export_converted_list(args.export)
+
+        await monitor.cleanup()
+
+    except KeyboardInterrupt:
+        print("\nOperation cancelled by user")
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+
+
+async def main() -> None:
+    """Main CLI entry point."""
+    parser = argparse.ArgumentParser(
+        description="GRIN book processing management",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
+    
+    # Request command
+    request_parser = subparsers.add_parser(
+        "request",
+        help="Request processing for books",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Request processing for books from database
+  python processing.py request output/harvard_2024/books.db
+
+  # Request processing with limits
+  python processing.py request output/harvard_2024/books.db --limit=100
+
+  # Check current status only
+  python processing.py request output/harvard_2024/books.db --status-only
+
+  # Custom rate limiting
+  python processing.py request output/harvard_2024/books.db --rate-limit=0.1
+        """,
+    )
+    
+    request_parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
+    
+    # Processing options
+    request_parser.add_argument("--directory", default="Harvard", help="GRIN directory (default: Harvard)")
+    request_parser.add_argument(
+        "--rate-limit", type=float, default=0.2, help="Delay between requests (default: 0.2s for 5 QPS)"
+    )
+    request_parser.add_argument("--batch-size", type=int, default=200, help="Batch size for processing (default: 200)")
+    request_parser.add_argument(
+        "--max-in-process", type=int, default=50000, help="Maximum books in GRIN queue (default: 50000)"
+    )
+    request_parser.add_argument("--limit", type=int, help="Limit number of processing requests to make")
+    request_parser.add_argument("--status-only", action="store_true", help="Only check current status, don't make requests")
+    
+    # GRIN options
+    request_parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets files")
+    
+    # Logging
+    request_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
+
+    # Monitor command
+    monitor_parser = subparsers.add_parser(
+        "monitor",
+        help="Monitor processing status",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Show overall status summary
+  python processing.py monitor
+
+  # Show converted books ready for download
+  python processing.py monitor --converted
+
+  # Show books currently being processed  
+  python processing.py monitor --in-process
+
+  # Show books that failed processing
+  python processing.py monitor --failed
+
+  # Search for a specific barcode
+  python processing.py monitor --search TZ1XH8
+
+  # Export converted books to file
+  python processing.py monitor --export converted_books.txt
+
+  # Show more results
+  python processing.py monitor --converted --limit 100
+        """,
+    )
+
+    monitor_parser.add_argument("--directory", default="Harvard", help="GRIN directory (default: Harvard)")
+    monitor_parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets files")
+
+    # What to show
+    monitor_parser.add_argument("--converted", action="store_true", help="Show converted books ready for download")
+    monitor_parser.add_argument("--in-process", action="store_true", help="Show books currently being processed")
+    monitor_parser.add_argument("--failed", action="store_true", help="Show books that failed processing")
+    monitor_parser.add_argument("--search", metavar="BARCODE", help="Search for a specific barcode")
+    monitor_parser.add_argument("--export", metavar="FILE", help="Export converted books to file")
+
+    # Options
+    monitor_parser.add_argument("--limit", type=int, default=50, help="Limit number of results to show (default: 50)")
+
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+    
+    if args.command == "request":
+        await cmd_request(args)
+    elif args.command == "monitor":
+        await cmd_monitor(args)
 
 
 if __name__ == "__main__":
