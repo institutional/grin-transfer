@@ -265,6 +265,22 @@ class SyncPipeline:
                     print("No converted books available from GRIN")
                 else:
                     print("No converted books found that need syncing (all may already be synced)")
+                
+                # Report on pending books
+                pending_books = await self.db_tracker.get_books_for_sync(
+                    storage_type=self.storage_type,
+                    limit=999999,
+                    status_filter=status_filter,
+                    converted_barcodes=None  # Get all requested books regardless of conversion
+                )
+                
+                if pending_books:
+                    print(f"📋 Status summary:")
+                    print(f"  - {len(pending_books):,} books requested for processing but not yet converted")
+                    print(f"  - {len(converted_barcodes):,} books available from GRIN (from other requests)")
+                    print(f"  - 0 books ready to sync (no overlap between requested and converted)")
+                    print(f"\n💡 Tip: Use 'python processing.py monitor --run-name {Path(self.db_path).parent.name}' to check processing progress")
+                
                 return
 
             # Set up progress tracking
