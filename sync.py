@@ -232,9 +232,13 @@ class SyncPipeline:
         start_time = time.time()
 
         try:
-            # We don't fetch GRIN's converted list since it's unreliable
-            # Instead, we'll try to download requested books and mark them as converted when successful
-            print("Using database as source of truth for processing status")
+            # Get list of converted books from GRIN
+            print("Fetching list of converted books from GRIN...")
+            converted_barcodes = await self.get_converted_books()
+            if len(converted_barcodes) == 0:
+                print("Warning: GRIN reports no converted books available (this could indicate an API issue)")
+            else:
+                print(f"GRIN reports {len(converted_barcodes):,} converted books available for download")
             
             # Get initial status
             initial_status = await self.get_sync_status()
@@ -246,18 +250,21 @@ class SyncPipeline:
             print(f"Database sync status: {total_converted:,} total, {already_synced:,} synced, "
                   f"{failed_count:,} failed, {pending_count:,} pending")
 
-            # Check how many requested books need syncing
+            # Check how many requested books need syncing (only those actually converted by GRIN)
             available_to_sync = await self.db_tracker.get_books_for_sync(
                 storage_type=self.storage_type,
                 limit=999999,  # Get all available
                 status_filter=status_filter,
-                converted_barcodes=None  # Don't filter by GRIN's list
+                converted_barcodes=converted_barcodes  # Only sync books that GRIN reports as converted
             )
             
-            print(f"Found {len(available_to_sync):,} requested books that need syncing")
+            print(f"Found {len(available_to_sync):,} converted books that need syncing")
             
             if not available_to_sync:
-                print("No requested books found that need syncing")
+                if len(converted_barcodes) == 0:
+                    print("No converted books available from GRIN")
+                else:
+                    print("No converted books found that need syncing (all may already be synced)")
                 return
 
             # Set up progress tracking
@@ -288,7 +295,7 @@ class SyncPipeline:
                     storage_type=self.storage_type,
                     limit=batch_limit,
                     status_filter=status_filter,
-                    converted_barcodes=None  # Don't filter by GRIN's list
+                    converted_barcodes=converted_barcodes  # Only sync books that GRIN reports as converted
                 )
 
                 if not barcodes:
