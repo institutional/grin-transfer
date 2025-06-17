@@ -54,11 +54,8 @@ python collect_books.py --test-mode --limit 100 --storage local
 Request and monitor book processing via GRIN conversion system.
 
 ```bash
-# Request processing for books in database
-python processing.py request output/harvard_2024/books.db --limit 1000
-
-# Monitor processing status
-python processing.py monitor output/harvard_2024/books.db
+python processing.py request --run-name harvard_2024 --limit 1000
+python processing.py monitor --run-name harvard_2024
 ```
 
 **Commands:**
@@ -153,7 +150,7 @@ python collect_books.py --run-name "my_run" --storage r2 \
   --bucket-raw raw --bucket-meta meta --bucket-full full
 
 # Other scripts auto-detect config from run name
-python processing.py request output/my_run/books.db
+python processing.py request --run-name my_run
 python sync.py pipeline output/my_run/books.db
 python grin_enrichment.py enrich --run-name my_run
 ```
@@ -170,12 +167,12 @@ Configuration is stored in `output/{run_name}/run_config.json` and includes stor
 
 2. **Request processing** for conversion:
    ```bash
-   python processing.py request output/collection_2024/books.db --limit 1000
+   python processing.py request --run-name collection_2024 --limit 1000
    ```
 
 3. **Monitor processing** until books are converted:
    ```bash
-   python processing.py monitor output/collection_2024/books.db
+   python processing.py monitor --run-name collection_2024
    ```
 
 4. **Sync converted books** to storage:
