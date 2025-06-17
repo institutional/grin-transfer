@@ -262,6 +262,81 @@ def print_run_config_info(db_path: str) -> None:
         print(f"  Inferred Output Directory: {output_dir}")
 
 
+def setup_run_database_path(args: Any, run_name: str) -> str:
+    """
+    Set up database path from run name and apply run configuration.
+    
+    Args:
+        args: Arguments object to modify
+        run_name: Name of the run
+        
+    Returns:
+        Database path that was set
+    """
+    db_path = f"output/{run_name}/books.db"
+    args.db_path = db_path
+    apply_run_config_to_args(args, db_path)
+    return db_path
+
+
+def validate_bucket_arguments(args: Any, storage_type: str | None = None) -> list[str]:
+    """
+    Validate that required bucket arguments are present.
+    
+    Args:
+        args: Arguments object containing bucket attributes
+        storage_type: Optional storage type for error messages
+        
+    Returns:
+        List of missing bucket argument names (empty if all present)
+    """
+    missing_buckets = []
+    if not getattr(args, 'bucket_raw', None):
+        missing_buckets.append("--bucket-raw")
+    if not getattr(args, 'bucket_meta', None):
+        missing_buckets.append("--bucket-meta")
+    if not getattr(args, 'bucket_full', None):
+        missing_buckets.append("--bucket-full")
+    
+    return missing_buckets
+
+
+def build_storage_config_dict(args: Any) -> Dict[str, str]:
+    """
+    Build storage configuration dictionary from arguments.
+    
+    Args:
+        args: Arguments object containing bucket and storage config attributes
+        
+    Returns:
+        Dictionary with storage configuration
+    """
+    storage_dict: Dict[str, str] = {}
+    
+    # Add bucket names if provided
+    if getattr(args, 'bucket_raw', None):
+        storage_dict["bucket_raw"] = args.bucket_raw
+    if getattr(args, 'bucket_meta', None):
+        storage_dict["bucket_meta"] = args.bucket_meta
+    if getattr(args, 'bucket_full', None):
+        storage_dict["bucket_full"] = args.bucket_full
+    
+    # Add additional storage config from --storage-config arguments
+    if getattr(args, 'storage_config', None):
+        for item in args.storage_config:
+            if "=" in item:
+                key, value = item.split("=", 1)
+                storage_dict[key] = value
+    
+    # Add other optional arguments
+    for attr in ['prefix', 'endpoint_url', 'access_key', 'secret_key', 'account_id', 'credentials_file']:
+        value = getattr(args, attr, None)
+        if value:
+            storage_dict[attr] = value
+    
+    return storage_dict
+
+
 if __name__ == "__main__":
     # CLI tool for testing
     import argparse

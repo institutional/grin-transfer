@@ -21,7 +21,7 @@ from collect_books.models import SQLiteProgressTracker
 from common import ProgressReporter, SlidingWindowRateCalculator, create_storage_from_config, format_duration, pluralize
 from download import download_book, reset_bucket_cache
 from client import GRINClient
-from run_config import find_run_config, apply_run_config_to_args
+from run_config import find_run_config, apply_run_config_to_args, setup_run_database_path, validate_bucket_arguments, build_storage_config_dict
 
 logger = logging.getLogger(__name__)
 
@@ -595,13 +595,10 @@ def validate_database_file(db_path: str) -> None:
 
 async def cmd_pipeline(args) -> None:
     """Handle the 'pipeline' command."""
-    # Determine database path from run name
-    args.db_path = f"output/{args.run_name}/books.db"
+    # Set up database path and apply run configuration
+    db_path = setup_run_database_path(args, args.run_name)
     print(f"Using run: {args.run_name}")
-    print(f"Database: {args.db_path}")
-    
-    # Apply run configuration defaults
-    apply_run_config_to_args(args, args.db_path)
+    print(f"Database: {db_path}")
     
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum: int, frame: Any) -> None:
@@ -619,36 +616,13 @@ async def cmd_pipeline(args) -> None:
         print("❌ Error: --storage argument is required (or must be in run config)")
         sys.exit(1)
     
-    missing_buckets = []
-    if not args.bucket_raw:
-        missing_buckets.append("--bucket-raw")
-    if not args.bucket_meta:
-        missing_buckets.append("--bucket-meta")  
-    if not args.bucket_full:
-        missing_buckets.append("--bucket-full")
-    
+    missing_buckets = validate_bucket_arguments(args)
     if missing_buckets:
-        print(f"❌ Error: The following bucket arguments are required (or must be in run config): {', '.join(missing_buckets)}")
+        print(f"Error: The following bucket arguments are required (or must be in run config): {', '.join(missing_buckets)}")
         sys.exit(1)
 
     # Build storage configuration
-    storage_config = {
-        "bucket_raw": args.bucket_raw,
-        "bucket_meta": args.bucket_meta,
-        "bucket_full": args.bucket_full,
-    }
-    if args.prefix:
-        storage_config["prefix"] = args.prefix
-    if args.endpoint_url:
-        storage_config["endpoint_url"] = args.endpoint_url
-    if args.access_key:
-        storage_config["access_key"] = args.access_key
-    if args.secret_key:
-        storage_config["secret_key"] = args.secret_key
-    if args.account_id:
-        storage_config["account_id"] = args.account_id
-    if args.credentials_file:
-        storage_config["credentials_file"] = args.credentials_file
+    storage_config = build_storage_config_dict(args)
 
     # Update run configuration with storage parameters if they were provided
     config_path = Path(args.db_path).parent / "run_config.json"
@@ -745,10 +719,10 @@ async def cmd_pipeline(args) -> None:
 
 async def cmd_status(args) -> None:
     """Handle the 'status' command."""
-    # Determine database path from run name
-    args.db_path = f"output/{args.run_name}/books.db"
+    # Set up database path and apply run configuration
+    db_path = setup_run_database_path(args, args.run_name)
     print(f"Using run: {args.run_name}")
-    print(f"Database: {args.db_path}")
+    print(f"Database: {db_path}")
     
     try:
         await show_sync_status(args.db_path, args.storage_type)

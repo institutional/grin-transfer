@@ -18,7 +18,7 @@ from typing import Any
 from client import GRINClient
 from collect_books.models import SQLiteProgressTracker
 from common import SlidingWindowRateCalculator, format_duration, pluralize
-from run_config import find_run_config, apply_run_config_to_args
+from run_config import find_run_config, apply_run_config_to_args, setup_run_database_path
 
 logger = logging.getLogger(__name__)
 
@@ -1072,10 +1072,10 @@ Examples:
         parser.print_help()
         sys.exit(1)
 
-    # Determine database path from run name
-    args.db_path = f"output/{args.run_name}/books.db"
+    # Set up database path and apply run configuration
+    db_path = setup_run_database_path(args, args.run_name)
     print(f"Using run: {args.run_name}")
-    print(f"Database: {args.db_path}")
+    print(f"Database: {db_path}")
     
     if args.command == "request":
         await cmd_request(args)
