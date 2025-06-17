@@ -463,7 +463,7 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
                 
                 if storage_breakdown:
                     # Group by storage type and extract bucket from path
-                    storage_buckets = {}
+                    storage_buckets: dict[str, int] = {}
                     for storage, path, count in storage_breakdown:
                         # Extract bucket from path (first part after removing prefix)
                         bucket = "unknown"

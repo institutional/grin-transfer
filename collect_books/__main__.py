@@ -386,24 +386,24 @@ Examples:
     # Build storage configuration
     storage_config = None
     if args.storage:
-        storage_dict: dict[str, str] = {}
+        final_storage_dict: dict[str, str] = {}
         
         # Add bucket names if provided
         if args.bucket_raw:
-            storage_dict["bucket_raw"] = args.bucket_raw
+            final_storage_dict["bucket_raw"] = args.bucket_raw
         if args.bucket_meta:
-            storage_dict["bucket_meta"] = args.bucket_meta
+            final_storage_dict["bucket_meta"] = args.bucket_meta
         if args.bucket_full:
-            storage_dict["bucket_full"] = args.bucket_full
+            final_storage_dict["bucket_full"] = args.bucket_full
             
         # Add additional storage config
         if args.storage_config:
             for item in args.storage_config:
                 if "=" in item:
                     key, value = item.split("=", 1)
-                    storage_dict[key] = value
+                    final_storage_dict[key] = value
 
-        storage_config = {"type": args.storage, "config": storage_dict, "prefix": args.storage_prefix or "grin-books"}
+        storage_config = {"type": args.storage, "config": final_storage_dict, "prefix": args.storage_prefix or "grin-books"}
 
     try:
         # Load configuration with CLI overrides

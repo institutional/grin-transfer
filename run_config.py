@@ -89,7 +89,7 @@ class RunConfig:
     
     def get_storage_args(self) -> Dict[str, str]:
         """Get storage arguments suitable for command line scripts."""
-        args = {}
+        args: Dict[str, str] = {}
         storage_config = self.storage_config
         
         if not storage_config:
