@@ -590,12 +590,25 @@ async def cmd_pipeline(args) -> None:
     if not args.storage:
         print("❌ Error: --storage argument is required (or must be in run config)")
         sys.exit(1)
-    if not args.bucket:
-        print("❌ Error: --bucket argument is required (or must be in run config)")
+    
+    missing_buckets = []
+    if not args.bucket_raw:
+        missing_buckets.append("--bucket-raw")
+    if not args.bucket_meta:
+        missing_buckets.append("--bucket-meta")  
+    if not args.bucket_full:
+        missing_buckets.append("--bucket-full")
+    
+    if missing_buckets:
+        print(f"❌ Error: The following bucket arguments are required (or must be in run config): {', '.join(missing_buckets)}")
         sys.exit(1)
 
     # Build storage configuration
-    storage_config = {"bucket": args.bucket}
+    storage_config = {
+        "bucket_raw": args.bucket_raw,
+        "bucket_meta": args.bucket_meta,
+        "bucket_full": args.bucket_full,
+    }
     if args.prefix:
         storage_config["prefix"] = args.prefix
     if args.endpoint_url:
@@ -731,16 +744,16 @@ async def main() -> None:
         epilog="""
 Examples:
   # Sync to Cloudflare R2
-  python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw
+  python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket-raw=grin-raw --bucket-meta=grin-meta --bucket-full=grin-full
 
   # Sync to MinIO with custom concurrency
-  python sync.py pipeline output/harvard_2024/books.db --storage=minio --bucket=grin-raw --concurrent=5
+  python sync.py pipeline output/harvard_2024/books.db --storage=minio --bucket-raw=grin-raw --bucket-meta=grin-meta --bucket-full=grin-full --concurrent=5
 
   # Retry failed syncs only
-  python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --status=failed
+  python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket-raw=grin-raw --bucket-meta=grin-meta --bucket-full=grin-full --status=failed
 
   # Sync with limit and force overwrite
-  python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket=grin-raw --limit=100 --force
+  python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket-raw=grin-raw --bucket-meta=grin-meta --bucket-full=grin-full --limit=100 --force
         """,
     )
 
@@ -748,7 +761,9 @@ Examples:
 
     # Storage configuration
     pipeline_parser.add_argument("--storage", choices=["minio", "r2", "s3"], help="Storage backend (auto-detected from run config if not specified)")
-    pipeline_parser.add_argument("--bucket", help="Storage bucket name (auto-detected from run config if not specified)")
+    pipeline_parser.add_argument("--bucket-raw", help="Raw data bucket (auto-detected from run config if not specified)")
+    pipeline_parser.add_argument("--bucket-meta", help="Metadata bucket (auto-detected from run config if not specified)")
+    pipeline_parser.add_argument("--bucket-full", help="Full-text bucket (auto-detected from run config if not specified)")
     pipeline_parser.add_argument("--prefix", help="Storage prefix/path")
 
     # Storage credentials

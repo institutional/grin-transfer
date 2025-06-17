@@ -19,6 +19,7 @@ from typing import Any
 from client import GRINClient
 from collect_books.models import BookRecord, SQLiteProgressTracker
 from common import BackupManager, SlidingWindowRateCalculator, format_duration, pluralize
+from run_config import find_run_config, apply_run_config_to_args
 
 logger = logging.getLogger(__name__)
 
@@ -691,15 +692,21 @@ async def main() -> None:
     signal.signal(signal.SIGTERM, signal_handler)
 
     parser = argparse.ArgumentParser(
-        description="GRIN metadata enrichment pipeline", formatter_class=argparse.RawDescriptionHelpFormatter
+        description="GRIN metadata enrichment pipeline", formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python grin_enrichment.py enrich --run-name harvard_2024
+  python grin_enrichment.py status --run-name harvard_2024
+  python grin_enrichment.py export-csv --run-name harvard_2024 --output books.csv
+        """,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Enrichment command
     enrich_parser = subparsers.add_parser("enrich", help="Enrich books with GRIN metadata")
-    enrich_parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
-    enrich_parser.add_argument("--directory", default="Harvard", help="GRIN directory")
+    enrich_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
+    enrich_parser.add_argument("--directory", help="GRIN directory (auto-detected from run config if not specified)")
     enrich_parser.add_argument(
         "--rate-limit", type=float, default=0.2, help="Delay between requests (default: 0.2s for 5 QPS)"
     )
@@ -712,19 +719,19 @@ async def main() -> None:
         "--reset", action="store_true", help="Reset enrichment data for all books before enriching"
     )
     enrich_parser.add_argument(
-        "--secrets-dir", help="Directory containing GRIN secrets files (searches home directory if not specified)"
+        "--secrets-dir", help="Directory containing GRIN secrets files (auto-detected from run config if not specified)"
     )
     enrich_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
 
     # Export command
     export_parser = subparsers.add_parser("export-csv", help="Export enriched data to CSV")
-    export_parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
+    export_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
     export_parser.add_argument("--output", default="books_enriched.csv", help="Output CSV file")
     export_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
 
     # Status command
     status_parser = subparsers.add_parser("status", help="Show enrichment status")
-    status_parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
+    status_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
 
     args = parser.parse_args()
 
@@ -732,8 +739,17 @@ async def main() -> None:
         parser.print_help()
         sys.exit(1)
 
+    # Determine database path from run name
+    args.db_path = f"output/{args.run_name}/books.db"
+    print(f"Using run: {args.run_name}")
+    print(f"Database: {args.db_path}")
+    
     # Validate database file exists and is accessible
     validate_database_file(args.db_path)
+    
+    # Apply run configuration defaults for the command
+    if args.command in ["enrich"]:
+        apply_run_config_to_args(args, args.db_path)
 
     # Generate log file name based on command and database
     if args.command in ["enrich", "export-csv"]:
@@ -751,7 +767,7 @@ async def main() -> None:
         match args.command:
             case "enrich":
                 pipeline = GRINEnrichmentPipeline(
-                    directory=args.directory,
+                    directory=args.directory or "Harvard",  # Use default if not set
                     db_path=args.db_path,
                     rate_limit_delay=args.rate_limit,
                     batch_size=args.batch_size,

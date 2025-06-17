@@ -64,11 +64,27 @@ class RunConfig:
         return storage_config.get("type") if storage_config else None
     
     @property
-    def storage_bucket(self) -> Optional[str]:
-        """Get the storage bucket from storage config."""
+    def storage_bucket_raw(self) -> Optional[str]:
+        """Get the raw data storage bucket from storage config."""
         storage_config = self.storage_config
         if storage_config and "config" in storage_config:
-            return storage_config["config"].get("bucket")
+            return storage_config["config"].get("bucket_raw")
+        return None
+    
+    @property
+    def storage_bucket_meta(self) -> Optional[str]:
+        """Get the metadata storage bucket from storage config."""
+        storage_config = self.storage_config
+        if storage_config and "config" in storage_config:
+            return storage_config["config"].get("bucket_meta")
+        return None
+    
+    @property
+    def storage_bucket_full(self) -> Optional[str]:
+        """Get the full-text storage bucket from storage config."""
+        storage_config = self.storage_config
+        if storage_config and "config" in storage_config:
+            return storage_config["config"].get("bucket_full")
         return None
     
     def get_storage_args(self) -> Dict[str, str]:
@@ -83,8 +99,12 @@ class RunConfig:
         
         config = storage_config.get("config", {})
         for key, value in config.items():
-            if key == "bucket":
-                args["bucket"] = value
+            if key == "bucket_raw":
+                args["bucket-raw"] = value
+            elif key == "bucket_meta":
+                args["bucket-meta"] = value
+            elif key == "bucket_full":
+                args["bucket-full"] = value
             elif key == "prefix":
                 args["prefix"] = value
             elif key == "endpoint_url":
@@ -227,8 +247,12 @@ def print_run_config_info(db_path: str) -> None:
             storage = config.storage_config
             print(f"  Storage Type: {storage.get('type')}")
             storage_config = storage.get('config', {})
-            if 'bucket' in storage_config:
-                print(f"  Storage Bucket: {storage_config['bucket']}")
+            if 'bucket_raw' in storage_config:
+                print(f"  Raw Data Bucket: {storage_config['bucket_raw']}")
+            if 'bucket_meta' in storage_config:
+                print(f"  Metadata Bucket: {storage_config['bucket_meta']}")
+            if 'bucket_full' in storage_config:
+                print(f"  Full-text Bucket: {storage_config['bucket_full']}")
             if 'prefix' in storage_config:
                 print(f"  Storage Prefix: {storage_config['prefix']}")
     else:

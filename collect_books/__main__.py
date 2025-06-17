@@ -128,6 +128,12 @@ def print_resume_command(args, run_name: str) -> None:
 
     if args.storage:
         cmd_parts.append(f"--storage {args.storage}")
+        if args.bucket_raw:
+            cmd_parts.append(f"--bucket-raw {args.bucket_raw}")
+        if args.bucket_meta:
+            cmd_parts.append(f"--bucket-meta {args.bucket_meta}")
+        if args.bucket_full:
+            cmd_parts.append(f"--bucket-full {args.bucket_full}")
         if args.storage_config:
             for config_item in args.storage_config:
                 cmd_parts.append(f"--storage-config {config_item}")
@@ -157,19 +163,25 @@ async def main():
         epilog="""
 Examples:
   # Basic collection with timestamp-based run name
-  python -m collect_books --storage r2 --storage-config bucket=grin-raw
+  python -m collect_books --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
   # Named collection run
-  python -m collect_books --run-name "harvard_fall_2024" --storage r2 --storage-config bucket=grin-raw
+  python -m collect_books --run-name "harvard_fall_2024" --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
   # Specific output file with custom run
-  python -m collect_books books.csv --run-name "test_run" --limit 100 --storage r2 --storage-config bucket=grin-raw
+  python -m collect_books books.csv --run-name "test_run" --limit 100 --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
   # With rate limiting and storage checking
-  python -m collect_books --rate-limit 0.5 --storage s3 --storage-config bucket=my-bucket
+  python -m collect_books --rate-limit 0.5 --storage s3 --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
+
+  # With additional storage configuration
+  python -m collect_books --storage minio --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full --storage-config endpoint_url=localhost:9000
+
+  # Local storage (no buckets required)
+  python -m collect_books --storage local --run-name "local_test"
 
   # Resume interrupted collection (uses run-specific progress files and saved config)
-  python -m collect_books --run-name "harvard_fall_2024" --storage r2 --storage-config bucket=grin-raw
+  python -m collect_books --run-name "harvard_fall_2024" --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
         """,
     )
 
@@ -201,7 +213,10 @@ Examples:
     parser.add_argument(
         "--storage", choices=["local", "minio", "r2", "s3"], required=True, help="Storage backend for run configuration"
     )
-    parser.add_argument("--storage-config", action="append", required=True, help="Storage config key=value (at minimum: bucket=name)")
+    parser.add_argument("--bucket-raw", help="Raw data bucket (for sync archives, required unless storage=local)")
+    parser.add_argument("--bucket-meta", help="Metadata bucket (for CSV/database outputs, required unless storage=local)")
+    parser.add_argument("--bucket-full", help="Full-text bucket (for OCR outputs, required unless storage=local)")
+    parser.add_argument("--storage-config", action="append", help="Additional storage config key=value")
     parser.add_argument("--storage-prefix", help="Storage prefix/path")
 
     # Resume/progress options
@@ -230,6 +245,19 @@ Examples:
     parser.add_argument("--disable-prefetch", action="store_true", help="Disable HTTP prefetching for next page")
 
     args = parser.parse_args()
+
+    # Validate storage arguments
+    if args.storage != "local":
+        missing_buckets = []
+        if not args.bucket_raw:
+            missing_buckets.append("--bucket-raw")
+        if not args.bucket_meta:
+            missing_buckets.append("--bucket-meta")
+        if not args.bucket_full:
+            missing_buckets.append("--bucket-full")
+        
+        if missing_buckets:
+            parser.error(f"The following bucket parameters are required when using --storage={args.storage}: {', '.join(missing_buckets)}")
 
     # Handle config creation
     if args.create_config:
@@ -279,6 +307,16 @@ Examples:
         storage_config = None
         if args.storage:
             storage_dict: dict[str, str] = {}
+            
+            # Add bucket names if provided
+            if args.bucket_raw:
+                storage_dict["bucket_raw"] = args.bucket_raw
+            if args.bucket_meta:
+                storage_dict["bucket_meta"] = args.bucket_meta
+            if args.bucket_full:
+                storage_dict["bucket_full"] = args.bucket_full
+                
+            # Add additional storage config
             if args.storage_config:
                 for item in args.storage_config:
                     if "=" in item:
@@ -349,6 +387,16 @@ Examples:
     storage_config = None
     if args.storage:
         storage_dict: dict[str, str] = {}
+        
+        # Add bucket names if provided
+        if args.bucket_raw:
+            storage_dict["bucket_raw"] = args.bucket_raw
+        if args.bucket_meta:
+            storage_dict["bucket_meta"] = args.bucket_meta
+        if args.bucket_full:
+            storage_dict["bucket_full"] = args.bucket_full
+            
+        # Add additional storage config
         if args.storage_config:
             for item in args.storage_config:
                 if "=" in item:
