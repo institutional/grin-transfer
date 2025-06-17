@@ -275,11 +275,11 @@ class SyncPipeline:
                 )
                 
                 if pending_books:
-                    print(f"📋 Status summary:")
+                    print(f"Status summary:")
                     print(f"  - {len(pending_books):,} books requested for processing but not yet converted")
                     print(f"  - {len(converted_barcodes):,} books available from GRIN (from other requests)")
                     print(f"  - 0 books ready to sync (no overlap between requested and converted)")
-                    print(f"\n💡 Tip: Use 'python processing.py monitor --run-name {Path(self.db_path).parent.name}' to check processing progress")
+                    print(f"\nTip: Use 'python processing.py monitor --run-name {Path(self.db_path).parent.name}' to check processing progress")
                 
                 return
 
@@ -613,7 +613,7 @@ async def cmd_pipeline(args) -> None:
 
     # Validate that we have required storage arguments
     if not args.storage:
-        print("❌ Error: --storage argument is required (or must be in run config)")
+        print("Error: --storage argument is required (or must be in run config)")
         sys.exit(1)
     
     missing_buckets = validate_bucket_arguments(args)
