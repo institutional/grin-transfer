@@ -635,6 +635,7 @@ class ProcessingMonitor:
     def __init__(self, directory: str = "Harvard", secrets_dir: str | None = None):
         self.directory = directory
         self.grin_client = GRINClient(secrets_dir=secrets_dir)
+        self.db_path: str | None = None
 
     async def cleanup(self) -> None:
         """Clean up resources and close connections safely."""
@@ -679,6 +680,22 @@ class ProcessingMonitor:
             print(f"Error getting failed books: {e}")
             return []
 
+    async def get_requested_books(self) -> set[str]:
+        """Get list of books that were requested for processing by this run."""
+        if not self.db_path:
+            return set()
+        
+        try:
+            import sqlite3
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT barcode FROM books WHERE processing_request_status = 'requested'")
+                rows = cursor.fetchall()
+                return {row[0] for row in rows}
+        except Exception as e:
+            logger.warning(f"Failed to get requested books from database: {e}")
+            return set()
+
     async def show_status_summary(self) -> None:
         """Show overall processing status summary."""
         print("GRIN Processing Status Summary")
@@ -687,18 +704,36 @@ class ProcessingMonitor:
         print(f"Checked at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print()
 
-        converted = await self.get_converted_books()
-        in_process = await self.get_in_process_books()
-        failed = await self.get_failed_books()
-
-        total_processed = len(converted) + len(in_process) + len(failed)
-        queue_space = 50000 - len(in_process)
+        # Get all GRIN status
+        all_converted = await self.get_converted_books()
+        all_in_process = await self.get_in_process_books()
+        all_failed = await self.get_failed_books()
         
-        print(f"Converted (ready for download): {len(converted):>8,}")
-        print(f"In process (being converted):   {len(in_process):>8,}")
-        print(f"Failed (conversion failed):     {len(failed):>8,}")
-        print(f"Total processed:                {total_processed:>8,}")
-        print(f"Queue space available:          {queue_space:>8,}")
+        # Get books requested by this run
+        requested_books = await self.get_requested_books()
+        
+        # Filter GRIN status to only our requested books
+        our_converted = requested_books.intersection(set(all_converted))
+        our_in_process = requested_books.intersection(set(all_in_process))
+        our_failed = requested_books.intersection(set(all_failed))
+        
+        # Calculate totals
+        our_total_processed = len(our_converted) + len(our_in_process) + len(our_failed)
+        all_total_processed = len(all_converted) + len(all_in_process) + len(all_failed)
+        queue_space = 50000 - len(all_in_process)
+        
+        print("Books from this run:")
+        print(f"  Converted (ready for download): {len(our_converted):>8,}")
+        print(f"  In process (being converted):   {len(our_in_process):>8,}")
+        print(f"  Failed (conversion failed):     {len(our_failed):>8,}")
+        print(f"  Total processed:                {our_total_processed:>8,}")
+        print()
+        print("All books in GRIN (including other runs):")
+        print(f"  Converted (ready for download): {len(all_converted):>8,}")
+        print(f"  In process (being converted):   {len(all_in_process):>8,}")
+        print(f"  Failed (conversion failed):     {len(all_failed):>8,}")
+        print(f"  Total processed:                {all_total_processed:>8,}")
+        print(f"  Queue space available:          {queue_space:>8,}")
 
     async def show_converted_books(self, limit: int = 50) -> None:
         """Show list of converted books ready for download."""
@@ -798,30 +833,50 @@ class ProcessingMonitor:
     async def get_grin_status_summary(self) -> dict:
         """Get GRIN processing status as a dictionary for change tracking."""
         try:
-            # Get lists of books in different states
-            converted = await self.get_converted_books()
-            in_process = await self.get_in_process_books()
-            failed = await self.get_failed_books()
+            # Get all GRIN status
+            all_converted = await self.get_converted_books()
+            all_in_process = await self.get_in_process_books()
+            all_failed = await self.get_failed_books()
             
-            # Calculate queue space available (max 50000 books in process)
-            queue_space_available = 50000 - len(in_process)
+            # Get books requested by this run
+            requested_books = await self.get_requested_books()
+            
+            # Filter GRIN status to only our requested books
+            our_converted = requested_books.intersection(set(all_converted))
+            our_in_process = requested_books.intersection(set(all_in_process))
+            our_failed = requested_books.intersection(set(all_failed))
+            
+            # Calculate totals
+            our_total_processed = len(our_converted) + len(our_in_process) + len(our_failed)
+            all_total_processed = len(all_converted) + len(all_in_process) + len(all_failed)
+            queue_space_available = 50000 - len(all_in_process)
             
             return {
-                "converted": len(converted),
-                "in_process": len(in_process),
-                "failed": len(failed),
+                # Our run stats
+                "our_converted": len(our_converted),
+                "our_in_process": len(our_in_process),
+                "our_failed": len(our_failed),
+                "our_total_processed": our_total_processed,
+                # All GRIN stats
+                "all_converted": len(all_converted),
+                "all_in_process": len(all_in_process),
+                "all_failed": len(all_failed),
+                "all_total_processed": all_total_processed,
                 "queue_space_available": queue_space_available,
-                "total_processed": len(converted) + len(in_process) + len(failed),
                 "timestamp": datetime.now(UTC).isoformat(),
             }
         except Exception as e:
             logger.warning(f"Failed to get GRIN status summary: {e}")
             return {
-                "converted": 0,
-                "in_process": 0,
-                "failed": 0,
+                "our_converted": 0,
+                "our_in_process": 0,
+                "our_failed": 0,
+                "our_total_processed": 0,
+                "all_converted": 0,
+                "all_in_process": 0,
+                "all_failed": 0,
+                "all_total_processed": 0,
                 "queue_space_available": 50000,
-                "total_processed": 0,
                 "timestamp": datetime.now(UTC).isoformat(),
                 "error": str(e),
             }
@@ -962,6 +1017,9 @@ async def cmd_monitor(args) -> None:
             directory=args.directory or "Harvard",  # Use default if not set
             secrets_dir=args.secrets_dir,
         )
+        
+        # Set database path from run argument
+        monitor.db_path = args.db_path
 
         # Validate credentials
         try:
@@ -1087,19 +1145,32 @@ def detect_status_changes(previous: dict, current: dict) -> list[str]:
     """Detect changes between status snapshots."""
     changes = []
     
-    # Check for changes in key metrics
-    metrics = ['converted', 'in_process', 'failed', 'queue_space_available', 'total_processed']
+    # Check for changes in our run metrics (most important)
+    our_metrics = [
+        ('our_converted', 'Our converted'),
+        ('our_in_process', 'Our in process'),
+        ('our_failed', 'Our failed'),
+        ('our_total_processed', 'Our total processed'),
+    ]
     
-    for metric in metrics:
+    # Check for changes in overall GRIN metrics
+    all_metrics = [
+        ('all_converted', 'All converted'),
+        ('all_in_process', 'All in process'),
+        ('all_failed', 'All failed'),
+        ('queue_space_available', 'Queue space available'),
+    ]
+    
+    for metric, label in our_metrics + all_metrics:
         prev_val = previous.get(metric, 0)
         curr_val = current.get(metric, 0)
         
         if prev_val != curr_val:
             diff = curr_val - prev_val
             if diff > 0:
-                changes.append(f"{metric}: {prev_val:,} → {curr_val:,} (+{diff:,})")
+                changes.append(f"{label}: {prev_val:,} → {curr_val:,} (+{diff:,})")
             else:
-                changes.append(f"{metric}: {prev_val:,} → {curr_val:,} ({diff:,})")
+                changes.append(f"{label}: {prev_val:,} → {curr_val:,} ({diff:,})")
     
     return changes
 
