@@ -7,6 +7,7 @@ Unified script to sync books from GRIN to storage and check sync status.
 
 import argparse
 import asyncio
+import json
 import logging
 import signal
 import sys
@@ -20,6 +21,7 @@ from collect_books.models import SQLiteProgressTracker
 from common import ProgressReporter, SlidingWindowRateCalculator, create_storage_from_config, format_duration, pluralize
 from download import download_book, reset_bucket_cache
 from client import GRINClient
+from run_config import find_run_config, apply_run_config_to_args
 
 logger = logging.getLogger(__name__)
 
@@ -570,6 +572,9 @@ def validate_database_file(db_path: str) -> None:
 
 async def cmd_pipeline(args) -> None:
     """Handle the 'pipeline' command."""
+    # Apply run configuration defaults
+    apply_run_config_to_args(args, args.db_path)
+    
     # Set up signal handlers for graceful shutdown
     def signal_handler(signum: int, frame: Any) -> None:
         print(f"\nReceived signal {signum}, shutting down gracefully...")
@@ -580,6 +585,14 @@ async def cmd_pipeline(args) -> None:
 
     # Validate database
     validate_database_file(args.db_path)
+
+    # Validate that we have required storage arguments
+    if not args.storage:
+        print("❌ Error: --storage argument is required (or must be in run config)")
+        sys.exit(1)
+    if not args.bucket:
+        print("❌ Error: --bucket argument is required (or must be in run config)")
+        sys.exit(1)
 
     # Build storage configuration
     storage_config = {"bucket": args.bucket}
@@ -595,6 +608,34 @@ async def cmd_pipeline(args) -> None:
         storage_config["account_id"] = args.account_id
     if args.credentials_file:
         storage_config["credentials_file"] = args.credentials_file
+
+    # Update run configuration with storage parameters if they were provided
+    config_path = Path(args.db_path).parent / "run_config.json"
+    if config_path.exists():
+        try:
+            # Read existing config
+            with open(config_path) as f:
+                run_config = json.load(f)
+            
+            # Update storage configuration
+            storage_config_dict = {
+                "type": args.storage,
+                "config": {k: v for k, v in storage_config.items() if v is not None},
+                "prefix": storage_config.get("prefix", "grin-books")
+            }
+            
+            run_config["storage_config"] = storage_config_dict
+            
+            # Write back to config file
+            with open(config_path, "w") as f:
+                json.dump(run_config, f, indent=2)
+            
+            print(f"Updated storage configuration in {config_path}")
+            
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"Warning: Could not update run config: {e}")
+    else:
+        print(f"Note: No run config found at {config_path} to update")
 
     # Auto-configure MinIO from docker-compose file if needed
     if args.storage == "minio" and not (args.endpoint_url and args.access_key and args.secret_key):
@@ -706,8 +747,8 @@ Examples:
     pipeline_parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
 
     # Storage configuration
-    pipeline_parser.add_argument("--storage", choices=["minio", "r2", "s3"], required=True, help="Storage backend")
-    pipeline_parser.add_argument("--bucket", required=True, help="Storage bucket name")
+    pipeline_parser.add_argument("--storage", choices=["minio", "r2", "s3"], help="Storage backend (auto-detected from run config if not specified)")
+    pipeline_parser.add_argument("--bucket", help="Storage bucket name (auto-detected from run config if not specified)")
     pipeline_parser.add_argument("--prefix", help="Storage prefix/path")
 
     # Storage credentials

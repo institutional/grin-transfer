@@ -18,6 +18,7 @@ from typing import Any
 from client import GRINClient
 from collect_books.models import SQLiteProgressTracker
 from common import SlidingWindowRateCalculator, format_duration, pluralize
+from run_config import find_run_config, apply_run_config_to_args
 
 logger = logging.getLogger(__name__)
 
@@ -802,6 +803,9 @@ def validate_database_file(db_path: str) -> None:
 
 async def cmd_request(args) -> None:
     """Handle the 'request' command."""
+    # Apply run configuration defaults
+    apply_run_config_to_args(args, args.db_path)
+    
     # Validate database
     validate_database_file(args.db_path)
 
