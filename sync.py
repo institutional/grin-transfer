@@ -572,6 +572,11 @@ def validate_database_file(db_path: str) -> None:
 
 async def cmd_pipeline(args) -> None:
     """Handle the 'pipeline' command."""
+    # Determine database path from run name
+    args.db_path = f"output/{args.run_name}/books.db"
+    print(f"Using run: {args.run_name}")
+    print(f"Database: {args.db_path}")
+    
     # Apply run configuration defaults
     apply_run_config_to_args(args, args.db_path)
     
@@ -717,6 +722,11 @@ async def cmd_pipeline(args) -> None:
 
 async def cmd_status(args) -> None:
     """Handle the 'status' command."""
+    # Determine database path from run name
+    args.db_path = f"output/{args.run_name}/books.db"
+    print(f"Using run: {args.run_name}")
+    print(f"Database: {args.db_path}")
+    
     try:
         await show_sync_status(args.db_path, args.storage_type)
     except KeyboardInterrupt:
@@ -732,6 +742,11 @@ async def main() -> None:
     parser = argparse.ArgumentParser(
         description="GRIN sync management",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python sync.py pipeline --run-name harvard_2024
+  python sync.py status --run-name harvard_2024
+        """,
     )
     
     subparsers = parser.add_subparsers(dest="command", help="Commands")
@@ -743,21 +758,24 @@ async def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Sync to Cloudflare R2
-  python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket-raw=grin-raw --bucket-meta=grin-meta --bucket-full=grin-full
+  # Basic sync (auto-detects storage config from run)
+  python sync.py pipeline --run-name harvard_2024
 
-  # Sync to MinIO with custom concurrency
-  python sync.py pipeline output/harvard_2024/books.db --storage=minio --bucket-raw=grin-raw --bucket-meta=grin-meta --bucket-full=grin-full --concurrent=5
+  # Sync with explicit storage configuration
+  python sync.py pipeline --run-name harvard_2024 --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
+
+  # Sync with custom concurrency
+  python sync.py pipeline --run-name harvard_2024 --concurrent 5
 
   # Retry failed syncs only
-  python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket-raw=grin-raw --bucket-meta=grin-meta --bucket-full=grin-full --status=failed
+  python sync.py pipeline --run-name harvard_2024 --status failed
 
   # Sync with limit and force overwrite
-  python sync.py pipeline output/harvard_2024/books.db --storage=r2 --bucket-raw=grin-raw --bucket-meta=grin-meta --bucket-full=grin-full --limit=100 --force
+  python sync.py pipeline --run-name harvard_2024 --limit 100 --force
         """,
     )
 
-    pipeline_parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
+    pipeline_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
 
     # Storage configuration
     pipeline_parser.add_argument("--storage", choices=["minio", "r2", "s3"], help="Storage backend (auto-detected from run config if not specified)")
@@ -781,8 +799,8 @@ Examples:
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
 
     # GRIN options
-    pipeline_parser.add_argument("--directory", default="Harvard", help="GRIN directory (default: Harvard)")
-    pipeline_parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets")
+    pipeline_parser.add_argument("--directory", help="GRIN directory (auto-detected from run config if not specified)")
+    pipeline_parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets (auto-detected from run config if not specified)")
     pipeline_parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
 
     # Logging
@@ -796,14 +814,14 @@ Examples:
         epilog="""
 Examples:
   # Check overall sync status
-  python sync.py status output/harvard_2024/books.db
+  python sync.py status --run-name harvard_2024
 
   # Check sync status for specific storage type
-  python sync.py status output/harvard_2024/books.db --storage-type=r2
+  python sync.py status --run-name harvard_2024 --storage-type r2
         """,
     )
 
-    status_parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
+    status_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
     status_parser.add_argument("--storage-type", choices=["local", "minio", "r2", "s3"], 
                               help="Filter by storage type")
 

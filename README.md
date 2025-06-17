@@ -67,21 +67,21 @@ python processing.py monitor --run-name harvard_2024
 Download converted books from GRIN to storage with database tracking.
 
 ```bash
-# Sync converted books to storage (auto-detects config from database)
-python sync.py pipeline output/harvard_2024/books.db
+# Sync converted books to storage (auto-detects config from run)
+python sync.py pipeline --run-name harvard_2024
 
 # Sync with explicit storage configuration
-python sync.py pipeline output/harvard_2024/books.db \
+python sync.py pipeline --run-name harvard_2024 \
   --storage r2 \
   --bucket-raw grin-raw \
   --bucket-meta grin-meta \
   --bucket-full grin-full
 
 # Check sync status
-python sync.py status output/harvard_2024/books.db
+python sync.py status --run-name harvard_2024
 
 # Retry failed syncs only
-python sync.py pipeline output/harvard_2024/books.db --status failed
+python sync.py pipeline --run-name harvard_2024 --status failed
 ```
 
 **Pipeline options:**
@@ -151,7 +151,7 @@ python collect_books.py --run-name "my_run" --storage r2 \
 
 # Other scripts auto-detect config from run name
 python processing.py request --run-name my_run
-python sync.py pipeline output/my_run/books.db
+python sync.py pipeline --run-name my_run
 python grin_enrichment.py enrich --run-name my_run
 ```
 
@@ -177,7 +177,7 @@ Configuration is stored in `output/{run_name}/run_config.json` and includes stor
 
 4. **Sync converted books** to storage:
    ```bash
-   python sync.py pipeline output/collection_2024/books.db
+   python sync.py pipeline --run-name collection_2024
    ```
 
 5. **Enrich with metadata** and export:
