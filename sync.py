@@ -425,21 +425,34 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
         if not storage_type:
             print("Storage Type Breakdown:")
             
-            # Get books by storage type and bucket
+            # Get books by storage type and extract bucket from storage_path
             async with aiosqlite.connect(db_path) as db:
                 cursor = await db.execute("""
-                    SELECT storage_type, storage_bucket, COUNT(*) as count
+                    SELECT storage_type, storage_path, COUNT(*) as count
                     FROM books 
-                    WHERE storage_type IS NOT NULL
-                    GROUP BY storage_type, storage_bucket
+                    WHERE storage_type IS NOT NULL AND storage_path IS NOT NULL
+                    GROUP BY storage_type, storage_path
                     ORDER BY storage_type, count DESC
                 """)
                 storage_breakdown = await cursor.fetchall()
                 
                 if storage_breakdown:
-                    for storage, bucket, count in storage_breakdown:
-                        bucket_text = f"/{bucket}" if bucket else ""
-                        print(f"  {storage}{bucket_text}: {count:,} books")
+                    # Group by storage type and extract bucket from path
+                    storage_buckets = {}
+                    for storage, path, count in storage_breakdown:
+                        # Extract bucket from path (first part after removing prefix)
+                        bucket = "unknown"
+                        if path:
+                            # For paths like "bucket/BARCODE/..." extract the bucket
+                            parts = path.split("/")
+                            if parts:
+                                bucket = parts[0]
+                        
+                        key = f"{storage}/{bucket}"
+                        storage_buckets[key] = storage_buckets.get(key, 0) + count
+                    
+                    for storage_bucket, count in sorted(storage_buckets.items()):
+                        print(f"  {storage_bucket}: {count:,} books")
                 else:
                     print("  No books have been synced to any storage yet")
                     
