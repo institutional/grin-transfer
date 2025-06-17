@@ -233,6 +233,9 @@ class ProcessingPipeline:
         self.max_concurrent_batches = 5  # Maximum parallel batch requests
         self._batch_semaphore = asyncio.Semaphore(self.max_concurrent_batches)
 
+        # Queue monitoring
+        self.queue_report_interval = 30.0  # Default to 30 seconds, can be overridden
+
         # Statistics
         self.stats = {
             "requested": 0,
@@ -512,7 +515,7 @@ class ProcessingPipeline:
                 }
 
     async def _process_batches_concurrently(self, candidate_barcodes: list[str], limit: int | None, start_time: float) -> None:
-        """Process multiple batches concurrently with rate limiting."""
+        """Process multiple batches concurrently with rate limiting and periodic queue reporting."""
         # Split into batches
         batches: list[list[str]] = []
         for i in range(0, len(candidate_barcodes), self.batch_size):
@@ -536,8 +539,19 @@ class ProcessingPipeline:
             for i, batch in enumerate(batches)
         ]
         
-        # Process all batches concurrently
-        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Start queue size monitoring task
+        queue_monitor_task = asyncio.create_task(self._monitor_queue_size_periodically())
+        
+        try:
+            # Process all batches concurrently
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            # Cancel queue monitoring
+            queue_monitor_task.cancel()
+            try:
+                await queue_monitor_task
+            except asyncio.CancelledError:
+                pass
         
         # Aggregate results
         total_processed = 0
@@ -569,6 +583,50 @@ class ProcessingPipeline:
         print(f"  Failed: {total_failed}")
         print(f"  Total time: {total_elapsed:.1f}s")
         print(f"  Overall rate: {overall_rate:.1f} requests/sec")
+
+    async def _monitor_queue_size_periodically(self) -> None:
+        """Monitor GRIN queue size periodically during batch processing."""
+        report_interval = float(self.queue_report_interval)  # Use configured interval
+        last_report_time = time.time()
+        
+        try:
+            while True:
+                await asyncio.sleep(5.0)  # Check every 5 seconds
+                current_time = time.time()
+                
+                # Report queue status every 30 seconds
+                if current_time - last_report_time >= report_interval:
+                    try:
+                        status = await asyncio.wait_for(
+                            self.get_processing_status(),
+                            timeout=10.0
+                        )
+                        timestamp = datetime.now().strftime("%H:%M:%S")
+                        
+                        # Calculate change in queue size since start
+                        current_in_process = status['in_process']
+                        queue_space = status['queue_space']
+                        
+                        # Show processing progress if we've made requests
+                        progress_info = ""
+                        if self.stats['successful'] > 0 or self.stats['failed'] > 0:
+                            total_requests = self.stats['successful'] + self.stats['failed']
+                            progress_info = f" | Progress: {total_requests:,} requests completed"
+                        
+                        print(f"[{timestamp}] GRIN Queue: {current_in_process:,} in process, {queue_space:,} space available{progress_info}")
+                        last_report_time = current_time
+                        
+                    except asyncio.TimeoutError:
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] Queue status check timed out")
+                        last_report_time = current_time
+                    except Exception as e:
+                        logger.debug(f"Queue status check failed: {e}")
+                        # Don't print errors to avoid spam, just update timing
+                        last_report_time = current_time
+                        
+        except asyncio.CancelledError:
+            # Task was cancelled, exit cleanly
+            pass
 
 
 class ProcessingMonitor:
@@ -820,12 +878,15 @@ async def cmd_request(args) -> None:
     try:
         pipeline = ProcessingPipeline(
             db_path=args.db_path,
-            directory=args.directory,
+            directory=args.directory or "Harvard",  # Use default if not set
             rate_limit_delay=args.rate_limit,
             batch_size=args.batch_size,
             max_in_process=args.max_in_process,
             secrets_dir=args.secrets_dir,
         )
+        
+        # Set queue report interval
+        pipeline.queue_report_interval = args.queue_report_interval
         
         if args.status_only:
             # Just show status
@@ -864,13 +925,13 @@ async def cmd_monitor(args) -> None:
     """Handle the 'monitor' command."""
     try:
         monitor = ProcessingMonitor(
-            directory=args.directory,
+            directory=args.directory or "Harvard",  # Use default if not set
             secrets_dir=args.secrets_dir,
         )
 
         # Validate credentials
         try:
-            await monitor.grin_client.auth.validate_credentials(args.directory)
+            await monitor.grin_client.auth.validate_credentials(args.directory or "Harvard")
         except Exception as e:
             print(f"Error: Credential validation failed: {e}")
             sys.exit(1)
@@ -909,6 +970,12 @@ async def main() -> None:
     parser = argparse.ArgumentParser(
         description="GRIN book processing management",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python processing.py request --run-name harvard_2024
+  python processing.py request --run-name harvard_2024 --limit 100
+  python processing.py monitor --run-name harvard_2024
+        """,
     )
     
     subparsers = parser.add_subparsers(dest="command", help="Commands")
@@ -920,24 +987,24 @@ async def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Request processing for books from database
-  python processing.py request output/harvard_2024/books.db
+  # Request processing for books from run
+  python processing.py request --run-name harvard_2024
 
   # Request processing with limits
-  python processing.py request output/harvard_2024/books.db --limit=100
+  python processing.py request --run-name harvard_2024 --limit 100
 
   # Check current status only
-  python processing.py request output/harvard_2024/books.db --status-only
+  python processing.py request --run-name harvard_2024 --status-only
 
   # Custom rate limiting
-  python processing.py request output/harvard_2024/books.db --rate-limit=0.1
+  python processing.py request --run-name harvard_2024 --rate-limit 0.1
         """,
     )
     
-    request_parser.add_argument("db_path", help="SQLite database path (e.g., output/harvard_2024/books.db)")
+    request_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
     
     # Processing options
-    request_parser.add_argument("--directory", default="Harvard", help="GRIN directory (default: Harvard)")
+    request_parser.add_argument("--directory", help="GRIN directory (auto-detected from run config if not specified)")
     request_parser.add_argument(
         "--rate-limit", type=float, default=0.2, help="Delay between requests (default: 0.2s for 5 QPS)"
     )
@@ -947,9 +1014,10 @@ Examples:
     )
     request_parser.add_argument("--limit", type=int, help="Limit number of processing requests to make")
     request_parser.add_argument("--status-only", action="store_true", help="Only check current status, don't make requests")
+    request_parser.add_argument("--queue-report-interval", type=int, default=30, help="Queue status reporting interval in seconds (default: 30)")
     
     # GRIN options
-    request_parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets files")
+    request_parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets files (auto-detected from run config if not specified)")
     
     # Logging
     request_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
@@ -962,30 +1030,31 @@ Examples:
         epilog="""
 Examples:
   # Show overall status summary
-  python processing.py monitor
+  python processing.py monitor --run-name harvard_2024
 
   # Show converted books ready for download
-  python processing.py monitor --converted
+  python processing.py monitor --run-name harvard_2024 --converted
 
   # Show books currently being processed  
-  python processing.py monitor --in-process
+  python processing.py monitor --run-name harvard_2024 --in-process
 
   # Show books that failed processing
-  python processing.py monitor --failed
+  python processing.py monitor --run-name harvard_2024 --failed
 
   # Search for a specific barcode
-  python processing.py monitor --search TZ1XH8
+  python processing.py monitor --run-name harvard_2024 --search TZ1XH8
 
   # Export converted books to file
-  python processing.py monitor --export converted_books.txt
+  python processing.py monitor --run-name harvard_2024 --export converted_books.txt
 
   # Show more results
-  python processing.py monitor --converted --limit 100
+  python processing.py monitor --run-name harvard_2024 --converted --limit 100
         """,
     )
 
-    monitor_parser.add_argument("--directory", default="Harvard", help="GRIN directory (default: Harvard)")
-    monitor_parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets files")
+    monitor_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
+    monitor_parser.add_argument("--directory", help="GRIN directory (auto-detected from run config if not specified)")
+    monitor_parser.add_argument("--secrets-dir", help="Directory containing GRIN secrets files (auto-detected from run config if not specified)")
 
     # What to show
     monitor_parser.add_argument("--converted", action="store_true", help="Show converted books ready for download")
@@ -1002,6 +1071,11 @@ Examples:
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    # Determine database path from run name
+    args.db_path = f"output/{args.run_name}/books.db"
+    print(f"Using run: {args.run_name}")
+    print(f"Database: {args.db_path}")
     
     if args.command == "request":
         await cmd_request(args)
