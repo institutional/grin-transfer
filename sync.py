@@ -355,7 +355,7 @@ class SyncPipeline:
                 if books_to_process > 0:
                     percentage = (processed_count / books_to_process) * 100
                     remaining = books_to_process - processed_count
-                    
+
                     # Show ETA only after enough batches for stable estimate
                     eta_text = ""
                     if len(rate_calculator.batch_times) >= 5 and rate > 0:

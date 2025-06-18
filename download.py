@@ -569,21 +569,23 @@ async def download_book(
             # Save encrypted archive first
             encrypted_path = await book_storage.save_archive(barcode, archive_data, google_etag)
             await book_storage.save_timestamp(barcode)
-            
+
             # Update status after encrypted file is written
             if db_tracker:
                 await db_tracker.add_status_change(barcode, "sync", "write_raw")
-            
+
             if verbose:
                 print(f"  ✅ {barcode} encrypted archive uploaded")
 
             # Decrypt and save decrypted archive
-            decryption_success = await _decrypt_and_save_archive(barcode, archive_data, book_storage, gpg_key_file, secrets_dir)
-            
+            decryption_success = await _decrypt_and_save_archive(
+                barcode, archive_data, book_storage, gpg_key_file, secrets_dir
+            )
+
             # Update status after decryption is written
             if db_tracker and decryption_success:
                 await db_tracker.add_status_change(barcode, "sync", "write_decrypted")
-            
+
             decrypted_path = book_storage._book_path(barcode, f"{barcode}.tar.gz")
             logger.info(f"Upload completed: Encrypted: {encrypted_path}, Decrypted: {decrypted_path}")
             if verbose:
@@ -606,7 +608,7 @@ async def download_book(
             await f.write(archive_data)
 
         archive_path = str(file_path)
-        
+
         # Update status after encrypted file is written
         if db_tracker:
             await db_tracker.add_status_change(barcode, "sync", "write_raw")
