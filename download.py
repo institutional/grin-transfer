@@ -392,7 +392,7 @@ async def download_book(
             book_storage = BookStorage(storage, base_prefix=base_prefix)
 
             if await book_storage.archive_exists(barcode):
-                print(f"{barcode} archive already exists, checking if Google's version matches...")
+                logger.debug(f"{barcode} archive already exists, checking if Google's version matches")
 
                 # Check if we have the same Google file using stored metadata
                 if etag and await book_storage.archive_matches_google_etag(barcode, etag):
@@ -479,7 +479,7 @@ async def download_book(
         bucket_key = f"{storage_type}:{bucket_name}"
 
         if bucket_key not in _bucket_checked_cache:
-            print(f"Checking bucket '{bucket_name}' for {storage_type} ({barcode})...")
+            logger.debug(f"Checking bucket '{bucket_name}' for {storage_type} ({barcode})...")
 
             # Use direct boto3 approach to check and create bucket
             if storage_type in ("minio", "s3"):
@@ -501,13 +501,13 @@ async def download_book(
                     # Check if bucket exists
                     try:
                         s3_client.head_bucket(Bucket=bucket_name)
-                        print(f"Bucket '{bucket_name}' exists ({barcode})")
+                        logger.debug(f"Bucket '{bucket_name}' exists ({barcode})")
                     except ClientError as e:
                         error_code = e.response['Error']['Code']
                         if error_code == '404':
-                            print(f"Bucket '{bucket_name}' does not exist. Creating... ({barcode})")
+                            logger.info(f"Creating bucket '{bucket_name}'")
                             s3_client.create_bucket(Bucket=bucket_name)
-                            print(f"✅ Created bucket '{bucket_name}' ({barcode})")
+                            logger.info(f"Created bucket '{bucket_name}'")
                         else:
                             raise RuntimeError(f"Cannot access bucket '{bucket_name}': {e}") from e
 
@@ -516,7 +516,7 @@ async def download_book(
                 except Exception as e:
                     raise RuntimeError(f"Bucket check failed: {e}") from e
 
-            print(f"Bucket '{bucket_name}' is ready for {barcode}!")
+            logger.debug(f"Bucket '{bucket_name}' is ready for {barcode}")
             _bucket_checked_cache.add(bucket_key)
         else:
             logger.debug(f"Bucket {bucket_name} already verified (skipping check for {barcode})")
@@ -533,10 +533,8 @@ async def download_book(
         # Check if file already exists with same Google ETag (unless forced)
         if not force and await book_storage.archive_exists(barcode):
             if google_etag and await book_storage.archive_matches_google_etag(barcode, google_etag):
-                print(
-                    f"✅ {barcode} archive already exists with identical content "
-                    f"(Google ETag match), skipping upload"
-                )
+                logger.info(f"{barcode} archive already exists with identical content "
+                           f"(Google ETag match), skipping upload")
                 archive_path = book_storage._book_path(barcode, f"{barcode}.tar.gz.gpg")
                 # Still update timestamp to record this download attempt
                 await book_storage.save_timestamp(barcode)
@@ -559,10 +557,7 @@ async def download_book(
                 if verbose:
                     print(f"  ✅ {barcode} uploaded with decryption")
         else:
-            if force and await book_storage.archive_exists(barcode):
-                print(f"Overwriting {barcode} existing archive in {storage_type} storage...")
-            else:
-                print(f"Saving {barcode} to {storage_type} storage...")
+            logger.debug(f"Saving {barcode} to {storage_type} storage (force={force})")
 
             archive_path = book_storage._book_path(barcode, f"{barcode}.tar.gz.gpg")
 
@@ -791,50 +786,10 @@ Examples:
     if args.prefix:
         storage_config["prefix"] = args.prefix
 
-    # Auto-configure MinIO from docker-compose file if using minio storage
+    # Auto-configure MinIO if needed (preserving explicit args check)
+    from common import auto_configure_minio
     if args.storage == "minio" and not (args.endpoint_url and args.access_key and args.secret_key):
-        try:
-            from pathlib import Path
-
-            import yaml
-
-            compose_file = Path("docker-compose.minio.yml")
-            if compose_file.exists():
-                with open(compose_file) as f:
-                    compose_config = yaml.safe_load(f)
-
-                minio_service = compose_config.get("services", {}).get("minio", {})
-                env = minio_service.get("environment", {})
-                ports = minio_service.get("ports", [])
-
-                # Extract MinIO configuration
-                if not args.endpoint_url:
-                    # Find API port (9000)
-                    api_port = "9000"
-                    for port_mapping in ports:
-                        if isinstance(port_mapping, str) and ":9000" in port_mapping:
-                            api_port = port_mapping.split(":")[0]
-                            break
-                    storage_config["endpoint_url"] = f"http://localhost:{api_port}"
-
-                if not args.access_key:
-                    storage_config["access_key"] = env.get("MINIO_ROOT_USER", "minioadmin")
-
-                if not args.secret_key:
-                    storage_config["secret_key"] = env.get("MINIO_ROOT_PASSWORD", "minioadmin123")
-
-                # Note: Bucket is still required as a parameter
-
-                print("Auto-configured MinIO from docker-compose.minio.yml:")
-                print(f"  Endpoint: {storage_config.get('endpoint_url')}")
-
-            else:
-                print("Warning: docker-compose.minio.yml not found, using manual MinIO configuration")
-
-        except ImportError:
-            print("Warning: PyYAML not available, cannot auto-configure MinIO from docker-compose")
-        except Exception as e:
-            print(f"Warning: Failed to read docker-compose.minio.yml: {e}")
+        auto_configure_minio(storage_config)
 
     # Override with explicit arguments if provided
     if args.endpoint_url:
@@ -854,6 +809,12 @@ Examples:
     if args.storage and args.storage != "local" and not storage_config.get("bucket"):
         print(f"Error: --bucket is required when using {args.storage} storage")
         return 1
+
+    # Check storage connectivity if needed
+    if args.storage and args.storage != "local":
+        from common import check_minio_connectivity
+        if args.storage == "minio":
+            await check_minio_connectivity(storage_config)
 
     try:
         # Show configuration

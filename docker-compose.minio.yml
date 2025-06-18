@@ -1,8 +1,8 @@
-# MinIO Local Development Environment for V2 Storage Testing
+# MinIO Local Development Environment for GRIN-to-S3 Storage Testing
 #
 # Purpose:
-# - Provides S3-compatible storage for local V2 development and testing
-# - Allows testing V2 storage abstraction without cloud credentials
+# - Provides S3-compatible storage for local GRIN-to-S3 development and testing
+# - Allows testing storage abstraction without cloud credentials
 # - Simulates production S3/R2 behavior in a local environment
 # - Used for developing and debugging storage operations before deployment
 #
@@ -14,16 +14,16 @@
 # API: http://localhost:9000
 # Console: http://localhost:9001 (minioadmin/minioadmin123)
 #
-# V2 Integration:
-# python download_to_storage.py BARCODE --storage=minio
-# python test_minio_storage.py
+# GRIN-to-S3 Integration:
+# python sync.py pipeline --run-name test --storage minio
+# python download.py BARCODE --storage minio
 
 version: '3.8'
 
 services:
   minio:
     image: minio/minio:latest
-    container_name: v2-minio
+    container_name: grin-to-s3-minio
     ports:
       - "9000:9000"  # MinIO API
       - "9001:9001"  # MinIO Console
@@ -32,14 +32,14 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin123
     command: server /data --console-address ":9001"
     volumes:
-      - minio-data:/data
+      - grin-to-s3-minio-data:/data
     networks:
-      - minio-network
+      - grin-to-s3-minio-network
 
 
 volumes:
-  minio-data:
+  grin-to-s3-minio-data:
 
 networks:
-  minio-network:
+  grin-to-s3-minio-network:
     driver: bridge

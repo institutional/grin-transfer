@@ -20,7 +20,7 @@ import aiosqlite
 
 from client import GRINClient
 from collect_books.models import SQLiteProgressTracker
-from common import ProgressReporter, SlidingWindowRateCalculator, format_duration, pluralize
+from common import ProgressReporter, SlidingWindowRateCalculator, format_duration, pluralize, setup_storage_with_checks
 from download import download_book, reset_bucket_cache
 from run_config import (
     build_storage_config_dict,
@@ -40,7 +40,7 @@ class SyncPipeline:
         storage_type: str,
         storage_config: dict,
         concurrent_downloads: int = 5,
-        batch_size: int = 100,
+        batch_size: int = 20,
         directory: str = "Harvard",
         secrets_dir: str | None = None,
         gpg_key_file: str | None = None,
@@ -202,6 +202,64 @@ class SyncPipeline:
 
         return processed_results
 
+    async def _process_batch_with_updates(
+        self, barcodes: list[str], rate_calculator, start_time: float,
+        processed_count: int, books_to_process: int
+    ) -> list[dict]:
+        """Process a batch with periodic progress updates."""
+        if not barcodes:
+            return []
+
+        # Start periodic update task
+        update_task = asyncio.create_task(
+            self._periodic_progress_updates(
+                barcodes, rate_calculator, start_time, processed_count, books_to_process
+            )
+        )
+
+        try:
+            # Process the batch
+            results = await self.process_batch(barcodes)
+            return results
+        finally:
+            # Cancel the update task
+            update_task.cancel()
+            try:
+                await update_task
+            except asyncio.CancelledError:
+                pass
+
+    async def _periodic_progress_updates(
+        self, barcodes: list[str], rate_calculator, start_time: float,
+        processed_count: int, books_to_process: int
+    ) -> None:
+        """Provide periodic progress updates during batch processing."""
+        update_interval = 10.0  # Update every 10 seconds
+
+        while True:
+            try:
+                await asyncio.sleep(update_interval)
+
+                # Calculate current rate
+                rate = rate_calculator.get_rate(start_time, processed_count)
+
+                if books_to_process > 0 and rate > 0:
+                    remaining = books_to_process - processed_count
+                    percentage = (processed_count / books_to_process) * 100
+
+                    # Show ETA only after enough data for stable estimate
+                    eta_text = ""
+                    if len(rate_calculator.batch_times) >= 3:
+                        eta_seconds = remaining / rate
+                        eta_text = f" (ETA: {format_duration(eta_seconds)})"
+
+                    print(f"Processing: {processed_count:,}/{books_to_process:,} "
+                          f"({percentage:.1f}%) - {rate:.1f} books/sec{eta_text} "
+                          f"[batch of {len(barcodes)} in progress]")
+
+            except asyncio.CancelledError:
+                break
+
     async def get_sync_status(self) -> dict:
         """Get current sync status and statistics."""
         stats = await self.db_tracker.get_sync_stats(self.storage_type)
@@ -325,9 +383,11 @@ class SyncPipeline:
 
                 logger.info(f"Processing batch of {len(barcodes)} books...")
 
-                # Process the batch
+                # Process the batch with periodic updates
                 batch_start = time.time()
-                batch_results = await self.process_batch(barcodes)
+                batch_results = await self._process_batch_with_updates(
+                    barcodes, rate_calculator, start_time, processed_count, books_to_process
+                )
                 batch_elapsed = time.time() - batch_start
 
                 # Update progress
@@ -417,9 +477,9 @@ class SyncPipeline:
         start_time = time.time()
         processed_count = 0
 
-        # Initialize sliding window rate calculator
+        # Initialize sliding window rate calculator (same as pipeline for consistency)
         from common import SlidingWindowRateCalculator
-        rate_calculator = SlidingWindowRateCalculator(window_size=5)
+        rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
         print(f"Processing {books_to_process:,} books in catchup mode...")
 
@@ -440,9 +500,11 @@ class SyncPipeline:
 
                 logger.info(f"Processing catchup batch of {len(batch)} books...")
 
-                # Process the batch
+                # Process the batch with periodic updates (same as pipeline)
                 batch_start = time.time()
-                batch_results = await self.process_batch(batch)
+                batch_results = await self._process_batch_with_updates(
+                    batch, rate_calculator, start_time, processed_count, books_to_process
+                )
                 batch_elapsed = time.time() - batch_start
 
                 # Update progress
@@ -469,8 +531,12 @@ class SyncPipeline:
                 if books_to_process > 0:
                     percentage = (processed_count / books_to_process) * 100
                     remaining = books_to_process - processed_count
-                    eta_seconds = remaining / rate if rate > 0 else 0
-                    eta_text = f" (ETA: {format_duration(eta_seconds)})" if eta_seconds > 0 else ""
+
+                    # Show ETA only after enough batches for stable estimate (same as pipeline)
+                    eta_text = ""
+                    if len(rate_calculator.batch_times) >= 5 and rate > 0:
+                        eta_seconds = remaining / rate
+                        eta_text = f" (ETA: {format_duration(eta_seconds)})"
 
                     print(f"Catchup progress: {processed_count:,}/{books_to_process:,} "
                           f"({percentage:.1f}%) - {rate:.1f} books/sec{eta_text}")
@@ -632,6 +698,7 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
             pass
 
 
+
 def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
     """Setup logging configuration."""
     log_level = getattr(logging, level.upper())
@@ -763,40 +830,8 @@ async def cmd_pipeline(args) -> None:
     else:
         print(f"Note: No run config found at {config_path} to update")
 
-    # Auto-configure MinIO from docker-compose file if needed
-    if args.storage == "minio" and not (args.endpoint_url and args.access_key and args.secret_key):
-        try:
-            import yaml
-
-            compose_file = Path("docker-compose.minio.yml")
-            if compose_file.exists():
-                with open(compose_file) as f:
-                    compose_config = yaml.safe_load(f)
-
-                minio_service = compose_config.get("services", {}).get("minio", {})
-                env = minio_service.get("environment", {})
-                ports = minio_service.get("ports", [])
-
-                if not args.endpoint_url:
-                    api_port = "9000"
-                    for port_mapping in ports:
-                        if isinstance(port_mapping, str) and ":9000" in port_mapping:
-                            api_port = port_mapping.split(":")[0]
-                            break
-                    storage_config["endpoint_url"] = f"http://localhost:{api_port}"
-
-                if not args.access_key:
-                    storage_config["access_key"] = env.get("MINIO_ROOT_USER", "minioadmin")
-
-                if not args.secret_key:
-                    storage_config["secret_key"] = env.get("MINIO_ROOT_PASSWORD", "minioadmin123")
-
-                print("Auto-configured MinIO from docker-compose.minio.yml")
-
-        except ImportError:
-            print("Warning: PyYAML not available, cannot auto-configure MinIO")
-        except Exception as e:
-            print(f"Warning: Failed to read docker-compose.minio.yml: {e}")
+    # Set up storage with auto-configuration and connectivity checks
+    await setup_storage_with_checks(args.storage, storage_config)
 
     # Set up logging
     db_name = Path(args.db_path).stem
@@ -885,6 +920,9 @@ async def cmd_catchup(args) -> None:
 
         print(f"Using storage: {storage_type}")
 
+        # Set up storage with auto-configuration and connectivity checks
+        await setup_storage_with_checks(storage_type, storage_config)
+
     except (json.JSONDecodeError, KeyError, OSError) as e:
         print(f"❌ Error reading run config: {e}")
         sys.exit(1)
@@ -950,12 +988,13 @@ async def cmd_catchup(args) -> None:
             print("No books available for catchup")
             return
 
-        # Filter out books already successfully synced
-        books_to_sync = []
-        for barcode in catchup_candidates:
-            latest_sync_status = await db_tracker.get_latest_status(barcode, "sync")
-            if latest_sync_status != "completed":
-                books_to_sync.append(barcode)
+        # Filter out books already successfully synced using efficient batch query
+        books_to_sync = await db_tracker.get_books_for_sync(
+            storage_type=storage_type,
+            limit=999999,  # Get all candidates
+            status_filter=None,  # We want books that haven't been synced yet
+            converted_barcodes=set(catchup_candidates)
+        )
 
         print(f"Found {len(books_to_sync):,} books ready for catchup sync")
 

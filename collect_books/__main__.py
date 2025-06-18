@@ -15,6 +15,9 @@ import sys
 from .config import ConfigManager
 from .exporter import BookCollector
 
+sys.path.append('..')
+from common import setup_storage_with_checks
+
 # Check Python version requirement
 
 # Force unbuffered output for immediate logging
@@ -474,6 +477,9 @@ Examples:
             "config": final_storage_dict,
             "prefix": args.storage_prefix or "grin-books"
         }
+
+        # Set up storage with auto-configuration and connectivity checks
+        await setup_storage_with_checks(args.storage, final_storage_dict)
 
     try:
         # Load configuration with CLI overrides
