@@ -40,7 +40,7 @@ class SyncPipeline:
         storage_type: str,
         storage_config: dict,
         concurrent_downloads: int = 5,
-        batch_size: int = 20,
+        batch_size: int = 10,
         directory: str = "Harvard",
         secrets_dir: str | None = None,
         gpg_key_file: str | None = None,
@@ -202,63 +202,7 @@ class SyncPipeline:
 
         return processed_results
 
-    async def _process_batch_with_updates(
-        self, barcodes: list[str], rate_calculator, start_time: float,
-        processed_count: int, books_to_process: int
-    ) -> list[dict]:
-        """Process a batch with periodic progress updates."""
-        if not barcodes:
-            return []
 
-        # Start periodic update task
-        update_task = asyncio.create_task(
-            self._periodic_progress_updates(
-                barcodes, rate_calculator, start_time, processed_count, books_to_process
-            )
-        )
-
-        try:
-            # Process the batch
-            results = await self.process_batch(barcodes)
-            return results
-        finally:
-            # Cancel the update task
-            update_task.cancel()
-            try:
-                await update_task
-            except asyncio.CancelledError:
-                pass
-
-    async def _periodic_progress_updates(
-        self, barcodes: list[str], rate_calculator, start_time: float,
-        processed_count: int, books_to_process: int
-    ) -> None:
-        """Provide periodic progress updates during batch processing."""
-        update_interval = 10.0  # Update every 10 seconds
-
-        while True:
-            try:
-                await asyncio.sleep(update_interval)
-
-                # Calculate current rate
-                rate = rate_calculator.get_rate(start_time, processed_count)
-
-                if books_to_process > 0 and rate > 0:
-                    remaining = books_to_process - processed_count
-                    percentage = (processed_count / books_to_process) * 100
-
-                    # Show ETA only after enough data for stable estimate
-                    eta_text = ""
-                    if len(rate_calculator.batch_times) >= 3:
-                        eta_seconds = remaining / rate
-                        eta_text = f" (ETA: {format_duration(eta_seconds)})"
-
-                    print(f"Processing: {processed_count:,}/{books_to_process:,} "
-                          f"({percentage:.1f}%) - {rate:.1f} books/sec{eta_text} "
-                          f"[batch of {len(barcodes)} in progress]")
-
-            except asyncio.CancelledError:
-                break
 
     async def get_sync_status(self) -> dict:
         """Get current sync status and statistics."""
@@ -381,13 +325,11 @@ class SyncPipeline:
                     print("✅ No more books to sync")
                     break
 
-                logger.info(f"Processing batch of {len(barcodes)} books...")
+                logger.debug(f"Processing batch of {len(barcodes)} books...")
 
-                # Process the batch with periodic updates
+                # Process the batch
                 batch_start = time.time()
-                batch_results = await self._process_batch_with_updates(
-                    barcodes, rate_calculator, start_time, processed_count, books_to_process
-                )
+                batch_results = await self.process_batch(barcodes)
                 batch_elapsed = time.time() - batch_start
 
                 # Update progress
@@ -404,21 +346,27 @@ class SyncPipeline:
 
                 # Log batch completion
                 completed_in_batch = sum(1 for r in batch_results if r["status"] == "completed")
-                # failed_in_batch = sum(1 for r in batch_results if r["status"] == "failed")
 
-                logger.info(f"Batch completed: {completed_in_batch}/{len(barcodes)} successful "
-                           f"in {batch_elapsed:.1f}s")
+                # Show less verbose batch completion messages
+                if completed_in_batch < len(barcodes):
+                    failed_in_batch = len(barcodes) - completed_in_batch
+                    logger.info(f"Batch completed: {completed_in_batch}/{len(barcodes)} successful, "
+                               f"{failed_in_batch} failed in {batch_elapsed:.1f}s")
+                else:
+                    logger.debug(f"Batch completed: {completed_in_batch}/{len(barcodes)} successful "
+                                f"in {batch_elapsed:.1f}s")
 
                 # Calculate rate using sliding window
                 rate = rate_calculator.get_rate(start_time, processed_count)
 
+                # Show progress updates more frequently
                 if books_to_process > 0:
                     percentage = (processed_count / books_to_process) * 100
                     remaining = books_to_process - processed_count
 
                     # Show ETA only after enough batches for stable estimate
                     eta_text = ""
-                    if len(rate_calculator.batch_times) >= 5 and rate > 0:
+                    if len(rate_calculator.batch_times) >= 3 and rate > 0:
                         eta_seconds = remaining / rate
                         eta_text = f" (ETA: {format_duration(eta_seconds)})"
 
@@ -481,7 +429,7 @@ class SyncPipeline:
         from common import SlidingWindowRateCalculator
         rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
-        print(f"Processing {books_to_process:,} books in catchup mode...")
+        print(f"Processing {books_to_process:,} books...")
 
         try:
             # Process books in batches
@@ -498,13 +446,11 @@ class SyncPipeline:
                     remaining = limit - processed_count
                     batch = batch[:remaining]
 
-                logger.info(f"Processing catchup batch of {len(batch)} books...")
+                logger.debug(f"Processing catchup batch of {len(batch)} books...")
 
-                # Process the batch with periodic updates (same as pipeline)
+                # Process the batch
                 batch_start = time.time()
-                batch_results = await self._process_batch_with_updates(
-                    batch, rate_calculator, start_time, processed_count, books_to_process
-                )
+                batch_results = await self.process_batch(batch)
                 batch_elapsed = time.time() - batch_start
 
                 # Update progress
@@ -522,8 +468,14 @@ class SyncPipeline:
                 # Log batch completion
                 completed_in_batch = sum(1 for r in batch_results if r["status"] == "completed")
 
-                logger.info(f"Catchup batch completed: {completed_in_batch}/{len(batch)} successful "
-                           f"in {batch_elapsed:.1f}s")
+                # Show less verbose batch completion messages
+                if completed_in_batch < len(batch):
+                    failed_in_batch = len(batch) - completed_in_batch
+                    logger.info(f"Catchup batch completed: {completed_in_batch}/{len(batch)} successful, "
+                               f"{failed_in_batch} failed in {batch_elapsed:.1f}s")
+                else:
+                    logger.debug(f"Catchup batch completed: {completed_in_batch}/{len(batch)} successful "
+                                f"in {batch_elapsed:.1f}s")
 
                 # Calculate rate using sliding window
                 rate = rate_calculator.get_rate(start_time, processed_count)
@@ -945,7 +897,7 @@ async def cmd_catchup(args) -> None:
         print()
 
         # Get list of converted books from GRIN
-        print("Fetching list of converted books from GRIN...")
+        print("Fetching converted books from GRIN...")
 
         # Create a simple GRIN client to get converted books
         from client import GRINClient
@@ -1036,7 +988,7 @@ async def cmd_catchup(args) -> None:
                 print("Catchup cancelled")
                 return
 
-        print(f"\nStarting catchup sync of {len(books_to_sync):,} books...")
+        print(f"Catchup sync: {len(books_to_sync):,} books")
 
         # Create a modified sync pipeline for catchup
         pipeline = SyncPipeline(

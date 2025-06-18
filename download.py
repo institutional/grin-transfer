@@ -574,7 +574,7 @@ async def download_book(
 
             # Decrypt and save decrypted archive
             decryption_success = await _decrypt_and_save_archive(
-                barcode, archive_data, book_storage, gpg_key_file, secrets_dir
+                barcode, archive_data, book_storage, gpg_key_file, secrets_dir, verbose
             )
 
             # Update status after decryption is written
