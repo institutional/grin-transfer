@@ -101,11 +101,9 @@ class SyncPipeline:
     async def _mark_book_as_converted(self, barcode: str) -> None:
         """Mark a book as converted in our database after successful download."""
         try:
-            book = await self.db_tracker.get_book(barcode)
-            if book:
-                book.processing_request_status = "converted"
-                await self.db_tracker.save_book(book)
-                logger.debug(f"Marked {barcode} as converted in database")
+            # Use atomic status change
+            await self.db_tracker.add_status_change(barcode, "processing_request", "converted")
+            logger.debug(f"Marked {barcode} as converted in database")
         except Exception as e:
             logger.warning(f"Failed to mark {barcode} as converted: {e}")
 

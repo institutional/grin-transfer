@@ -358,7 +358,7 @@ class ProcessingPipeline:
                     cursor = await db.execute(
                         """
                         SELECT barcode FROM books
-                        WHERE processing_request_status IS NULL
+                        WHERE processing_request_timestamp IS NULL
                         ORDER BY created_at LIMIT ? OFFSET ?
                         """,
                         (fetch_batch_size, fetch_offset)
@@ -444,11 +444,11 @@ class ProcessingPipeline:
             # Get the book record from database
             book = await self.db_tracker.get_book(barcode)
             if book:
-                # Update the processing request fields
-                book.processing_request_status = "requested"
+                # Update the processing request fields using atomic status change
+                await self.db_tracker.add_status_change(barcode, "processing_request", "requested")
+                
+                # Also update the timestamp field for backwards compatibility
                 book.processing_request_timestamp = datetime.now(UTC).isoformat()
-
-                # Save the updated book record
                 await self.db_tracker.save_book(book)
                 logger.debug(f"Marked book {barcode} as requested in database")
             else:
@@ -713,7 +713,8 @@ class ProcessingMonitor:
                 if not cursor.fetchone():
                     return set()
 
-                cursor.execute("SELECT barcode FROM books WHERE processing_request_status = 'requested'")
+                # Get all books that were requested by this run, regardless of current status
+                cursor.execute("SELECT barcode FROM books WHERE processing_request_timestamp IS NOT NULL")
                 rows = cursor.fetchall()
                 return {row[0] for row in rows}
         except Exception as e:
@@ -722,6 +723,16 @@ class ProcessingMonitor:
 
     async def show_status_summary(self) -> None:
         """Show overall processing status summary."""
+        # Update book statuses in database first
+        if self.db_path:
+            try:
+                status_updates = await self.update_book_statuses()
+                total_updates = sum(status_updates.values())
+                if total_updates > 0:
+                    logger.debug(f"Updated {total_updates} book statuses: {status_updates}")
+            except Exception as e:
+                logger.debug(f"Status update failed: {e}")
+        
         print("GRIN Processing Status Summary")
         print("=" * 50)
         print(f"Directory: {self.directory}")
@@ -905,6 +916,66 @@ class ProcessingMonitor:
                 "error": str(e),
             }
 
+    async def update_book_statuses(self) -> dict[str, int]:
+        """Update database book statuses based on current GRIN state.
+        
+        Returns:
+            Dictionary with counts of status updates made.
+        """
+        if not self.db_path:
+            return {}
+            
+        try:
+            import sqlite3
+            from pathlib import Path
+            
+            if not Path(self.db_path).exists():
+                return {}
+                
+            # Get current GRIN state
+            converted_books = set(await self.get_converted_books())
+            in_process_books = set(await self.get_in_process_books())
+            failed_books = set(await self.get_failed_books())
+            
+            # Get books requested by this run
+            requested_books = await self.get_requested_books()
+            
+            updates = {"converted": 0, "in_process": 0, "failed": 0}
+            
+            # Use the database tracker to make atomic status changes
+            from collect_books.models import SQLiteProgressTracker
+            db_tracker = SQLiteProgressTracker(self.db_path)
+            
+            # Update books that are now converted
+            our_converted = requested_books.intersection(converted_books)
+            for barcode in our_converted:
+                current_status = await db_tracker.get_latest_status(barcode, "processing_request")
+                if current_status != "converted":
+                    await db_tracker.add_status_change(barcode, "processing_request", "converted")
+                    updates["converted"] += 1
+            
+            # Update books that are now in process
+            our_in_process = requested_books.intersection(in_process_books)
+            for barcode in our_in_process:
+                current_status = await db_tracker.get_latest_status(barcode, "processing_request")
+                if current_status not in ("converted", "in_process"):
+                    await db_tracker.add_status_change(barcode, "processing_request", "in_process")
+                    updates["in_process"] += 1
+            
+            # Update books that have failed
+            our_failed = requested_books.intersection(failed_books)
+            for barcode in our_failed:
+                current_status = await db_tracker.get_latest_status(barcode, "processing_request")
+                if current_status != "failed":
+                    await db_tracker.add_status_change(barcode, "processing_request", "failed")
+                    updates["failed"] += 1
+                
+            return updates
+            
+        except Exception as e:
+            logger.warning(f"Failed to update book statuses: {e}")
+            return {}
+
 
 def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
     """Setup logging configuration."""
@@ -1017,7 +1088,24 @@ async def cmd_request(args) -> None:
             import aiosqlite
             async with aiosqlite.connect(pipeline.db_path) as db:
                 cursor = await db.execute(
-                    "SELECT processing_request_status, COUNT(*) FROM books GROUP BY processing_request_status"
+                    """
+                    SELECT COALESCE(h1.status_value, 'no_status') as status, COUNT(*) as count
+                    FROM books b
+                    LEFT JOIN (
+                        SELECT DISTINCT h1.barcode, h1.status_value
+                        FROM book_status_history h1
+                        INNER JOIN (
+                            SELECT barcode, MAX(timestamp) as max_timestamp, MAX(id) as max_id
+                            FROM book_status_history
+                            WHERE status_type = 'processing_request'
+                            GROUP BY barcode
+                        ) h2 ON h1.barcode = h2.barcode 
+                            AND h1.timestamp = h2.max_timestamp 
+                            AND h1.id = h2.max_id
+                        WHERE h1.status_type = 'processing_request'
+                    ) h1 ON b.barcode = h1.barcode
+                    GROUP BY COALESCE(h1.status_value, 'no_status')
+                    """
                 )
                 status_counts = await cursor.fetchall()
                 for status, count in status_counts:

@@ -16,11 +16,7 @@ CREATE TABLE IF NOT EXISTS books (
     ocr_date TEXT,
     google_books_link TEXT,
     
-    -- Processing state (inferred from GRIN endpoint presence)
-    processing_state TEXT, -- "all_books", "converted", "failed", "pending"
-    
-    -- Processing request tracking
-    processing_request_status TEXT, -- "pending", "requested", "in_process", "converted", "failed"
+    -- Processing request tracking (timestamp only, status tracked in history table)
     processing_request_timestamp TEXT, -- ISO timestamp when processing was requested
     
     -- GRIN enrichment fields (populated by enrichment pipeline)
@@ -43,15 +39,14 @@ CREATE TABLE IF NOT EXISTS books (
     csv_exported TEXT,
     csv_updated TEXT,
     
-    -- Sync tracking for storage pipeline
+    -- Sync tracking for storage pipeline (status tracked in history table)
     storage_type TEXT, -- "r2", "minio", "s3", "local"
     storage_path TEXT, -- Path to encrypted archive in storage
     storage_decrypted_path TEXT, -- Path to decrypted archive in storage
     last_etag_check TEXT, -- ISO timestamp of last ETag verification
     google_etag TEXT, -- Google's ETag for duplicate detection
     is_decrypted BOOLEAN DEFAULT FALSE, -- Whether decrypted version exists
-    sync_status TEXT, -- "pending", "syncing", "completed", "failed"
-    sync_timestamp TEXT, -- ISO timestamp of last sync attempt
+    sync_timestamp TEXT, -- ISO timestamp of last successful sync
     sync_error TEXT, -- Error message if sync failed
     
     -- Record keeping
@@ -74,18 +69,33 @@ CREATE TABLE IF NOT EXISTS failed (
     error_message TEXT
 );
 
+-- Status history tracking for atomic status changes
+CREATE TABLE IF NOT EXISTS book_status_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    barcode TEXT NOT NULL,
+    status_type TEXT NOT NULL, -- "processing_request", "sync", "enrichment", etc.
+    status_value TEXT NOT NULL, -- "pending", "requested", "in_process", "converted", "failed", etc.
+    timestamp TEXT NOT NULL,
+    session_id TEXT, -- Optional identifier for tracking batches/runs
+    metadata TEXT, -- Optional JSON metadata for additional context
+    
+    FOREIGN KEY (barcode) REFERENCES books(barcode)
+);
+
 -- Performance indexes
 CREATE INDEX IF NOT EXISTS idx_books_barcode ON books(barcode);
-CREATE INDEX IF NOT EXISTS idx_books_processing_state ON books(processing_state);
 CREATE INDEX IF NOT EXISTS idx_books_enrichment ON books(enrichment_timestamp);
 CREATE INDEX IF NOT EXISTS idx_books_grin_state ON books(grin_state);
-CREATE INDEX IF NOT EXISTS idx_books_sync_status ON books(sync_status);
 CREATE INDEX IF NOT EXISTS idx_books_storage_type ON books(storage_type);
-CREATE INDEX IF NOT EXISTS idx_books_converted_sync ON books(grin_state, sync_status);
-CREATE INDEX IF NOT EXISTS idx_books_processing_request ON books(processing_request_status);
-CREATE INDEX IF NOT EXISTS idx_books_requested_converted ON books(processing_request_status, grin_state);
+CREATE INDEX IF NOT EXISTS idx_books_processing_timestamp ON books(processing_request_timestamp);
 
 CREATE INDEX IF NOT EXISTS idx_processed_barcode ON processed(barcode);
 CREATE INDEX IF NOT EXISTS idx_processed_session ON processed(session_id);
 CREATE INDEX IF NOT EXISTS idx_failed_barcode ON failed(barcode);
 CREATE INDEX IF NOT EXISTS idx_failed_session ON failed(session_id);
+
+-- Status history indexes
+CREATE INDEX IF NOT EXISTS idx_status_history_barcode ON book_status_history(barcode);
+CREATE INDEX IF NOT EXISTS idx_status_history_type ON book_status_history(status_type);
+CREATE INDEX IF NOT EXISTS idx_status_history_timestamp ON book_status_history(timestamp);
+CREATE INDEX IF NOT EXISTS idx_status_history_latest ON book_status_history(barcode, status_type, timestamp DESC);

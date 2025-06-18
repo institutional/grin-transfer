@@ -308,11 +308,7 @@ async def download_book(
 
     # Mark as syncing in database if tracker provided
     if db_tracker:
-        await db_tracker.update_sync_status(barcode, {
-            "sync_status": "syncing",
-            "storage_type": storage_type or "local",
-            "sync_error": None,
-        })
+        await db_tracker.add_status_change(barcode, "sync", "syncing")
 
     # Set up GRIN client
     client = GRINClient(base_url=base_url, secrets_dir=secrets_dir)
@@ -350,10 +346,7 @@ async def download_book(
 
         # Update database with error if tracker provided
         if db_tracker:
-            await db_tracker.update_sync_status(barcode, {
-                "sync_status": "failed",
-                "sync_error": error_msg,
-            })
+            await db_tracker.add_status_change(barcode, "sync", "failed", metadata={"error": error_msg})
         raise
 
     # Check if archive file exists
@@ -662,6 +655,10 @@ async def download_book(
     # Update database with successful sync if tracker provided
     if db_tracker:
         from datetime import UTC
+        # Update sync status atomically
+        await db_tracker.add_status_change(barcode, "sync", "completed")
+        
+        # Update book record with sync data
         sync_data = {
             "storage_type": storage_type or "local",
             "storage_path": archive_path,
@@ -671,10 +668,10 @@ async def download_book(
             "last_etag_check": datetime.now(UTC).isoformat(),
             "google_etag": google_etag,
             "is_decrypted": is_decrypted,
-            "sync_status": "completed",
+            "sync_timestamp": datetime.now(UTC).isoformat(),
             "sync_error": None,
         }
-        await db_tracker.update_sync_status(barcode, sync_data)
+        await db_tracker.update_sync_data(barcode, sync_data)
 
     # Return results
     return {

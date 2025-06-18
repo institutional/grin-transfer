@@ -952,12 +952,8 @@ class BookCollector:
             record = BookRecord(**parsed_data)
 
             # Determine processing state
-            if barcode in processing_states["converted"]:
-                record.processing_state = "converted"
-            elif barcode in processing_states["failed"]:
-                record.processing_state = "failed"
-            else:
-                record.processing_state = "pending"
+            # Processing state is now tracked in status history table
+            # No need to set processing_state field
 
             # Enrich record with timestamps and storage info
             record = await self.enrich_book_record(record)

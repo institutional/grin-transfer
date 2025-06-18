@@ -6,6 +6,7 @@ Contains BookRecord and other data classes used in the CSV export system.
 """
 
 import asyncio
+import json
 import logging
 import time
 from collections import OrderedDict
@@ -36,11 +37,7 @@ class BookRecord:
     ocr_date: str | None = None
     google_books_link: str = ""
 
-    # Processing state (inferred from GRIN endpoint presence)
-    processing_state: str = "unknown"  # all_books, converted, failed, pending
-
-    # Processing request tracking
-    processing_request_status: str | None = None  # "pending", "requested", "in_process", "converted", "failed"
+    # Processing request tracking (status tracked in history table)
     processing_request_timestamp: str | None = None  # ISO timestamp when processing was requested
 
     # GRIN enrichment fields (populated by separate enrichment pipeline)
@@ -63,16 +60,19 @@ class BookRecord:
     csv_exported: str | None = None
     csv_updated: str | None = None
 
-    # Sync tracking for storage pipeline
+    # Sync tracking for storage pipeline (status tracked in history table)
     storage_type: str | None = None  # e.g., "r2", "minio", "s3", "local"
     storage_path: str | None = None  # Path to the encrypted archive in storage
     storage_decrypted_path: str | None = None  # Path to the decrypted archive in storage
     last_etag_check: str | None = None  # ISO timestamp of last ETag verification
     google_etag: str | None = None  # Google's ETag for the file
     is_decrypted: bool = False  # Whether decrypted version exists
-    sync_status: str | None = None  # "pending", "syncing", "completed", "failed"
-    sync_timestamp: str | None = None  # ISO timestamp of last sync attempt
+    sync_timestamp: str | None = None  # ISO timestamp of last successful sync
     sync_error: str | None = None  # Error message if sync failed
+    
+    # Record keeping
+    created_at: str | None = None  # ISO timestamp when record was created
+    updated_at: str | None = None  # ISO timestamp when record was last updated
 
     @classmethod
     def csv_headers(cls) -> list:
@@ -87,8 +87,6 @@ class BookRecord:
             "Analyzed Date",
             "OCR Date",
             "Google Books Link",
-            "Processing State",
-            "Processing Request Status",
             "Processing Request Timestamp",
             "GRIN State",
             "Viewability",
@@ -112,7 +110,6 @@ class BookRecord:
             "Last ETag Check",
             "Google ETag",
             "Is Decrypted",
-            "Sync Status",
             "Sync Timestamp",
             "Sync Error",
         ]
@@ -129,8 +126,7 @@ class BookRecord:
             self.analyzed_date or "",
             self.ocr_date or "",
             self.google_books_link,
-            self.processing_state,
-            self.processing_request_status or "",
+            # Processing status removed - tracked in history table
             self.processing_request_timestamp or "",
             self.grin_state or "",
             self.viewability or "",
@@ -154,7 +150,7 @@ class BookRecord:
             self.last_etag_check or "",
             self.google_etag or "",
             str(self.is_decrypted) if self.is_decrypted else "",
-            self.sync_status or "",
+            # Sync status removed - tracked in history table
             self.sync_timestamp or "",
             self.sync_error or "",
         ]
@@ -495,18 +491,18 @@ class SQLiteProgressTracker:
                 INSERT OR REPLACE INTO books (
                     barcode, title, scanned_date, converted_date, downloaded_date,
                     processed_date, analyzed_date, ocr_date, google_books_link,
-                    processing_state, processing_request_status, processing_request_timestamp,
+                    processing_request_timestamp,
                     grin_state, viewability, opted_out, conditions, scannable, tagging, audit,
                     material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
                     ocr_gtd_score, digitization_method, enrichment_timestamp,
                     csv_exported, csv_updated, storage_type, storage_path,
                     storage_decrypted_path, last_etag_check, google_etag,
-                    is_decrypted, sync_status, sync_timestamp, sync_error,
+                    is_decrypted, sync_timestamp, sync_error,
                     created_at, updated_at
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
             """,
                 (
@@ -519,8 +515,6 @@ class SQLiteProgressTracker:
                     book.analyzed_date,
                     book.ocr_date,
                     book.google_books_link,
-                    book.processing_state,
-                    getattr(book, 'processing_request_status', None),
                     getattr(book, 'processing_request_timestamp', None),
                     book.grin_state,
                     book.viewability,
@@ -544,11 +538,10 @@ class SQLiteProgressTracker:
                     getattr(book, 'last_etag_check', None),
                     getattr(book, 'google_etag', None),
                     getattr(book, 'is_decrypted', False),
-                    getattr(book, 'sync_status', None),
                     getattr(book, 'sync_timestamp', None),
                     getattr(book, 'sync_error', None),
-                    now,
-                    now,
+                    book.created_at or now,
+                    book.updated_at or now,
                 ),
             )
             await db.commit()
@@ -562,13 +555,13 @@ class SQLiteProgressTracker:
                 """
                 SELECT barcode, title, scanned_date, converted_date, downloaded_date,
                        processed_date, analyzed_date, ocr_date, google_books_link,
-                       processing_state, processing_request_status, processing_request_timestamp,
+                       processing_request_timestamp,
                        grin_state, viewability, opted_out, conditions, scannable, tagging, audit,
                        material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
                        ocr_gtd_score, digitization_method, enrichment_timestamp,
                        csv_exported, csv_updated, storage_type, storage_path,
                        storage_decrypted_path, last_etag_check, google_etag,
-                       is_decrypted, sync_status, sync_timestamp, sync_error
+                       is_decrypted, sync_timestamp, sync_error, created_at, updated_at
                 FROM books WHERE barcode = ?
             """,
                 (barcode,),
@@ -680,7 +673,7 @@ class SQLiteProgressTracker:
             row = await cursor.fetchone()
             return row[0] if row else 0
 
-    async def update_sync_status(self, barcode: str, sync_data: dict) -> bool:
+    async def update_sync_data(self, barcode: str, sync_data: dict) -> bool:
         """Update sync tracking fields for a book record."""
         await self.init_db()
 
@@ -692,7 +685,7 @@ class SQLiteProgressTracker:
                 UPDATE books SET
                     storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
                     last_etag_check = ?, google_etag = ?, is_decrypted = ?,
-                    sync_status = ?, sync_timestamp = ?, sync_error = ?,
+                    sync_timestamp = ?, sync_error = ?,
                     updated_at = ?
                 WHERE barcode = ?
             """,
@@ -703,7 +696,6 @@ class SQLiteProgressTracker:
                     sync_data.get("last_etag_check"),
                     sync_data.get("google_etag"),
                     sync_data.get("is_decrypted", False),
-                    sync_data.get("sync_status"),
                     sync_data.get("sync_timestamp", now),
                     sync_data.get("sync_error"),
                     now,
@@ -715,40 +707,6 @@ class SQLiteProgressTracker:
             await db.commit()
             return rows_affected > 0
 
-    async def update_processing_status_to_converted(self, barcodes: set[str]) -> int:
-        """Update processing request status to 'converted' for books that appear in GRIN's converted list.
-
-        Args:
-            barcodes: Set of barcodes that are now converted in GRIN
-
-        Returns:
-            Number of books updated
-        """
-        if not barcodes:
-            return 0
-
-        await self.init_db()
-        now = datetime.now(UTC).isoformat()
-
-        placeholders = ','.join('?' * len(barcodes))
-        params = list(barcodes) + [now]
-
-        async with aiosqlite.connect(self.db_path) as db:
-            cursor = await db.execute(
-                f"""
-                UPDATE books
-                SET processing_request_status = 'converted', updated_at = ?
-                WHERE barcode IN ({placeholders})
-                AND processing_request_status = 'requested'
-                """,
-                params
-            )
-
-            rows_affected = cursor.rowcount
-            await db.commit()
-
-        logger.info(f"Updated {rows_affected} books from 'requested' to 'converted' status")
-        return rows_affected
 
     async def get_books_for_sync(
         self,
@@ -787,14 +745,68 @@ class SQLiteProgressTracker:
             params = []
 
         # Only sync books that have been requested for processing
-        base_query += " AND processing_request_status = 'requested'"
+        # Use status history to get latest processing request status
+        base_query += """
+            AND barcode IN (
+                SELECT DISTINCT h1.barcode
+                FROM book_status_history h1
+                INNER JOIN (
+                    SELECT barcode, MAX(timestamp) as max_timestamp, MAX(id) as max_id
+                    FROM book_status_history
+                    WHERE status_type = 'processing_request'
+                    GROUP BY barcode
+                ) h2 ON h1.barcode = h2.barcode 
+                    AND h1.timestamp = h2.max_timestamp 
+                    AND h1.id = h2.max_id
+                WHERE h1.status_type = 'processing_request'
+                AND h1.status_value IN ('requested', 'in_process', 'converted')
+            )
+        """
 
+        # Filter by sync status using status history
         if status_filter:
-            base_query += " AND sync_status = ?"
+            base_query += """
+                AND barcode IN (
+                    SELECT DISTINCT h1.barcode
+                    FROM book_status_history h1
+                    INNER JOIN (
+                        SELECT barcode, MAX(timestamp) as max_timestamp, MAX(id) as max_id
+                        FROM book_status_history
+                        WHERE status_type = 'sync'
+                        GROUP BY barcode
+                    ) h2 ON h1.barcode = h2.barcode 
+                        AND h1.timestamp = h2.max_timestamp 
+                        AND h1.id = h2.max_id
+                    WHERE h1.status_type = 'sync'
+                    AND h1.status_value = ?
+                )
+            """
             params.append(status_filter)
         else:
-            # Default: get books that haven't been synced yet or failed
-            base_query += " AND (sync_status IS NULL OR sync_status = 'failed')"
+            # Default: get books that have no sync status OR failed sync status
+            base_query += """
+                AND (
+                    barcode NOT IN (
+                        SELECT DISTINCT barcode
+                        FROM book_status_history
+                        WHERE status_type = 'sync'
+                    ) 
+                    OR barcode IN (
+                        SELECT DISTINCT h1.barcode
+                        FROM book_status_history h1
+                        INNER JOIN (
+                            SELECT barcode, MAX(timestamp) as max_timestamp, MAX(id) as max_id
+                            FROM book_status_history
+                            WHERE status_type = 'sync'
+                            GROUP BY barcode
+                        ) h2 ON h1.barcode = h2.barcode 
+                            AND h1.timestamp = h2.max_timestamp 
+                            AND h1.id = h2.max_id
+                        WHERE h1.status_type = 'sync'
+                        AND h1.status_value = 'failed'
+                    )
+                )
+            """
 
         # Optionally filter by storage type (for re-syncing)
         if storage_type:
@@ -890,3 +902,123 @@ class SQLiteProgressTracker:
             """)
             row = await cursor.fetchone()
             return row[0] if row else 0
+
+    async def add_status_change(
+        self,
+        barcode: str,
+        status_type: str,
+        status_value: str,
+        session_id: str | None = None,
+        metadata: dict | None = None
+    ) -> bool:
+        """Atomically record a status change for a book.
+        
+        Args:
+            barcode: Book barcode
+            status_type: Type of status ("processing_request", "sync", "enrichment", etc.)
+            status_value: New status value
+            session_id: Optional session identifier for batch tracking
+            metadata: Optional metadata as dict (will be JSON encoded)
+            
+        Returns:
+            True if status was recorded successfully
+        """
+        await self.init_db()
+        
+        now = datetime.now(UTC).isoformat()
+        metadata_json = json.dumps(metadata) if metadata else None
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO book_status_history 
+                (barcode, status_type, status_value, timestamp, session_id, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (barcode, status_type, status_value, now, session_id, metadata_json)
+            )
+            
+            # Update the updated_at timestamp in books table
+            await db.execute(
+                "UPDATE books SET updated_at = ? WHERE barcode = ?",
+                (now, barcode)
+            )
+            
+            await db.commit()
+            return True
+
+    async def get_latest_status(self, barcode: str, status_type: str) -> str | None:
+        """Get the latest status value for a book and status type.
+        
+        Args:
+            barcode: Book barcode
+            status_type: Type of status to retrieve
+            
+        Returns:
+            Latest status value or None if no status found
+        """
+        await self.init_db()
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT status_value FROM book_status_history
+                WHERE barcode = ? AND status_type = ?
+                ORDER BY timestamp DESC, id DESC
+                LIMIT 1
+                """,
+                (barcode, status_type)
+            )
+            row = await cursor.fetchone()
+            return row[0] if row else None
+
+    async def get_books_with_latest_status(
+        self,
+        status_type: str,
+        status_values: list[str] | None = None,
+        limit: int | None = None
+    ) -> list[tuple[str, str]]:
+        """Get books with their latest status for a given status type.
+        
+        Args:
+            status_type: Type of status to filter by
+            status_values: Optional list of status values to filter by
+            limit: Optional limit on number of results
+            
+        Returns:
+            List of (barcode, latest_status_value) tuples
+        """
+        await self.init_db()
+        
+        # Build query to get latest status for each book
+        base_query = """
+            SELECT DISTINCT h1.barcode, h1.status_value
+            FROM book_status_history h1
+            INNER JOIN (
+                SELECT barcode, MAX(timestamp) as max_timestamp, MAX(id) as max_id
+                FROM book_status_history
+                WHERE status_type = ?
+                GROUP BY barcode
+            ) h2 ON h1.barcode = h2.barcode 
+                AND h1.timestamp = h2.max_timestamp 
+                AND h1.id = h2.max_id
+            WHERE h1.status_type = ?
+        """
+        
+        params = [status_type, status_type]
+        
+        if status_values:
+            placeholders = ','.join('?' * len(status_values))
+            base_query += f" AND h1.status_value IN ({placeholders})"
+            params.extend(status_values)
+        
+        base_query += " ORDER BY h1.timestamp DESC"
+        
+        if limit:
+            base_query += " LIMIT ?"
+            params.append(str(limit))
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(base_query, params)
+            rows = await cursor.fetchall()
+            return [(row[0], row[1]) for row in rows]
