@@ -84,7 +84,7 @@ select = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["E501"]  # Allow long lines in tests
+"src/tests/*" = ["E501"]  # Allow long lines in tests
 
 [tool.mypy]
 python_version = "3.12"
@@ -103,11 +103,11 @@ strict_equality = true
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "tests.mocks"
+module = "src.tests.mocks"
 ignore_errors = true
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["src/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

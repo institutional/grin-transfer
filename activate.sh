@@ -1,6 +1,6 @@
 #!/bin/bash
-# Quick activation script for V2 development
-echo "Activating V2 development environment (Python 3.12+)..."
+# Quick activation script for development
+echo "Activating development environment (Python 3.12+)..."
 
 # Check if we have Python 3.12+ available
 if command -v python3.12 &> /dev/null; then

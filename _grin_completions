@@ -1,6 +1,6 @@
-#compdef collect_books.py processing.py sync.py grin_enrichment.py
+#compdef grin.py
 
-# Zsh completion for GRIN-to-S3 pipeline scripts
+# Zsh completion for GRIN-to-S3 unified CLI
 # To install: source this file or place in your fpath
 
 _grin_run_names() {
@@ -33,180 +33,133 @@ _grin_sync_status() {
         'failed[Books that failed to sync]'
 }
 
-_collect_books() {
-    _arguments \
-        '--run-name[Run name for organized output]:run name:' \
-        '--storage[Storage backend]:storage type:_grin_storage_types' \
-        '--bucket-raw[Raw data bucket name]:bucket name:' \
-        '--bucket-meta[Metadata bucket name]:bucket name:' \
-        '--bucket-full[Full-text bucket name]:bucket name:' \
-        '--storage-prefix[Storage path prefix]:prefix:' \
-        '--storage-config[Additional storage config]:config:' \
-        '--directory[GRIN directory]:directory:' \
-        '--resource[GRIN resource to collect]:resource:' \
-        '--limit[Limit number of books]:number:' \
-        '--rate-limit[API requests per second]:rate:' \
-        '--secrets-dir[Directory with GRIN secrets]:directory:_directories' \
-        '--resume[Resume from previous run]' \
-        '--write-config[Write run configuration]' \
-        '--test-mode[Use test data instead of GRIN]' \
-        '--config-file[Custom config file]:file:_files' \
-        '--create-config[Create default config]:file:_files' \
-        '--log-level[Logging level]:level:_grin_log_levels' \
-        '--help[Show help message]'
-}
-
-_processing() {
+_grin() {
     local context state line
     _arguments \
         '1:command:->commands' \
-        '--run-name[Run name]:run name:_grin_run_names' \
         '--help[Show help message]' \
         '*::arg:->args'
     
     case $state in
         commands)
-            _values 'processing commands' \
-                'request[Request processing for books]' \
-                'monitor[Monitor processing progress]'
+            _values 'grin commands' \
+                'auth[Set up OAuth2 authentication]' \
+                'collect[Collect book metadata from GRIN]' \
+                'process[Request and monitor book processing]' \
+                'sync-pipeline[Sync converted books to storage]' \
+                'sync-status[Check sync status]' \
+                'sync-catchup[Download already-converted books]' \
+                'enrich[Enrich books with GRIN metadata]' \
+                'export-csv[Export enriched data to CSV]' \
+                'status[Show enrichment status]'
             ;;
         args)
             case $line[1] in
-                request)
+                auth)
                     _arguments \
-                        '--limit[Limit number of books to request]:number:' \
-                        '--batch-size[Batch size for requests]:number:' \
-                        '--directory[GRIN directory]:directory:' \
+                        'setup[Interactive credential setup]'
+                    ;;
+                collect)
+                    _arguments \
+                        '--run-name[Run name for organized output]:run name:' \
+                        '--storage[Storage backend]:storage type:_grin_storage_types' \
+                        '--bucket-raw[Raw data bucket name]:bucket name:' \
+                        '--bucket-meta[Metadata bucket name]:bucket name:' \
+                        '--bucket-full[Full-text bucket name]:bucket name:' \
+                        '--storage-config[Additional storage config]:config:' \
+                        '--limit[Limit number of books]:number:' \
+                        '--rate-limit[API requests per second]:rate:' \
                         '--secrets-dir[Directory with GRIN secrets]:directory:_directories' \
-                        '--queue-report-interval[Queue monitoring interval]:seconds:' \
+                        '--write-config[Write run configuration]' \
+                        '--test-mode[Use test data instead of GRIN]' \
+                        '--config-file[Custom config file]:file:_files' \
+                        '--create-config[Create default config]:file:_files' \
                         '--log-level[Logging level]:level:_grin_log_levels'
                     ;;
-                monitor)
+                process)
+                    local proc_context proc_state proc_line
                     _arguments \
-                        '--converted[Show converted books]' \
-                        '--in-process[Show books being processed]' \
-                        '--failed[Show failed books]' \
-                        '--search[Search for specific barcode]:barcode:' \
-                        '--export[Export converted books]:file:_files' \
-                        '--limit[Limit results]:number:' \
-                        '--watch[Watch mode - poll every 5 minutes]' \
-                        '--directory[GRIN directory]:directory:' \
-                        '--secrets-dir[Directory with GRIN secrets]:directory:_directories' \
-                        '--log-level[Logging level]:level:_grin_log_levels'
+                        '1:subcommand:->subcommands' \
+                        '--run-name[Run name]:run name:_grin_run_names' \
+                        '*::arg:->subargs'
+                    
+                    case $proc_state in
+                        subcommands)
+                            _values 'process subcommands' \
+                                'request[Request processing for books]' \
+                                'monitor[Monitor processing progress]'
+                            ;;
+                        subargs)
+                            case $proc_line[1] in
+                                request)
+                                    _arguments \
+                                        '--limit[Limit number of books to request]:number:' \
+                                        '--batch-size[Batch size for requests]:number:' \
+                                        '--secrets-dir[Directory with GRIN secrets]:directory:_directories' \
+                                        '--queue-report-interval[Queue monitoring interval]:seconds:' \
+                                        '--log-level[Logging level]:level:_grin_log_levels'
+                                    ;;
+                                monitor)
+                                    _arguments \
+                                        '--converted[Show converted books]' \
+                                        '--in-process[Show books being processed]' \
+                                        '--failed[Show failed books]' \
+                                        '--search[Search for specific barcode]:barcode:' \
+                                        '--export[Export converted books]:file:_files' \
+                                        '--limit[Limit results]:number:' \
+                                        '--watch[Watch mode - poll every 5 minutes]' \
+                                        '--secrets-dir[Directory with GRIN secrets]:directory:_directories' \
+                                        '--log-level[Logging level]:level:_grin_log_levels'
+                                    ;;
+                            esac
+                            ;;
+                    esac
                     ;;
-            esac
-            ;;
-    esac
-}
-
-_sync() {
-    local context state line
-    _arguments \
-        '1:command:->commands' \
-        '--run-name[Run name]:run name:_grin_run_names' \
-        '--help[Show help message]' \
-        '*::arg:->args'
-    
-    case $state in
-        commands)
-            _values 'sync commands' \
-                'pipeline[Sync converted books to storage]' \
-                'status[Check sync status]'
-            ;;
-        args)
-            case $line[1] in
-                pipeline)
+                sync-pipeline|sync-catchup)
                     _arguments \
+                        '--run-name[Run name]:run name:_grin_run_names' \
                         '--storage[Storage backend]:storage type:_grin_storage_types' \
                         '--bucket-raw[Raw data bucket]:bucket name:' \
                         '--bucket-meta[Metadata bucket]:bucket name:' \
                         '--bucket-full[Full-text bucket]:bucket name:' \
-                        '--prefix[Storage prefix]:prefix:' \
-                        '--endpoint-url[Custom endpoint URL]:url:' \
-                        '--access-key[Access key]:key:' \
-                        '--secret-key[Secret key]:key:' \
-                        '--account-id[Account ID]:id:' \
                         '--credentials-file[Credentials file]:file:_files' \
                         '--concurrent[Concurrent downloads]:number:' \
                         '--batch-size[Batch size]:number:' \
                         '--limit[Limit number of books]:number:' \
-                        '--status[Filter by status]:status:_grin_sync_status' \
                         '--force[Force overwrite existing files]' \
-                        '--directory[GRIN directory]:directory:' \
                         '--secrets-dir[Directory with GRIN secrets]:directory:_directories' \
                         '--gpg-key-file[GPG key file]:file:_files' \
                         '--log-level[Logging level]:level:_grin_log_levels'
                     ;;
-                status)
+                sync-status)
                     _arguments \
+                        '--run-name[Run name]:run name:_grin_run_names' \
                         '--storage-type[Filter by storage type]:storage type:_grin_storage_types'
                     ;;
-            esac
-            ;;
-    esac
-}
-
-_grin_enrichment() {
-    local context state line
-    _arguments \
-        '1:command:->commands' \
-        '--run-name[Run name]:run name:_grin_run_names' \
-        '--help[Show help message]' \
-        '*::arg:->args'
-    
-    case $state in
-        commands)
-            _values 'enrichment commands' \
-                'status[Show enrichment status]' \
-                'enrich[Add GRIN metadata to books]' \
-                'export-csv[Export enriched data to CSV]'
-            ;;
-        args)
-            case $line[1] in
                 enrich)
                     _arguments \
-                        '--limit[Limit number of books]:number:' \
+                        '--run-name[Run name]:run name:_grin_run_names' \
+                        '--rate-limit[Delay between requests]:seconds:' \
                         '--batch-size[Batch size]:number:' \
-                        '--directory[GRIN directory]:directory:' \
+                        '--max-concurrent[Max concurrent requests]:number:' \
+                        '--limit[Limit number of books]:number:' \
+                        '--reset[Reset enrichment data]' \
                         '--secrets-dir[Directory with GRIN secrets]:directory:_directories' \
                         '--log-level[Logging level]:level:_grin_log_levels'
                     ;;
                 export-csv)
                     _arguments \
+                        '--run-name[Run name]:run name:_grin_run_names' \
                         '--output[Output CSV file]:file:_files' \
                         '--log-level[Logging level]:level:_grin_log_levels'
                     ;;
                 status)
                     _arguments \
-                        '--log-level[Logging level]:level:_grin_log_levels'
+                        '--run-name[Run name]:run name:_grin_run_names'
                     ;;
             esac
             ;;
     esac
 }
 
-# Main completion dispatcher
-_grin_main() {
-    local service
-    service=${words[1]:t:r}  # Get script name without path and extension
-    
-    case $service in
-        collect_books|collect_books.py)
-            _collect_books
-            ;;
-        processing|processing.py)
-            _processing
-            ;;
-        sync|sync.py)
-            _sync
-            ;;
-        grin_enrichment|grin_enrichment.py)
-            _grin_enrichment
-            ;;
-        *)
-            _message "Unknown GRIN script: $service"
-            ;;
-    esac
-}
-
-_grin_main "$@"
+_grin "$@"
