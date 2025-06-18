@@ -446,7 +446,7 @@ class ProcessingPipeline:
             if book:
                 # Update the processing request fields using atomic status change
                 await self.db_tracker.add_status_change(barcode, "processing_request", "requested")
-                
+
                 # Also update the timestamp field for backwards compatibility
                 book.processing_request_timestamp = datetime.now(UTC).isoformat()
                 await self.db_tracker.save_book(book)
@@ -732,7 +732,7 @@ class ProcessingMonitor:
                     logger.debug(f"Updated {total_updates} book statuses: {status_updates}")
             except Exception as e:
                 logger.debug(f"Status update failed: {e}")
-        
+
         print("GRIN Processing Status Summary")
         print("=" * 50)
         print(f"Directory: {self.directory}")
@@ -918,34 +918,33 @@ class ProcessingMonitor:
 
     async def update_book_statuses(self) -> dict[str, int]:
         """Update database book statuses based on current GRIN state.
-        
+
         Returns:
             Dictionary with counts of status updates made.
         """
         if not self.db_path:
             return {}
-            
+
         try:
-            import sqlite3
             from pathlib import Path
-            
+
             if not Path(self.db_path).exists():
                 return {}
-                
+
             # Get current GRIN state
             converted_books = set(await self.get_converted_books())
             in_process_books = set(await self.get_in_process_books())
             failed_books = set(await self.get_failed_books())
-            
+
             # Get books requested by this run
             requested_books = await self.get_requested_books()
-            
+
             updates = {"converted": 0, "in_process": 0, "failed": 0}
-            
+
             # Use the database tracker to make atomic status changes
             from collect_books.models import SQLiteProgressTracker
             db_tracker = SQLiteProgressTracker(self.db_path)
-            
+
             # Update books that are now converted
             our_converted = requested_books.intersection(converted_books)
             for barcode in our_converted:
@@ -953,7 +952,7 @@ class ProcessingMonitor:
                 if current_status != "converted":
                     await db_tracker.add_status_change(barcode, "processing_request", "converted")
                     updates["converted"] += 1
-            
+
             # Update books that are now in process
             our_in_process = requested_books.intersection(in_process_books)
             for barcode in our_in_process:
@@ -961,7 +960,7 @@ class ProcessingMonitor:
                 if current_status not in ("converted", "in_process"):
                     await db_tracker.add_status_change(barcode, "processing_request", "in_process")
                     updates["in_process"] += 1
-            
+
             # Update books that have failed
             our_failed = requested_books.intersection(failed_books)
             for barcode in our_failed:
@@ -969,9 +968,9 @@ class ProcessingMonitor:
                 if current_status != "failed":
                     await db_tracker.add_status_change(barcode, "processing_request", "failed")
                     updates["failed"] += 1
-                
+
             return updates
-            
+
         except Exception as e:
             logger.warning(f"Failed to update book statuses: {e}")
             return {}
@@ -1099,8 +1098,8 @@ async def cmd_request(args) -> None:
                             FROM book_status_history
                             WHERE status_type = 'processing_request'
                             GROUP BY barcode
-                        ) h2 ON h1.barcode = h2.barcode 
-                            AND h1.timestamp = h2.max_timestamp 
+                        ) h2 ON h1.barcode = h2.barcode
+                            AND h1.timestamp = h2.max_timestamp
                             AND h1.id = h2.max_id
                         WHERE h1.status_type = 'processing_request'
                     ) h1 ON b.barcode = h1.barcode

@@ -23,12 +23,12 @@ class TestBookRecord:
 
     def test_book_record_creation(self):
         """Test basic BookRecord creation."""
-        record = BookRecord(barcode="TEST123", scanned_date="2024-01-01T10:00:00", processing_state="converted")
+        record = BookRecord(barcode="TEST123", scanned_date="2024-01-01T10:00:00", title="Test Book")
 
         assert record.barcode == "TEST123"
         assert record.scanned_date == "2024-01-01T10:00:00"
-        assert record.processing_state == "converted"
-        assert record.title == ""  # Default value
+        assert record.title == "Test Book"
+        # processing state is now tracked in status history, not in the record itself
 
     def test_csv_headers(self):
         """Test CSV headers are consistent."""
@@ -37,7 +37,7 @@ class TestBookRecord:
         # Check that essential headers are present
         assert "Barcode" in headers
         assert "Title" in headers
-        assert "Processing State" in headers
+        assert "Processing Request Timestamp" in headers  # New status tracking field
         assert "CSV Exported" in headers
         assert "CSV Updated" in headers
 
@@ -49,7 +49,7 @@ class TestBookRecord:
     def test_to_csv_row(self):
         """Test CSV row conversion."""
         record = BookRecord(
-            barcode="TEST456", title="Test Book Title", scanned_date="2024-01-01T10:00:00", processing_state="failed"
+            barcode="TEST456", title="Test Book Title", scanned_date="2024-01-01T10:00:00", processing_request_timestamp="2024-01-02T10:00:00"
         )
 
         row = record.to_csv_row()
@@ -58,7 +58,7 @@ class TestBookRecord:
         assert row[0] == "TEST456"  # Barcode
         assert row[1] == "Test Book Title"  # Title
         assert row[2] == "2024-01-01T10:00:00"  # Scanned Date
-        assert row[9] == "failed"  # Processing State
+        assert row[9] == "2024-01-02T10:00:00"  # Processing Request Timestamp
 
 
 class TestRateLimiter:
@@ -309,7 +309,7 @@ class TestBookCollector:
 
         assert record is not None
         assert record.barcode == "PROC001"
-        assert record.processing_state == "converted"
+        # processing state is now tracked in status history, not in the record
         assert record.scanned_date == "2024-01-01T10:00:00"
         assert record.csv_exported  # Should have timestamp
 

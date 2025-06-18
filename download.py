@@ -657,7 +657,7 @@ async def download_book(
         from datetime import UTC
         # Update sync status atomically
         await db_tracker.add_status_change(barcode, "sync", "completed")
-        
+
         # Update book record with sync data
         sync_data = {
             "storage_type": storage_type or "local",

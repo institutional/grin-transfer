@@ -120,13 +120,15 @@ class TestGRINEnrichmentPipeline:
 
         # Add some test books
         test_books = [
-            BookRecord(barcode="TEST001", title="Test Book 1", processing_state="converted"),
-            BookRecord(barcode="TEST002", title="Test Book 2", processing_state="converted"),
-            BookRecord(barcode="TEST003", title="Test Book 3", processing_state="converted"),
+            BookRecord(barcode="TEST001", title="Test Book 1"),
+            BookRecord(barcode="TEST002", title="Test Book 2"),
+            BookRecord(barcode="TEST003", title="Test Book 3"),
         ]
 
         for book in test_books:
             await tracker.save_book(book)
+            # Add processing status using status history
+            await tracker.add_status_change(book.barcode, "processing_request", "converted")
 
         yield db_path
 

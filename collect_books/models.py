@@ -69,7 +69,7 @@ class BookRecord:
     is_decrypted: bool = False  # Whether decrypted version exists
     sync_timestamp: str | None = None  # ISO timestamp of last successful sync
     sync_error: str | None = None  # Error message if sync failed
-    
+
     # Record keeping
     created_at: str | None = None  # ISO timestamp when record was created
     updated_at: str | None = None  # ISO timestamp when record was last updated
@@ -755,8 +755,8 @@ class SQLiteProgressTracker:
                     FROM book_status_history
                     WHERE status_type = 'processing_request'
                     GROUP BY barcode
-                ) h2 ON h1.barcode = h2.barcode 
-                    AND h1.timestamp = h2.max_timestamp 
+                ) h2 ON h1.barcode = h2.barcode
+                    AND h1.timestamp = h2.max_timestamp
                     AND h1.id = h2.max_id
                 WHERE h1.status_type = 'processing_request'
                 AND h1.status_value IN ('requested', 'in_process', 'converted')
@@ -774,8 +774,8 @@ class SQLiteProgressTracker:
                         FROM book_status_history
                         WHERE status_type = 'sync'
                         GROUP BY barcode
-                    ) h2 ON h1.barcode = h2.barcode 
-                        AND h1.timestamp = h2.max_timestamp 
+                    ) h2 ON h1.barcode = h2.barcode
+                        AND h1.timestamp = h2.max_timestamp
                         AND h1.id = h2.max_id
                     WHERE h1.status_type = 'sync'
                     AND h1.status_value = ?
@@ -790,7 +790,7 @@ class SQLiteProgressTracker:
                         SELECT DISTINCT barcode
                         FROM book_status_history
                         WHERE status_type = 'sync'
-                    ) 
+                    )
                     OR barcode IN (
                         SELECT DISTINCT h1.barcode
                         FROM book_status_history h1
@@ -799,8 +799,8 @@ class SQLiteProgressTracker:
                             FROM book_status_history
                             WHERE status_type = 'sync'
                             GROUP BY barcode
-                        ) h2 ON h1.barcode = h2.barcode 
-                            AND h1.timestamp = h2.max_timestamp 
+                        ) h2 ON h1.barcode = h2.barcode
+                            AND h1.timestamp = h2.max_timestamp
                             AND h1.id = h2.max_id
                         WHERE h1.status_type = 'sync'
                         AND h1.status_value = 'failed'
@@ -912,53 +912,53 @@ class SQLiteProgressTracker:
         metadata: dict | None = None
     ) -> bool:
         """Atomically record a status change for a book.
-        
+
         Args:
             barcode: Book barcode
             status_type: Type of status ("processing_request", "sync", "enrichment", etc.)
             status_value: New status value
             session_id: Optional session identifier for batch tracking
             metadata: Optional metadata as dict (will be JSON encoded)
-            
+
         Returns:
             True if status was recorded successfully
         """
         await self.init_db()
-        
+
         now = datetime.now(UTC).isoformat()
         metadata_json = json.dumps(metadata) if metadata else None
-        
+
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """
-                INSERT INTO book_status_history 
+                INSERT INTO book_status_history
                 (barcode, status_type, status_value, timestamp, session_id, metadata)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (barcode, status_type, status_value, now, session_id, metadata_json)
             )
-            
+
             # Update the updated_at timestamp in books table
             await db.execute(
                 "UPDATE books SET updated_at = ? WHERE barcode = ?",
                 (now, barcode)
             )
-            
+
             await db.commit()
             return True
 
     async def get_latest_status(self, barcode: str, status_type: str) -> str | None:
         """Get the latest status value for a book and status type.
-        
+
         Args:
             barcode: Book barcode
             status_type: Type of status to retrieve
-            
+
         Returns:
             Latest status value or None if no status found
         """
         await self.init_db()
-        
+
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
@@ -979,17 +979,17 @@ class SQLiteProgressTracker:
         limit: int | None = None
     ) -> list[tuple[str, str]]:
         """Get books with their latest status for a given status type.
-        
+
         Args:
             status_type: Type of status to filter by
             status_values: Optional list of status values to filter by
             limit: Optional limit on number of results
-            
+
         Returns:
             List of (barcode, latest_status_value) tuples
         """
         await self.init_db()
-        
+
         # Build query to get latest status for each book
         base_query = """
             SELECT DISTINCT h1.barcode, h1.status_value
@@ -999,25 +999,25 @@ class SQLiteProgressTracker:
                 FROM book_status_history
                 WHERE status_type = ?
                 GROUP BY barcode
-            ) h2 ON h1.barcode = h2.barcode 
-                AND h1.timestamp = h2.max_timestamp 
+            ) h2 ON h1.barcode = h2.barcode
+                AND h1.timestamp = h2.max_timestamp
                 AND h1.id = h2.max_id
             WHERE h1.status_type = ?
         """
-        
+
         params = [status_type, status_type]
-        
+
         if status_values:
             placeholders = ','.join('?' * len(status_values))
             base_query += f" AND h1.status_value IN ({placeholders})"
             params.extend(status_values)
-        
+
         base_query += " ORDER BY h1.timestamp DESC"
-        
+
         if limit:
             base_query += " LIMIT ?"
             params.append(str(limit))
-        
+
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(base_query, params)
             rows = await cursor.fetchall()
