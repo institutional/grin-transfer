@@ -270,7 +270,7 @@ class GRINAuth:
                                         return True
                                     elif test_response.status == 302:
                                         # 302 redirect often means credentials work but need additional auth
-                                        print("✅ Credentials valid (got redirect response)")
+                                        print("✅ Credentials valid")
                                         return True
                                     else:
                                         raise AuthError(
@@ -290,7 +290,7 @@ class GRINAuth:
                             )
                     elif response.status == 302:
                         # 302 redirect can be normal for GRIN auth flow
-                        print("✅ Credentials valid (got redirect response)")
+                        print("✅ Credentials valid")
                         return True
                     elif response.status == 403:
                         raise AuthError(f"GRIN access denied (403). Check directory permissions for '{directory}'.")
