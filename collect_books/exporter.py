@@ -596,8 +596,42 @@ class BookCollector:
                     if book_count > 50000:
                         self.total_books_estimate = book_count + 100000
 
+    async def get_converted_books(self) -> AsyncGenerator[tuple[str, set[str]], None]:
+        """Stream books from GRIN's _converted list."""
+        try:
+            print("Fetching converted books from GRIN...")
+            response_text = await self.client.fetch_resource(self.directory, "_converted?format=text")
+            lines = response_text.strip().split("\n")
+
+            converted_count = 0
+            for line in lines:
+                if line.strip() and ".tar.gz.gpg" in line:
+                    barcode = line.strip().replace(".tar.gz.gpg", "")
+                    if barcode:
+                        # Create a minimal GRIN line format - just the barcode
+                        # The process_book method will enrich this with metadata
+                        grin_line = barcode
+                        converted_count += 1
+                        yield grin_line, set()
+
+            print(f"Found {converted_count:,} converted books from GRIN")
+
+        except Exception as e:
+            print(f"Warning: Could not fetch converted books: {e}")
+            # Continue without converted books rather than failing
+
     async def get_all_books(self) -> AsyncGenerator[tuple[str, set[str]], None]:
-        """Stream all book data from GRIN using HTML pagination."""
+        """Stream all book data from GRIN using HTML pagination, plus converted books."""
+        # First, yield books from the _converted list
+        converted_count = 0
+        async for book_line, known_barcodes in self.get_converted_books():
+            converted_count += 1
+            yield book_line, known_barcodes
+
+        if converted_count > 0:
+            print(f"Finished processing {converted_count:,} converted books, now continuing with full catalog...")
+
+        # Then, yield books from the main _all_books catalog
         async for book_line, known_barcodes in self.get_all_books_html():
             yield book_line, known_barcodes
 
@@ -614,10 +648,26 @@ class BookCollector:
         )  # URLs are not dates
 
     def parse_grin_line(self, line: str) -> dict:
-        """Parse a line from GRIN _all_books output."""
+        """Parse a line from GRIN _all_books output or a simple barcode."""
         fields = line.strip().split("\t")
         if len(fields) < 1 or not fields[0]:  # Must have at least barcode
             return {}
+
+        # Handle barcode-only input (from converted books list)
+        if len(fields) == 1 and not any("\t" in line for line in [line]):
+            # This is just a barcode, create minimal record
+            barcode = fields[0]
+            return {
+                "barcode": barcode,
+                "title": "",  # Will be enriched later if needed
+                "scanned_date": None,
+                "converted_date": None,
+                "downloaded_date": None,
+                "processed_date": None,
+                "analyzed_date": None,
+                "ocr_date": None,
+                "google_books_link": "",
+            }
 
         # Pad fields to ensure we have at least 9 elements
         while len(fields) < 9:

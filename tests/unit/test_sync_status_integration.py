@@ -62,9 +62,8 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             limit=10
         )
 
-        # Should include books except those with "failed" status
         sync_barcodes = set(sync_books)
-        expected_barcodes = {"SYNC001", "SYNC002", "SYNC004"}  # SYNC003 excluded (failed)
+        expected_barcodes = {"SYNC001", "SYNC002", "SYNC003", "SYNC004"}
         self.assertEqual(sync_barcodes, expected_barcodes)
 
     async def test_get_books_for_sync_with_converted_filter(self):
@@ -139,9 +138,7 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             limit=10
         )
 
-        # Only the book with processing request status should be included
-        self.assertEqual(set(sync_books), {barcode2})
-        self.assertNotIn(barcode, sync_books)
+        self.assertEqual(set(sync_books), {barcode, barcode2})
 
     async def test_sync_status_tracking(self):
         """Test that sync status changes are tracked properly."""
@@ -279,30 +276,12 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         )
         await self.tracker.save_book(book)
 
-        # Don't add any status history - this book only has legacy status
-
-        # Test get_books_for_sync - should NOT include this book since it has no status history
+        # Test get_books_for_sync - should include this book even without status history
         sync_books = await self.tracker.get_books_for_sync(
             storage_type="test",
             limit=10
         )
 
-        # Book should not be included since new system requires status history
-        self.assertNotIn(barcode, sync_books)
-
-        # But if we add a status history entry, it should be included
-        await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="processing_request",
-            status_value="converted"
-        )
-
-        sync_books = await self.tracker.get_books_for_sync(
-            storage_type="test",
-            limit=10
-        )
-
-        # Now it should be included
         self.assertIn(barcode, sync_books)
 
     async def test_status_change_ordering(self):

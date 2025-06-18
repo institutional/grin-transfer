@@ -149,9 +149,9 @@ def print_resume_command(args, run_name: str) -> None:
     print(f"\n{resume_command}")
     print(f"\nRun directory: output/{run_name}/")
     print("\nTo enrich metadata:")
-    print(f"python grin_enrichment.py enrich output/{run_name}/books.db")
+    print(f"python grin_enrichment.py enrich --run-name {run_name}")
     print("\nTo check status:")
-    print(f"python grin_enrichment.py status output/{run_name}/books.db")
+    print(f"python grin_enrichment.py status --run-name {run_name}")
     print("=" * 60)
 
 

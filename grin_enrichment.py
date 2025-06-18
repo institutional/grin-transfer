@@ -448,8 +448,8 @@ class GRINEnrichmentPipeline:
         processed_count = 0
         total_enriched = 0
 
-        # Initialize sliding window rate calculator
-        rate_calculator = SlidingWindowRateCalculator(window_size=5)
+        # Initialize sliding window rate calculator (larger window for more stable ETA)
+        rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
         logger.info(f"Starting enrichment of {remaining_books:,} books...")
 
@@ -490,9 +490,9 @@ class GRINEnrichmentPipeline:
                 # Calculate rate using sliding window
                 rate = rate_calculator.get_rate(start_time, processed_count)
 
-                # Calculate ETA if we have enough data (after 2+ batches)
+                # Calculate ETA if we have enough data (after 5+ batches for stable estimate)
                 eta_text = ""
-                if len(rate_calculator.batch_times) >= 2 and rate > 0:
+                if len(rate_calculator.batch_times) >= 5 and rate > 0:
                     books_remaining = remaining_books - processed_count
                     eta_seconds = books_remaining / rate
                     eta_text = f" (ETA: {format_duration(eta_seconds)})"

@@ -375,9 +375,8 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             limit=10
         )
 
-        # Should include all books except SYNC004 (failed status is excluded from sync)
         sync_barcodes = set(sync_books)
-        expected_barcodes = {"SYNC001", "SYNC002", "SYNC003"}  # SYNC004 excluded (failed)
+        expected_barcodes = {"SYNC001", "SYNC002", "SYNC003", "SYNC004"}
         self.assertEqual(sync_barcodes, expected_barcodes)
 
     async def test_limit_functionality(self):

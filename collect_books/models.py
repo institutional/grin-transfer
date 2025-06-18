@@ -744,24 +744,6 @@ class SQLiteProgressTracker:
             """
             params = []
 
-        # Only sync books that have been requested for processing
-        # Use status history to get latest processing request status
-        base_query += """
-            AND barcode IN (
-                SELECT DISTINCT h1.barcode
-                FROM book_status_history h1
-                INNER JOIN (
-                    SELECT barcode, MAX(timestamp) as max_timestamp, MAX(id) as max_id
-                    FROM book_status_history
-                    WHERE status_type = 'processing_request'
-                    GROUP BY barcode
-                ) h2 ON h1.barcode = h2.barcode
-                    AND h1.timestamp = h2.max_timestamp
-                    AND h1.id = h2.max_id
-                WHERE h1.status_type = 'processing_request'
-                AND h1.status_value IN ('requested', 'in_process', 'converted')
-            )
-        """
 
         # Filter by sync status using status history
         if status_filter:
@@ -783,7 +765,7 @@ class SQLiteProgressTracker:
             """
             params.append(status_filter)
         else:
-            # Default: get books that have no sync status OR failed sync status
+            # Default: get books that have no sync status OR failed/syncing sync status
             base_query += """
                 AND (
                     barcode NOT IN (
@@ -803,7 +785,7 @@ class SQLiteProgressTracker:
                             AND h1.timestamp = h2.max_timestamp
                             AND h1.id = h2.max_id
                         WHERE h1.status_type = 'sync'
-                        AND h1.status_value = 'failed'
+                        AND h1.status_value IN ('failed', 'syncing')
                     )
                 )
             """
@@ -822,7 +804,7 @@ class SQLiteProgressTracker:
             return [row[0] for row in rows]
 
     async def get_sync_stats(self, storage_type: str | None = None) -> dict:
-        """Get sync statistics for books.
+        """Get sync statistics for books using atomic status history.
 
         Note: This method returns stats for all books in the database since the actual
         download availability is determined dynamically by checking GRIN's _converted endpoint.
@@ -841,43 +823,90 @@ class SQLiteProgressTracker:
             params = []
 
             if storage_type:
-                where_clause += " AND (storage_type IS NULL OR storage_type = ?)"
+                where_clause += " AND (b.storage_type IS NULL OR b.storage_type = ?)"
                 params.append(storage_type)
 
             # Total books (potential candidates for download)
-            cursor = await db.execute(f"SELECT COUNT(*) FROM books {where_clause}", params)
+            cursor = await db.execute(f"SELECT COUNT(*) FROM books b {where_clause}", params)
             row = await cursor.fetchone()
             total_converted = row[0] if row else 0
 
-            # Synced books (completed status)
-            cursor = await db.execute(
-                f"SELECT COUNT(*) FROM books {where_clause} AND sync_status = 'completed'",
-                params
-            )
+            # Get latest sync status for each book using status history
+            # Synced books (downloaded status)
+            cursor = await db.execute(f"""
+                SELECT COUNT(DISTINCT b.barcode)
+                FROM books b
+                JOIN book_status_history h ON b.barcode = h.barcode
+                {where_clause} AND h.status_type = 'sync' AND h.status_value = 'downloaded'
+                AND h.timestamp = (
+                    SELECT MAX(timestamp)
+                    FROM book_status_history h2
+                    WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
+                )
+            """, params)
             row = await cursor.fetchone()
             synced_count = row[0] if row else 0
 
             # Failed sync books
-            cursor = await db.execute(f"SELECT COUNT(*) FROM books {where_clause} AND sync_status = 'failed'", params)
+            cursor = await db.execute(f"""
+                SELECT COUNT(DISTINCT b.barcode)
+                FROM books b
+                JOIN book_status_history h ON b.barcode = h.barcode
+                {where_clause} AND h.status_type = 'sync' AND h.status_value = 'failed'
+                AND h.timestamp = (
+                    SELECT MAX(timestamp)
+                    FROM book_status_history h2
+                    WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
+                )
+            """, params)
             row = await cursor.fetchone()
             failed_count = row[0] if row else 0
 
-            # Pending/not started
-            cursor = await db.execute(
-                f"SELECT COUNT(*) FROM books {where_clause} AND "
-                f"(sync_status IS NULL OR sync_status = 'pending')",
-                params
-            )
-            row = await cursor.fetchone()
-            pending_count = row[0] if row else 0
-
             # Currently syncing
-            cursor = await db.execute(f"SELECT COUNT(*) FROM books {where_clause} AND sync_status = 'syncing'", params)
+            cursor = await db.execute(f"""
+                SELECT COUNT(DISTINCT b.barcode)
+                FROM books b
+                JOIN book_status_history h ON b.barcode = h.barcode
+                {where_clause} AND h.status_type = 'sync' AND h.status_value = 'syncing'
+                AND h.timestamp = (
+                    SELECT MAX(timestamp)
+                    FROM book_status_history h2
+                    WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
+                )
+            """, params)
             row = await cursor.fetchone()
             syncing_count = row[0] if row else 0
 
+            # Pending/not started (books with no sync status history or latest status is pending)
+            cursor = await db.execute(f"""
+                SELECT COUNT(*) FROM books b {where_clause}
+                AND b.barcode NOT IN (
+                    SELECT DISTINCT barcode
+                    FROM book_status_history
+                    WHERE status_type = 'sync'
+                )
+            """, params)
+            row = await cursor.fetchone()
+            no_sync_history = row[0] if row else 0
+
+            cursor = await db.execute(f"""
+                SELECT COUNT(DISTINCT b.barcode)
+                FROM books b
+                JOIN book_status_history h ON b.barcode = h.barcode
+                {where_clause} AND h.status_type = 'sync' AND h.status_value = 'pending'
+                AND h.timestamp = (
+                    SELECT MAX(timestamp)
+                    FROM book_status_history h2
+                    WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
+                )
+            """, params)
+            row = await cursor.fetchone()
+            pending_with_history = row[0] if row else 0
+
+            pending_count = no_sync_history + pending_with_history
+
             # Decrypted count
-            cursor = await db.execute(f"SELECT COUNT(*) FROM books {where_clause} AND is_decrypted = 1", params)
+            cursor = await db.execute(f"SELECT COUNT(*) FROM books b {where_clause} AND b.is_decrypted = 1", params)
             row = await cursor.fetchone()
             decrypted_count = row[0] if row else 0
 

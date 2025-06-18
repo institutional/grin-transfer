@@ -39,7 +39,7 @@ class SyncPipeline:
         db_path: str,
         storage_type: str,
         storage_config: dict,
-        concurrent_downloads: int = 3,
+        concurrent_downloads: int = 5,
         batch_size: int = 100,
         directory: str = "Harvard",
         secrets_dir: str | None = None,
@@ -135,7 +135,7 @@ class SyncPipeline:
                     force=self.force,
                     gpg_key_file=self.gpg_key_file,
                     db_tracker=self.db_tracker,
-                    verbose=True,  # Enable verbose output for debug logging
+                    verbose=False,  # Reduce verbose output in pipeline mode
                     show_progress=False,  # Disable percentage progress in pipeline
                 )
 
@@ -295,8 +295,8 @@ class SyncPipeline:
 
             processed_count = 0
 
-            # Initialize sliding window rate calculator
-            rate_calculator = SlidingWindowRateCalculator(window_size=5)
+            # Initialize sliding window rate calculator (larger window for more stable ETA)
+            rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
             while True:
                 # Check for shutdown request
@@ -355,8 +355,12 @@ class SyncPipeline:
                 if books_to_process > 0:
                     percentage = (processed_count / books_to_process) * 100
                     remaining = books_to_process - processed_count
-                    eta_seconds = remaining / rate if rate > 0 else 0
-                    eta_text = f" (ETA: {format_duration(eta_seconds)})" if eta_seconds > 0 else ""
+                    
+                    # Show ETA only after enough batches for stable estimate
+                    eta_text = ""
+                    if len(rate_calculator.batch_times) >= 5 and rate > 0:
+                        eta_seconds = remaining / rate
+                        eta_text = f" (ETA: {format_duration(eta_seconds)})"
 
                     print(f"Progress: {processed_count:,}/{books_to_process:,} "
                           f"({percentage:.1f}%) - {rate:.1f} books/sec{eta_text}")
@@ -403,6 +407,105 @@ class SyncPipeline:
             print(f"  Decrypted books: {final_status['decrypted']:,}")
 
             logger.info("Sync pipeline completed")
+
+    async def _run_catchup_sync(self, barcodes: list[str], limit: int | None = None) -> None:
+        """Run catchup sync for specific books."""
+        books_to_process = min(limit or len(barcodes), len(barcodes))
+        self.progress_reporter = ProgressReporter("catchup", books_to_process)
+        self.progress_reporter.start()
+
+        start_time = time.time()
+        processed_count = 0
+
+        # Initialize sliding window rate calculator
+        from common import SlidingWindowRateCalculator
+        rate_calculator = SlidingWindowRateCalculator(window_size=5)
+
+        print(f"Processing {books_to_process:,} books in catchup mode...")
+
+        try:
+            # Process books in batches
+            for i in range(0, len(barcodes), self.batch_size):
+                if self._shutdown_requested:
+                    print("\nShutdown requested, stopping catchup sync...")
+                    break
+
+                if limit and processed_count >= limit:
+                    break
+
+                batch = barcodes[i:i + self.batch_size]
+                if limit:
+                    remaining = limit - processed_count
+                    batch = batch[:remaining]
+
+                logger.info(f"Processing catchup batch of {len(batch)} books...")
+
+                # Process the batch
+                batch_start = time.time()
+                batch_results = await self.process_batch(batch)
+                batch_elapsed = time.time() - batch_start
+
+                # Update progress
+                processed_count += len(batch)
+                self.progress_reporter.update(
+                    items=len(batch),
+                    bytes_count=sum(r.get("size", 0) for r in batch_results),
+                    force=True
+                )
+
+                # Track batch completion for sliding window rate calculation
+                current_time = time.time()
+                rate_calculator.add_batch(current_time, processed_count)
+
+                # Log batch completion
+                completed_in_batch = sum(1 for r in batch_results if r["status"] == "completed")
+
+                logger.info(f"Catchup batch completed: {completed_in_batch}/{len(batch)} successful "
+                           f"in {batch_elapsed:.1f}s")
+
+                # Calculate rate using sliding window
+                rate = rate_calculator.get_rate(start_time, processed_count)
+
+                if books_to_process > 0:
+                    percentage = (processed_count / books_to_process) * 100
+                    remaining = books_to_process - processed_count
+                    eta_seconds = remaining / rate if rate > 0 else 0
+                    eta_text = f" (ETA: {format_duration(eta_seconds)})" if eta_seconds > 0 else ""
+
+                    print(f"Catchup progress: {processed_count:,}/{books_to_process:,} "
+                          f"({percentage:.1f}%) - {rate:.1f} books/sec{eta_text}")
+
+                # Small delay between batches
+                await asyncio.sleep(0.1)
+
+        except KeyboardInterrupt:
+            print("\nCatchup sync interrupted by user")
+            logger.info("Catchup sync interrupted by user")
+
+        except Exception as e:
+            print(f"\nCatchup sync failed: {e}")
+            logger.error(f"Catchup sync failed: {e}", exc_info=True)
+
+        finally:
+            # Clean up resources
+            await self.cleanup()
+
+            # Final statistics
+            self.progress_reporter.finish()
+
+            total_elapsed = time.time() - start_time
+            await self.get_sync_status()
+
+            print("\nCatchup sync completed:")
+            print(f"  Total runtime: {format_duration(total_elapsed)}")
+            print(f"  Books processed: {self.stats['processed']:,}")
+            print(f"  Successful downloads: {self.stats['completed']:,}")
+            print(f"  Failed downloads: {self.stats['failed']:,}")
+            print(f"  Total data: {self.stats['total_bytes'] / 1024 / 1024:.1f} MB")
+            if total_elapsed > 0:
+                print(f"  Average rate: {self.stats['processed'] / total_elapsed:.1f} books/second")
+
+            logger.info("Catchup sync pipeline completed")
 
 
 async def show_sync_status(db_path: str, storage_type: str | None = None) -> None:
@@ -742,6 +845,193 @@ async def cmd_status(args) -> None:
         sys.exit(1)
 
 
+async def cmd_catchup(args) -> None:
+    """Handle the 'catchup' command."""
+    # Set up database path and apply run configuration
+    db_path = setup_run_database_path(args, args.run_name)
+    print(f"Using run: {args.run_name}")
+    print(f"Database: {db_path}")
+
+    # Set up signal handlers for graceful shutdown
+    def signal_handler(signum: int, frame: Any) -> None:
+        print(f"\nReceived signal {signum}, shutting down gracefully...")
+        raise KeyboardInterrupt()
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Validate database
+    validate_database_file(args.db_path)
+
+    # Build storage configuration from run config
+    config_path = Path(args.db_path).parent / "run_config.json"
+    if not config_path.exists():
+        print(f"❌ Error: No run config found at {config_path}")
+        print("Run collect_books.py first to create a run configuration")
+        sys.exit(1)
+
+    try:
+        with open(config_path) as f:
+            run_config = json.load(f)
+
+        storage_config_dict = run_config.get("storage_config")
+        if not storage_config_dict:
+            print("❌ Error: No storage configuration found in run config")
+            print("Run collect_books.py with storage configuration first")
+            sys.exit(1)
+
+        storage_type = storage_config_dict["type"]
+        storage_config = storage_config_dict["config"]
+
+        print(f"Using storage: {storage_type}")
+
+    except (json.JSONDecodeError, KeyError, OSError) as e:
+        print(f"❌ Error reading run config: {e}")
+        sys.exit(1)
+
+    # Set up logging
+    db_name = Path(args.db_path).stem
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = f"logs/sync_catchup_{storage_type}_{db_name}_{timestamp}.log"
+    setup_logging(args.log_level, log_file)
+    print(f"Logging to file: {log_file}")
+
+    # Create and run catchup
+    try:
+        print("=" * 60)
+        print("GRIN Sync Catchup - Download Already-Converted Books")
+        print("=" * 60)
+        print("This will download any books in your database that are")
+        print("already converted in GRIN, regardless of whether you")
+        print("requested them for processing.")
+        print()
+
+        # Get list of converted books from GRIN
+        print("Fetching list of converted books from GRIN...")
+
+        # Create a simple GRIN client to get converted books
+        from client import GRINClient
+        grin_client = GRINClient(secrets_dir=run_config.get("secrets_dir"))
+
+        try:
+            response_text = await grin_client.fetch_resource("Harvard", "_converted?format=text")
+            lines = response_text.strip().split("\n")
+            converted_barcodes = set()
+            for line in lines:
+                if line.strip() and ".tar.gz.gpg" in line:
+                    barcode = line.strip().replace(".tar.gz.gpg", "")
+                    converted_barcodes.add(barcode)
+
+            print(f"GRIN reports {len(converted_barcodes):,} total converted books available")
+
+        except Exception as e:
+            print(f"❌ Error fetching converted books from GRIN: {e}")
+            sys.exit(1)
+        finally:
+            if hasattr(grin_client, "session") and grin_client.session:
+                await grin_client.session.close()
+
+        # Find books in our database that are converted but not yet synced
+        db_tracker = SQLiteProgressTracker(args.db_path)
+        await db_tracker.init_db()
+
+        # Get all books in our database
+        async with aiosqlite.connect(args.db_path) as db:
+            cursor = await db.execute("SELECT barcode FROM books")
+            all_books = {row[0] for row in await cursor.fetchall()}
+
+        print(f"Database contains {len(all_books):,} books")
+
+        # Find books that are both in our database and converted in GRIN
+        catchup_candidates = all_books.intersection(converted_barcodes)
+        print(f"Found {len(catchup_candidates):,} books that are converted and in our database")
+
+        if not catchup_candidates:
+            print("No books available for catchup")
+            return
+
+        # Filter out books already successfully synced
+        books_to_sync = []
+        for barcode in catchup_candidates:
+            latest_sync_status = await db_tracker.get_latest_status(barcode, "sync")
+            if latest_sync_status != "completed":
+                books_to_sync.append(barcode)
+
+        print(f"Found {len(books_to_sync):,} books ready for catchup sync")
+
+        if not books_to_sync:
+            print("All converted books are already synced")
+            return
+
+        # Apply limit if specified
+        if args.limit:
+            books_to_sync = books_to_sync[:args.limit]
+            print(f"Limited to {len(books_to_sync):,} books for this catchup run")
+
+        # Handle dry-run mode
+        if args.dry_run:
+            print(f"\n📋 DRY RUN: Would sync {len(books_to_sync):,} books")
+            print("=" * 50)
+
+            if len(books_to_sync) <= 20:
+                print("Books that would be synced:")
+                for i, barcode in enumerate(books_to_sync, 1):
+                    print(f"  {i:3d}. {barcode}")
+            else:
+                print("First 10 books that would be synced:")
+                for i, barcode in enumerate(books_to_sync[:10], 1):
+                    print(f"  {i:3d}. {barcode}")
+                print(f"  ... and {len(books_to_sync) - 10:,} more books")
+
+                print("\nLast 10 books that would be synced:")
+                for i, barcode in enumerate(books_to_sync[-10:], len(books_to_sync) - 9):
+                    print(f"  {i:3d}. {barcode}")
+
+            print("\nTo actually sync these books, run without --dry-run")
+            return
+
+        # Confirm with user
+        if not args.yes:
+            response = input(f"\nDownload {len(books_to_sync):,} books? [y/N]: ").strip().lower()
+            if response not in ('y', 'yes'):
+                print("Catchup cancelled")
+                return
+
+        print(f"\nStarting catchup sync of {len(books_to_sync):,} books...")
+
+        # Create a modified sync pipeline for catchup
+        pipeline = SyncPipeline(
+            db_path=args.db_path,
+            storage_type=storage_type,
+            storage_config=storage_config,
+            concurrent_downloads=args.concurrent,
+            batch_size=args.batch_size,
+            directory="Harvard",
+            secrets_dir=run_config.get("secrets_dir"),
+            gpg_key_file=args.gpg_key_file,
+            force=args.force,
+        )
+
+        # Record that these books are being processed as part of catchup
+        session_id = f"catchup_{timestamp}"
+        for barcode in books_to_sync:
+            # Mark processing as requested (catchup) and converted
+            await db_tracker.add_status_change(
+                barcode, "processing_request", "converted",
+                session_id=session_id,
+                metadata={"source": "catchup", "reason": "already_converted_in_grin"}
+            )
+
+        # Use a custom method to sync these specific books
+        await pipeline._run_catchup_sync(books_to_sync, args.limit)
+
+    except KeyboardInterrupt:
+        print("\nCatchup cancelled by user")
+    except Exception as e:
+        print(f"Catchup failed: {e}")
+        sys.exit(1)
+
+
 async def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -751,6 +1041,7 @@ async def main() -> None:
 Examples:
   python sync.py pipeline --run-name harvard_2024
   python sync.py status --run-name harvard_2024
+  python sync.py catchup --run-name harvard_2024
         """,
     )
 
@@ -811,7 +1102,7 @@ Examples:
     pipeline_parser.add_argument("--credentials-file", help="Custom credentials file path")
 
     # Pipeline options
-    pipeline_parser.add_argument("--concurrent", type=int, default=3, help="Concurrent downloads (default: 3)")
+    pipeline_parser.add_argument("--concurrent", type=int, default=5, help="Concurrent downloads (default: 5)")
     pipeline_parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing (default: 100)")
     pipeline_parser.add_argument("--limit", type=int, help="Limit number of books to sync")
     pipeline_parser.add_argument("--status", choices=["pending", "failed"], help="Only sync books with this status")
@@ -847,6 +1138,38 @@ Examples:
     status_parser.add_argument("--storage-type", choices=["local", "minio", "r2", "s3"],
                               help="Filter by storage type")
 
+    # Catchup command
+    catchup_parser = subparsers.add_parser(
+        "catchup",
+        help="Download already-converted books from GRIN",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Check what books would be synced
+  python sync.py catchup --run-name harvard_2024 --dry-run
+
+  # Basic catchup (uses storage config from run)
+  python sync.py catchup --run-name harvard_2024
+
+  # Catchup with limit and auto-confirm
+  python sync.py catchup --run-name harvard_2024 --limit 100 --yes
+
+  # Catchup with custom concurrency
+  python sync.py catchup --run-name harvard_2024 --concurrent 5
+        """,
+    )
+
+    catchup_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
+    catchup_parser.add_argument("--limit", type=int, help="Limit number of books to download")
+    catchup_parser.add_argument("--concurrent", type=int, default=5, help="Concurrent downloads (default: 5)")
+    catchup_parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing (default: 100)")
+    catchup_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
+    catchup_parser.add_argument("--yes", "-y", action="store_true", help="Auto-confirm without prompting")
+    catchup_parser.add_argument("--dry-run", action="store_true",
+                                help="Show what books would be synced without downloading")
+    catchup_parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
+    catchup_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -857,6 +1180,8 @@ Examples:
         await cmd_pipeline(args)
     elif args.command == "status":
         await cmd_status(args)
+    elif args.command == "catchup":
+        await cmd_catchup(args)
 
 
 if __name__ == "__main__":
