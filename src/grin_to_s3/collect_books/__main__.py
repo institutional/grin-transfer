@@ -111,7 +111,7 @@ def print_resume_command(args, run_name: str) -> None:
     print("=" * 60)
 
     # Build the resume command
-    cmd_parts = ["python collect_books.py"]
+    cmd_parts = ["python grin.py collect"]
 
     # Add run name (most important for resume)
     cmd_parts.append(f'--run-name "{run_name}"')
@@ -151,9 +151,9 @@ def print_resume_command(args, run_name: str) -> None:
     print(f"\n{resume_command}")
     print(f"\nRun directory: output/{run_name}/")
     print("\nTo enrich metadata:")
-    print(f"python grin_enrichment.py enrich --run-name {run_name}")
+    print(f"python grin.py enrich --run-name {run_name}")
     print("\nTo check status:")
-    print(f"python grin_enrichment.py status --run-name {run_name}")
+    print(f"python grin.py status --run-name {run_name}")
     print("=" * 60)
 
 
@@ -236,15 +236,15 @@ Examples:
     )
     parser.add_argument(
         "--bucket-raw",
-        help="Raw data bucket (for sync archives, required unless storage=local)"
+        help="Raw data bucket (for sync archives, required for MinIO, optional for R2/S3 if in config file)"
     )
     parser.add_argument(
         "--bucket-meta",
-        help="Metadata bucket (for CSV/database outputs, required unless storage=local)"
+        help="Metadata bucket (for CSV/database outputs, required for MinIO, optional for R2/S3 if in config file)"
     )
     parser.add_argument(
         "--bucket-full",
-        help="Full-text bucket (for OCR outputs, required unless storage=local)"
+        help="Full-text bucket (for OCR outputs, required for MinIO, optional for R2/S3 if in config file)"
     )
     parser.add_argument(
         "--storage-config", action="append", help="Additional storage config key=value"
@@ -300,7 +300,10 @@ Examples:
     args = parser.parse_args()
 
     # Validate storage arguments
-    if args.storage != "local":
+    # For MinIO, bucket names are required on command line
+    # For R2 and S3, bucket names are optional (can be in config files)
+    # For local, no buckets needed
+    if args.storage == "minio":
         missing_buckets = []
         if not args.bucket_raw:
             missing_buckets.append("--bucket-raw")
@@ -312,7 +315,7 @@ Examples:
         if missing_buckets:
             parser.error(
                 f"The following bucket parameters are required when using "
-                f"--storage={args.storage}: {', '.join(missing_buckets)}"
+                f"--storage=minio: {', '.join(missing_buckets)}"
             )
 
     # Handle config creation
@@ -415,6 +418,7 @@ Examples:
             "progress_file": progress_file,
             "storage_config": storage_config,
             "secrets_dir": args.secrets_dir,
+            "limit": args.limit,
         })
 
         # Write config to run directory
@@ -503,6 +507,7 @@ Examples:
             "progress_file": progress_file,
             "storage_config": storage_config,
             "secrets_dir": args.secrets_dir,
+            "limit": args.limit,
         })
 
         config_path = Path(f"output/{run_name}/run_config.json")

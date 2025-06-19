@@ -87,6 +87,11 @@ class RunConfig:
             return storage_config["config"].get("bucket_full")
         return None
 
+    @property
+    def limit(self) -> int | None:
+        """Get the limit parameter."""
+        return self.config_dict.get("limit")
+
     def get_storage_args(self) -> dict[str, str]:
         """Get storage arguments suitable for command line scripts."""
         args: dict[str, str] = {}
@@ -215,6 +220,10 @@ def apply_run_config_to_args(args: Any, db_path: str) -> None:
     if hasattr(args, 'secrets_dir') and not getattr(args, 'secrets_dir', None):
         args.secrets_dir = config.secrets_dir
 
+    # Apply limit if not set
+    if hasattr(args, 'limit') and not getattr(args, 'limit', None):
+        args.limit = config.limit
+
     # Apply storage configuration if not set
     storage_args = config.get_storage_args()
     for arg_name, value in storage_args.items():
@@ -290,6 +299,15 @@ def validate_bucket_arguments(args: Any, storage_type: str | None = None) -> lis
     Returns:
         List of missing bucket argument names (empty if all present)
     """
+    # For R2 and S3, bucket names are optional as they can be specified in the config file
+    if storage_type in ["r2", "s3"]:
+        return []
+
+    # For local storage, buckets are not needed
+    if storage_type == "local":
+        return []
+
+    # For MinIO, bucket names are required (since it's typically used for local development)
     missing_buckets = []
     if not getattr(args, 'bucket_raw', None):
         missing_buckets.append("--bucket-raw")

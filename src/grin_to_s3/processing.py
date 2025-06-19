@@ -286,7 +286,6 @@ class ProcessingPipeline:
                     self.processing_client.grin_client.auth.validate_credentials(self.directory),
                     timeout=30.0
                 )
-                print("✅ Credentials validated")
             except TimeoutError:
                 print("❌ Credential validation timed out after 30 seconds")
                 return
@@ -482,6 +481,16 @@ class ProcessingPipeline:
                         if status == "Success":
                             successful += 1
                             logger.info(f"Successfully requested processing for {barcode}")
+                        elif status == "Already available for download":
+                            successful += 1  # Count as successful since book is ready
+                            logger.warning(f"Book {barcode} already processed: {status}")
+                            # Update status in database to track this
+                            try:
+                                await self.db_tracker.add_status_change(
+                                    barcode, "processing_request", "already_processed"
+                                )
+                            except Exception as e:
+                                logger.debug(f"Failed to update status for {barcode}: {e}")
                         else:
                             failed += 1
                             logger.error(f"Failed to request processing for {barcode}: {status}")
