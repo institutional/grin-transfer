@@ -1015,13 +1015,10 @@ class BookCollector:
             # Enrich record with timestamps and storage info
             record = await self.enrich_book_record(record)
 
-            # Save book record to SQLite database (non-blocking)
-            save_task = asyncio.create_task(self.sqlite_tracker.save_book(record))
-            # Store task to ensure proper cleanup
-            if not hasattr(self, "_background_tasks"):
-                self._background_tasks = set()
-            self._background_tasks.add(save_task)
-            save_task.add_done_callback(self._background_tasks.discard)
+            # Save book record to SQLite database (blocking to ensure data integrity)
+            # Note: Main network/processing work remains parallel; only DB writes are synchronous
+            # to prevent race condition where limit is reached before all books are saved
+            await self.sqlite_tracker.save_book(record)
 
             # Mark as processed for progress tracking
             await self.sqlite_tracker.mark_processed(barcode)
