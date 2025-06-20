@@ -262,8 +262,8 @@ async def main():
             print("- Processing state determination")
 
             print("\nReady for production use:")
-            print("python collect_books.py books.csv")
-            print("python collect_books.py /tmp/test_books.csv --limit 100  # for testing")
+            print("python grin.py collect --run-name test --storage local")
+            print("python grin.py collect --run-name test --limit 100 --storage local  # for testing")
 
     except Exception as e:
         print(f"Test suite failed: {e}")

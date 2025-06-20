@@ -346,6 +346,40 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
                 key, value = item.split("=", 1)
                 storage_dict[key] = value
 
+    # For R2 storage, load bucket information from credentials file if not provided
+    storage_type = getattr(args, 'storage', None)
+    if storage_type == 'r2':
+        # Check if buckets are missing and try to load from credentials
+        missing_buckets = []
+        for bucket_attr in ['bucket_raw', 'bucket_meta', 'bucket_full']:
+            if bucket_attr not in storage_dict:
+                missing_buckets.append(bucket_attr)
+
+        if missing_buckets:
+            try:
+                from pathlib import Path
+
+                from .common import load_json_credentials
+
+                # Determine credentials file path
+                credentials_file = getattr(args, 'credentials_file', None)
+                if not credentials_file:
+                    secrets_dir = getattr(args, 'secrets_dir', None)
+                    if secrets_dir:
+                        credentials_file = Path(secrets_dir) / "r2-credentials.json"
+                    else:
+                        home = Path.home()
+                        credentials_file = home / ".config" / "grin-to-s3" / "r2_credentials.json"
+
+                # Load credentials and extract bucket information
+                creds = load_json_credentials(str(credentials_file))
+                for bucket_attr in missing_buckets:
+                    if bucket_attr in creds:
+                        storage_dict[bucket_attr] = creds[bucket_attr]
+            except Exception:
+                # If we can't load credentials, that's ok - validation will catch missing buckets later
+                pass
+
     # Add other optional arguments
     for attr in ['prefix', 'endpoint_url', 'access_key', 'secret_key', 'account_id', 'credentials_file']:
         value = getattr(args, attr, None)

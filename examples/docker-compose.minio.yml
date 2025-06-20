@@ -15,8 +15,8 @@
 # Console: http://localhost:9001 (minioadmin/minioadmin123)
 #
 # GRIN-to-S3 Integration:
-# python sync.py pipeline --run-name test --storage minio
-# python download.py BARCODE --storage minio
+# python grin.py sync-pipeline --run-name test --storage minio
+# python grin.py sync-catchup BARCODE --storage minio
 
 version: '3.8'
 

@@ -42,9 +42,9 @@ async def test_local_storage():
         read_bytes = await storage.read_bytes(bytes_path)
         assert read_bytes == test_bytes, "Bytes should match"
 
-        # Test metadata
-        info = await storage.get_info(test_path)
-        assert "size" in info, "Should have size info"
+        # Test detailed listing for metadata
+        detailed_objects = await storage.list_objects_detailed("test/")
+        assert len(detailed_objects) >= 2, "Should list files with metadata"
 
         # Test listing
         objects = await storage.list_objects("test/")

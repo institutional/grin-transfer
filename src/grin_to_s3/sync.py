@@ -23,6 +23,7 @@ from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import (
     ProgressReporter,
     SlidingWindowRateCalculator,
+    create_storage_from_config,
     format_duration,
     pluralize,
     setup_storage_with_checks,
@@ -287,7 +288,7 @@ class SyncPipeline:
                     print(f"  - {len(converted_barcodes):,} books available from GRIN (from other requests)")
                     print("  - 0 books ready to sync (no overlap between requested and converted)")
                     print(
-                        f"\nTip: Use 'python processing.py monitor --run-name "
+                        f"\nTip: Use 'python grin.py process monitor --run-name "
                         f"{Path(self.db_path).parent.name}' to check processing progress"
                     )
 
@@ -705,7 +706,7 @@ def validate_database_file(db_path: str) -> None:
     if not db_file.exists():
         print(f"❌ Error: Database file does not exist: {db_path}")
         print("\nRun a book collection first:")
-        print("python collect_books.py --run-name <your_run_name>")
+        print("python grin.py collect --run-name <your_run_name>")
         sys.exit(1)
 
     try:
@@ -755,12 +756,13 @@ async def cmd_pipeline(args) -> None:
         print("Error: --storage argument is required (or must be in run config)")
         sys.exit(1)
 
-    missing_buckets = validate_bucket_arguments(args)
+    missing_buckets = validate_bucket_arguments(args, args.storage)
     if missing_buckets:
         print(
-            f"Error: The following bucket arguments are required (or must be in run config): "
+            f"Error: The following bucket arguments are required for MinIO: "
             f"{', '.join(missing_buckets)}"
         )
+        print("  For R2/S3: bucket names can be specified in credentials file")
         sys.exit(1)
 
     # Build storage configuration
@@ -880,7 +882,22 @@ async def cmd_catchup(args) -> None:
             sys.exit(1)
 
         storage_type = storage_config_dict["type"]
-        storage_config = storage_config_dict["config"]
+
+        # For R2/S3, we need to load the credentials file to get bucket information
+        # Create a minimal args object to use build_storage_config_dict
+        from argparse import Namespace
+        temp_args = Namespace(
+            storage=storage_type,
+            secrets_dir=run_config.get("secrets_dir"),
+            bucket_raw=None,
+            bucket_meta=None,
+            bucket_full=None,
+            storage_config=None
+        )
+
+        # Build full storage config with credentials and bucket info
+        full_storage_config = build_storage_config_dict(temp_args)
+        storage_config = full_storage_config["config"]
 
         print(f"Using storage: {storage_type}")
 
@@ -1035,6 +1052,8 @@ async def cmd_catchup(args) -> None:
         sys.exit(1)
 
 
+
+
 async def main() -> None:
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -1164,6 +1183,7 @@ Examples:
     catchup_parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
     catchup_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
 
+
     args = parser.parse_args()
 
     if not args.command:
@@ -1194,6 +1214,8 @@ async def sync_catchup_main():
     """Entry point for 'grin sync-catchup' command."""
     sys.argv.insert(1, "catchup")
     await main()
+
+
 
 
 if __name__ == "__main__":

@@ -636,7 +636,7 @@ def validate_database_file(db_path: str) -> None:
     if not db_file.exists():
         print(f"❌ Error: Database file does not exist: {db_path}")
         print("\nMake sure you've run a book collection first:")
-        print("python collect_books.py --run-name <your_run_name>")
+        print("python grin.py collect --run-name <your_run_name>")
         print("\nOr check available databases:")
 
         # Try to show available databases

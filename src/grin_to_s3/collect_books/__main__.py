@@ -62,20 +62,6 @@ def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
     # Create formatter
     formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
-    # Console handler (always present) with immediate flushing
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-    root_logger.addHandler(console_handler)
-
-    # Force immediate flushing for all handlers
-    for handler in root_logger.handlers:
-
-        def make_flush_func(h):
-            return lambda: h.stream.flush() if hasattr(h, "stream") else None
-
-        # Replace flush method - type ignore for dynamic assignment
-        handler.flush = make_flush_func(handler)  # type: ignore[method-assign]
-
     # File handler (auto-generate timestamped filename if not provided)
     if log_file is None:
         # Create logs directory
@@ -93,8 +79,15 @@ def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
     file_handler = logging.FileHandler(str(log_file))
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
-    logger.info(f"Logging to file: {log_file}")
 
+    # Force immediate flushing for file handler
+    def make_flush_func(h):
+        return lambda: h.stream.flush() if hasattr(h, "stream") else None
+
+    # Replace flush method - type ignore for dynamic assignment
+    file_handler.flush = make_flush_func(file_handler)  # type: ignore[method-assign]
+
+    logger.info(f"Logging to file: {log_file}")
     logger.info(f"Logging initialized at {level} level")
 
 
@@ -389,7 +382,7 @@ Examples:
             storage_config = {
                 "type": args.storage,
                 "config": storage_dict,
-                "prefix": "grin-books"
+                "prefix": ""
             }
 
         # Load configuration with CLI overrides
@@ -474,7 +467,7 @@ Examples:
         storage_config = {
             "type": args.storage,
             "config": final_storage_dict,
-            "prefix": "grin-books"
+            "prefix": ""
         }
 
         # Set up storage with auto-configuration and connectivity checks

@@ -11,6 +11,7 @@ Commands:
   sync-pipeline  Sync converted books from GRIN to storage
   sync-status    Check sync status
   sync-catchup   Download already-converted books from GRIN
+  storage        Manage storage buckets (ls, rm)
   enrich         Enrich books with GRIN metadata
   export-csv     Export enriched data to CSV
   status         Show enrichment status
@@ -78,6 +79,7 @@ For more help on each command, use: python grin.py <command> --help
     sync_pipeline_parser = subparsers.add_parser("sync-pipeline", help="Sync converted books to storage")
     sync_status_parser = subparsers.add_parser("sync-status", help="Check sync status")
     sync_catchup_parser = subparsers.add_parser("sync-catchup", help="Download already-converted books")
+    storage_parser = subparsers.add_parser("storage", help="Manage storage buckets (ls, rm)")
     enrich_parser = subparsers.add_parser("enrich", help="Enrich books with GRIN metadata")
     export_parser = subparsers.add_parser("export-csv", help="Export enriched data to CSV")
     status_parser = subparsers.add_parser("status", help="Show enrichment status")
@@ -89,6 +91,7 @@ For more help on each command, use: python grin.py <command> --help
         "sync-pipeline": sync_pipeline_parser,
         "sync-status": sync_status_parser,
         "sync-catchup": sync_catchup_parser,
+        "storage": storage_parser,
         "enrich": enrich_parser,
         "export-csv": export_parser,
         "status": status_parser,
@@ -143,6 +146,12 @@ async def main():
         # Remove 'sync-catchup' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await sync_catchup_main()
+
+    elif command == "storage":
+        from grin_to_s3.storage import main as storage_main
+        # Remove 'storage' from args and pass the rest
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+        return await storage_main()
 
     elif command == "enrich":
         from grin_to_s3.grin_enrichment import enrich_main

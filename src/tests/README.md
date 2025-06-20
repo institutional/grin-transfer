@@ -133,31 +133,29 @@ Configured in `/pyproject.toml` to automatically exclude manual tests:
 ```toml
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["v2/tests"]
-norecursedirs = ["v2/tests/manual", "*.egg", ".git", "_build", "dist", "build", "docs"]
-addopts = "--ignore=v2/tests/manual"
+testpaths = ["src/tests"]
+norecursedirs = ["src/tests/manual", "*.egg", ".git", "_build", "dist", "build", "docs"]
+addopts = "--ignore=src/tests/manual"
 ```
 
 ## Manual Test Usage
 
 ```bash
-cd v2
-
 # Authentication testing
-python tests/manual/test_auth.py
-python tests/manual/test_headless_auth.py
+python src/tests/manual/test_auth.py
+python src/tests/manual/test_headless_auth.py
 
 # Client and storage testing  
-python tests/manual/test_client.py
-python tests/manual/test_storage.py
-python tests/manual/test_minio_storage.py
+python src/tests/manual/test_client.py
+python src/tests/manual/test_storage.py
+python src/tests/manual/test_minio_storage.py
 
 # Full book collection with real data
-python tests/manual/test_collect_books.py
-python collect_books.py /tmp/test_export.csv --limit 5
+python src/tests/manual/test_collect_books.py
+python grin.py collect --run-name test --limit 5 --storage local
 
 # Test mode for development (no credentials needed)
-python collect_books.py /tmp/test_export.csv --test-mode --limit 5
+python grin.py collect --run-name test --test-mode --limit 5 --storage local
 ```
 
 ## Test Data Format

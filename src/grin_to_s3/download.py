@@ -383,7 +383,7 @@ async def download_book(
             storage = create_storage_from_config(storage_type, storage_config or {})
 
             # For S3-like storage, include bucket in the path
-            base_prefix = (storage_config or {}).get("prefix", "grin-books")
+            base_prefix = (storage_config or {}).get("prefix", "")
             if storage_type in ("minio", "s3", "r2"):
                 bucket = (storage_config or {}).get("bucket")
                 if bucket:
@@ -402,7 +402,6 @@ async def download_book(
                     )
                     if verbose:
                         print(f"  ✅ {barcode} already exists")
-                    await book_storage.save_timestamp(barcode)
 
                     return {
                         "barcode": barcode,
@@ -536,8 +535,6 @@ async def download_book(
                 logger.info(f"{barcode} archive already exists with identical content "
                            f"(Google ETag match), skipping upload")
                 archive_path = book_storage._book_path(barcode, f"{barcode}.tar.gz.gpg")
-                # Still update timestamp to record this download attempt
-                await book_storage.save_timestamp(barcode)
             else:
                 print(f"{barcode} archive exists but Google ETag differs (or missing), uploading new version...")
                 archive_path = book_storage._book_path(barcode, f"{barcode}.tar.gz.gpg")
@@ -545,7 +542,6 @@ async def download_book(
                 # Run upload tasks in parallel
                 results = await asyncio.gather(
                     book_storage.save_archive(barcode, archive_data, google_etag),
-                    book_storage.save_timestamp(barcode),
                     _decrypt_and_save_archive(barcode, archive_data, book_storage, gpg_key_file, secrets_dir, verbose),
                     return_exceptions=True
                 )
@@ -563,11 +559,10 @@ async def download_book(
 
             # Save encrypted archive first
             encrypted_path = await book_storage.save_archive(barcode, archive_data, google_etag)
-            await book_storage.save_timestamp(barcode)
 
-            # Update status after encrypted file is written
+            # Update status after encrypted file is stored
             if db_tracker:
-                await db_tracker.add_status_change(barcode, "sync", "write_raw")
+                await db_tracker.add_status_change(barcode, "sync", "stored")
 
             if verbose:
                 print(f"  ✅ {barcode} encrypted archive uploaded")
@@ -577,9 +572,9 @@ async def download_book(
                 barcode, archive_data, book_storage, gpg_key_file, secrets_dir, verbose
             )
 
-            # Update status after decryption is written
+            # Update status after decryption is completed
             if db_tracker and decryption_success:
-                await db_tracker.add_status_change(barcode, "sync", "write_decrypted")
+                await db_tracker.add_status_change(barcode, "sync", "decrypted")
 
             decrypted_path = book_storage._book_path(barcode, f"{barcode}.tar.gz")
             logger.info(f"Upload completed: Encrypted: {encrypted_path}, Decrypted: {decrypted_path}")
@@ -604,9 +599,9 @@ async def download_book(
 
         archive_path = str(file_path)
 
-        # Update status after encrypted file is written
+        # Update status after encrypted file is stored
         if db_tracker:
-            await db_tracker.add_status_change(barcode, "sync", "write_raw")
+            await db_tracker.add_status_change(barcode, "sync", "stored")
 
         # Save decrypted archive
         try:
@@ -625,9 +620,9 @@ async def download_book(
             async with aiofiles.open(decrypted_path, "wb") as f:
                 await f.write(decrypted_data)
 
-            # Update status after decryption is written
+            # Update status after decryption is completed
             if db_tracker:
-                await db_tracker.add_status_change(barcode, "sync", "write_decrypted")
+                await db_tracker.add_status_change(barcode, "sync", "decrypted")
 
             if verbose:
                 print(f"✅ {barcode} saved both archives:")

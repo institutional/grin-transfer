@@ -49,6 +49,7 @@ _grin() {
                 'sync-pipeline[Sync converted books to storage]' \
                 'sync-status[Check sync status]' \
                 'sync-catchup[Download already-converted books]' \
+                'storage[Manage storage buckets]' \
                 'enrich[Enrich books with GRIN metadata]' \
                 'export-csv[Export enriched data to CSV]' \
                 'status[Show enrichment status]'
@@ -152,6 +153,37 @@ _grin() {
                         '--run-name[Run name]:run name:_grin_run_names' \
                         '--output[Output CSV file]:file:_files' \
                         '--log-level[Logging level]:level:_grin_log_levels'
+                    ;;
+                storage)
+                    local storage_context storage_state storage_line
+                    _arguments \
+                        '1:subcommand:->subcommands' \
+                        '--run-name[Run name]:run name:_grin_run_names' \
+                        '*::arg:->subargs'
+                    
+                    case $storage_state in
+                        subcommands)
+                            _values 'storage subcommands' \
+                                'ls[List contents of all storage buckets]' \
+                                'rm[Remove all contents from a storage bucket]'
+                            ;;
+                        subargs)
+                            case $storage_line[1] in
+                                ls)
+                                    _arguments \
+                                        '-l[Use long listing format with file sizes]' \
+                                        '--long[Use long listing format with file sizes]'
+                                    ;;
+                                rm)
+                                    _arguments \
+                                        '1:bucket:(raw meta full)' \
+                                        '--yes[Auto-confirm without prompting]' \
+                                        '-y[Auto-confirm without prompting]' \
+                                        '--dry-run[Show what would be deleted without deleting]'
+                                    ;;
+                            esac
+                            ;;
+                    esac
                     ;;
                 status)
                     _arguments \

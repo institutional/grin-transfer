@@ -19,7 +19,7 @@ python grin.py auth setup
 
 ## Core Commands
 
-The pipeline provides a unified command-line interface via `grin.py` with four main subcommands:
+The pipeline provides a unified command-line interface via `grin.py` with main subcommands:
 
 ### 1. Book Collection: `grin.py collect`
 
@@ -62,26 +62,29 @@ python grin.py process monitor --run-name harvard_2024
 - `request`: Submit books for GRIN processing
 - `monitor`: Check processing status and progress
 
-### 3. Sync Pipeline: `grin.py sync`
+### 3. Sync Pipeline: `grin.py sync-*`
 
 Download converted books from GRIN to storage with database tracking.
 
 ```bash
 # Sync converted books to storage (auto-detects config from run)
-python grin.py sync pipeline --run-name harvard_2024
+python grin.py sync-pipeline --run-name harvard_2024
 
 # Sync with explicit storage configuration
-python grin.py sync pipeline --run-name harvard_2024 \
+python grin.py sync-pipeline --run-name harvard_2024 \
   --storage r2 \
   --bucket-raw grin-raw \
   --bucket-meta grin-meta \
   --bucket-full grin-full
 
 # Check sync status
-python grin.py sync status --run-name harvard_2024
+python grin.py sync-status --run-name harvard_2024
+
+# Download already-converted books from GRIN
+python grin.py sync-catchup --run-name harvard_2024
 
 # Retry failed syncs only
-python grin.py sync pipeline --run-name harvard_2024 --status failed
+python grin.py sync-pipeline --run-name harvard_2024 --status failed
 ```
 
 **Pipeline options:**
@@ -91,7 +94,32 @@ python grin.py sync pipeline --run-name harvard_2024 --status failed
 - `--status`: Filter by sync status (`pending`, `failed`)
 - `--force`: Overwrite existing files
 
-### 4. GRIN Enrichment: `grin.py enrich/export-csv/status`
+### 4. Storage Management: `grin.py storage`
+
+Manage storage buckets with fast listing and deletion for millions of files.
+
+```bash
+# List all buckets (summary)
+python grin.py storage ls --run-name harvard_2024
+
+# Detailed listing with file sizes
+python grin.py storage ls --run-name harvard_2024 -l
+
+# Remove all files from a bucket
+python grin.py storage rm raw --run-name harvard_2024
+
+# Remove with auto-confirm (dangerous!)
+python grin.py storage rm meta --run-name harvard_2024 --yes
+
+# Dry run to see what would be deleted
+python grin.py storage rm full --run-name harvard_2024 --dry-run
+```
+
+**Commands:**
+- `ls`: List contents of all storage buckets with file counts and sizes
+- `rm`: Remove all contents from specified bucket (raw, meta, or full)
+
+### 5. GRIN Enrichment: `grin.py enrich/export-csv/status`
 
 Add detailed GRIN metadata to collected books and export to CSV.
 
@@ -177,7 +205,7 @@ Configuration is stored in `output/{run_name}/run_config.json` and includes stor
 
 4. **Sync converted books** to storage:
    ```bash
-   python grin.py sync pipeline --run-name collection_2024
+   python grin.py sync-pipeline --run-name collection_2024
    ```
 
 5. **Enrich with metadata** and export:
