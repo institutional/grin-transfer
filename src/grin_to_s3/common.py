@@ -739,9 +739,9 @@ def get_gpg_passphrase_file_path(secrets_dir: str | None = None) -> str | None:
 
 
 async def decrypt_gpg_file(
-    encrypted_file_path: str, 
-    decrypted_file_path: str, 
-    gpg_key_file: str | None = None, 
+    encrypted_file_path: str,
+    decrypted_file_path: str,
+    gpg_key_file: str | None = None,
     secrets_dir: str | None = None
 ) -> None:
     """
@@ -771,7 +771,7 @@ async def decrypt_gpg_file(
             # Use direct passphrase file (no temp file needed since it already exists)
             env = {**os.environ, "GPG_TTY": ""}
             if passphrase_file_path:
-                result = subprocess.run(
+                subprocess.run(
                     [
                         "gpg", "--batch", "--yes", "--output", decrypted_file_path,
                         "--passphrase-file", passphrase_file_path, "--quiet", "--decrypt", encrypted_file_path
@@ -783,7 +783,7 @@ async def decrypt_gpg_file(
                 )
             else:
                 # No passphrase file available - try without passphrase
-                result = subprocess.run(
+                subprocess.run(
                     [
                         "gpg", "--batch", "--yes", "--output", decrypted_file_path,
                         "--quiet", "--decrypt", encrypted_file_path
@@ -793,7 +793,7 @@ async def decrypt_gpg_file(
                     timeout=600,  # 10 minute timeout for decryption
                     env=env
                 )
-            
+
             return True
         except FileNotFoundError:
             raise RuntimeError("GPG command not found. Please install GPG on your system.") from None

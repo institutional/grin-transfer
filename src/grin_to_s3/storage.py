@@ -5,8 +5,11 @@ Provides platform-independent storage operations.
 Supports S3, Azure Blob, GCS, local filesystem, and more through fsspec.
 """
 
+import argparse
 import asyncio
 import json
+import logging
+import sys
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -323,19 +326,16 @@ class Storage:
                     Key=key,
                     UploadId=upload_id
                 )
-            except:
+            except Exception:
                 pass  # Ignore errors when aborting
 
             raise e
 
     async def _multipart_upload_from_file(self, s3_client, bucket: str, key: str, file_path: str) -> None:
         """Upload large files using multipart upload directly from file for better performance."""
-        import os
 
         import aiofiles
 
-        # Get file size
-        file_size = os.path.getsize(file_path)
 
         # Initiate multipart upload
         response = await s3_client.create_multipart_upload(
@@ -387,7 +387,7 @@ class Storage:
                     Key=key,
                     UploadId=upload_id
                 )
-            except:
+            except Exception:
                 pass  # Ignore errors when aborting
 
             raise e
@@ -636,7 +636,7 @@ except ImportError:
     _BOTO3_AVAILABLE = False
 
 
-def _create_s3_client_from_storage(storage: Storage) -> "boto3.client":
+def _create_s3_client_from_storage(storage: Storage) -> Any:
     """Create boto3 S3 client from existing storage instance."""
     if not _BOTO3_AVAILABLE:
         raise ImportError("boto3 is required for S3 storage management operations")
@@ -763,17 +763,14 @@ def delete_bucket_contents(storage: Storage, bucket: str, prefix: str = "") -> t
 
 def format_size(size_bytes: int) -> str:
     """Format size in human-readable format."""
+    size_float = float(size_bytes)
     for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if size_bytes < 1024.0:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024.0
-    return f"{size_bytes:.1f} PB"
+        if size_float < 1024.0:
+            return f"{size_float:.1f} {unit}"
+        size_float = size_float / 1024.0
+    return f"{size_float:.1f} PB"
 
 
-# CLI functionality for storage management
-import argparse
-import logging
-import sys
 
 logger = logging.getLogger(__name__)
 
@@ -1102,7 +1099,9 @@ Examples:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ls_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
-    ls_parser.add_argument("-l", "--long", action="store_true", help="Use long listing format with recursive file listing")
+    ls_parser.add_argument(
+        "-l", "--long", action="store_true", help="Use long listing format with recursive file listing"
+    )
 
     # Remove command
     rm_parser = subparsers.add_parser(

@@ -69,8 +69,9 @@ class SyncPipeline:
         if staging_dir is None:
             # Default to run directory + staging
             run_dir = Path(db_path).parent
-            staging_dir = run_dir / "staging"
-        self.staging_dir = Path(staging_dir)
+            self.staging_dir = run_dir / "staging"
+        else:
+            self.staging_dir = Path(staging_dir)
         self.disk_space_threshold = disk_space_threshold
 
         # Initialize components
@@ -89,7 +90,7 @@ class SyncPipeline:
         self._download_semaphore = asyncio.Semaphore(concurrent_downloads)
         self._upload_semaphore = asyncio.Semaphore(concurrent_downloads * 2)  # Allow more uploads than downloads
         self._shutdown_requested = False
-        self._fatal_error = None  # Store fatal errors that should stop the pipeline
+        self._fatal_error: str | None = None  # Store fatal errors that should stop the pipeline
 
         # Statistics
         self.stats = {
@@ -152,7 +153,9 @@ class SyncPipeline:
         """Download a book to staging directory, returning file path for separate upload."""
         # Wait for disk space to become available
         while not self.staging_manager.check_disk_space():
-            logger.info(f"[{barcode}] Waiting for disk space (>{self.disk_space_threshold:.0%} full), pausing download...")
+            logger.info(
+                f"[{barcode}] Waiting for disk space (>{self.disk_space_threshold:.0%} full), pausing download..."
+            )
             await asyncio.sleep(30)  # Check every 30 seconds
 
         async with self._download_semaphore:
@@ -185,7 +188,9 @@ class SyncPipeline:
                             if not self.staging_manager.check_disk_space():
                                 # Clean up partial file and pause
                                 staging_file.unlink(missing_ok=True)
-                                logger.warning(f"[{barcode}] Disk space exhausted during download, cleaning up and retrying...")
+                                logger.warning(
+                        f"[{barcode}] Disk space exhausted during download, cleaning up and retrying..."
+                    )
                                 await asyncio.sleep(60)  # Wait longer before retry
                                 return await self._download_only(barcode)  # Retry from beginning
 
@@ -236,10 +241,9 @@ class SyncPipeline:
                 # Clean up staging files on decryption failure
                 self.staging_manager.cleanup_files(barcode)
                 # Decryption failure is fatal - signal pipeline to stop
-                fatal_msg = f"GPG decryption failed for {barcode}: {e}"
-                self._fatal_error = fatal_msg
+                self._fatal_error = f"GPG decryption failed for {barcode}: {e}"
                 self._shutdown_requested = True
-                raise Exception(fatal_msg)
+                raise Exception(self._fatal_error) from e
 
             # Upload with semaphore control - stream from files sequentially
             async def upload_with_semaphore(coro):
@@ -250,14 +254,18 @@ class SyncPipeline:
 
             # Upload encrypted file first
             try:
-                encrypted_result = await upload_with_semaphore(book_storage.save_archive_from_file(barcode, encrypted_file, None))
+                encrypted_result = await upload_with_semaphore(
+                    book_storage.save_archive_from_file(barcode, encrypted_file, None)
+                )
                 upload_results.append(encrypted_result)
             except Exception as e:
                 upload_results.append(e)
 
             # Upload decrypted file second
             try:
-                decrypted_result = await upload_with_semaphore(book_storage.save_decrypted_archive_from_file(barcode, decrypted_file))
+                decrypted_result = await upload_with_semaphore(
+                    book_storage.save_decrypted_archive_from_file(barcode, decrypted_file)
+                )
                 upload_results.append(decrypted_result)
             except Exception as e:
                 upload_results.append(e)
@@ -434,28 +442,28 @@ class SyncPipeline:
 
                 # Upload existing staging files first to clear space
                 print(f"Found {len(staging_files)} files in staging area, starting upload to clear space...")
-                
+
                 # Process staging uploads in smaller batches to avoid overwhelming R2
                 batch_size = 5  # Process staging uploads in batches
                 successful_uploads = 0
                 total_uploads = 0
-                
+
                 for i in range(0, len(staging_files), batch_size):
                     batch = staging_files[i:i + batch_size]
                     upload_tasks = []
-                    
-                    for barcode, encrypted_path, decrypted_path in batch:
+
+                    for barcode, encrypted_path, _decrypted_path in batch:
                         if encrypted_path.exists():
                             logger.info(f"Starting upload of staging file for {barcode}")
                             upload_task = asyncio.create_task(self._upload_task(barcode, str(encrypted_path)))
                             upload_tasks.append(upload_task)
                             total_uploads += 1
-                    
+
                     if upload_tasks:
                         print(f"Uploading batch of {len(upload_tasks)} staging files...")
                         # Wait for this batch to complete
                         upload_results = await asyncio.gather(*upload_tasks, return_exceptions=True)
-                        
+
                         # Process results for this batch
                         for j, result in enumerate(upload_results):
                             barcode = batch[j][0] if j < len(batch) else "unknown"
@@ -465,8 +473,10 @@ class SyncPipeline:
                             elif isinstance(result, Exception):
                                 logger.error(f"Failed to upload staging file for {barcode}: {result}")
                             else:
-                                logger.warning(f"Staging file upload for {barcode} returned unexpected result: {result}")
-                
+                                logger.warning(
+                                    f"Staging file upload for {barcode} returned unexpected result: {result}"
+                                )
+
                 if total_uploads > 0:
                     print(f"Completed upload of {successful_uploads}/{total_uploads} staging files")
 
@@ -477,7 +487,10 @@ class SyncPipeline:
 
             # Check disk space after clearing staging files
             if not self.staging_manager.check_disk_space():
-                print(f"❌ Disk space limit still exceeded after clearing staging files (>{self.disk_space_threshold:.0%} full)")
+                print(
+                    f"❌ Disk space limit still exceeded after clearing staging files "
+                    f"(>{self.disk_space_threshold:.0%} full)"
+                )
                 print("Cannot start new downloads. Please free up disk space or increase threshold.")
                 return
 
@@ -489,8 +502,7 @@ class SyncPipeline:
             # Decoupled download/upload processing for continuous downloads
             processed_count = 0
             active_download_tasks = {}  # barcode -> download task
-            active_upload_tasks = {}   # barcode -> upload task
-            completed_results = []
+            active_upload_tasks: dict[str, asyncio.Task] = {}   # barcode -> upload task
 
             # Initialize sliding window rate calculator
             rate_calculator = SlidingWindowRateCalculator(window_size=20)
@@ -532,20 +544,20 @@ class SyncPipeline:
                     if self._fatal_error:
                         print(f"\n❌ Fatal error: {self._fatal_error}")
                         print("Stopping sync pipeline...")
-                        
+
                         # Cancel all active tasks immediately for fatal errors
                         all_tasks = list(active_download_tasks.values()) + list(active_upload_tasks.values())
                         for task in all_tasks:
                             if not task.done():
                                 task.cancel()
-                        
+
                         # Wait briefly for cancellation to take effect
                         if all_tasks:
                             try:
                                 await asyncio.wait_for(asyncio.gather(*all_tasks, return_exceptions=True), timeout=5)
                             except TimeoutError:
                                 pass  # Tasks were cancelled, this is expected
-                        
+
                         await self.cleanup()
                         print("Pipeline stopped due to fatal error.")
                         import sys
@@ -572,7 +584,9 @@ class SyncPipeline:
 
                 # Check for time-based progress updates
                 current_time = time.time()
-                current_interval = initial_interval if initial_reports_count < max_initial_reports else progress_interval
+                current_interval = (
+                    initial_interval if initial_reports_count < max_initial_reports else progress_interval
+                )
                 if current_time - last_progress_report >= current_interval:
                     if books_to_process > 0:
                         percentage = (processed_count / books_to_process) * 100
@@ -592,7 +606,8 @@ class SyncPipeline:
                         print(f"Sync in progress: {processed_count:,}/{books_to_process:,} "
                               f"({percentage:.1f}%) - {rate:.1f} books/sec - "
                               f"elapsed: {format_duration(elapsed)}{eta_text} "
-                              f"[{active_downloads} downloads, {active_uploads} uploads active] [{interval_desc} update]")
+                              f"[{active_downloads} downloads, {active_uploads} uploads active] "
+                              f"[{interval_desc} update]")
 
                     last_progress_report = current_time
                     initial_reports_count += 1
@@ -684,17 +699,17 @@ class SyncPipeline:
                                 del active_upload_tasks[completed_barcode]
 
                                 try:
-                                    result = await task
-                                    if result["status"] == "completed":
+                                    _, _, result_dict = await task
+                                    if result_dict["status"] == "completed":
                                         self.stats["completed"] += 1
                                         await self._mark_book_as_converted(completed_barcode)
                                         logger.info(f"[{completed_barcode}] Upload completed successfully")
                                     else:
                                         self.stats["failed"] += 1
                                         logger.error(f"[{completed_barcode}] Upload failed")
-                                        
+
                                         # Check if this was a fatal GPG decryption error in the result
-                                        error_msg = result.get("error", "")
+                                        error_msg = result_dict.get("error", "")
                                         if "GPG decryption failed" in error_msg:
                                             self._fatal_error = error_msg
                                             self._shutdown_requested = True
@@ -702,7 +717,7 @@ class SyncPipeline:
                                 except Exception as e:
                                     self.stats["failed"] += 1
                                     logger.error(f"[{completed_barcode}] Upload task failed: {e}")
-                                    
+
                                     # Check if this was a fatal GPG decryption error
                                     if "GPG decryption failed" in str(e):
                                         self._fatal_error = str(e)
@@ -788,7 +803,9 @@ class SyncPipeline:
 
                 # Check for time-based progress updates (adaptive intervals)
                 current_time = time.time()
-                current_interval = initial_interval if initial_reports_count < max_initial_reports else progress_interval
+                current_interval = (
+                    initial_interval if initial_reports_count < max_initial_reports else progress_interval
+                )
                 if current_time - last_progress_report >= current_interval:
                     if books_to_process > 0:
                         percentage = (processed_count / books_to_process) * 100
@@ -1500,7 +1517,9 @@ Examples:
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
 
     # Staging directory options
-    pipeline_parser.add_argument("--staging-dir", help="Custom staging directory path (default: output/run-name/staging)")
+    pipeline_parser.add_argument(
+        "--staging-dir", help="Custom staging directory path (default: output/run-name/staging)"
+    )
     pipeline_parser.add_argument("--disk-space-threshold", type=float, default=0.9,
                                 help="Disk usage threshold to pause downloads (0.0-1.0, default: 0.9)")
 

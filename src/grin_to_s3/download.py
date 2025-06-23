@@ -561,11 +561,11 @@ async def download_book(
 
             # OPTIMIZATION: First decrypt the data, then upload both files in parallel
             upload_start_time = time.time()
-            
+
             # Decrypt the archive data first
             if verbose:
                 print(f"  🔓 Decrypting {barcode} archive...")
-            
+
             try:
                 decrypted_data = await decrypt_gpg_data(archive_data, gpg_key_file, secrets_dir)
                 decryption_success = True
@@ -584,50 +584,50 @@ async def download_book(
                         return await coro
                 else:
                     return await coro
-            
+
             upload_tasks = []
-            
+
             # Always upload encrypted archive
             upload_tasks.append(upload_with_semaphore(book_storage.save_archive(barcode, archive_data, google_etag)))
-            
+
             # Upload decrypted archive if decryption succeeded
             if decryption_success and decrypted_data:
                 upload_tasks.append(upload_with_semaphore(book_storage.save_decrypted_archive(barcode, decrypted_data)))
-            
+
             if verbose:
                 files_desc = "encrypted + decrypted" if decryption_success else "encrypted only"
                 print(f"  ⬆️ Uploading {barcode} {files_desc} files in parallel...")
-            
+
             # Execute uploads in parallel
             upload_results = await asyncio.gather(*upload_tasks, return_exceptions=True)
-            
+
             upload_time = time.time() - upload_start_time
-            
+
             # Process results
             encrypted_path = upload_results[0] if not isinstance(upload_results[0], Exception) else archive_path
             encrypted_success = not isinstance(upload_results[0], Exception)
-            
+
             decrypted_success = False
             if len(upload_results) > 1:
                 decrypted_success = not isinstance(upload_results[1], Exception)
-            
+
             # Calculate upload performance
             total_size = len(archive_data)
             if decryption_success:
                 total_size += len(decrypted_data) if decrypted_data else len(archive_data)
-            
+
             upload_speed = (total_size / (1024 * 1024)) / upload_time if upload_time > 0 else 0
-            
+
             # Update database status
             if db_tracker and encrypted_success:
                 await db_tracker.add_status_change(barcode, "sync", "stored")
-            
+
             if db_tracker and decrypted_success:
                 await db_tracker.add_status_change(barcode, "sync", "decrypted")
-            
+
             # Log results
             decrypted_path = book_storage._book_path(barcode, f"{barcode}.tar.gz")
-            
+
             if verbose:
                 if encrypted_success and decrypted_success:
                     print(f"  ✅ {barcode} parallel upload completed: {upload_speed:.1f} MB/s")
@@ -635,8 +635,11 @@ async def download_book(
                     print(f"  ✅ {barcode} encrypted upload completed: {upload_speed:.1f} MB/s")
                 else:
                     print(f"  ❌ {barcode} upload failed")
-            
-            logger.info(f"[{barcode}] Upload completed: Encrypted: {encrypted_path}, Decrypted: {decrypted_path}, Speed: {upload_speed:.1f} MB/s")
+
+            logger.info(
+                f"[{barcode}] Upload completed: Encrypted: {encrypted_path}, "
+                f"Decrypted: {decrypted_path}, Speed: {upload_speed:.1f} MB/s"
+            )
 
     else:
         # Use local filesystem
