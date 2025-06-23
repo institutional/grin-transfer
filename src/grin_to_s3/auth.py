@@ -88,7 +88,6 @@ class GRINAuth:
 
         for path in search_paths:
             if path.exists():
-                logger.info(f"Found secrets file: {path}")
                 return path
 
         # Default to XDG config directory
@@ -121,7 +120,6 @@ class GRINAuth:
 
         for path in search_paths:
             if path.exists():
-                logger.info(f"Found credentials file: {path}")
                 return path
 
         # Default to XDG config directory

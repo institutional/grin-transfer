@@ -704,6 +704,128 @@ async def decrypt_gpg_data(
     return await loop.run_in_executor(None, _decrypt_with_gpg)
 
 
+def get_gpg_passphrase_file_path(secrets_dir: str | None = None) -> str | None:
+    """
+    Get path to GPG passphrase file in secrets directory.
+
+    Args:
+        secrets_dir: Directory containing secrets files (searches home directory if not specified)
+
+    Returns:
+        Path to passphrase file or None if not found
+    """
+    # Search for passphrase file in the same way as get_gpg_passphrase_from_secrets
+    search_paths = []
+
+    if secrets_dir:
+        search_paths.append(Path(secrets_dir).expanduser())
+    else:
+        # Search common locations in home directory
+        home = Path.home()
+        search_paths.extend([
+            home / ".config" / "grin-to-s3",
+            home,
+            home / ".grin",
+            home / ".config"
+        ])
+
+    # Look for gpg_passphrase.asc file
+    for search_path in search_paths:
+        passphrase_file = search_path / "gpg_passphrase.asc"
+        if passphrase_file.exists():
+            return str(passphrase_file)
+
+    return None
+
+
+async def decrypt_gpg_file(
+    encrypted_file_path: str, 
+    decrypted_file_path: str, 
+    gpg_key_file: str | None = None, 
+    secrets_dir: str | None = None
+) -> None:
+    """
+    Decrypt GPG-encrypted file to another file using the system's gpg command.
+
+    Args:
+        encrypted_file_path: Path to the GPG-encrypted file
+        decrypted_file_path: Path where decrypted file should be saved
+        gpg_key_file: Optional path to GPG key file to import
+        secrets_dir: Directory containing secrets files (searches home directory if not specified)
+
+    Raises:
+        subprocess.CalledProcessError: If GPG decryption fails
+        RuntimeError: If GPG is not available or other issues occur
+    """
+    # Get passphrase file path if available
+    passphrase_file_path = get_gpg_passphrase_file_path(secrets_dir)
+
+    # Try to import key from file if specified or available in default location
+    if gpg_key_file or get_gpg_key_path().exists():
+        await import_gpg_key_if_available(gpg_key_file)
+
+    loop = asyncio.get_event_loop()
+
+    def _decrypt_file_with_gpg():
+        try:
+            # Use direct passphrase file (no temp file needed since it already exists)
+            env = {**os.environ, "GPG_TTY": ""}
+            if passphrase_file_path:
+                result = subprocess.run(
+                    [
+                        "gpg", "--batch", "--yes", "--output", decrypted_file_path,
+                        "--passphrase-file", passphrase_file_path, "--quiet", "--decrypt", encrypted_file_path
+                    ],
+                    capture_output=True,
+                    check=True,
+                    timeout=600,  # 10 minute timeout for decryption
+                    env=env
+                )
+            else:
+                # No passphrase file available - try without passphrase
+                result = subprocess.run(
+                    [
+                        "gpg", "--batch", "--yes", "--output", decrypted_file_path,
+                        "--quiet", "--decrypt", encrypted_file_path
+                    ],
+                    capture_output=True,
+                    check=True,
+                    timeout=600,  # 10 minute timeout for decryption
+                    env=env
+                )
+            
+            return True
+        except FileNotFoundError:
+            raise RuntimeError("GPG command not found. Please install GPG on your system.") from None
+        except subprocess.TimeoutExpired:
+            raise RuntimeError("GPG decryption timed out after 10 minutes.") from None
+        except subprocess.CalledProcessError as e:
+            stderr_msg = e.stderr.decode('utf-8', errors='replace') if e.stderr else "Unknown error"
+            # Same error handling as decrypt_gpg_data
+            if "no secret key" in stderr_msg.lower() or "secret key not available" in stderr_msg.lower():
+                gpg_key_path = get_gpg_key_path(gpg_key_file)
+                raise RuntimeError(
+                    f"GPG secret key not found. Please import your private key:\n"
+                    f"  gpg --import {gpg_key_path}\n"
+                    f"Or copy your key to: {gpg_key_path}"
+                ) from e
+            elif "public key not found" in stderr_msg.lower():
+                raise RuntimeError("GPG public key not found. Please import the appropriate GPG keys.") from e
+            elif "bad session key" in stderr_msg.lower() or "inappropriate ioctl" in stderr_msg.lower():
+                raise RuntimeError(
+                    "GPG passphrase required but not available in non-interactive mode. "
+                    "Please decrypt the key manually or use a key without passphrase for automated processing."
+                ) from e
+            elif "problem with the agent" in stderr_msg.lower():
+                raise RuntimeError(
+                    "GPG agent error. Try running 'gpg-connect-agent reloadagent /bye' or use a key without passphrase."
+                ) from e
+            else:
+                raise RuntimeError(f"GPG decryption failed: {stderr_msg}") from e
+
+    await loop.run_in_executor(None, _decrypt_file_with_gpg)
+
+
 async def check_minio_connectivity(storage_config: dict) -> None:
     """Check if MinIO is accessible and fail fast if not.
 

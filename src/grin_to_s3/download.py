@@ -12,6 +12,7 @@ Unified download tool supporting:
 import argparse
 import asyncio
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -282,6 +283,7 @@ async def download_book(
     db_tracker: SQLiteProgressTracker | None = None,
     verbose: bool = True,
     show_progress: bool = True,
+    upload_semaphore: asyncio.Semaphore | None = None,
 ) -> dict:
     """
     Download a book from GRIN to local filesystem or block storage.
@@ -322,11 +324,11 @@ async def download_book(
         print(f"Starting {barcode}")
 
     # Log: detailed info
-    logger.info(f"Starting download for {barcode} from {grin_url}")
-    logger.debug(f"Source URL: {grin_url}")
+    logger.info(f"[{barcode}] Starting download from {grin_url}")
+    logger.debug(f"[{barcode}] Source URL: {grin_url}")
 
     # Check if book is in converted state first
-    logger.debug("Checking if book is converted...")
+    logger.debug(f"[{barcode}] Checking if book is converted...")
     try:
         converted_text = await client.fetch_resource(directory, "_converted?format=text")
         converted_files = {line.split("\t")[0] for line in converted_text.strip().split("\n") if line.strip()}
@@ -355,10 +357,10 @@ async def download_book(
         raise FileNotFoundError(f"Archive {archive_filename} not found in GRIN directory {directory}. "
                                f"Book is converted but archive file is not accessible.")
 
-    logger.info("Archive found! Starting download...")
+    logger.info(f"[{barcode}] Archive found! Starting download...")
 
     # First check headers to see if we can avoid downloading
-    logger.debug("Checking file headers...")
+    logger.debug(f"[{barcode}] Checking file headers...")
 
     async with create_http_session() as session:
         # Make HEAD request to get headers without downloading content
@@ -369,7 +371,7 @@ async def download_book(
         content_md5 = head_response.headers.get('Content-MD5', '')
         content_length = head_response.headers.get('Content-Length', '')
 
-        logger.info(f"File size: {format_bytes(int(content_length)) if content_length else 'unknown'}")
+        logger.info(f"[{barcode}] File size: {format_bytes(int(content_length)) if content_length else 'unknown'}")
         if verbose:
             print(f"  Size: {format_bytes(int(content_length)) if content_length else 'unknown'} ({barcode})")
         if etag:
@@ -418,7 +420,7 @@ async def download_book(
         if force:
             print(f"Force mode enabled - will overwrite existing files for {barcode}")
 
-        logger.info("Proceeding with download...")
+        logger.info(f"[{barcode}] Proceeding with download...")
         if verbose:
             print(f"  Downloading {barcode}...")
 
@@ -458,8 +460,8 @@ async def download_book(
     archive_data = b"".join(chunks)
     download_time = (datetime.now() - download_start).total_seconds()
 
-    logger.info(f"Download complete: {format_bytes(len(archive_data))} in {format_duration(download_time)}")
-    logger.info(f"Speed: {calculate_transfer_speed(len(archive_data), download_time)}")
+    logger.info(f"[{barcode}] Download complete: {format_bytes(len(archive_data))} in {format_duration(download_time)}")
+    logger.info(f"[{barcode}] Speed: {calculate_transfer_speed(len(archive_data), download_time)}")
     if verbose:
         print(f"  ✅ {barcode} downloaded {format_bytes(len(archive_data))} in {format_duration(download_time)}")
 
@@ -557,29 +559,84 @@ async def download_book(
 
             archive_path = book_storage._book_path(barcode, f"{barcode}.tar.gz.gpg")
 
-            # Save encrypted archive first
-            encrypted_path = await book_storage.save_archive(barcode, archive_data, google_etag)
+            # OPTIMIZATION: First decrypt the data, then upload both files in parallel
+            upload_start_time = time.time()
+            
+            # Decrypt the archive data first
+            if verbose:
+                print(f"  🔓 Decrypting {barcode} archive...")
+            
+            try:
+                decrypted_data = await decrypt_gpg_data(archive_data, gpg_key_file, secrets_dir)
+                decryption_success = True
+                if verbose:
+                    print(f"  ✅ {barcode} decryption completed")
+            except Exception as e:
+                if verbose:
+                    print(f"  ⚠️ {barcode} decryption failed: {e}, uploading encrypted only")
+                decrypted_data = None
+                decryption_success = False
 
-            # Update status after encrypted file is stored
-            if db_tracker:
+            # PARALLEL UPLOAD: Upload encrypted and decrypted files simultaneously
+            async def upload_with_semaphore(coro):
+                if upload_semaphore:
+                    async with upload_semaphore:
+                        return await coro
+                else:
+                    return await coro
+            
+            upload_tasks = []
+            
+            # Always upload encrypted archive
+            upload_tasks.append(upload_with_semaphore(book_storage.save_archive(barcode, archive_data, google_etag)))
+            
+            # Upload decrypted archive if decryption succeeded
+            if decryption_success and decrypted_data:
+                upload_tasks.append(upload_with_semaphore(book_storage.save_decrypted_archive(barcode, decrypted_data)))
+            
+            if verbose:
+                files_desc = "encrypted + decrypted" if decryption_success else "encrypted only"
+                print(f"  ⬆️ Uploading {barcode} {files_desc} files in parallel...")
+            
+            # Execute uploads in parallel
+            upload_results = await asyncio.gather(*upload_tasks, return_exceptions=True)
+            
+            upload_time = time.time() - upload_start_time
+            
+            # Process results
+            encrypted_path = upload_results[0] if not isinstance(upload_results[0], Exception) else archive_path
+            encrypted_success = not isinstance(upload_results[0], Exception)
+            
+            decrypted_success = False
+            if len(upload_results) > 1:
+                decrypted_success = not isinstance(upload_results[1], Exception)
+            
+            # Calculate upload performance
+            total_size = len(archive_data)
+            if decryption_success:
+                total_size += len(decrypted_data) if decrypted_data else len(archive_data)
+            
+            upload_speed = (total_size / (1024 * 1024)) / upload_time if upload_time > 0 else 0
+            
+            # Update database status
+            if db_tracker and encrypted_success:
                 await db_tracker.add_status_change(barcode, "sync", "stored")
-
-            if verbose:
-                print(f"  ✅ {barcode} encrypted archive uploaded")
-
-            # Decrypt and save decrypted archive
-            decryption_success = await _decrypt_and_save_archive(
-                barcode, archive_data, book_storage, gpg_key_file, secrets_dir, verbose
-            )
-
-            # Update status after decryption is completed
-            if db_tracker and decryption_success:
+            
+            if db_tracker and decrypted_success:
                 await db_tracker.add_status_change(barcode, "sync", "decrypted")
-
+            
+            # Log results
             decrypted_path = book_storage._book_path(barcode, f"{barcode}.tar.gz")
-            logger.info(f"Upload completed: Encrypted: {encrypted_path}, Decrypted: {decrypted_path}")
+            
             if verbose:
-                print(f"  ✅ {barcode} uploaded with decryption")
+                if encrypted_success and decrypted_success:
+                    print(f"  ✅ {barcode} parallel upload completed: {upload_speed:.1f} MB/s")
+                elif encrypted_success:
+                    print(f"  ✅ {barcode} encrypted upload completed: {upload_speed:.1f} MB/s")
+                else:
+                    print(f"  ❌ {barcode} upload failed")
+            
+            logger.info(f"[{barcode}] Upload completed: Encrypted: {encrypted_path}, Decrypted: {decrypted_path}, Speed: {upload_speed:.1f} MB/s")
 
     else:
         # Use local filesystem
