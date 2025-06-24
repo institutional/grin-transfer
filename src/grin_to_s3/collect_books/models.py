@@ -154,9 +154,6 @@ class BookRecord:
         ]
 
 
-# RateLimiter has been moved to grin_to_s3.common
-# Import it here for backwards compatibility
-from grin_to_s3.common import RateLimiter
 
 
 class BoundedSet:

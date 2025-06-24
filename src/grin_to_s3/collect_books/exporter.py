@@ -34,7 +34,8 @@ from grin_to_s3.common import (
 from grin_to_s3.storage import BookStorage
 
 from .config import ExportConfig, PaginationConfig
-from .models import BookRecord, BoundedSet, RateLimiter, SQLiteProgressTracker
+from .models import BookRecord, BoundedSet, SQLiteProgressTracker
+from grin_to_s3.common import RateLimiter
 
 # Set up module logger
 logger = logging.getLogger(__name__)
