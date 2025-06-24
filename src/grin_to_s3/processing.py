@@ -16,7 +16,7 @@ from pathlib import Path
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.common import format_duration, pluralize
+from grin_to_s3.common import RateLimiter, format_duration, pluralize
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
 
 logger = logging.getLogger(__name__)
@@ -37,9 +37,11 @@ class ProcessingClient:
         timeout: int = 60,
     ):
         self.directory = directory
-        self.rate_limit_delay = rate_limit_delay
         self.grin_client = GRINClient(timeout=timeout, secrets_dir=secrets_dir)
-        self._request_timestamps: list[float] = []
+
+        # Rate limiting
+        requests_per_second = 1.0 / rate_limit_delay if rate_limit_delay > 0 else 5.0
+        self.rate_limiter = RateLimiter(requests_per_second=requests_per_second, burst_limit=5)
 
     async def cleanup(self) -> None:
         """Clean up resources and close connections safely."""
@@ -50,31 +52,6 @@ class ProcessingClient:
         except Exception as e:
             logger.warning(f"Error closing GRIN client session: {e}")
 
-    async def _rate_limit(self) -> None:
-        """Apply rate limiting for GRIN requests."""
-        if self.rate_limit_delay <= 0:
-            return
-
-        current_time = time.time()
-
-        # Clean up old timestamps (keep only last second for QPS calculation)
-        cutoff_time = current_time - 1.0
-        self._request_timestamps = [t for t in self._request_timestamps if t > cutoff_time]
-
-        # Calculate how many requests we can make per second
-        max_requests_per_second = 1.0 / self.rate_limit_delay
-
-        # If we're at the rate limit, wait until we can make another request
-        if len(self._request_timestamps) >= max_requests_per_second:
-            # Wait until the oldest timestamp is more than 1 second old
-            oldest_timestamp = min(self._request_timestamps)
-            wait_time = oldest_timestamp + 1.0 - current_time
-            if wait_time > 0:
-                await asyncio.sleep(wait_time)
-                current_time = time.time()
-
-        # Record this request timestamp
-        self._request_timestamps.append(current_time)
 
     async def request_processing_batch(self, barcodes: list[str]) -> dict[str, str]:
         """
@@ -92,7 +69,7 @@ class ProcessingClient:
         if not barcodes:
             return {}
 
-        await self._rate_limit()
+        await self.rate_limiter.acquire()
 
         try:
             # Use GRIN's _process endpoint with comma-separated barcodes

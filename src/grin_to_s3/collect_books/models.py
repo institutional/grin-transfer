@@ -5,10 +5,8 @@ Data models for CSV export functionality.
 Contains BookRecord and other data classes used in the CSV export system.
 """
 
-import asyncio
 import json
 import logging
-import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -156,31 +154,9 @@ class BookRecord:
         ]
 
 
-class RateLimiter:
-    """Configurable rate limiter for API requests."""
-
-    def __init__(self, requests_per_second: float = 1.0, burst_limit: int = 5):
-        self.requests_per_second = requests_per_second
-        self.burst_limit = burst_limit
-        self.tokens = float(burst_limit)
-        self.last_update = time.time()
-
-    async def acquire(self):
-        """Wait until a request token is available."""
-        now = time.time()
-        elapsed = now - self.last_update
-
-        # Add tokens based on elapsed time
-        self.tokens = min(self.burst_limit, self.tokens + elapsed * self.requests_per_second)
-        self.last_update = now
-
-        if self.tokens < 1:
-            # Wait until we have a token
-            wait_time = (1 - self.tokens) / self.requests_per_second
-            await asyncio.sleep(wait_time)
-            self.tokens = 1
-
-        self.tokens -= 1
+# RateLimiter has been moved to grin_to_s3.common
+# Import it here for backwards compatibility
+from grin_to_s3.common import RateLimiter
 
 
 class BoundedSet:

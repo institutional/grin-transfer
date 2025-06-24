@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import subprocess
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -929,3 +930,36 @@ async def setup_storage_with_checks(storage_type: str, storage_config: dict,
 
         # Check connectivity
         await check_minio_connectivity(storage_config)
+
+
+class RateLimiter:
+    """Configurable rate limiter for API requests using token bucket algorithm."""
+
+    def __init__(self, requests_per_second: float = 1.0, burst_limit: int = 5):
+        """Initialize rate limiter.
+
+        Args:
+            requests_per_second: Maximum sustained request rate
+            burst_limit: Maximum number of requests allowed in a burst
+        """
+        self.requests_per_second = requests_per_second
+        self.burst_limit = burst_limit
+        self.tokens = float(burst_limit)
+        self.last_update = time.time()
+
+    async def acquire(self):
+        """Wait until a request token is available."""
+        now = time.time()
+        elapsed = now - self.last_update
+
+        # Add tokens based on elapsed time
+        self.tokens = min(self.burst_limit, self.tokens + elapsed * self.requests_per_second)
+        self.last_update = now
+
+        if self.tokens < 1:
+            # Wait until we have a token
+            wait_time = (1 - self.tokens) / self.requests_per_second
+            await asyncio.sleep(wait_time)
+            self.tokens = 1
+
+        self.tokens -= 1

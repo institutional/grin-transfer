@@ -18,7 +18,7 @@ from typing import Any
 # Check Python version requirement
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
-from grin_to_s3.common import BackupManager, SlidingWindowRateCalculator, format_duration, pluralize
+from grin_to_s3.common import BackupManager, RateLimiter, SlidingWindowRateCalculator, format_duration, pluralize
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,6 @@ class GRINEnrichmentPipeline:
     ):
         self.directory = directory
         self.db_path = db_path
-        self.rate_limit_delay = rate_limit_delay
         self.batch_size = batch_size
         self.max_concurrent_requests = max_concurrent_requests
         self.timeout = timeout
@@ -48,9 +47,10 @@ class GRINEnrichmentPipeline:
         self.grin_client = GRINClient(timeout=timeout, secrets_dir=secrets_dir)
         self.sqlite_tracker = SQLiteProgressTracker(db_path)
 
-        # Rate limiting semaphore for concurrent requests
+        # Rate limiting
+        requests_per_second = 1.0 / rate_limit_delay if rate_limit_delay > 0 else 5.0
+        self.rate_limiter = RateLimiter(requests_per_second=requests_per_second, burst_limit=max_concurrent_requests)
         self._rate_limit_semaphore = asyncio.Semaphore(max_concurrent_requests)
-        self._request_timestamps: list[float] = []  # Track request timestamps for rate limiting
 
         # Track if pipeline is shutting down for cleanup
         self._shutdown_requested = False
@@ -93,31 +93,6 @@ class GRINEnrichmentPipeline:
         backup_manager = BackupManager(backup_dir)
         return await backup_manager.backup_file(db_path, "database")
 
-    async def _rate_limit(self) -> None:
-        """Apply rate limiting for concurrent GRIN requests."""
-        if self.rate_limit_delay <= 0:
-            return
-
-        current_time = time.time()
-
-        # Clean up old timestamps (keep only last second for QPS calculation)
-        cutoff_time = current_time - 1.0
-        self._request_timestamps = [t for t in self._request_timestamps if t > cutoff_time]
-
-        # Calculate how many requests we can make per second
-        max_requests_per_second = 1.0 / self.rate_limit_delay
-
-        # If we're at the rate limit, wait until we can make another request
-        if len(self._request_timestamps) >= max_requests_per_second:
-            # Wait until the oldest timestamp is more than 1 second old
-            oldest_timestamp = min(self._request_timestamps)
-            wait_time = oldest_timestamp + 1.0 - current_time
-            if wait_time > 0:
-                await asyncio.sleep(wait_time)
-                current_time = time.time()
-
-        # Record this request timestamp
-        self._request_timestamps.append(current_time)
 
     def _calculate_max_batch_size(self, barcodes: list[str]) -> int:
         """Calculate maximum batch size that fits in URL length limit."""
@@ -257,7 +232,7 @@ class GRINEnrichmentPipeline:
         """Fetch a batch with concurrent rate limiting using semaphore."""
         async with self._rate_limit_semaphore:
             # Apply rate limiting
-            await self._rate_limit()
+            await self.rate_limiter.acquire()
 
             # Fetch the batch
             try:
