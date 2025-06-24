@@ -62,29 +62,29 @@ python grin.py process monitor --run-name harvard_2024
 - `request`: Submit books for GRIN processing
 - `monitor`: Check processing status and progress
 
-### 3. Sync Pipeline: `grin.py sync-*`
+### 3. Sync Pipeline: `grin.py sync`
 
 Download converted books from GRIN to storage with database tracking.
 
 ```bash
 # Sync converted books to storage (auto-detects config from run)
-python grin.py sync-pipeline --run-name harvard_2024
+python grin.py sync pipeline --run-name harvard_2024
 
 # Sync with explicit storage configuration
-python grin.py sync-pipeline --run-name harvard_2024 \
+python grin.py sync pipeline --run-name harvard_2024 \
   --storage r2 \
   --bucket-raw grin-raw \
   --bucket-meta grin-meta \
   --bucket-full grin-full
 
 # Check sync status
-python grin.py sync-status --run-name harvard_2024
+python grin.py sync status --run-name harvard_2024
 
 # Download already-converted books from GRIN
-python grin.py sync-catchup --run-name harvard_2024
+python grin.py sync catchup --run-name harvard_2024
 
 # Retry failed syncs only
-python grin.py sync-pipeline --run-name harvard_2024 --status failed
+python grin.py sync pipeline --run-name harvard_2024 --status failed
 ```
 
 **Pipeline options:**
@@ -208,7 +208,7 @@ Configuration is stored in `output/{run_name}/run_config.json` and includes stor
 
 4. **Sync converted books** to storage:
    ```bash
-   python grin.py sync-pipeline --run-name collection_2024
+   python grin.py sync pipeline --run-name collection_2024
    ```
 
 5. **Enrich with metadata** and export:

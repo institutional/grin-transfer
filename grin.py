@@ -8,9 +8,7 @@ Commands:
   auth           Set up OAuth2 authentication with GRIN
   collect        Collect library book metadata from GRIN with progress tracking
   process        Request book processing and monitor conversion status
-  sync-pipeline  Sync converted books from GRIN to storage
-  sync-status    Check sync status
-  sync-catchup   Download already-converted books from GRIN
+  sync           Sync converted books from GRIN to storage (pipeline, status, catchup)
   storage        Manage storage buckets (ls, rm)
   enrich         Enrich books with GRIN metadata
   export-csv     Export enriched data to CSV
@@ -49,13 +47,13 @@ Examples:
   python grin.py process monitor --run-name harvard_2024
 
   # Sync converted books to storage
-  python grin.py sync-pipeline --run-name harvard_2024
+  python grin.py sync pipeline --run-name harvard_2024
 
   # Check sync status
-  python grin.py sync-status --run-name harvard_2024
+  python grin.py sync status --run-name harvard_2024
 
   # Catchup sync for already-converted books
-  python grin.py sync-catchup --run-name harvard_2024
+  python grin.py sync catchup --run-name harvard_2024
 
   # Enrich with detailed metadata
   python grin.py enrich --run-name harvard_2024
@@ -76,9 +74,7 @@ For more help on each command, use: python grin.py <command> --help
     auth_parser = subparsers.add_parser("auth", help="Set up OAuth2 authentication")
     collect_parser = subparsers.add_parser("collect", help="Collect book metadata from GRIN")
     process_parser = subparsers.add_parser("process", help="Request and monitor book processing")
-    sync_pipeline_parser = subparsers.add_parser("sync-pipeline", help="Sync converted books to storage")
-    sync_status_parser = subparsers.add_parser("sync-status", help="Check sync status")
-    sync_catchup_parser = subparsers.add_parser("sync-catchup", help="Download already-converted books")
+    sync_parser = subparsers.add_parser("sync", help="Sync converted books from GRIN to storage")
     storage_parser = subparsers.add_parser("storage", help="Manage storage buckets (ls, rm)")
     enrich_parser = subparsers.add_parser("enrich", help="Enrich books with GRIN metadata")
     export_parser = subparsers.add_parser("export-csv", help="Export enriched data to CSV")
@@ -88,9 +84,7 @@ For more help on each command, use: python grin.py <command> --help
         "auth": auth_parser,
         "collect": collect_parser,
         "process": process_parser,
-        "sync-pipeline": sync_pipeline_parser,
-        "sync-status": sync_status_parser,
-        "sync-catchup": sync_catchup_parser,
+        "sync": sync_parser,
         "storage": storage_parser,
         "enrich": enrich_parser,
         "export-csv": export_parser,
@@ -129,23 +123,11 @@ async def main():
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await process_main()
 
-    elif command == "sync-pipeline":
-        from grin_to_s3.sync import sync_pipeline_main
-        # Remove 'sync-pipeline' from args and pass the rest
+    elif command == "sync":
+        from grin_to_s3.sync import main as sync_main
+        # Remove 'sync' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await sync_pipeline_main()
-
-    elif command == "sync-status":
-        from grin_to_s3.sync import sync_status_main
-        # Remove 'sync-status' from args and pass the rest
-        sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await sync_status_main()
-
-    elif command == "sync-catchup":
-        from grin_to_s3.sync import sync_catchup_main
-        # Remove 'sync-catchup' from args and pass the rest
-        sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await sync_catchup_main()
+        return await sync_main()
 
     elif command == "storage":
         from grin_to_s3.storage import main as storage_main

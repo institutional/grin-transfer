@@ -87,40 +87,39 @@ async def ensure_bucket_exists_with_storage(storage, storage_type: str, storage_
         print("No bucket specified in storage config")
         return True
 
-    print(f"Debug: Checking bucket '{bucket}' for {storage_type}")
-    print(f"Debug: Storage config keys: {list(storage_config.keys())}")
-    print(f"Debug: Using provided storage object of type: {type(storage)}")
 
     try:
-        # Check if bucket exists by trying to list it
-        try:
-            print(f"Debug: Attempting to list objects in bucket '{bucket}'...")
-            objects = await storage.list_objects("")
-            print(f"Debug: Successfully listed {len(objects)} objects in bucket '{bucket}'")
-            print(f"Debug: Bucket '{bucket}' exists and is accessible")
+        # Check if bucket exists using boto3 directly (more reliable than fsspec)
+        if storage_type in ("minio", "s3", "r2"):
+            import boto3
+            from botocore.exceptions import ClientError
+
+            # Create boto3 client with same credentials
+            s3_config = {
+                "aws_access_key_id": storage_config.get("access_key"),
+                "aws_secret_access_key": storage_config.get("secret_key"),
+            }
+            if storage_type == "minio":
+                s3_config["endpoint_url"] = storage_config.get("endpoint_url")
+            elif storage_type == "r2":
+                account_id = storage_config.get("account_id")
+                if account_id:
+                    s3_config["endpoint_url"] = f"https://{account_id}.r2.cloudflarestorage.com"
+
+            s3_client = boto3.client('s3', **s3_config)
+
+            s3_client.head_bucket(Bucket=bucket)
             return True
-        except Exception as e:
-            # Bucket doesn't exist or isn't accessible
-            print(f"Debug: Cannot access bucket '{bucket}': {type(e).__name__}: {e}")
+        else:
+            # Fallback to fsspec for other storage types
+            await storage.list_objects(bucket)
+            return True
 
-            # Try with bucket prefix
-            try:
-                print(f"Debug: Trying to list with bucket prefix '{bucket}/'...")
-                bucket_objects = await storage.list_objects(bucket)
-                print(f"Debug: Successfully listed {len(bucket_objects)} objects with bucket prefix")
-                print(f"Debug: Bucket '{bucket}' exists and is accessible via prefix")
-                return True
-            except Exception as e2:
-                print(f"Debug: Bucket prefix check also failed: {type(e2).__name__}: {e2}")
-                pass
-
-        # Ask user if they want to create the bucket
-        print(f"Bucket '{bucket}' does not exist.")
-        response = input(f"Create bucket '{bucket}'? [y/N]: ").strip().lower()
-
-        if response in ('y', 'yes'):
-            # For MinIO/S3, we need to use boto3 directly since fsspec doesn't support bucket creation
-            if storage_type in ("minio", "s3"):
+        # Automatically create bucket in sync pipeline context
+        print(f"Bucket '{bucket}' does not exist. Creating automatically...")
+        try:
+            # For MinIO/S3/R2, we need to use boto3 directly since fsspec doesn't support bucket creation
+            if storage_type in ("minio", "s3", "r2"):
                 import boto3
                 from botocore.exceptions import ClientError
 
@@ -131,21 +130,19 @@ async def ensure_bucket_exists_with_storage(storage, storage_type: str, storage_
 
                 if storage_type == "minio":
                     s3_config["endpoint_url"] = storage_config.get("endpoint_url")
+                elif storage_type == "r2":
+                    account_id = storage_config.get("account_id")
+                    if account_id:
+                        s3_config["endpoint_url"] = f"https://{account_id}.r2.cloudflarestorage.com"
 
-                endpoint = s3_config.get('endpoint_url', 'N/A')
-                print(f"Debug: boto3 config: {list(s3_config.keys())} (endpoint: {endpoint})")
                 s3_client = boto3.client("s3", **s3_config)
 
                 try:
-                    print(f"Debug: Creating bucket '{bucket}' with boto3...")
                     s3_client.create_bucket(Bucket=bucket)
-                    print("Debug: boto3.create_bucket() succeeded")
 
                     # Verify the bucket was actually created
-                    print("Debug: Verifying bucket creation by listing buckets...")
                     buckets_response = s3_client.list_buckets()
                     bucket_names = [b['Name'] for b in buckets_response.get('Buckets', [])]
-                    print(f"Debug: Available buckets: {bucket_names}")
 
                     if bucket in bucket_names:
                         print(f"✅ Created and verified bucket '{bucket}'")
@@ -156,19 +153,16 @@ async def ensure_bucket_exists_with_storage(storage, storage_type: str, storage_
 
                 except ClientError as e:
                     print(f"❌ Failed to create bucket '{bucket}': {e}")
-                    print(f"Debug: ClientError details: {e.response}")
                     return False
             else:
                 print(f"❌ Bucket creation not supported for {storage_type}")
                 return False
-        else:
-            print("❌ Bucket does not exist and will not be created")
+        except Exception as e:
+            print(f"❌ Failed to create bucket '{bucket}': {e}")
             return False
 
     except Exception as e:
         print(f"❌ Error checking bucket: {type(e).__name__}: {e}")
-        import traceback
-        print(f"Debug: Full traceback:\n{traceback.format_exc()}")
         return False
 
 
@@ -182,43 +176,42 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict) -> bool:
         print("No bucket specified in storage config")
         return True
 
-    print(f"Debug: Checking bucket '{bucket}' for {storage_type}")
-    print(f"Debug: Storage config keys: {list(storage_config.keys())}")
 
     try:
-        from common import create_storage_from_config
+        from grin_to_s3.common import create_storage_from_config
         storage = create_storage_from_config(storage_type, storage_config)
-        print(f"Debug: Created storage object of type: {type(storage)}")
 
-        # Check if bucket exists by trying to list it
-        try:
-            print(f"Debug: Attempting to list objects in bucket '{bucket}'...")
-            objects = await storage.list_objects("")
-            print(f"Debug: Successfully listed {len(objects)} objects in bucket '{bucket}'")
-            print(f"Debug: Bucket '{bucket}' exists and is accessible")
+        # Check if bucket exists using boto3 directly (more reliable than fsspec)
+        if storage_type in ("minio", "s3", "r2"):
+            import boto3
+            from botocore.exceptions import ClientError
+
+            # Create boto3 client with same credentials
+            s3_config = {
+                "aws_access_key_id": storage_config.get("access_key"),
+                "aws_secret_access_key": storage_config.get("secret_key"),
+            }
+            if storage_type == "minio":
+                s3_config["endpoint_url"] = storage_config.get("endpoint_url")
+            elif storage_type == "r2":
+                account_id = storage_config.get("account_id")
+                if account_id:
+                    s3_config["endpoint_url"] = f"https://{account_id}.r2.cloudflarestorage.com"
+
+            s3_client = boto3.client('s3', **s3_config)
+
+            s3_client.head_bucket(Bucket=bucket)
             return True
-        except Exception as e:
-            # Bucket doesn't exist or isn't accessible
-            print(f"Debug: Cannot access bucket '{bucket}': {type(e).__name__}: {e}")
+        else:
+            # Fallback to fsspec for other storage types
+            await storage.list_objects(bucket)
+            return True
 
-            # Try with bucket prefix
-            try:
-                print(f"Debug: Trying to list with bucket prefix '{bucket}/'...")
-                bucket_objects = await storage.list_objects(bucket)
-                print(f"Debug: Successfully listed {len(bucket_objects)} objects with bucket prefix")
-                print(f"Debug: Bucket '{bucket}' exists and is accessible via prefix")
-                return True
-            except Exception as e2:
-                print(f"Debug: Bucket prefix check also failed: {type(e2).__name__}: {e2}")
-                pass
-
-        # Ask user if they want to create the bucket
-        print(f"Bucket '{bucket}' does not exist.")
-        response = input(f"Create bucket '{bucket}'? [y/N]: ").strip().lower()
-
-        if response in ('y', 'yes'):
-            # For MinIO/S3, we need to use boto3 directly since fsspec doesn't support bucket creation
-            if storage_type in ("minio", "s3"):
+        # Automatically create bucket in sync pipeline context
+        print(f"Bucket '{bucket}' does not exist. Creating automatically...")
+        try:
+            # For MinIO/S3/R2, we need to use boto3 directly since fsspec doesn't support bucket creation
+            if storage_type in ("minio", "s3", "r2"):
                 import boto3
                 from botocore.exceptions import ClientError
 
@@ -229,21 +222,19 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict) -> bool:
 
                 if storage_type == "minio":
                     s3_config["endpoint_url"] = storage_config.get("endpoint_url")
+                elif storage_type == "r2":
+                    account_id = storage_config.get("account_id")
+                    if account_id:
+                        s3_config["endpoint_url"] = f"https://{account_id}.r2.cloudflarestorage.com"
 
-                endpoint = s3_config.get('endpoint_url', 'N/A')
-                print(f"Debug: boto3 config: {list(s3_config.keys())} (endpoint: {endpoint})")
                 s3_client = boto3.client("s3", **s3_config)
 
                 try:
-                    print(f"Debug: Creating bucket '{bucket}' with boto3...")
                     s3_client.create_bucket(Bucket=bucket)
-                    print("Debug: boto3.create_bucket() succeeded")
 
                     # Verify the bucket was actually created
-                    print("Debug: Verifying bucket creation by listing buckets...")
                     buckets_response = s3_client.list_buckets()
                     bucket_names = [b['Name'] for b in buckets_response.get('Buckets', [])]
-                    print(f"Debug: Available buckets: {bucket_names}")
 
                     if bucket in bucket_names:
                         print(f"✅ Created and verified bucket '{bucket}'")
@@ -254,19 +245,16 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict) -> bool:
 
                 except ClientError as e:
                     print(f"❌ Failed to create bucket '{bucket}': {e}")
-                    print(f"Debug: ClientError details: {e.response}")
                     return False
             else:
                 print(f"❌ Bucket creation not supported for {storage_type}")
                 return False
-        else:
-            print("❌ Bucket does not exist and will not be created")
+        except Exception as e:
+            print(f"❌ Failed to create bucket '{bucket}': {e}")
             return False
 
     except Exception as e:
         print(f"❌ Error checking bucket: {type(e).__name__}: {e}")
-        import traceback
-        print(f"Debug: Full traceback:\n{traceback.format_exc()}")
         return False
 
 

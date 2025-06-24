@@ -46,9 +46,7 @@ _grin() {
                 'auth[Set up OAuth2 authentication]' \
                 'collect[Collect book metadata from GRIN]' \
                 'process[Request and monitor book processing]' \
-                'sync-pipeline[Sync converted books to storage]' \
-                'sync-status[Check sync status]' \
-                'sync-catchup[Download already-converted books]' \
+                'sync[Sync converted books from GRIN to storage]' \
                 'storage[Manage storage buckets]' \
                 'enrich[Enrich books with GRIN metadata]' \
                 'export-csv[Export enriched data to CSV]' \
@@ -116,26 +114,47 @@ _grin() {
                             ;;
                     esac
                     ;;
-                sync-pipeline|sync-catchup)
+                sync)
+                    local sync_context sync_state sync_line
                     _arguments \
+                        '1:subcommand:->subcommands' \
                         '--run-name[Run name]:run name:_grin_run_names' \
-                        '--storage[Storage backend]:storage type:_grin_storage_types' \
-                        '--bucket-raw[Raw data bucket]:bucket name:' \
-                        '--bucket-meta[Metadata bucket]:bucket name:' \
-                        '--bucket-full[Full-text bucket]:bucket name:' \
-                        '--credentials-file[Credentials file]:file:_files' \
-                        '--concurrent[Concurrent downloads]:number:' \
-                        '--batch-size[Batch size]:number:' \
-                        '--limit[Limit number of books]:number:' \
-                        '--force[Force overwrite existing files]' \
-                        '--secrets-dir[Directory with GRIN secrets]:directory:_directories' \
-                        '--gpg-key-file[GPG key file]:file:_files' \
-                        '--log-level[Logging level]:level:_grin_log_levels'
-                    ;;
-                sync-status)
-                    _arguments \
-                        '--run-name[Run name]:run name:_grin_run_names' \
-                        '--storage-type[Filter by storage type]:storage type:_grin_storage_types'
+                        '*::arg:->subargs'
+                    
+                    case $sync_state in
+                        subcommands)
+                            _values 'sync subcommands' \
+                                'pipeline[Sync converted books to storage]' \
+                                'status[Check sync status]' \
+                                'catchup[Download already-converted books]'
+                            ;;
+                        subargs)
+                            case $sync_line[1] in
+                                pipeline|catchup)
+                                    _arguments \
+                                        '--storage[Storage backend]:storage type:_grin_storage_types' \
+                                        '--bucket-raw[Raw data bucket]:bucket name:' \
+                                        '--bucket-meta[Metadata bucket]:bucket name:' \
+                                        '--bucket-full[Full-text bucket]:bucket name:' \
+                                        '--credentials-file[Credentials file]:file:_files' \
+                                        '--concurrent[Concurrent downloads]:number:' \
+                                        '--concurrent-uploads[Concurrent uploads]:number:' \
+                                        '--batch-size[Batch size]:number:' \
+                                        '--limit[Limit number of books]:number:' \
+                                        '--force[Force overwrite existing files]' \
+                                        '--secrets-dir[Directory with GRIN secrets]:directory:_directories' \
+                                        '--gpg-key-file[GPG key file]:file:_files' \
+                                        '--staging-dir[Staging directory]:directory:_directories' \
+                                        '--disk-space-threshold[Disk space threshold]:threshold:' \
+                                        '--log-level[Logging level]:level:_grin_log_levels'
+                                    ;;
+                                status)
+                                    _arguments \
+                                        '--storage-type[Filter by storage type]:storage type:_grin_storage_types'
+                                    ;;
+                            esac
+                            ;;
+                    esac
                     ;;
                 enrich)
                     _arguments \
