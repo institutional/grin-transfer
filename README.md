@@ -89,7 +89,8 @@ python grin.py sync-pipeline --run-name harvard_2024 --status failed
 
 **Pipeline options:**
 - `--concurrent`: Parallel downloads (default: 5)
-- `--batch-size`: Books per batch (default: 10)
+- `--concurrent-uploads`: Parallel uploads (default: 10)
+- `--batch-size`: Books per batch (default: 100)
 - `--limit`: Limit number of books to sync
 - `--status`: Filter by sync status (`pending`, `failed`)
 - `--force`: Overwrite existing files

@@ -47,6 +47,7 @@ class SyncPipeline:
         storage_type: str,
         storage_config: dict,
         concurrent_downloads: int = 5,
+        concurrent_uploads: int = 10,
         batch_size: int = 10,
         directory: str = "Harvard",
         secrets_dir: str | None = None,
@@ -59,6 +60,7 @@ class SyncPipeline:
         self.storage_type = storage_type
         self.storage_config = storage_config
         self.concurrent_downloads = concurrent_downloads
+        self.concurrent_uploads = concurrent_uploads
         self.batch_size = batch_size
         self.directory = directory
         self.secrets_dir = secrets_dir
@@ -88,7 +90,7 @@ class SyncPipeline:
 
         # Concurrency control
         self._download_semaphore = asyncio.Semaphore(concurrent_downloads)
-        self._upload_semaphore = asyncio.Semaphore(concurrent_downloads * 2)  # Allow more uploads than downloads
+        self._upload_semaphore = asyncio.Semaphore(concurrent_uploads)
         self._shutdown_requested = False
         self._fatal_error: str | None = None  # Store fatal errors that should stop the pipeline
 
@@ -601,13 +603,16 @@ class SyncPipeline:
                             eta_text = f" (ETA: {format_duration(eta_seconds)})"
 
                         interval_desc = "1 min" if initial_reports_count < max_initial_reports else "5 min"
-                        active_downloads = len(active_download_tasks)
                         active_uploads = len(active_upload_tasks)
+                        # Show actual concurrency limits and current usage
+                        downloads_running = self.concurrent_downloads - self._download_semaphore._value
+                        uploads_running = self.concurrent_uploads - self._upload_semaphore._value
                         print(f"Sync in progress: {processed_count:,}/{books_to_process:,} "
                               f"({percentage:.1f}%) - {rate:.1f} books/sec - "
                               f"elapsed: {format_duration(elapsed)}{eta_text} "
-                              f"[{active_downloads} downloads, {active_uploads} uploads active] "
-                              f"[{interval_desc} update]")
+                              f"[{downloads_running}/{self.concurrent_downloads} downloads, "
+                              f"{uploads_running}/{self.concurrent_uploads} uploads, "
+                              f"{active_uploads} queued] [{interval_desc} update]")
 
                     last_progress_report = current_time
                     initial_reports_count += 1
@@ -1191,6 +1196,7 @@ async def cmd_pipeline(args) -> None:
             storage_type=args.storage,
             storage_config=storage_config,
             concurrent_downloads=args.concurrent,
+            concurrent_uploads=args.concurrent_uploads,
             batch_size=args.batch_size,
             directory="Harvard",
             secrets_dir=args.secrets_dir,
@@ -1419,6 +1425,7 @@ async def cmd_catchup(args) -> None:
             storage_type=storage_type,
             storage_config=storage_config,
             concurrent_downloads=args.concurrent,
+            concurrent_uploads=args.concurrent_uploads,
             batch_size=args.batch_size,
             directory="Harvard",
             secrets_dir=run_config.get("secrets_dir"),
@@ -1512,6 +1519,7 @@ Examples:
 
     # Pipeline options
     pipeline_parser.add_argument("--concurrent", type=int, default=5, help="Concurrent downloads (default: 5)")
+    pipeline_parser.add_argument("--concurrent-uploads", type=int, default=10, help="Concurrent uploads (default: 10)")
     pipeline_parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing (default: 100)")
     pipeline_parser.add_argument("--limit", type=int, help="Limit number of books to sync")
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
