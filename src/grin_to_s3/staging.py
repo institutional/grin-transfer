@@ -150,23 +150,31 @@ class StagingDirectoryManager:
 
         return orphaned
 
-    def cleanup_files(self, barcode: str) -> None:
+    def cleanup_files(self, barcode: str) -> int:
         """
         Clean up staging files for a specific barcode.
 
         Args:
             barcode: Book barcode to clean up
+
+        Returns:
+            Total bytes freed by cleanup
         """
         encrypted_path = self.get_encrypted_file_path(barcode)
         decrypted_path = self.get_decrypted_file_path(barcode)
 
+        total_freed = 0
         for path in [encrypted_path, decrypted_path]:
             if path.exists():
                 try:
+                    file_size = path.stat().st_size
                     path.unlink()
-                    logger.debug(f"[{barcode}] Cleaned up staging file: {path.name}")
+                    total_freed += file_size
+                    logger.debug(f"[{barcode}] Cleaned up staging file: {path.name} ({file_size / (1024*1024):.1f} MB)")
                 except OSError as e:
                     logger.warning(f"[{barcode}] Failed to clean up {path.name}: {e}")
+
+        return total_freed
 
     def cleanup_orphaned_files(self, max_age_hours: int = 24) -> int:
         """
@@ -193,7 +201,8 @@ class StagingDirectoryManager:
 
             if should_cleanup:
                 logger.info(f"Cleaning up orphaned files for barcode: {barcode}")
-                self.cleanup_files(barcode)
+                freed_bytes = self.cleanup_files(barcode)
+                logger.info(f"Freed {freed_bytes / (1024*1024):.1f} MB from orphaned staging files for {barcode}")
                 cleaned_count += len(file_paths)
 
         return cleaned_count

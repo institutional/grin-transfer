@@ -752,49 +752,51 @@ class BookCollector:
 
         return record
 
-    async def collect_books(self, output_file: str, limit: int | None = None):
+    async def collect_books(self, output_file: str, limit: int | None = None) -> bool:
         """
         Book collection with pagination.
 
         Processes books one at a time with reliable pagination and resume capability.
+        
+        Returns:
+            True if collection completed successfully, False if interrupted or incomplete
         """
         print(f"Starting book collection to {output_file}")
         if limit:
             print(f"Limit: {limit:,} {pluralize(limit, 'book')}")
 
         # Validate credentials before starting export
-        print("\nValidating GRIN credentials...")
+        logger.debug("Validating GRIN credentials...")
         try:
             await self.client.auth.validate_credentials(self.directory)
         except Exception as e:
-            print(f"❌ Credential validation failed: {e}")
+            print(f"Credential validation failed: {e}")
             print("Collection cannot continue without valid credentials.")
-            return
-
-        print()
+            return False
 
         # Check for concurrent sessions before starting
         print("Checking for concurrent sessions...")
         if not self._check_concurrent_session(output_file):
-            return
+            return False
 
         # Acquire session lock to prevent concurrent access
         print("Acquiring session lock...")
         if not self._acquire_session_lock(output_file):
             print("❌ Failed to acquire session lock. Another session may be running.")
-            return
+            return False
 
         # Archive existing progress file before starting execution
         print("Archiving progress file for safety...")
         await self._archive_progress_file()
 
         # Backup database before starting work
-        print("Backing up SQLite database...")
+        logger.debug("Backing up SQLite database...")
         await self._backup_database()
 
         # Set up async-friendly signal handling
         loop = asyncio.get_running_loop()
         stop_event = asyncio.Event()
+        completed_successfully = True
 
         def handle_interrupt():
             print("\nInterrupt received - saving progress and exiting gracefully...")
@@ -878,6 +880,7 @@ class BookCollector:
                     # Check for interrupt
                     if stop_event.is_set():
                         print("Collection interrupted - saving progress...")
+                        completed_successfully = False
                         break
 
                     if limit and processed_count >= limit:
@@ -990,6 +993,9 @@ class BookCollector:
         print(f"  Resume count: {self.resume_count}")
 
         print(f"\nProgress file: {self.resume_file}")
+        
+        # Return completion status
+        return completed_successfully
 
     async def process_book(self, grin_line: str, processing_states: dict[str, set[str]]) -> BookRecord | None:
         """Process a single book line from GRIN and return its record."""

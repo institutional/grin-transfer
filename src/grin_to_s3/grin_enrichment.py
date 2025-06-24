@@ -408,9 +408,8 @@ class GRINEnrichmentPipeline:
             logger.info("Reset mode: Will clear existing enrichment data")
 
         # Backup database before starting work
-        print("Backing up SQLite database...")
+        logger.debug("Backing up SQLite database...")
         await self._backup_database()
-        print()
 
         # Reset enrichment data if requested
         if reset:
@@ -420,13 +419,12 @@ class GRINEnrichmentPipeline:
             print()
 
         # Validate credentials
-        print("Validating GRIN credentials...")
+        logger.debug("Validating GRIN credentials...")
         try:
             await self.grin_client.auth.validate_credentials(self.directory)
         except Exception as e:
-            print(f"❌ Credential validation failed: {e}")
+            print(f"Credential validation failed: {e}")
             return
-        print()
 
         # Get initial counts
         total_books = await self.sqlite_tracker.get_book_count()
@@ -441,6 +439,12 @@ class GRINEnrichmentPipeline:
 
         if remaining_books == 0:
             print("✅ All books are already enriched!")
+
+            # Suggest next steps since enrichment is complete
+            run_name = Path(self.db_path).parent.name
+            print("\nNext steps:")
+            print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name}")
+            print(f"  Export enriched CSV: python grin.py export-csv --run-name {run_name} --output books.csv")
             return
 
         # Start enrichment
@@ -542,6 +546,13 @@ class GRINEnrichmentPipeline:
             logger.info(f"  Books enriched: {total_enriched:,}")
             logger.info(f"  Total enriched in database: {final_enriched:,}")
             logger.info(f"  Average rate: {processed_count / max(1, total_elapsed):.1f} books/second")
+
+            # Suggest next steps if enrichment was successful
+            if total_enriched > 0:
+                run_name = Path(self.db_path).parent.name
+                print("\nNext steps:")
+                print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name}")
+                print(f"  Export enriched CSV: python grin.py export-csv --run-name {run_name} --output books.csv")
 
 
 async def export_enriched_csv(db_path: str, output_file: str) -> None:
@@ -676,7 +687,7 @@ def validate_database_file(db_path: str) -> None:
         sys.exit(1)
 
     # If we get here, the database is valid
-    print(f"✅ Using database: {db_path}")
+    logger.debug(f"Using database: {db_path}")
 
 
 async def main() -> None:
@@ -740,8 +751,7 @@ Examples:
 
     # Set up database path and apply run configuration
     db_path = setup_run_database_path(args, args.run_name)
-    print(f"Using run: {args.run_name}")
-    print(f"Database: {db_path}")
+    logger.debug(f"Using database: {db_path}")
 
     # Validate database file exists and is accessible
     validate_database_file(args.db_path)
@@ -760,7 +770,7 @@ Examples:
         log_file = f"logs/grin_enrichment_{args.command}_{db_name}_{timestamp}.log"
 
         setup_logging(args.log_level, log_file)
-        print(f"Logging to file: {log_file}")
+        print(f"Logging to file: {log_file}\n")
 
     try:
         match args.command:

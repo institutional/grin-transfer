@@ -245,7 +245,6 @@ class GRINAuth:
 
                 async with session.get(test_url, headers=headers, allow_redirects=False) as response:
                     if response.status == 200:
-                        print("✅ Credentials validated successfully")
                         return True
                     elif response.status == 401:
                         # Try to refresh credentials

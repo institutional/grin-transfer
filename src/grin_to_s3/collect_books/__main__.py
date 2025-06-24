@@ -521,10 +521,11 @@ Examples:
         )
 
         # Run book collection with pagination
-        await collector.collect_books(output_file, args.limit)
+        completed = await collector.collect_books(output_file, args.limit)
 
-        # Always show resume command at the end
-        print_resume_command(args, run_name)
+        # Only show resume command if collection was not completed
+        if not completed:
+            print_resume_command(args, run_name)
         return 0
 
     except Exception as e:

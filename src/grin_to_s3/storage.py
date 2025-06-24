@@ -786,7 +786,7 @@ async def cmd_ls(args) -> None:
 
     # Set up database path and apply run configuration
     db_path = setup_run_database_path(args, args.run_name)
-    print(f"Using run: {args.run_name}")
+    logger.debug(f"Using run: {args.run_name}")
     print(f"Database: {db_path}")
 
     args.db_path = db_path
@@ -833,7 +833,7 @@ async def cmd_ls(args) -> None:
 
         prefix = storage_config.get("prefix", "")
         if prefix:
-            print(f"Using prefix: {prefix}")
+            logger.debug(f"Using prefix: {prefix}")
         print()
 
         # Create storage instance
@@ -925,7 +925,7 @@ async def cmd_rm(args) -> None:
 
     # Set up database path and apply run configuration
     db_path = setup_run_database_path(args, args.run_name)
-    print(f"Using run: {args.run_name}")
+    logger.debug(f"Using run: {args.run_name}")
     print(f"Database: {db_path}")
 
     args.db_path = db_path
@@ -991,7 +991,7 @@ async def cmd_rm(args) -> None:
         print(f"Storage Type: {storage_type}")
         print(f"Target Bucket: {bucket} ({bucket_name})")
         if prefix:
-            print(f"Using prefix: {prefix}")
+            logger.debug(f"Using prefix: {prefix}")
         print()
 
         # Create storage instance

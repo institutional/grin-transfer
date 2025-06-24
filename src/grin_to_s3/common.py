@@ -6,6 +6,7 @@ Shared functions and patterns to eliminate code duplication across V2 modules.
 
 import asyncio
 import json
+import logging
 import os
 import subprocess
 from contextlib import asynccontextmanager
@@ -14,6 +15,8 @@ from pathlib import Path
 import aiohttp
 
 from grin_to_s3.storage import Storage, create_local_storage, create_minio_storage, create_r2_storage, create_s3_storage
+
+logger = logging.getLogger(__name__)
 
 # HTTP Client Configuration
 DEFAULT_TIMEOUT = 60
@@ -329,7 +332,6 @@ class ProgressReporter:
 
         self.start_time = time.perf_counter()
         self.last_report_time = self.start_time
-        print(f"Starting {self.operation_name}...", flush=True)
 
     def update(self, items: int = 1, bytes_count: int = 0, force: bool = False, record_id: str | None = None) -> None:
         """
@@ -428,7 +430,7 @@ class BackupManager:
         source_file = Path(source_file)
 
         if not source_file.exists():
-            print(f"📁 No existing {file_type} to backup")
+            logger.debug(f"No existing {file_type} to backup")
             return True
 
         try:
@@ -454,7 +456,7 @@ class BackupManager:
                 # For other files (like SQLite), use synchronous copy
                 shutil.copy2(source_file, backup_path)
 
-            print(f"📁 {file_type.title()} backed up: {backup_filename}")
+            logger.debug(f"{file_type.title()} backed up: {backup_filename}")
 
             # Keep only the last 10 backups to prevent disk space issues
             await self._cleanup_old_backups(source_file.stem, source_file.suffix)
@@ -462,8 +464,8 @@ class BackupManager:
             return True
 
         except Exception as e:
-            print(f"⚠️  Failed to backup {file_type}: {e}")
-            print(f"   Proceeding with execution, but {file_type} corruption risk exists")
+            logger.warning(f"Failed to backup {file_type}: {e}")
+            logger.warning(f"Proceeding with execution, but {file_type} corruption risk exists")
             return False
 
     async def _cleanup_old_backups(self, file_stem: str, file_suffix: str) -> None:
@@ -479,10 +481,10 @@ class BackupManager:
                 # Remove old backups beyond the 10 most recent
                 for old_backup in backup_files[10:]:
                     old_backup.unlink()
-                    print(f"🗑️  Removed old backup: {old_backup.name}")
+                    logger.debug(f"Removed old backup: {old_backup.name}")
 
         except Exception as e:
-            print(f"⚠️  Failed to cleanup old backups: {e}")
+            logger.warning(f"Failed to cleanup old backups: {e}")
 
 
 def get_gpg_key_path(custom_path: str | None = None) -> Path:

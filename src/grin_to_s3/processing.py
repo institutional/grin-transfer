@@ -280,17 +280,17 @@ class ProcessingPipeline:
 
         try:
             # Validate credentials
-            print("Validating GRIN credentials...")
+            logger.debug("Validating GRIN credentials...")
             try:
                 await asyncio.wait_for(
                     self.processing_client.grin_client.auth.validate_credentials(self.directory),
                     timeout=30.0
                 )
             except TimeoutError:
-                print("❌ Credential validation timed out after 30 seconds")
+                print("Credential validation timed out after 30 seconds")
                 return
             except Exception as e:
-                print(f"❌ Credential validation failed: {e}")
+                print(f"Credential validation failed: {e}")
                 return
             print()
 
@@ -1044,7 +1044,7 @@ def validate_database_file(db_path: str) -> None:
                 print(f"Error: Database contains no books: {db_path}")
                 sys.exit(1)
 
-            print(f"Using database: {db_path} ({count:,} books)")
+            logger.debug(f"Using database: {db_path} ({count:,} books)")
 
     except sqlite3.Error as e:
         print(f"Error: Cannot read SQLite database: {e}")
@@ -1064,7 +1064,7 @@ async def cmd_request(args) -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = f"logs/processing_request_{db_name}_{timestamp}.log"
     setup_logging(args.log_level, log_file)
-    print(f"Logging to file: {log_file}")
+    print(f"Logging to file: {log_file}\n")
 
     # Create and run pipeline
     try:
@@ -1423,7 +1423,7 @@ Examples:
 
     # Set up database path and apply run configuration
     db_path = setup_run_database_path(args, args.run_name)
-    print(f"Using run: {args.run_name}")
+    logger.debug(f"Using run: {args.run_name}")
     print(f"Database: {db_path}")
 
     if args.command == "request":

@@ -346,7 +346,7 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
                 key, value = item.split("=", 1)
                 storage_dict[key] = value
 
-    # For R2 storage, load bucket information from credentials file if not provided
+    # For R2 storage, always load credentials from file
     storage_type = getattr(args, 'storage', None)
     if storage_type == 'r2':
         # Check if buckets are missing and try to load from credentials
@@ -355,7 +355,8 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
             if bucket_attr not in storage_dict:
                 missing_buckets.append(bucket_attr)
 
-        if missing_buckets:
+        # Load R2 credentials if buckets are missing OR credentials are missing
+        if missing_buckets or not all(key in storage_dict for key in ['access_key', 'secret_key', 'account_id']):
             try:
                 from pathlib import Path
 
@@ -376,6 +377,11 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
                 for bucket_attr in missing_buckets:
                     if bucket_attr in creds:
                         storage_dict[bucket_attr] = creds[bucket_attr]
+
+                # Also include R2 credentials for storage creation
+                for cred_attr in ['access_key', 'secret_key', 'account_id']:
+                    if cred_attr in creds:
+                        storage_dict[cred_attr] = creds[cred_attr]
             except Exception:
                 # If we can't load credentials, that's ok - validation will catch missing buckets later
                 pass
