@@ -757,7 +757,7 @@ class BookCollector:
         Book collection with pagination.
 
         Processes books one at a time with reliable pagination and resume capability.
-        
+
         Returns:
             True if collection completed successfully, False if interrupted or incomplete
         """
@@ -993,7 +993,7 @@ class BookCollector:
         print(f"  Resume count: {self.resume_count}")
 
         print(f"\nProgress file: {self.resume_file}")
-        
+
         # Return completion status
         return completed_successfully
 
