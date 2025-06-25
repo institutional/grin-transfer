@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GRIN Sync Managemen
+GRIN Sync Management
 
 Unified script to sync books from GRIN to storage and check sync status.
 """
