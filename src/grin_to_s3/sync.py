@@ -292,7 +292,7 @@ class SyncPipeline:
             return True
 
         try:
-            # Check if bucket exists using boto3 directly (more reliable than fsspec)
+            # Use boto3 directly for bucket operations (fsspec doesn't support bucket creation)
             if self.storage_type in ("minio", "s3", "r2"):
                 import boto3
                 from botocore.exceptions import ClientError
