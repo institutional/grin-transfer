@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from botocore.exceptions import ClientError
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
@@ -39,10 +38,10 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
             "access_key": "test_access_key",
             "secret_key": "test_secret_key",
             "bucket_raw": "test-bucket-raw",
-            "bucket_meta": "test-bucket-meta", 
+            "bucket_meta": "test-bucket-meta",
             "bucket_full": "test-bucket-full"
         }
-        
+
         if storage_type == "minio":
             storage_config["endpoint_url"] = "http://localhost:9000"
         elif storage_type == "r2":
@@ -62,7 +61,7 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
         with patch('boto3.client') as mock_boto_client:
             mock_s3 = MagicMock()
             mock_boto_client.return_value = mock_s3
-            
+
             # Mock successful head_bucket call (bucket exists)
             mock_s3.head_bucket.return_value = {}
 
@@ -79,14 +78,14 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
         with patch('boto3.client') as mock_boto_client:
             mock_s3 = MagicMock()
             mock_boto_client.return_value = mock_s3
-            
+
             # Mock 404 error for head_bucket (bucket doesn't exist)
             not_found_error = ClientError(
                 error_response={'Error': {'Code': '404'}},
                 operation_name='HeadBucket'
             )
             mock_s3.head_bucket.side_effect = not_found_error
-            
+
             # Mock successful bucket creation and verification
             mock_s3.create_bucket.return_value = {}
             mock_s3.list_buckets.return_value = {
@@ -107,14 +106,14 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
         with patch('boto3.client') as mock_boto_client:
             mock_s3 = MagicMock()
             mock_boto_client.return_value = mock_s3
-            
+
             # Mock 404 error for head_bucket
             not_found_error = ClientError(
                 error_response={'Error': {'Code': '404'}},
                 operation_name='HeadBucket'
             )
             mock_s3.head_bucket.side_effect = not_found_error
-            
+
             # Mock successful bucket creation
             mock_s3.create_bucket.return_value = {}
             mock_s3.list_buckets.return_value = {
@@ -124,7 +123,7 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
             result = await pipeline._ensure_bucket_exists("test-bucket-raw")
 
             self.assertTrue(result)
-            
+
             # Verify boto3 client was created with MinIO endpoint
             mock_boto_client.assert_called_once_with(
                 's3',
@@ -140,14 +139,14 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
         with patch('boto3.client') as mock_boto_client:
             mock_s3 = MagicMock()
             mock_boto_client.return_value = mock_s3
-            
+
             # Mock 404 error for head_bucket
             not_found_error = ClientError(
                 error_response={'Error': {'Code': '404'}},
                 operation_name='HeadBucket'
             )
             mock_s3.head_bucket.side_effect = not_found_error
-            
+
             # Mock successful bucket creation
             mock_s3.create_bucket.return_value = {}
             mock_s3.list_buckets.return_value = {
@@ -157,7 +156,7 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
             result = await pipeline._ensure_bucket_exists("test-bucket-raw")
 
             self.assertTrue(result)
-            
+
             # Verify boto3 client was created with R2 endpoint
             expected_endpoint = "https://test_account.r2.cloudflarestorage.com"
             mock_boto_client.assert_called_once_with(
@@ -174,14 +173,14 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
         with patch('boto3.client') as mock_boto_client:
             mock_s3 = MagicMock()
             mock_boto_client.return_value = mock_s3
-            
+
             # Mock 404 error for head_bucket
             not_found_error = ClientError(
                 error_response={'Error': {'Code': '404'}},
                 operation_name='HeadBucket'
             )
             mock_s3.head_bucket.side_effect = not_found_error
-            
+
             # Mock bucket creation failure
             creation_error = ClientError(
                 error_response={'Error': {'Code': 'AccessDenied', 'Message': 'Access denied'}},
@@ -201,14 +200,14 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
         with patch('boto3.client') as mock_boto_client:
             mock_s3 = MagicMock()
             mock_boto_client.return_value = mock_s3
-            
+
             # Mock 404 error for head_bucket
             not_found_error = ClientError(
                 error_response={'Error': {'Code': '404'}},
                 operation_name='HeadBucket'
             )
             mock_s3.head_bucket.side_effect = not_found_error
-            
+
             # Mock successful creation but verification fails
             mock_s3.create_bucket.return_value = {}
             mock_s3.list_buckets.return_value = {
@@ -226,7 +225,7 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
         with patch('boto3.client') as mock_boto_client:
             mock_s3 = MagicMock()
             mock_boto_client.return_value = mock_s3
-            
+
             # Mock access denied error (not 404)
             access_error = ClientError(
                 error_response={'Error': {'Code': 'AccessDenied'}},
@@ -258,7 +257,7 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
         with patch('boto3.client') as mock_boto_client:
             mock_s3 = MagicMock()
             mock_boto_client.return_value = mock_s3
-            
+
             # Mock successful head_bucket call
             mock_s3.head_bucket.return_value = {}
 
@@ -299,7 +298,7 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
         # Test bucket creation is called by directly testing the upload flow
         with patch.object(pipeline, '_ensure_bucket_exists') as mock_ensure_bucket:
             mock_ensure_bucket.return_value = True
-            
+
             # Mock all the storage dependencies to make upload succeed
             with patch('grin_to_s3.common.create_storage_from_config') as mock_create_storage, \
                  patch('grin_to_s3.storage.BookStorage') as mock_book_storage_class, \
@@ -327,11 +326,11 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
                 test_file.write_bytes(b"test encrypted data")
 
                 # Call upload book which should trigger bucket creation
-                result = await pipeline._upload_book("TEST123", str(test_file))
+                await pipeline._upload_book("TEST123", str(test_file))
 
                 # Verify bucket creation was called with the raw bucket name
                 mock_ensure_bucket.assert_called_once_with("test-bucket-raw")
-                
+
                 # The test succeeds if bucket creation was called - upload completion not required for this test
 
 
@@ -393,7 +392,7 @@ class TestBucketCreationErrorHandling(IsolatedAsyncioTestCase):
             mock_boto_client.return_value = mock_s3
 
             # The function should still try to work with None credentials
-            result = await pipeline._ensure_bucket_exists("test-bucket-raw")
+            await pipeline._ensure_bucket_exists("test-bucket-raw")
 
             # Verify boto3 was called with None credentials
             mock_boto_client.assert_called_once_with(
@@ -401,3 +400,4 @@ class TestBucketCreationErrorHandling(IsolatedAsyncioTestCase):
                 aws_access_key_id=None,
                 aws_secret_access_key=None
             )
+
