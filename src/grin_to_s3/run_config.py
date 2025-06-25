@@ -43,9 +43,9 @@ class RunConfig:
         return self.config_dict.get("progress_file", f"{self.output_directory}/progress.json")
 
     @property
-    def directory(self) -> str:
-        """Get the GRIN directory."""
-        return self.config_dict.get("directory", "Harvard")
+    def library_directory(self) -> str:
+        """Get the GRIN library directory."""
+        return self.config_dict.get("library_directory", "")
 
     @property
     def secrets_dir(self) -> str | None:
@@ -212,9 +212,9 @@ def apply_run_config_to_args(args: Any, db_path: str) -> None:
     if not config:
         return
 
-    # Apply directory if not set
-    if hasattr(args, 'directory') and not getattr(args, 'directory', None):
-        args.directory = config.directory
+    # Apply library directory if not set
+    if hasattr(args, 'grin_library_directory') and not getattr(args, 'grin_library_directory', None):
+        args.grin_library_directory = config.library_directory
 
     # Apply secrets_dir if not set
     if hasattr(args, 'secrets_dir') and not getattr(args, 'secrets_dir', None):
@@ -247,7 +247,7 @@ def print_run_config_info(db_path: str) -> None:
         print(f"  Run Name: {config.run_name}")
         print(f"  Output Directory: {config.output_directory}")
         print(f"  Database: {config.sqlite_db_path}")
-        print(f"  GRIN Directory: {config.directory}")
+        print(f"  GRIN Directory: {config.library_directory}")
 
         if config.secrets_dir:
             print(f"  Secrets Directory: {config.secrets_dir}")

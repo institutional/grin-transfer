@@ -53,7 +53,8 @@ def print_resume_command(args, run_name: str) -> None:
     if args.limit:
         cmd_parts.append(f"--limit {args.limit}")
 
-    # Directory is now always "Harvard" (default)
+    # Directory is passed via --library-directory argument
+    cmd_parts.append(f'--library-directory "{args.library_directory}"')
 
     if args.rate_limit != 5.0:  # Only if not default
         cmd_parts.append(f"--rate-limit {args.rate_limit}")
@@ -209,6 +210,12 @@ Examples:
         type=str,
         help="Directory containing GRIN secrets files (searches home directory if not specified)",
     )
+    parser.add_argument(
+        "--library-directory",
+        type=str,
+        required=True,
+        help="Library directory name for GRIN API requests (e.g., Harvard, MIT, Yale)"
+    )
 
     # Data source options (removed - only HTML mode supported)
 
@@ -328,7 +335,7 @@ Examples:
         # Load configuration with CLI overrides
         config = ConfigManager.load_config(
             config_file=args.config_file,
-            directory="Harvard",
+            library_directory=args.library_directory,
             rate_limit=args.rate_limit,
             resume_file=progress_file,
             pagination_page_size=args.page_size,
@@ -417,7 +424,7 @@ Examples:
         # Load configuration with CLI overrides
         config = ConfigManager.load_config(
             config_file=args.config_file,
-            directory="Harvard",
+            library_directory=args.library_directory,
             rate_limit=args.rate_limit,
             resume_file=progress_file,  # Use generated progress file
             pagination_page_size=args.page_size,
@@ -454,6 +461,7 @@ Examples:
 
         # Create book collector with configuration
         collector = BookCollector(
+            directory=args.library_directory,
             storage_config=storage_config,
             test_mode=args.test_mode,
             config=config,

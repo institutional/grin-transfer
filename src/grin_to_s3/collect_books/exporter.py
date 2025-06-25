@@ -46,7 +46,7 @@ class BookCollector:
 
     def __init__(
         self,
-        directory: str = "Harvard",
+        directory: str,
         rate_limit: float = 1.0,
         storage_config: dict | None = None,
         resume_file: str = "output/default/progress.json",
@@ -55,9 +55,11 @@ class BookCollector:
         secrets_dir: str | None = None,
     ):
         # Load or use provided configuration
-        self.config = config or ExportConfig(directory=directory, rate_limit=rate_limit, resume_file=resume_file)
+        self.config = config or ExportConfig(
+            library_directory=directory, rate_limit=rate_limit, resume_file=resume_file
+        )
 
-        self.directory = self.config.directory
+        self.directory = self.config.library_directory
         self.test_mode = test_mode
 
         # Initialize client (will be replaced with mock if in test mode)

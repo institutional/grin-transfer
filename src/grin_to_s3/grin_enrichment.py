@@ -36,7 +36,7 @@ class GRINEnrichmentPipeline:
 
     def __init__(
         self,
-        directory: str = "Harvard",
+        directory: str,
         db_path: str = "output/default/books.db",
         rate_limit_delay: float = 0.2,  # 5 QPS
         batch_size: int = 2000,
@@ -700,6 +700,12 @@ Examples:
     if args.command in ["enrich"]:
         apply_run_config_to_args(args, args.db_path)
 
+        # Validate that we have a library directory
+        if not getattr(args, 'grin_library_directory', None):
+            print("❌ Error: No GRIN library directory specified. This should be set in the run configuration.")
+            print("Make sure you collected books with --library-directory argument.")
+            sys.exit(1)
+
     # Generate log file name based on command and database
     if args.command in ["enrich", "export-csv"]:
         from datetime import datetime
@@ -715,7 +721,7 @@ Examples:
         match args.command:
             case "enrich":
                 pipeline = GRINEnrichmentPipeline(
-                    directory="Harvard",  # Always use default
+                    directory=args.grin_library_directory,
                     db_path=args.db_path,
                     rate_limit_delay=args.rate_limit,
                     batch_size=args.batch_size,

@@ -236,11 +236,12 @@ class TestBookCollector:
             # Create config with test database path
             from grin_to_s3.collect_books.config import ExportConfig
             config = ExportConfig(
+                library_directory="TestLibrary",
                 resume_file=str(progress_file),
                 sqlite_db_path=str(test_db_path)
             )
 
-            exporter = BookCollector(config=config)
+            exporter = BookCollector(directory="TestLibrary", config=config)
 
             # Add some processed items via SQLite tracker
             await exporter.sqlite_tracker.mark_processed("TEST001")
@@ -254,10 +255,11 @@ class TestBookCollector:
 
             # Create new exporter and load progress
             config2 = ExportConfig(
+                library_directory="TestLibrary",
                 resume_file=str(progress_file),
                 sqlite_db_path=str(test_db_path)
             )
-            exporter2 = BookCollector(config=config2)
+            exporter2 = BookCollector(directory="TestLibrary", config=config2)
             await exporter2.load_progress()
 
             # Check that progress was loaded via SQLite

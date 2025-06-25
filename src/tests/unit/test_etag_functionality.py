@@ -33,6 +33,7 @@ class TestETagFunctionality(unittest.TestCase):
                 "key": "test-key",
                 "secret": "test-secret",
             },
+            library_directory="Harvard",
             force=False,
         )
 

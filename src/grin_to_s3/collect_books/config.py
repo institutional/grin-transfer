@@ -38,7 +38,7 @@ class ExportConfig:
     """Main configuration for book collection operations."""
 
     # Core settings
-    directory: str = "Harvard"
+    library_directory: str
     rate_limit: float = 5.0  # API requests per second
 
     # Pagination settings
@@ -100,7 +100,7 @@ class ExportConfig:
         """Load configuration from JSON file."""
         if not config_path.exists():
             logger.warning(f"Config file {config_path} not found, using defaults")
-            return cls()
+            return cls(library_directory="REQUIRED")
 
         try:
             with open(config_path) as f:
@@ -112,7 +112,7 @@ class ExportConfig:
         except (json.JSONDecodeError, TypeError, ValueError) as e:
             logger.error(f"Failed to load config from {config_path}: {e}")
             logger.warning("Using default configuration")
-            return cls()
+            return cls(library_directory="REQUIRED")
 
     def update_from_args(self, **kwargs) -> None:
         """Update configuration from CLI arguments."""
@@ -164,13 +164,14 @@ class ConfigManager:
 
             if config is None:
                 logger.info("No config file found, using defaults")
-                config = ExportConfig()
+                # NOTE: library_directory must be provided via CLI args (required parameter)
+                config = ExportConfig(library_directory="REQUIRED")
 
         # Apply CLI overrides
         if config is not None:
             config.update_from_args(**cli_overrides)
 
-        return config or ExportConfig()
+        return config or ExportConfig(library_directory="REQUIRED")
 
     @classmethod
     def create_default_config(cls, output_path: Path = None) -> ExportConfig:
@@ -178,7 +179,8 @@ class ConfigManager:
         if output_path is None:
             output_path = cls.DEFAULT_CONFIG_PATHS[0]
 
-        config = ExportConfig()
+        # NOTE: When creating default config, library_directory should be updated by user
+        config = ExportConfig(library_directory="CHANGE_ME")
         config.save_to_file(output_path)
 
         return config
@@ -186,7 +188,8 @@ class ConfigManager:
 
 def get_default_config() -> ExportConfig:
     """Get default configuration for book collection."""
-    return ExportConfig()
+    # NOTE: library_directory must be provided via CLI args (required parameter)
+    return ExportConfig(library_directory="REQUIRED")
 
 
 if __name__ == "__main__":

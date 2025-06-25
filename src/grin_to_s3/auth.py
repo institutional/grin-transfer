@@ -214,12 +214,12 @@ class GRINAuth:
             raise AuthError("No valid access token available")
         return credentials.token
 
-    async def validate_credentials(self, directory: str = "Harvard") -> bool:
+    async def validate_credentials(self, directory: str) -> bool:
         """
         Validate credentials by making a lightweight test request to GRIN.
 
         Args:
-            directory: GRIN directory to test against (default: Harvard)
+            directory: GRIN directory to test against
 
         Returns:
             bool: True if credentials are valid and working

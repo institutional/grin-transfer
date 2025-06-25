@@ -97,10 +97,10 @@ class SyncPipeline:
         db_path: str,
         storage_type: str,
         storage_config: dict,
+        library_directory: str,
         concurrent_downloads: int = 5,
         concurrent_uploads: int = 10,
         batch_size: int = 10,
-        directory: str = "Harvard",
         secrets_dir: str | None = None,
         gpg_key_file: str | None = None,
         force: bool = False,
@@ -113,7 +113,7 @@ class SyncPipeline:
         self.concurrent_downloads = concurrent_downloads
         self.concurrent_uploads = concurrent_uploads
         self.batch_size = batch_size
-        self.directory = directory
+        self.library_directory = library_directory
         self.secrets_dir = secrets_dir
         self.gpg_key_file = gpg_key_file
         self.force = force
@@ -187,7 +187,7 @@ class SyncPipeline:
         try:
             from grin_to_s3.common import create_http_session
 
-            grin_url = f"https://books.google.com/libraries/{self.directory}/{barcode}.tar.gz.gpg"
+            grin_url = f"https://books.google.com/libraries/{self.library_directory}/{barcode}.tar.gz.gpg"
             logger.debug(f"[{barcode}] Checking Google ETag via HEAD request to {grin_url}")
 
             async with create_http_session() as session:
@@ -362,7 +362,7 @@ class SyncPipeline:
     async def get_converted_books(self) -> set[str]:
         """Get set of books that are converted and ready for download."""
         try:
-            response_text = await self.grin_client.fetch_resource(self.directory, "_converted?format=text")
+            response_text = await self.grin_client.fetch_resource(self.library_directory, "_converted?format=text")
             lines = response_text.strip().split("\n")
             converted_barcodes = set()
             for line in lines:
@@ -418,7 +418,7 @@ class SyncPipeline:
             from grin_to_s3.common import create_http_session
 
             client = GRINClient(secrets_dir=self.secrets_dir)
-            grin_url = f"https://books.google.com/libraries/{self.directory}/{barcode}.tar.gz.gpg"
+            grin_url = f"https://books.google.com/libraries/{self.library_directory}/{barcode}.tar.gz.gpg"
 
             logger.info(f"[{barcode}] Starting download from {grin_url}")
 
@@ -1506,10 +1506,10 @@ async def cmd_pipeline(args) -> None:
             db_path=args.db_path,
             storage_type=args.storage,
             storage_config=storage_config,
+            library_directory=args.grin_library_directory,
             concurrent_downloads=args.concurrent,
             concurrent_uploads=args.concurrent_uploads,
             batch_size=args.batch_size,
-            directory="Harvard",
             secrets_dir=args.secrets_dir,
             gpg_key_file=args.gpg_key_file,
             force=args.force,
@@ -1552,10 +1552,10 @@ async def cmd_pipeline(args) -> None:
                 db_path=args.db_path,
                 storage_type=args.storage,
                 storage_config=storage_config,
+                library_directory=args.grin_library_directory,
                 concurrent_downloads=1,  # Optimal for single book
                 concurrent_uploads=1,    # Optimal for single book
                 batch_size=1,           # Single book batch
-                directory="Harvard",
                 secrets_dir=args.secrets_dir,
                 gpg_key_file=args.gpg_key_file,
                 force=args.force,
@@ -1681,7 +1681,9 @@ async def cmd_catchup(args) -> None:
         grin_client = GRINClient(secrets_dir=run_config.get("secrets_dir"))
 
         try:
-            response_text = await grin_client.fetch_resource("Harvard", "_converted?format=text")
+            response_text = await grin_client.fetch_resource(
+                run_config.get("library_directory"), "_converted?format=text"
+            )
             lines = response_text.strip().split("\n")
             converted_barcodes = set()
             for line in lines:
@@ -1773,10 +1775,10 @@ async def cmd_catchup(args) -> None:
             db_path=args.db_path,
             storage_type=storage_type,
             storage_config=storage_config,
+            library_directory=run_config.get("library_directory"),
             concurrent_downloads=args.concurrent,
             concurrent_uploads=args.concurrent_uploads,
             batch_size=args.batch_size,
-            directory="Harvard",
             secrets_dir=run_config.get("secrets_dir"),
             gpg_key_file=args.gpg_key_file,
             force=args.force,
@@ -1886,6 +1888,9 @@ Examples:
         "--barcodes", help="Comma-separated list of specific barcodes to sync (e.g., '12345,67890,abcde')"
     )
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
+    pipeline_parser.add_argument(
+        "--grin-library-directory", help="GRIN library directory name (required, from run config)"
+    )
 
     # Staging directory options
     pipeline_parser.add_argument(

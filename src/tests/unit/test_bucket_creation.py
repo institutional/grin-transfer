@@ -51,7 +51,7 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
             db_path=str(self.db_path),
             storage_type=storage_type,
             storage_config=storage_config,
-            directory="Harvard",
+            library_directory="Harvard",
         )
 
     async def test_bucket_exists_s3(self):
@@ -244,7 +244,7 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
             db_path=str(self.db_path),
             storage_type="local",
             storage_config={"prefix": "test"},
-            directory="Harvard",
+            library_directory="Harvard",
         )
 
         result = await pipeline._ensure_bucket_exists("any-bucket")
@@ -364,7 +364,7 @@ class TestBucketCreationErrorHandling(IsolatedAsyncioTestCase):
             db_path=str(self.db_path),
             storage_type="s3",
             storage_config=storage_config,
-            directory="Harvard",
+            library_directory="Harvard",
         )
 
         with patch('boto3.client') as mock_boto_client:
@@ -384,7 +384,7 @@ class TestBucketCreationErrorHandling(IsolatedAsyncioTestCase):
             db_path=str(self.db_path),
             storage_type="s3",
             storage_config=storage_config,
-            directory="Harvard",
+            library_directory="Harvard",
         )
 
         with patch('boto3.client') as mock_boto_client:

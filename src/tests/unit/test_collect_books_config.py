@@ -55,9 +55,9 @@ class TestExportConfig:
 
     def test_export_config_defaults(self):
         """Test default export configuration."""
-        config = ExportConfig()
+        config = ExportConfig(library_directory="TestLibrary")
 
-        assert config.directory == "Harvard"
+        assert config.library_directory == "TestLibrary"
         assert config.rate_limit == 5.0
         assert config.pagination.page_size == 10000
         assert config.burst_limit == 10
@@ -66,9 +66,9 @@ class TestExportConfig:
     def test_export_config_custom(self):
         """Test custom export configuration."""
         pagination = PaginationConfig(page_size=2000, max_pages=500)
-        config = ExportConfig(directory="MIT", rate_limit=2.5, pagination=pagination, burst_limit=20)
+        config = ExportConfig(library_directory="MIT", rate_limit=2.5, pagination=pagination, burst_limit=20)
 
-        assert config.directory == "MIT"
+        assert config.library_directory == "MIT"
         assert config.rate_limit == 2.5
         assert config.pagination.page_size == 2000
         assert config.pagination.max_pages == 500
@@ -77,7 +77,7 @@ class TestExportConfig:
     def test_export_config_from_dict(self):
         """Test creating config from dictionary."""
         config_dict = {
-            "directory": "Yale",
+            "library_directory": "Yale",
             "rate_limit": 3.0,
             "pagination": {"page_size": 1500, "max_pages": 750},
             "burst_limit": 15,
@@ -85,7 +85,7 @@ class TestExportConfig:
 
         config = ExportConfig.from_dict(config_dict)
 
-        assert config.directory == "Yale"
+        assert config.library_directory == "Yale"
         assert config.rate_limit == 3.0
         assert config.pagination.page_size == 1500
         assert config.pagination.max_pages == 750
@@ -93,11 +93,11 @@ class TestExportConfig:
 
     def test_export_config_to_dict(self):
         """Test converting config to dictionary."""
-        config = ExportConfig(directory="Stanford", rate_limit=1.5)
+        config = ExportConfig(library_directory="Stanford", rate_limit=1.5)
 
         config_dict = config.to_dict()
 
-        assert config_dict["directory"] == "Stanford"
+        assert config_dict["library_directory"] == "Stanford"
         assert config_dict["rate_limit"] == 1.5
         assert config_dict["pagination"]["page_size"] == 10000
         assert "burst_limit" in config_dict
@@ -108,7 +108,7 @@ class TestExportConfig:
             config_path = Path(temp_dir) / "test_config.json"
 
             # Create and save config
-            original_config = ExportConfig(directory="Berkeley", rate_limit=4.0, burst_limit=25)
+            original_config = ExportConfig(library_directory="Berkeley", rate_limit=4.0, burst_limit=25)
             original_config.save_to_file(config_path)
 
             # Verify file exists and has content
@@ -117,7 +117,7 @@ class TestExportConfig:
             # Load config and verify
             loaded_config = ExportConfig.load_from_file(config_path)
 
-            assert loaded_config.directory == "Berkeley"
+            assert loaded_config.library_directory == "Berkeley"
             assert loaded_config.rate_limit == 4.0
             assert loaded_config.burst_limit == 25
             assert loaded_config.pagination.page_size == 10000
@@ -129,17 +129,17 @@ class TestExportConfig:
         config = ExportConfig.load_from_file(non_existent_path)
 
         # Should return default config
-        assert config.directory == "Harvard"
+        assert config.library_directory == "REQUIRED"
         assert config.rate_limit == 5.0
 
     def test_export_config_update_from_args(self):
         """Test updating config from CLI arguments."""
-        config = ExportConfig()
+        config = ExportConfig(library_directory="TestLibrary")
 
         # Update basic settings
-        config.update_from_args(directory="Princeton", rate_limit=2.0, burst_limit=30)
+        config.update_from_args(library_directory="Princeton", rate_limit=2.0, burst_limit=30)
 
-        assert config.directory == "Princeton"
+        assert config.library_directory == "Princeton"
         assert config.rate_limit == 2.0
         assert config.burst_limit == 30
 
@@ -157,18 +157,18 @@ class TestConfigManager:
         """Test loading default configuration."""
         config = ConfigManager.load_config()
 
-        # Should return default config
-        assert config.directory == "Harvard"
+        # Should return default config with placeholder
+        assert config.library_directory == "REQUIRED"
         assert config.rate_limit == 5.0
         assert config.pagination.page_size == 10000
 
     def test_config_manager_load_with_overrides(self):
         """Test loading config with CLI overrides."""
         config = ConfigManager.load_config(
-            directory="Columbia", rate_limit=1.0, pagination_page_size=2000, pagination_max_pages=500
+            library_directory="Columbia", rate_limit=1.0, pagination_page_size=2000, pagination_max_pages=500
         )
 
-        assert config.directory == "Columbia"
+        assert config.library_directory == "Columbia"
         assert config.rate_limit == 1.0
         assert config.pagination.page_size == 2000
         assert config.pagination.max_pages == 500
@@ -179,7 +179,7 @@ class TestConfigManager:
             config_path = Path(temp_dir) / "custom_config.json"
 
             # Create config file
-            config_data = {"directory": "Duke", "rate_limit": 0.5, "pagination": {"page_size": 500, "max_pages": 2000}}
+            config_data = {"library_directory": "Duke", "rate_limit": 0.5, "pagination": {"page_size": 500, "max_pages": 2000}}
 
             with open(config_path, "w") as f:
                 json.dump(config_data, f)
@@ -190,7 +190,7 @@ class TestConfigManager:
                 rate_limit=3.0,  # Override file setting
             )
 
-            assert config.directory == "Duke"  # From file
+            assert config.library_directory == "Duke"  # From file
             assert config.rate_limit == 3.0  # From override
             assert config.pagination.page_size == 500  # From file
 
@@ -208,7 +208,7 @@ class TestConfigManager:
             with open(config_path) as f:
                 saved_data = json.load(f)
 
-            assert saved_data["directory"] == "Harvard"
+            assert saved_data["library_directory"] == "CHANGE_ME"
             assert saved_data["rate_limit"] == 5.0
             # data_mode was removed - only HTML mode is supported
             assert saved_data["pagination"]["page_size"] == 10000
@@ -217,11 +217,11 @@ class TestConfigManager:
         """Test that only HTML mode is supported (data_mode removed)."""
         # Only HTML mode is supported now - no data_mode parameter
         # Verify config can be created without data_mode
-        ExportConfig()
+        ExportConfig(library_directory="TestLibrary")
 
     def test_export_config_update_data_mode_from_args(self):
         """Test updating config from CLI arguments (data_mode removed)."""
-        config = ExportConfig()
+        config = ExportConfig(library_directory="TestLibrary")
 
         # Test updating other parameters
         config.update_from_args(rate_limit=10.0)

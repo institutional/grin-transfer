@@ -168,13 +168,13 @@ def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
 
     # Create config with unique database path
     config = ExportConfig(
-        directory="TestDirectory",
+        library_directory="TestDirectory",
         rate_limit=100.0,  # Very fast for testing
         resume_file=str(resume_file),
         sqlite_db_path=str(sqlite_db_path),
     )
 
-    exporter = BookCollector(storage_config=storage_config, config=config)
+    exporter = BookCollector(directory="TestDirectory", storage_config=storage_config, config=config)
 
     # Replace client with mock
     exporter.client = MockGRINClient(test_data)
