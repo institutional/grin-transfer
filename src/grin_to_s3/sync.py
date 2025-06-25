@@ -1485,6 +1485,12 @@ Examples:
   python grin.py sync pipeline --run-name harvard_2024 --storage r2 \
       --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
+  # Sync specific books only
+  python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
+
+  # Sync a single book (auto-optimized for single book processing)
+  python grin.py sync pipeline --run-name harvard_2024 --barcodes "39015123456789"
+
   # Sync with custom concurrency
   python grin.py sync pipeline --run-name harvard_2024 --concurrent 5
 
@@ -1520,6 +1526,9 @@ Examples:
     pipeline_parser.add_argument("--concurrent-uploads", type=int, default=10, help="Concurrent uploads (default: 10)")
     pipeline_parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing (default: 100)")
     pipeline_parser.add_argument("--limit", type=int, help="Limit number of books to sync")
+    pipeline_parser.add_argument(
+        "--barcodes", help="Comma-separated list of specific barcodes to sync (e.g., '12345,67890,abcde')"
+    )
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
 
     # Staging directory options
