@@ -18,7 +18,14 @@ from typing import Any
 # Check Python version requirement
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
-from grin_to_s3.common import BackupManager, RateLimiter, SlidingWindowRateCalculator, format_duration, pluralize
+from grin_to_s3.common import (
+    BackupManager,
+    RateLimiter,
+    SlidingWindowRateCalculator,
+    format_duration,
+    pluralize,
+    setup_logging,
+)
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
 
 logger = logging.getLogger(__name__)
@@ -92,7 +99,6 @@ class GRINEnrichmentPipeline:
         # Use shared backup manager
         backup_manager = BackupManager(backup_dir)
         return await backup_manager.backup_file(db_path, "database")
-
 
     def _calculate_max_batch_size(self, barcodes: list[str]) -> int:
         """Calculate maximum batch size that fits in URL length limit."""
@@ -562,48 +568,6 @@ async def export_enriched_csv(db_path: str, output_file: str) -> None:
             pass
 
 
-def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
-    """Setup logging configuration."""
-    log_level = getattr(logging, level.upper())
-
-    # Create formatters
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-    # Set up root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
-
-    # Clear any existing handlers
-    root_logger.handlers.clear()
-
-    # Add file handler if log_file specified
-    if log_file:
-        from pathlib import Path
-
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(log_level)
-        file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
-
-    # Add console handler for ERROR and above (minimizes console spam during enrichment)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.ERROR)
-    console_handler.setFormatter(formatter)
-    root_logger.addHandler(console_handler)
-
-    # Suppress debug logs from dependencies
-    logging.getLogger("aiohttp").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
-
-    # Also suppress other noisy loggers
-    logging.getLogger("asyncio").setLevel(logging.WARNING)
-    logging.getLogger("concurrent.futures").setLevel(logging.WARNING)
-
-
 def validate_database_file(db_path: str) -> None:
     """
     Validate that the database file exists and is a valid SQLite database.
@@ -678,7 +642,8 @@ async def main() -> None:
     signal.signal(signal.SIGTERM, signal_handler)
 
     parser = argparse.ArgumentParser(
-        description="GRIN metadata enrichment pipeline", formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="GRIN metadata enrichment pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python grin.py enrich --run-name harvard_2024
@@ -745,7 +710,6 @@ Examples:
         log_file = f"logs/grin_enrichment_{args.command}_{db_name}_{timestamp}.log"
 
         setup_logging(args.log_level, log_file)
-        print(f"Logging to file: {log_file}\n")
 
     try:
         match args.command:

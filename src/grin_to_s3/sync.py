@@ -25,6 +25,7 @@ from grin_to_s3.common import (
     SlidingWindowRateCalculator,
     format_duration,
     pluralize,
+    setup_logging,
     setup_storage_with_checks,
 )
 from grin_to_s3.download import ensure_bucket_exists, reset_bucket_cache
@@ -83,9 +84,9 @@ class SyncPipeline:
 
         # Initialize staging directory manager
         from grin_to_s3.staging import StagingDirectoryManager
+
         self.staging_manager = StagingDirectoryManager(
-            staging_path=self.staging_dir,
-            capacity_threshold=self.disk_space_threshold
+            staging_path=self.staging_dir, capacity_threshold=self.disk_space_threshold
         )
 
         # Concurrency control
@@ -159,7 +160,7 @@ class SyncPipeline:
                 used_bytes, total_bytes, usage_ratio = self.staging_manager.get_disk_usage()
                 logger.info(
                     f"[{barcode}] Waiting for disk space ({usage_ratio:.1%} full, "
-                    f"{(total_bytes - used_bytes) / (1024*1024*1024):.1f} GB available), pausing download..."
+                    f"{(total_bytes - used_bytes) / (1024 * 1024 * 1024):.1f} GB available), pausing download..."
                 )
                 space_warned = True
             await asyncio.sleep(30)  # Check every 30 seconds
@@ -187,7 +188,7 @@ class SyncPipeline:
                 response = await client.auth.make_authenticated_request(session, grin_url)
 
                 total_bytes = 0
-                async with aiofiles.open(staging_file, 'wb') as f:
+                async with aiofiles.open(staging_file, "wb") as f:
                     async for chunk in response.content.iter_chunked(1024 * 1024):
                         await f.write(chunk)
                         total_bytes += len(chunk)
@@ -198,8 +199,8 @@ class SyncPipeline:
                                 # Clean up partial file and pause
                                 staging_file.unlink(missing_ok=True)
                                 logger.warning(
-                        f"[{barcode}] Disk space exhausted during download, cleaning up and retrying..."
-                    )
+                                    f"[{barcode}] Disk space exhausted during download, cleaning up and retrying..."
+                                )
                                 await asyncio.sleep(60)  # Wait longer before retry
                                 return await self._download_only(barcode)  # Retry from beginning
 
@@ -213,12 +214,14 @@ class SyncPipeline:
                     staging_file.unlink(missing_ok=True)
                     raise Exception(f"File size mismatch: expected {total_bytes}, got {actual_size}")
 
-
-                return barcode, str(staging_file), {
-                    "file_size": total_bytes,
-                    "total_time": 0,  # We'll track this separately
-                }
-
+                return (
+                    barcode,
+                    str(staging_file),
+                    {
+                        "file_size": total_bytes,
+                        "total_time": 0,  # We'll track this separately
+                    },
+                )
 
     async def _upload_task(self, barcode: str, staging_file_path: str):
         """Handle upload task from staging directory files."""
@@ -241,7 +244,6 @@ class SyncPipeline:
                     base_prefix = f"{bucket_name}/{base_prefix}"
                 else:
                     base_prefix = bucket_name
-
 
             # Ensure bucket exists before upload
             if self.storage_type in ("minio", "s3", "r2") and bucket_name:
@@ -267,7 +269,7 @@ class SyncPipeline:
                 logger.error(f"[{barcode}] Decryption failed: {e}")
                 # Clean up staging files on decryption failure
                 freed_bytes = self.staging_manager.cleanup_files(barcode)
-                logger.info(f"[{barcode}] Freed {freed_bytes / (1024*1024):.1f} MB from staging after failure")
+                logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB from staging after failure")
                 # Decryption failure is fatal - signal pipeline to stop
                 self._fatal_error = f"GPG decryption failed for {barcode}: {e}"
                 self._shutdown_requested = True
@@ -319,7 +321,7 @@ class SyncPipeline:
             freed_bytes = self.staging_manager.cleanup_files(barcode)
             logger.info(f"[{barcode}] ✅ Upload completed: encrypted=True, decrypted=True")
             if freed_bytes > 0:
-                logger.info(f"[{barcode}] Freed {freed_bytes / (1024*1024):.1f} MB disk space from staging directory")
+                logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB disk space from staging directory")
 
             return {
                 "barcode": barcode,
@@ -357,26 +359,28 @@ class SyncPipeline:
             if isinstance(result, Exception):
                 self.stats["failed"] += 1
                 logger.error(f"[{barcode}] Download task failed: {result}")
-                processed_results.append({
-                    "barcode": barcode,
-                    "status": "failed",
-                    "error": str(result),
-                })
+                processed_results.append(
+                    {
+                        "barcode": barcode,
+                        "status": "failed",
+                        "error": str(result),
+                    }
+                )
             elif isinstance(result, dict):
                 processed_results.append(result)
             else:
                 # Unexpected result type, treat as error
                 self.stats["failed"] += 1
                 logger.error(f"[{barcode}] Unexpected result type: {type(result)}")
-                processed_results.append({
-                    "barcode": barcode,
-                    "status": "failed",
-                    "error": f"Unexpected result type: {type(result)}",
-                })
+                processed_results.append(
+                    {
+                        "barcode": barcode,
+                        "status": "failed",
+                        "error": f"Unexpected result type: {type(result)}",
+                    }
+                )
 
         return processed_results
-
-
 
     async def get_sync_status(self) -> dict:
         """Get current sync status and statistics."""
@@ -428,14 +432,16 @@ class SyncPipeline:
             failed_count = initial_status["failed"]
             pending_count = initial_status["pending"]
 
-            print(f"Database sync status: {total_converted:,} total, {already_synced:,} synced, "
-                  f"{failed_count:,} failed, {pending_count:,} pending")
+            print(
+                f"Database sync status: {total_converted:,} total, {already_synced:,} synced, "
+                f"{failed_count:,} failed, {pending_count:,} pending"
+            )
 
             # Check how many requested books need syncing (only those actually converted by GRIN)
             available_to_sync = await self.db_tracker.get_books_for_sync(
                 storage_type=self.storage_type,
                 limit=999999,  # Get all available
-                converted_barcodes=converted_barcodes  # Only sync books that GRIN reports as converted
+                converted_barcodes=converted_barcodes,  # Only sync books that GRIN reports as converted
             )
 
             print(f"Found {len(available_to_sync):,} converted books that need syncing")
@@ -450,7 +456,7 @@ class SyncPipeline:
                 pending_books = await self.db_tracker.get_books_for_sync(
                     storage_type=self.storage_type,
                     limit=999999,
-                    converted_barcodes=None  # Get all requested books regardless of conversion
+                    converted_barcodes=None,  # Get all requested books regardless of conversion
                 )
 
                 if pending_books:
@@ -470,8 +476,10 @@ class SyncPipeline:
             if staging_files:
                 print(f"Found {len(staging_files)} existing staging files from previous runs")
                 staging_summary = self.staging_manager.get_staging_summary()
-                print(f"Staging directory usage: {staging_summary['staging_size_mb']:.1f}MB "
-                      f"({staging_summary['disk_usage_ratio']:.1%} disk usage)")
+                print(
+                    f"Staging directory usage: {staging_summary['staging_size_mb']:.1f}MB "
+                    f"({staging_summary['disk_usage_ratio']:.1%} disk usage)"
+                )
 
                 # Clean up old orphaned files (>24h old)
                 cleaned_count = self.staging_manager.cleanup_orphaned_files(max_age_hours=24)
@@ -486,8 +494,10 @@ class SyncPipeline:
                 )
                 print("Cannot start new downloads. Please free up disk space or increase threshold.")
                 run_name = Path(self.db_path).parent.name
-                print(f"To increase threshold: python grin.py sync pipeline --run-name {run_name} "
-                      f"--disk-space-threshold 0.95")
+                print(
+                    f"To increase threshold: python grin.py sync pipeline --run-name {run_name} "
+                    f"--disk-space-threshold 0.95"
+                )
                 return
 
             # Set up progress tracking
@@ -498,7 +508,7 @@ class SyncPipeline:
             # Decoupled download/upload processing for continuous downloads
             downloads_started = 0  # Track total downloads started to respect limit
             active_download_tasks = {}  # barcode -> download task
-            active_upload_tasks: dict[str, asyncio.Task] = {}   # barcode -> upload task
+            active_upload_tasks: dict[str, asyncio.Task] = {}  # barcode -> upload task
 
             # Initialize sliding window rate calculator
             rate_calculator = SlidingWindowRateCalculator(window_size=20)
@@ -506,7 +516,7 @@ class SyncPipeline:
             # Time-based progress reporting
             last_progress_report = start_time
             progress_interval = 300  # 5 minutes
-            initial_interval = 60    # 1 minute for first few reports
+            initial_interval = 60  # 1 minute for first few reports
             initial_reports_count = 0
             max_initial_reports = 3
 
@@ -517,9 +527,7 @@ class SyncPipeline:
 
             # Get initial book queue
             book_queue = await self.db_tracker.get_books_for_sync(
-                storage_type=self.storage_type,
-                limit=min(books_to_process, 1000),
-                converted_barcodes=converted_barcodes
+                storage_type=self.storage_type, limit=min(books_to_process, 1000), converted_barcodes=converted_barcodes
             )
 
             # Exclude books that already have staging files to avoid double-processing
@@ -568,6 +576,7 @@ class SyncPipeline:
                         await self.cleanup()
                         print("Pipeline stopped due to fatal error.")
                         import sys
+
                         sys.exit(1)
                     else:
                         print("\nShutdown requested, stopping sync...")
@@ -612,12 +621,14 @@ class SyncPipeline:
                         downloads_running = self.concurrent_downloads - self._download_semaphore._value
                         uploads_running = self.concurrent_uploads - self._upload_semaphore._value
                         uploads_queued = len(active_upload_tasks) - uploads_running
-                        print(f"{completed_uploads:,}/{books_to_process:,} "
-                              f"({percentage:.0f}%) - {rate:.1f} books/sec - "
-                              f"elapsed: {format_duration(elapsed)}{eta_text} "
-                              f"[{downloads_running}/{self.concurrent_downloads} downloads, "
-                              f"{uploads_running}/{self.concurrent_uploads} uploads, "
-                              f"{uploads_queued} uploads queued] [{interval_desc} update]")
+                        print(
+                            f"{completed_uploads:,}/{books_to_process:,} "
+                            f"({percentage:.0f}%) - {rate:.1f} books/sec - "
+                            f"elapsed: {format_duration(elapsed)}{eta_text} "
+                            f"[{downloads_running}/{self.concurrent_downloads} downloads, "
+                            f"{uploads_running}/{self.concurrent_uploads} uploads, "
+                            f"{uploads_queued} uploads queued] [{interval_desc} update]"
+                        )
 
                     last_progress_report = current_time
                     initial_reports_count += 1
@@ -629,7 +640,7 @@ class SyncPipeline:
                     done, pending = await asyncio.wait(
                         all_tasks,
                         return_when=asyncio.FIRST_COMPLETED,
-                        timeout=1.0  # Check progress every second
+                        timeout=1.0,  # Check progress every second
                     )
 
                     # Process completed downloads
@@ -677,7 +688,7 @@ class SyncPipeline:
                                         new_batch = await self.db_tracker.get_books_for_sync(
                                             storage_type=self.storage_type,
                                             limit=min(remaining_limit or 1000, 1000),
-                                            converted_barcodes=converted_barcodes
+                                            converted_barcodes=converted_barcodes,
                                         )
                                         if new_batch:
                                             book_iter = iter(new_batch)
@@ -752,7 +763,6 @@ class SyncPipeline:
                                         self._fatal_error = str(e)
                                         self._shutdown_requested = True
 
-
         except KeyboardInterrupt:
             print("\nSync interrupted by user")
             logger.info("Sync interrupted by user")
@@ -814,7 +824,7 @@ class SyncPipeline:
         # Time-based progress reporting with adaptive intervals
         last_progress_report = start_time
         progress_interval = 300  # 5 minutes in seconds normally
-        initial_interval = 60    # 1 minute for first few reports
+        initial_interval = 60  # 1 minute for first few reports
         initial_reports_count = 0
         max_initial_reports = 3  # Show more frequent updates for first 3 minutes
 
@@ -850,10 +860,12 @@ class SyncPipeline:
                             eta_text = f" (ETA: {format_duration(eta_seconds)})"
 
                         interval_desc = "1 min" if initial_reports_count < max_initial_reports else "5 min"
-                        print(f"Catchup in progress: {processed_count:,}/{books_to_process:,} "
-                              f"({percentage:.1f}%) - {rate:.1f} books/sec - "
-                              f"elapsed: {format_duration(elapsed)}{eta_text} "
-                              f"[{interval_desc} update]")
+                        print(
+                            f"Catchup in progress: {processed_count:,}/{books_to_process:,} "
+                            f"({percentage:.1f}%) - {rate:.1f} books/sec - "
+                            f"elapsed: {format_duration(elapsed)}{eta_text} "
+                            f"[{interval_desc} update]"
+                        )
 
                     last_progress_report = current_time
                     initial_reports_count += 1
@@ -861,7 +873,7 @@ class SyncPipeline:
                 if limit and processed_count >= limit:
                     break
 
-                batch = barcodes[i:i + self.batch_size]
+                batch = barcodes[i : i + self.batch_size]
                 if limit:
                     remaining = limit - processed_count
                     batch = batch[:remaining]
@@ -885,7 +897,7 @@ class SyncPipeline:
                 self.progress_reporter.update(
                     items=len(batch),
                     bytes_count=sum(r.get("size", 0) for r in batch_results),
-                    force=False  # Don't force output on every batch
+                    force=False,  # Don't force output on every batch
                 )
 
                 # Track batch completion for sliding window rate calculation
@@ -898,17 +910,22 @@ class SyncPipeline:
                 # Show immediate updates for failed batches
                 if completed_in_batch < len(batch):
                     failed_in_batch = len(batch) - completed_in_batch
-                    logger.info(f"Catchup batch completed: {completed_in_batch}/{len(batch)} successful, "
-                               f"{failed_in_batch} failed in {batch_elapsed:.1f}s")
+                    logger.info(
+                        f"Catchup batch completed: {completed_in_batch}/{len(batch)} successful, "
+                        f"{failed_in_batch} failed in {batch_elapsed:.1f}s"
+                    )
 
                     # Show immediate progress update for failed batches
                     if books_to_process > 0:
                         percentage = (processed_count / books_to_process) * 100
-                        print(f"WARNING: Catchup batch completed with {failed_in_batch} failures - "
-                              f"Progress: {processed_count:,}/{books_to_process:,} ({percentage:.1f}%)")
+                        print(
+                            f"WARNING: Catchup batch completed with {failed_in_batch} failures - "
+                            f"Progress: {processed_count:,}/{books_to_process:,} ({percentage:.1f}%)"
+                        )
                 else:
-                    logger.debug(f"Catchup batch completed: {completed_in_batch}/{len(batch)} successful "
-                                f"in {batch_elapsed:.1f}s")
+                    logger.debug(
+                        f"Catchup batch completed: {completed_in_batch}/{len(batch)} successful in {batch_elapsed:.1f}s"
+                    )
 
                 # Small delay between batches
                 await asyncio.sleep(0.1)
@@ -983,8 +1000,8 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
         print(f"  Currently syncing: {sync_stats['syncing']:,}")
         print(f"  Books with decrypted archives: {sync_stats['decrypted']:,}")
 
-        if sync_stats['total_converted'] > 0:
-            sync_percentage = (sync_stats['synced'] / sync_stats['total_converted']) * 100
+        if sync_stats["total_converted"] > 0:
+            sync_percentage = (sync_stats["synced"] / sync_stats["total_converted"]) * 100
             print(f"  Sync completion: {sync_percentage:.1f}%")
 
         print()
@@ -1074,46 +1091,6 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
             pass
 
 
-
-def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
-    """Setup logging configuration."""
-    log_level = getattr(logging, level.upper())
-
-    # Create formatters
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-    # Set up root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
-
-    # Clear any existing handlers
-    root_logger.handlers.clear()
-
-    # Add file handler if log_file specified
-    if log_file:
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(log_level)
-        file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
-
-    # Add console handler for ERROR and above (minimal console output)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.ERROR)
-    console_handler.setFormatter(formatter)
-    root_logger.addHandler(console_handler)
-
-    # Suppress debug logs from dependencies
-    logging.getLogger("aiohttp").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
-    logging.getLogger("botocore").setLevel(logging.WARNING)
-    logging.getLogger("boto3").setLevel(logging.WARNING)
-    logging.getLogger("aiobotocore").setLevel(logging.WARNING)
-
-
 def validate_database_file(db_path: str) -> None:
     """Validate that the database file exists and contains the required tables."""
     import sqlite3
@@ -1167,10 +1144,7 @@ async def cmd_pipeline(args) -> None:
 
     missing_buckets = validate_bucket_arguments(args, args.storage)
     if missing_buckets:
-        print(
-            f"Error: The following bucket arguments are required for MinIO: "
-            f"{', '.join(missing_buckets)}"
-        )
+        print(f"Error: The following bucket arguments are required for MinIO: {', '.join(missing_buckets)}")
         print("  For R2/S3: bucket names can be specified in credentials file")
         sys.exit(1)
 
@@ -1189,7 +1163,7 @@ async def cmd_pipeline(args) -> None:
             storage_config_dict = {
                 "type": args.storage,
                 "config": {k: v for k, v in storage_config.items() if v is not None},
-                "prefix": storage_config.get("prefix", "grin-books")
+                "prefix": storage_config.get("prefix", "grin-books"),
             }
 
             run_config["storage_config"] = storage_config_dict
@@ -1213,7 +1187,6 @@ async def cmd_pipeline(args) -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = f"logs/sync_pipeline_{args.storage}_{db_name}_{timestamp}.log"
     setup_logging(args.log_level, log_file)
-    print(f"Logging to file: {log_file}\n")
 
     # Create and run pipeline
     try:
@@ -1238,6 +1211,7 @@ async def cmd_pipeline(args) -> None:
                 # Second interrupt - hard exit
                 print(f"\nReceived second signal {signum}, forcing immediate exit...")
                 import sys
+
                 sys.exit(1)
             print(f"\nReceived signal {signum}, shutting down gracefully...")
             print("Press Control-C again to force immediate exit")
@@ -1312,13 +1286,14 @@ async def cmd_catchup(args) -> None:
         # For R2/S3, we need to load the credentials file to get bucket information
         # Create a minimal args object to use build_storage_config_dict
         from argparse import Namespace
+
         temp_args = Namespace(
             storage=storage_type,
             secrets_dir=run_config.get("secrets_dir"),
             bucket_raw=None,
             bucket_meta=None,
             bucket_full=None,
-            storage_config=None
+            storage_config=None,
         )
 
         # Build full storage config with credentials and bucket info
@@ -1339,7 +1314,6 @@ async def cmd_catchup(args) -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = f"logs/sync_catchup_{storage_type}_{db_name}_{timestamp}.log"
     setup_logging(args.log_level, log_file)
-    print(f"Logging to file: {log_file}\n")
 
     # Create and run catchup
     try:
@@ -1356,6 +1330,7 @@ async def cmd_catchup(args) -> None:
 
         # Create a simple GRIN client to get converted books
         from grin_to_s3.client import GRINClient
+
         grin_client = GRINClient(secrets_dir=run_config.get("secrets_dir"))
 
         try:
@@ -1400,7 +1375,7 @@ async def cmd_catchup(args) -> None:
             storage_type=storage_type,
             limit=999999,  # Get all candidates
             status_filter=None,  # We want books that haven't been synced yet
-            converted_barcodes=set(catchup_candidates)
+            converted_barcodes=set(catchup_candidates),
         )
 
         print(f"Found {len(books_to_sync):,} books ready for catchup sync")
@@ -1411,7 +1386,7 @@ async def cmd_catchup(args) -> None:
 
         # Apply limit if specified
         if args.limit:
-            books_to_sync = books_to_sync[:args.limit]
+            books_to_sync = books_to_sync[: args.limit]
             print(f"Limited to {len(books_to_sync):,} books for this catchup run")
 
         # Handle dry-run mode
@@ -1439,7 +1414,7 @@ async def cmd_catchup(args) -> None:
         # Confirm with user
         if not args.yes:
             response = input(f"\nDownload {len(books_to_sync):,} books? [y/N]: ").strip().lower()
-            if response not in ('y', 'yes'):
+            if response not in ("y", "yes"):
                 print("Catchup cancelled")
                 return
 
@@ -1464,9 +1439,11 @@ async def cmd_catchup(args) -> None:
         for barcode in books_to_sync:
             # Mark processing as requested (catchup) and converted
             await db_tracker.add_status_change(
-                barcode, "processing_request", "converted",
+                barcode,
+                "processing_request",
+                "converted",
                 session_id=session_id,
-                metadata={"source": "catchup", "reason": "already_converted_in_grin"}
+                metadata={"source": "catchup", "reason": "already_converted_in_grin"},
             )
 
         # Use a custom method to sync these specific books
@@ -1477,8 +1454,6 @@ async def cmd_catchup(args) -> None:
     except Exception as e:
         print(f"Catchup failed: {e}")
         sys.exit(1)
-
-
 
 
 async def main() -> None:
@@ -1527,19 +1502,16 @@ Examples:
     pipeline_parser.add_argument(
         "--storage",
         choices=["minio", "r2", "s3"],
-        help="Storage backend (auto-detected from run config if not specified)"
+        help="Storage backend (auto-detected from run config if not specified)",
     )
     pipeline_parser.add_argument(
-        "--bucket-raw",
-        help="Raw data bucket (auto-detected from run config if not specified)"
+        "--bucket-raw", help="Raw data bucket (auto-detected from run config if not specified)"
     )
     pipeline_parser.add_argument(
-        "--bucket-meta",
-        help="Metadata bucket (auto-detected from run config if not specified)"
+        "--bucket-meta", help="Metadata bucket (auto-detected from run config if not specified)"
     )
     pipeline_parser.add_argument(
-        "--bucket-full",
-        help="Full-text bucket (auto-detected from run config if not specified)"
+        "--bucket-full", help="Full-text bucket (auto-detected from run config if not specified)"
     )
     pipeline_parser.add_argument("--credentials-file", help="Custom credentials file path")
 
@@ -1554,13 +1526,16 @@ Examples:
     pipeline_parser.add_argument(
         "--staging-dir", help="Custom staging directory path (default: output/run-name/staging)"
     )
-    pipeline_parser.add_argument("--disk-space-threshold", type=float, default=0.9,
-                                help="Disk usage threshold to pause downloads (0.0-1.0, default: 0.9)")
+    pipeline_parser.add_argument(
+        "--disk-space-threshold",
+        type=float,
+        default=0.9,
+        help="Disk usage threshold to pause downloads (0.0-1.0, default: 0.9)",
+    )
 
     # GRIN options
     pipeline_parser.add_argument(
-        "--secrets-dir",
-        help="Directory containing GRIN secrets (auto-detected from run config if not specified)"
+        "--secrets-dir", help="Directory containing GRIN secrets (auto-detected from run config if not specified)"
     )
     pipeline_parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
 
@@ -1583,8 +1558,7 @@ Examples:
     )
 
     status_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
-    status_parser.add_argument("--storage-type", choices=["local", "minio", "r2", "s3"],
-                              help="Filter by storage type")
+    status_parser.add_argument("--storage-type", choices=["local", "minio", "r2", "s3"], help="Filter by storage type")
 
     # Catchup command
     catchup_parser = subparsers.add_parser(
@@ -1613,11 +1587,11 @@ Examples:
     catchup_parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing (default: 100)")
     catchup_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
     catchup_parser.add_argument("--yes", "-y", action="store_true", help="Auto-confirm without prompting")
-    catchup_parser.add_argument("--dry-run", action="store_true",
-                                help="Show what books would be synced without downloading")
+    catchup_parser.add_argument(
+        "--dry-run", action="store_true", help="Show what books would be synced without downloading"
+    )
     catchup_parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
     catchup_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
-
 
     args = parser.parse_args()
 
@@ -1631,9 +1605,6 @@ Examples:
         await cmd_status(args)
     elif args.command == "catchup":
         await cmd_catchup(args)
-
-
-
 
 
 if __name__ == "__main__":
