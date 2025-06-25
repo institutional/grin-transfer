@@ -16,7 +16,7 @@ from .config import ConfigManager
 from .exporter import BookCollector
 
 sys.path.append('..')
-from grin_to_s3.common import setup_storage_with_checks
+from grin_to_s3.common import setup_logging, setup_storage_with_checks
 
 # Check Python version requirement
 
@@ -29,66 +29,6 @@ if hasattr(sys.stderr, 'reconfigure'):
 # Set up module logger
 logger = logging.getLogger(__name__)
 
-
-def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
-    """
-    Configure logging for book collection operations.
-
-    Args:
-        level: Logging level (DEBUG, INFO, WARNING, ERROR)
-        log_file: Optional log file path (defaults to timestamped file in logs/)
-    """
-    from datetime import datetime
-    from pathlib import Path
-
-    # Create root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, level.upper()))
-
-    # Clear any existing handlers
-    root_logger.handlers.clear()
-
-    # Suppress debug logging from dependency modules
-    if level.upper() == "DEBUG":
-        # Set dependency modules to INFO level to reduce noise
-        logging.getLogger("aiosqlite").setLevel(logging.INFO)
-        logging.getLogger("urllib3").setLevel(logging.INFO)
-        logging.getLogger("requests").setLevel(logging.INFO)
-        logging.getLogger("google").setLevel(logging.INFO)
-        logging.getLogger("google.auth").setLevel(logging.INFO)
-        logging.getLogger("google.oauth2").setLevel(logging.INFO)
-        logging.getLogger("asyncio").setLevel(logging.INFO)
-
-    # Create formatter
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
-
-    # File handler (auto-generate timestamped filename if not provided)
-    if log_file is None:
-        # Create logs directory
-        logs_dir = Path("logs")
-        logs_dir.mkdir(exist_ok=True)
-
-        # Generate timestamped filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = str(logs_dir / f"collect_books_{timestamp}.log")
-    else:
-        # Ensure parent directory exists for custom log file
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    file_handler = logging.FileHandler(str(log_file))
-    file_handler.setFormatter(formatter)
-    root_logger.addHandler(file_handler)
-
-    # Force immediate flushing for file handler
-    def make_flush_func(h):
-        return lambda: h.stream.flush() if hasattr(h, "stream") else None
-
-    # Replace flush method - type ignore for dynamic assignment
-    file_handler.flush = make_flush_func(file_handler)  # type: ignore[method-assign]
-
-    logger.info(f"Logging to file: {log_file}")
-    logger.info(f"Logging initialized at {level} level")
 
 
 def print_resume_command(args, run_name: str) -> None:

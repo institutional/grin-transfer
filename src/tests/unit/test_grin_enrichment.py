@@ -389,7 +389,7 @@ class TestGRINEnrichmentPipeline:
 
         assert pipeline.directory == "TestDir"
         assert pipeline.db_path == "/test/path.db"
-        assert pipeline.rate_limit_delay == 0.5
+        assert pipeline.rate_limiter.requests_per_second == 2.0  # 1/0.5 = 2.0
         assert pipeline.batch_size == 500
         assert pipeline.timeout == 30
 

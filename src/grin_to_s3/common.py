@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import subprocess
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -854,7 +855,6 @@ async def check_minio_connectivity(storage_config: dict) -> None:
         async with create_http_session(timeout=5) as session:
             async with session.get(health_url) as response:
                 if response.status == 200:
-                    print(f"✅ MinIO connectivity verified: {endpoint_url}")
                     return
                 else:
                     print(f"❌ MinIO health check failed with status {response.status}")
@@ -929,3 +929,95 @@ async def setup_storage_with_checks(storage_type: str, storage_config: dict,
 
         # Check connectivity
         await check_minio_connectivity(storage_config)
+
+
+class RateLimiter:
+    """Simple rate limiter for API requests."""
+
+    def __init__(self, requests_per_second: float = 1.0):
+        """Initialize rate limiter.
+
+        Args:
+            requests_per_second: Maximum request rate
+        """
+        self.requests_per_second = requests_per_second
+        self.last_request_time = 0.0
+
+    async def acquire(self):
+        """Wait until next request is allowed."""
+        if self.requests_per_second <= 0:
+            return
+
+        now = time.time()
+        time_since_last = now - self.last_request_time
+        min_interval = 1.0 / self.requests_per_second
+
+        if time_since_last < min_interval:
+            sleep_time = min_interval - time_since_last
+            await asyncio.sleep(sleep_time)
+
+        self.last_request_time = time.time()
+
+
+def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
+    """
+    Configure logging for all pipeline operations.
+
+    Args:
+        level: Logging level (DEBUG, INFO, WARNING, ERROR)
+        log_file: Optional log file path (defaults to timestamped file in logs/)
+    """
+    import logging
+    from datetime import datetime
+    from pathlib import Path
+
+    # Create root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(getattr(logging, level.upper()))
+
+    # Clear any existing handlers
+    root_logger.handlers.clear()
+
+    # Suppress debug logging from dependency modules
+    if level.upper() == "DEBUG":
+        # Set dependency modules to INFO level to reduce noise
+        logging.getLogger("aiosqlite").setLevel(logging.INFO)
+        logging.getLogger("urllib3").setLevel(logging.INFO)
+        logging.getLogger("requests").setLevel(logging.INFO)
+        logging.getLogger("google").setLevel(logging.INFO)
+        logging.getLogger("google.auth").setLevel(logging.INFO)
+        logging.getLogger("google.oauth2").setLevel(logging.INFO)
+        logging.getLogger("asyncio").setLevel(logging.INFO)
+
+    # Create formatter
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+    # File handler (auto-generate timestamped filename if not provided)
+    if log_file is None:
+        # Create logs directory
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
+
+        # Generate timestamped filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = str(logs_dir / f"grin_pipeline_{timestamp}.log")
+    else:
+        # Ensure parent directory exists for custom log file
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    file_handler = logging.FileHandler(str(log_file))
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
+
+    # Force immediate flushing for file handler
+    def make_flush_func(h):
+        return lambda: h.stream.flush() if hasattr(h, "stream") else None
+
+    # Replace flush method - type ignore for dynamic assignment
+    file_handler.flush = make_flush_func(file_handler)  # type: ignore[method-assign]
+
+    print(f"Logging to file: {log_file}\n")
+    logger = logging.getLogger(__name__)
+    logger.info(f"Logging to file: {log_file}")
+    logger.info(f"Logging initialized at {level} level")

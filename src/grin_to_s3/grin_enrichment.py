@@ -18,7 +18,14 @@ from typing import Any
 # Check Python version requirement
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
-from grin_to_s3.common import BackupManager, SlidingWindowRateCalculator, format_duration, pluralize
+from grin_to_s3.common import (
+    BackupManager,
+    RateLimiter,
+    SlidingWindowRateCalculator,
+    format_duration,
+    pluralize,
+    setup_logging,
+)
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
 
 logger = logging.getLogger(__name__)
@@ -39,7 +46,6 @@ class GRINEnrichmentPipeline:
     ):
         self.directory = directory
         self.db_path = db_path
-        self.rate_limit_delay = rate_limit_delay
         self.batch_size = batch_size
         self.max_concurrent_requests = max_concurrent_requests
         self.timeout = timeout
@@ -48,9 +54,10 @@ class GRINEnrichmentPipeline:
         self.grin_client = GRINClient(timeout=timeout, secrets_dir=secrets_dir)
         self.sqlite_tracker = SQLiteProgressTracker(db_path)
 
-        # Rate limiting semaphore for concurrent requests
+        # Rate limiting
+        requests_per_second = 1.0 / rate_limit_delay if rate_limit_delay > 0 else 5.0
+        self.rate_limiter = RateLimiter(requests_per_second=requests_per_second)
         self._rate_limit_semaphore = asyncio.Semaphore(max_concurrent_requests)
-        self._request_timestamps: list[float] = []  # Track request timestamps for rate limiting
 
         # Track if pipeline is shutting down for cleanup
         self._shutdown_requested = False
@@ -92,32 +99,6 @@ class GRINEnrichmentPipeline:
         # Use shared backup manager
         backup_manager = BackupManager(backup_dir)
         return await backup_manager.backup_file(db_path, "database")
-
-    async def _rate_limit(self) -> None:
-        """Apply rate limiting for concurrent GRIN requests."""
-        if self.rate_limit_delay <= 0:
-            return
-
-        current_time = time.time()
-
-        # Clean up old timestamps (keep only last second for QPS calculation)
-        cutoff_time = current_time - 1.0
-        self._request_timestamps = [t for t in self._request_timestamps if t > cutoff_time]
-
-        # Calculate how many requests we can make per second
-        max_requests_per_second = 1.0 / self.rate_limit_delay
-
-        # If we're at the rate limit, wait until we can make another request
-        if len(self._request_timestamps) >= max_requests_per_second:
-            # Wait until the oldest timestamp is more than 1 second old
-            oldest_timestamp = min(self._request_timestamps)
-            wait_time = oldest_timestamp + 1.0 - current_time
-            if wait_time > 0:
-                await asyncio.sleep(wait_time)
-                current_time = time.time()
-
-        # Record this request timestamp
-        self._request_timestamps.append(current_time)
 
     def _calculate_max_batch_size(self, barcodes: list[str]) -> int:
         """Calculate maximum batch size that fits in URL length limit."""
@@ -257,7 +238,7 @@ class GRINEnrichmentPipeline:
         """Fetch a batch with concurrent rate limiting using semaphore."""
         async with self._rate_limit_semaphore:
             # Apply rate limiting
-            await self._rate_limit()
+            await self.rate_limiter.acquire()
 
             # Fetch the batch
             try:
@@ -399,7 +380,7 @@ class GRINEnrichmentPipeline:
         logger.info("Starting GRIN metadata enrichment pipeline")
         logger.info(f"Database: {self.db_path}")
         logger.info(f"Directory: {self.directory}")
-        logger.info(f"Rate limit: {1 / self.rate_limit_delay:.1f} requests/second")
+        logger.info(f"Rate limit: {self.rate_limiter.requests_per_second:.1f} requests/second")
         logger.info(f"Concurrent requests: {self.max_concurrent_requests}")
         logger.info("GRIN batch size: Dynamic (maximum URL length)")
         if limit:
@@ -587,48 +568,6 @@ async def export_enriched_csv(db_path: str, output_file: str) -> None:
             pass
 
 
-def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
-    """Setup logging configuration."""
-    log_level = getattr(logging, level.upper())
-
-    # Create formatters
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-    # Set up root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
-
-    # Clear any existing handlers
-    root_logger.handlers.clear()
-
-    # Add file handler if log_file specified
-    if log_file:
-        from pathlib import Path
-
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(log_level)
-        file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
-
-    # Add console handler for ERROR and above (minimizes console spam during enrichment)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.ERROR)
-    console_handler.setFormatter(formatter)
-    root_logger.addHandler(console_handler)
-
-    # Suppress debug logs from dependencies
-    logging.getLogger("aiohttp").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
-
-    # Also suppress other noisy loggers
-    logging.getLogger("asyncio").setLevel(logging.WARNING)
-    logging.getLogger("concurrent.futures").setLevel(logging.WARNING)
-
-
 def validate_database_file(db_path: str) -> None:
     """
     Validate that the database file exists and is a valid SQLite database.
@@ -703,7 +642,8 @@ async def main() -> None:
     signal.signal(signal.SIGTERM, signal_handler)
 
     parser = argparse.ArgumentParser(
-        description="GRIN metadata enrichment pipeline", formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="GRIN metadata enrichment pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   python grin.py enrich --run-name harvard_2024
@@ -770,7 +710,6 @@ Examples:
         log_file = f"logs/grin_enrichment_{args.command}_{db_name}_{timestamp}.log"
 
         setup_logging(args.log_level, log_file)
-        print(f"Logging to file: {log_file}\n")
 
     try:
         match args.command:

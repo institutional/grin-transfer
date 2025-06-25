@@ -16,7 +16,7 @@ from pathlib import Path
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.common import format_duration, pluralize
+from grin_to_s3.common import RateLimiter, format_duration, pluralize, setup_logging
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
 
 logger = logging.getLogger(__name__)
@@ -37,9 +37,11 @@ class ProcessingClient:
         timeout: int = 60,
     ):
         self.directory = directory
-        self.rate_limit_delay = rate_limit_delay
         self.grin_client = GRINClient(timeout=timeout, secrets_dir=secrets_dir)
-        self._request_timestamps: list[float] = []
+
+        # Rate limiting
+        requests_per_second = 1.0 / rate_limit_delay if rate_limit_delay > 0 else 5.0
+        self.rate_limiter = RateLimiter(requests_per_second=requests_per_second)
 
     async def cleanup(self) -> None:
         """Clean up resources and close connections safely."""
@@ -49,32 +51,6 @@ class ProcessingClient:
                 logger.debug("Closed GRIN client session")
         except Exception as e:
             logger.warning(f"Error closing GRIN client session: {e}")
-
-    async def _rate_limit(self) -> None:
-        """Apply rate limiting for GRIN requests."""
-        if self.rate_limit_delay <= 0:
-            return
-
-        current_time = time.time()
-
-        # Clean up old timestamps (keep only last second for QPS calculation)
-        cutoff_time = current_time - 1.0
-        self._request_timestamps = [t for t in self._request_timestamps if t > cutoff_time]
-
-        # Calculate how many requests we can make per second
-        max_requests_per_second = 1.0 / self.rate_limit_delay
-
-        # If we're at the rate limit, wait until we can make another request
-        if len(self._request_timestamps) >= max_requests_per_second:
-            # Wait until the oldest timestamp is more than 1 second old
-            oldest_timestamp = min(self._request_timestamps)
-            wait_time = oldest_timestamp + 1.0 - current_time
-            if wait_time > 0:
-                await asyncio.sleep(wait_time)
-                current_time = time.time()
-
-        # Record this request timestamp
-        self._request_timestamps.append(current_time)
 
     async def request_processing_batch(self, barcodes: list[str]) -> dict[str, str]:
         """
@@ -92,7 +68,7 @@ class ProcessingClient:
         if not barcodes:
             return {}
 
-        await self._rate_limit()
+        await self.rate_limiter.acquire()
 
         try:
             # Use GRIN's _process endpoint with comma-separated barcodes
@@ -283,8 +259,7 @@ class ProcessingPipeline:
             logger.debug("Validating GRIN credentials...")
             try:
                 await asyncio.wait_for(
-                    self.processing_client.grin_client.auth.validate_credentials(self.directory),
-                    timeout=30.0
+                    self.processing_client.grin_client.auth.validate_credentials(self.directory), timeout=30.0
                 )
             except TimeoutError:
                 print("Credential validation timed out after 30 seconds")
@@ -319,10 +294,7 @@ class ProcessingPipeline:
             # Get current GRIN in-process books to avoid duplicate requests
             print("Getting current GRIN in-process books to avoid duplicates...")
             try:
-                in_process_books = await asyncio.wait_for(
-                    self.processing_client.get_in_process_books(),
-                    timeout=60.0
-                )
+                in_process_books = await asyncio.wait_for(self.processing_client.get_in_process_books(), timeout=60.0)
                 print(f"Found {len(in_process_books):,} books currently in GRIN processing queue")
             except TimeoutError:
                 print("❌ Getting in-process books timed out after 60 seconds")
@@ -360,7 +332,7 @@ class ProcessingPipeline:
                         WHERE processing_request_timestamp IS NULL
                         ORDER BY created_at LIMIT ? OFFSET ?
                         """,
-                        (fetch_batch_size, fetch_offset)
+                        (fetch_batch_size, fetch_offset),
                     )
                     rows = await cursor.fetchall()
                     batch_barcodes = [row[0] for row in rows]
@@ -370,10 +342,7 @@ class ProcessingPipeline:
                     break
 
                 # Filter out books currently in GRIN's processing queue
-                new_candidates = [
-                    barcode for barcode in batch_barcodes
-                    if barcode not in in_process_books
-                ]
+                new_candidates = [barcode for barcode in batch_barcodes if barcode not in in_process_books]
 
                 candidate_barcodes.extend(new_candidates)
                 fetch_offset += len(batch_barcodes)
@@ -535,7 +504,7 @@ class ProcessingPipeline:
         # Split into batches
         batches: list[list[str]] = []
         for i in range(0, len(candidate_barcodes), self.batch_size):
-            batch = candidate_barcodes[i:i + self.batch_size]
+            batch = candidate_barcodes[i : i + self.batch_size]
             if limit:
                 # Calculate how many books we still need
                 books_processed = sum(len(b) for b in batches)
@@ -553,10 +522,7 @@ class ProcessingPipeline:
         print()
 
         # Create tasks for all batches
-        tasks = [
-            self._process_single_batch(batch, i + 1)
-            for i, batch in enumerate(batches)
-        ]
+        tasks = [self._process_single_batch(batch, i + 1) for i, batch in enumerate(batches)]
 
         # Start queue size monitoring task
         queue_monitor_task = asyncio.create_task(self._monitor_queue_size_periodically())
@@ -616,20 +582,17 @@ class ProcessingPipeline:
                 # Report queue status every 30 seconds
                 if current_time - last_report_time >= report_interval:
                     try:
-                        status = await asyncio.wait_for(
-                            self.get_processing_status(),
-                            timeout=10.0
-                        )
+                        status = await asyncio.wait_for(self.get_processing_status(), timeout=10.0)
                         timestamp = datetime.now().strftime("%H:%M:%S")
 
                         # Calculate change in queue size since start
-                        current_in_process = status['in_process']
-                        queue_space = status['queue_space']
+                        current_in_process = status["in_process"]
+                        queue_space = status["queue_space"]
 
                         # Show processing progress if we've made requests
                         progress_info = ""
-                        if self.stats['successful'] > 0 or self.stats['failed'] > 0:
-                            total_requests = self.stats['successful'] + self.stats['failed']
+                        if self.stats["successful"] > 0 or self.stats["failed"] > 0:
+                            total_requests = self.stats["successful"] + self.stats["failed"]
                             progress_info = f" | Progress: {total_requests:,} requests completed"
 
                         print(
@@ -709,11 +672,13 @@ class ProcessingMonitor:
 
         # Check if database file exists before attempting to connect
         from pathlib import Path
+
         if not Path(self.db_path).exists():
             return set()
 
         try:
             import sqlite3
+
             # Use a shorter timeout to avoid hanging in CI
             with sqlite3.connect(self.db_path, timeout=5.0) as conn:
                 cursor = conn.cursor()
@@ -864,7 +829,7 @@ class ProcessingMonitor:
         output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             f.write("# Converted books ready for download\n")
             f.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"# Total: {len(converted):,} books\n")
@@ -952,6 +917,7 @@ class ProcessingMonitor:
 
             # Use the database tracker to make atomic status changes
             from grin_to_s3.collect_books.models import SQLiteProgressTracker
+
             db_tracker = SQLiteProgressTracker(self.db_path)
 
             # Update books that are now converted
@@ -983,43 +949,6 @@ class ProcessingMonitor:
         except Exception as e:
             logger.warning(f"Failed to update book statuses: {e}")
             return {}
-
-
-def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
-    """Setup logging configuration."""
-    log_level = getattr(logging, level.upper())
-
-    # Create formatters
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-
-    # Set up root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(log_level)
-
-    # Clear any existing handlers
-    root_logger.handlers.clear()
-
-    # Add file handler if log_file specified
-    if log_file:
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(log_level)
-        file_handler.setFormatter(formatter)
-        root_logger.addHandler(file_handler)
-
-    # Add console handler for warnings and above
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.WARNING)
-    console_handler.setFormatter(formatter)
-    root_logger.addHandler(console_handler)
-
-    # Suppress debug logs from dependencies
-    logging.getLogger("aiohttp").setLevel(logging.WARNING)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("asyncio").setLevel(logging.WARNING)
-    logging.getLogger("aiosqlite").setLevel(logging.WARNING)
 
 
 def validate_database_file(db_path: str) -> None:
@@ -1064,7 +993,6 @@ async def cmd_request(args) -> None:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file = f"logs/processing_request_{db_name}_{timestamp}.log"
     setup_logging(args.log_level, log_file)
-    print(f"Logging to file: {log_file}\n")
 
     # Create and run pipeline
     try:
@@ -1094,6 +1022,7 @@ async def cmd_request(args) -> None:
 
             # Count books by processing request status
             import aiosqlite
+
             async with aiosqlite.connect(pipeline.db_path) as db:
                 cursor = await db.execute(
                     """
@@ -1267,18 +1196,18 @@ def detect_status_changes(previous: dict, current: dict) -> list[str]:
 
     # Check for changes in our run metrics (most important)
     our_metrics = [
-        ('our_converted', 'Our converted'),
-        ('our_in_process', 'Our in process'),
-        ('our_failed', 'Our failed'),
-        ('our_total_processed', 'Our total processed'),
+        ("our_converted", "Our converted"),
+        ("our_in_process", "Our in process"),
+        ("our_failed", "Our failed"),
+        ("our_total_processed", "Our total processed"),
     ]
 
     # Check for changes in overall GRIN metrics
     all_metrics = [
-        ('all_converted', 'All converted'),
-        ('all_in_process', 'All in process'),
-        ('all_failed', 'All failed'),
-        ('queue_space_available', 'Queue space available'),
+        ("all_converted", "All converted"),
+        ("all_in_process", "All in process"),
+        ("all_failed", "All failed"),
+        ("queue_space_available", "Queue space available"),
     ]
 
     for metric, label in our_metrics + all_metrics:
@@ -1346,16 +1275,12 @@ Examples:
         "--status-only", action="store_true", help="Only check current status, don't make requests"
     )
     request_parser.add_argument(
-        "--queue-report-interval",
-        type=int,
-        default=30,
-        help="Queue status reporting interval in seconds (default: 30)"
+        "--queue-report-interval", type=int, default=30, help="Queue status reporting interval in seconds (default: 30)"
     )
 
     # GRIN options
     request_parser.add_argument(
-        "--secrets-dir",
-        help="Directory containing GRIN secrets files (auto-detected from run config if not specified)"
+        "--secrets-dir", help="Directory containing GRIN secrets files (auto-detected from run config if not specified)"
     )
 
     # Logging
@@ -1396,8 +1321,7 @@ Examples:
 
     monitor_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
     monitor_parser.add_argument(
-        "--secrets-dir",
-        help="Directory containing GRIN secrets files (auto-detected from run config if not specified)"
+        "--secrets-dir", help="Directory containing GRIN secrets files (auto-detected from run config if not specified)"
     )
 
     # What to show
@@ -1410,9 +1334,7 @@ Examples:
     # Options
     monitor_parser.add_argument("--limit", type=int, default=50, help="Limit number of results to show (default: 50)")
     monitor_parser.add_argument(
-        "--watch",
-        action="store_true",
-        help="Watch mode: poll GRIN every 5 minutes for status updates"
+        "--watch", action="store_true", help="Watch mode: poll GRIN every 5 minutes for status updates"
     )
 
     args = parser.parse_args()

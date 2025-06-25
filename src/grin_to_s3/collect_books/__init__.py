@@ -11,9 +11,11 @@ Public API:
     RateLimiter: Rate limiting utility for API requests
 """
 
+from grin_to_s3.common import RateLimiter
+
 from .config import ConfigManager, ExportConfig, PaginationConfig
 from .exporter import BookCollector
-from .models import BookRecord, BoundedSet, RateLimiter
+from .models import BookRecord, BoundedSet
 
 # Public API exports
 __all__ = [

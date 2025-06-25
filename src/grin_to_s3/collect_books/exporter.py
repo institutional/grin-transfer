@@ -26,6 +26,7 @@ from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
     BackupManager,
     ProgressReporter,
+    RateLimiter,
     create_storage_from_config,
     format_bytes,
     format_duration,
@@ -34,7 +35,7 @@ from grin_to_s3.common import (
 from grin_to_s3.storage import BookStorage
 
 from .config import ExportConfig, PaginationConfig
-from .models import BookRecord, BoundedSet, RateLimiter, SQLiteProgressTracker
+from .models import BookRecord, BoundedSet, SQLiteProgressTracker
 
 # Set up module logger
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ class BookCollector:
 
         # Initialize client (will be replaced with mock if in test mode)
         self.client = GRINClient(secrets_dir=secrets_dir)
-        self.rate_limiter = RateLimiter(self.config.rate_limit, burst_limit=self.config.burst_limit)
+        self.rate_limiter = RateLimiter(self.config.rate_limit)
         self.storage_config = storage_config
         self.resume_file = Path(self.config.resume_file)
 
@@ -315,7 +316,7 @@ class BookCollector:
             async with aiofiles.open(archive_path, "w") as dst:
                 await dst.write(content)
 
-            print(f"📁 Progress file archived: {archive_name}")
+            logger.debug(f"Progress file archived: {archive_name}")
             return True
 
         except Exception as e:
@@ -540,7 +541,7 @@ class BookCollector:
 
     async def get_all_books_html(self) -> AsyncGenerator[tuple[str, set[str]], None]:
         """Stream all book data from GRIN using HTML pagination with large page sizes."""
-        logger.info("Streaming all books from GRIN using HTML pagination with large page sizes...")
+        logger.info("Streaming all books from GRIN...")
 
         # Determine starting point for pagination
         start_page = self.pagination_state.get("current_page", 1)
@@ -786,7 +787,7 @@ class BookCollector:
             return False
 
         # Archive existing progress file before starting execution
-        print("Archiving progress file for safety...")
+        logger.debug("Backing up progress file...")
         await self._archive_progress_file()
 
         # Backup database before starting work
