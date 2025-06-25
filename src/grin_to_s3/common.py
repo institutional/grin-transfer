@@ -947,15 +947,15 @@ class RateLimiter:
         """Wait until next request is allowed."""
         if self.requests_per_second <= 0:
             return
-            
+
         now = time.time()
         time_since_last = now - self.last_request_time
         min_interval = 1.0 / self.requests_per_second
-        
+
         if time_since_last < min_interval:
             sleep_time = min_interval - time_since_last
             await asyncio.sleep(sleep_time)
-            
+
         self.last_request_time = time.time()
 
 

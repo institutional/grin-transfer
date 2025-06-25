@@ -380,7 +380,7 @@ class GRINEnrichmentPipeline:
         logger.info("Starting GRIN metadata enrichment pipeline")
         logger.info(f"Database: {self.db_path}")
         logger.info(f"Directory: {self.directory}")
-        logger.info(f"Rate limit: {1 / self.rate_limit_delay:.1f} requests/second")
+        logger.info(f"Rate limit: {self.rate_limiter.requests_per_second:.1f} requests/second")
         logger.info(f"Concurrent requests: {self.max_concurrent_requests}")
         logger.info("GRIN batch size: Dynamic (maximum URL length)")
         if limit:

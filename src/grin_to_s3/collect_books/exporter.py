@@ -26,6 +26,7 @@ from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
     BackupManager,
     ProgressReporter,
+    RateLimiter,
     create_storage_from_config,
     format_bytes,
     format_duration,
@@ -35,7 +36,6 @@ from grin_to_s3.storage import BookStorage
 
 from .config import ExportConfig, PaginationConfig
 from .models import BookRecord, BoundedSet, SQLiteProgressTracker
-from grin_to_s3.common import RateLimiter
 
 # Set up module logger
 logger = logging.getLogger(__name__)
@@ -758,7 +758,7 @@ class BookCollector:
         Book collection with pagination.
 
         Processes books one at a time with reliable pagination and resume capability.
-        
+
         Returns:
             True if collection completed successfully, False if interrupted or incomplete
         """
@@ -994,7 +994,7 @@ class BookCollector:
         print(f"  Resume count: {self.resume_count}")
 
         print(f"\nProgress file: {self.resume_file}")
-        
+
         # Return completion status
         return completed_successfully
 
