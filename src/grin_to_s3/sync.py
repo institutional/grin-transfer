@@ -73,7 +73,7 @@ def validate_and_parse_barcodes(barcodes_str: str) -> list[str]:
     if not barcodes:
         raise ValueError("No valid barcodes found")
 
-    # Basic barcode validation - check for reasonable forma
+    # Basic barcode validation - check for reasonable format
     for barcode in barcodes:
         if not barcode:
             raise ValueError("Empty barcode found")
@@ -855,7 +855,7 @@ class SyncPipeline:
                             if not task.done():
                                 task.cancel()
 
-                        # Wait briefly for cancellation to take effec
+                        # Wait briefly for cancellation to take effect
                         if all_tasks:
                             try:
                                 await asyncio.wait_for(asyncio.gather(*all_tasks, return_exceptions=True), timeout=5)
@@ -964,7 +964,7 @@ class SyncPipeline:
                                 else:
                                     logger.info(f"[{barcode}] Download complete: {file_size_mb:.1f} MB, upload queued")
 
-                                # Mark as processed for download queue managemen
+                                # Mark as processed for download queue management
                                 downloads_completed += 1
 
                             except Exception as e:
@@ -1520,7 +1520,7 @@ async def cmd_pipeline(args) -> None:
         # Set up signal handlers for graceful shutdown
         def signal_handler(signum: int, frame: Any) -> None:
             if pipeline._shutdown_requested:
-                # Second interrupt - hard exi
+                # Second interrupt - hard exit
                 print(f"\nReceived second signal {signum}, forcing immediate exit...")
                 import sys
 
