@@ -792,7 +792,7 @@ class SyncPipeline:
             self.progress_reporter.start()
 
             # Decoupled download/upload processing for continuous downloads
-            downloads_started = 0  # Track total downloads started to respect limi
+            downloads_started = 0  # Track total downloads started to respect limit
             active_download_tasks = {}  # barcode -> download task
             active_upload_tasks: dict[str, asyncio.Task] = {}  # barcode -> upload task
 
@@ -1039,7 +1039,7 @@ class SyncPipeline:
                                     result_dict = await task
                                     if result_dict["status"] == "completed":
                                         self.stats["completed"] += 1
-                                        self.stats["processed"] += 1  # Track overall processed coun
+                                        self.stats["processed"] += 1  # Track overall processed count
 
                                         # Track skipped files separately
                                         if result_dict.get("skipped"):
@@ -1054,7 +1054,7 @@ class SyncPipeline:
                                         await self.db_tracker.add_status_change(completed_barcode, "sync", "failed")
                                         logger.error(f"[{completed_barcode}] Upload task failed")
 
-                                        # Check if this was a fatal GPG decryption error in the resul
+                                        # Check if this was a fatal GPG decryption error in the result
                                         error_msg = result_dict.get("error", "")
                                         if "GPG decryption failed" in error_msg:
                                             self._fatal_error = error_msg
@@ -1323,7 +1323,7 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
             # Get books by storage type and extract bucket from storage_path
             async with aiosqlite.connect(db_path) as db:
                 cursor = await db.execute("""
-                    SELECT storage_type, storage_path, COUNT(*) as coun
+                    SELECT storage_type, storage_path, COUNT(*) as count
                     FROM books
                     WHERE storage_type IS NOT NULL AND storage_path IS NOT NULL
                     GROUP BY storage_type, storage_path
@@ -1338,7 +1338,7 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
                         # Extract bucket from path (first part after removing prefix)
                         bucket = "unknown"
                         if path:
-                            # For paths like "bucket/BARCODE/..." extract the bucke
+                            # For paths like "bucket/BARCODE/..." extract the bucket
                             parts = path.split("/")
                             if parts:
                                 bucket = parts[0]
@@ -1632,7 +1632,7 @@ async def cmd_catchup(args) -> None:
         storage_type = storage_config_dict["type"]
 
         # For R2/S3, we need to load the credentials file to get bucket information
-        # Create a minimal args object to use build_storage_config_dic
+        # Create a minimal args object to use build_storage_config_dict
         from argparse import Namespace
 
         temp_args = Namespace(
@@ -1721,7 +1721,7 @@ async def cmd_catchup(args) -> None:
         books_to_sync = await db_tracker.get_books_for_sync(
             storage_type=storage_type,
             limit=999999,  # Get all candidates
-            status_filter=None,  # We want books that haven't been synced ye
+            status_filter=None,  # We want books that haven't been synced yet
             converted_barcodes=set(catchup_candidates),
             specific_barcodes=None,  # Not filtering to specific barcodes in catchup
         )
