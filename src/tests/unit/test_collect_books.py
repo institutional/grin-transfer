@@ -66,29 +66,25 @@ class TestRateLimiter:
     """Test rate limiting functionality."""
 
     @pytest.mark.asyncio
-    async def test_rate_limiter_allows_burst(self):
-        """Test that rate limiter allows burst requests."""
-        limiter = RateLimiter(requests_per_second=1.0, burst_limit=3)
+    async def test_rate_limiter_allows_first_request(self):
+        """Test that rate limiter allows first request immediately."""
+        limiter = RateLimiter(requests_per_second=1.0)
 
         start_time = asyncio.get_event_loop().time()
-
-        # Should allow 3 immediate requests
-        for _ in range(3):
-            await limiter.acquire()
-
+        await limiter.acquire()
         elapsed = asyncio.get_event_loop().time() - start_time
+        
         assert elapsed < 0.1  # Should be nearly instantaneous
 
     @pytest.mark.asyncio
     async def test_rate_limiter_enforces_rate(self):
-        """Test that rate limiter enforces rate after burst."""
-        limiter = RateLimiter(requests_per_second=10.0, burst_limit=2)
+        """Test that rate limiter enforces rate between requests."""
+        limiter = RateLimiter(requests_per_second=10.0)
 
-        # Use up burst
-        await limiter.acquire()
+        # First request should be immediate
         await limiter.acquire()
 
-        # Next request should be delayed
+        # Second request should be delayed
         start_time = asyncio.get_event_loop().time()
         await limiter.acquire()
         elapsed = asyncio.get_event_loop().time() - start_time

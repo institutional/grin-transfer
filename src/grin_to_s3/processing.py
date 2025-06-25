@@ -41,7 +41,7 @@ class ProcessingClient:
 
         # Rate limiting
         requests_per_second = 1.0 / rate_limit_delay if rate_limit_delay > 0 else 5.0
-        self.rate_limiter = RateLimiter(requests_per_second=requests_per_second, burst_limit=5)
+        self.rate_limiter = RateLimiter(requests_per_second=requests_per_second)
 
     async def cleanup(self) -> None:
         """Clean up resources and close connections safely."""

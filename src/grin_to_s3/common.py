@@ -933,33 +933,28 @@ async def setup_storage_with_checks(storage_type: str, storage_config: dict,
 
 
 class RateLimiter:
-    """Configurable rate limiter for API requests using token bucket algorithm."""
+    """Simple rate limiter for API requests."""
 
-    def __init__(self, requests_per_second: float = 1.0, burst_limit: int = 5):
+    def __init__(self, requests_per_second: float = 1.0):
         """Initialize rate limiter.
 
         Args:
-            requests_per_second: Maximum sustained request rate
-            burst_limit: Maximum number of requests allowed in a burst
+            requests_per_second: Maximum request rate
         """
         self.requests_per_second = requests_per_second
-        self.burst_limit = burst_limit
-        self.tokens = float(burst_limit)
-        self.last_update = time.time()
+        self.last_request_time = 0.0
 
     async def acquire(self):
-        """Wait until a request token is available."""
+        """Wait until next request is allowed."""
+        if self.requests_per_second <= 0:
+            return
+            
         now = time.time()
-        elapsed = now - self.last_update
-
-        # Add tokens based on elapsed time
-        self.tokens = min(self.burst_limit, self.tokens + elapsed * self.requests_per_second)
-        self.last_update = now
-
-        if self.tokens < 1:
-            # Wait until we have a token
-            wait_time = (1 - self.tokens) / self.requests_per_second
-            await asyncio.sleep(wait_time)
-            self.tokens = 1
-
-        self.tokens -= 1
+        time_since_last = now - self.last_request_time
+        min_interval = 1.0 / self.requests_per_second
+        
+        if time_since_last < min_interval:
+            sleep_time = min_interval - time_since_last
+            await asyncio.sleep(sleep_time)
+            
+        self.last_request_time = time.time()

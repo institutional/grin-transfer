@@ -62,7 +62,7 @@ class BookCollector:
 
         # Initialize client (will be replaced with mock if in test mode)
         self.client = GRINClient(secrets_dir=secrets_dir)
-        self.rate_limiter = RateLimiter(self.config.rate_limit, burst_limit=self.config.burst_limit)
+        self.rate_limiter = RateLimiter(self.config.rate_limit)
         self.storage_config = storage_config
         self.resume_file = Path(self.config.resume_file)
 

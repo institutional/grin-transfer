@@ -49,7 +49,7 @@ class GRINEnrichmentPipeline:
 
         # Rate limiting
         requests_per_second = 1.0 / rate_limit_delay if rate_limit_delay > 0 else 5.0
-        self.rate_limiter = RateLimiter(requests_per_second=requests_per_second, burst_limit=max_concurrent_requests)
+        self.rate_limiter = RateLimiter(requests_per_second=requests_per_second)
         self._rate_limit_semaphore = asyncio.Semaphore(max_concurrent_requests)
 
         # Track if pipeline is shutting down for cleanup
