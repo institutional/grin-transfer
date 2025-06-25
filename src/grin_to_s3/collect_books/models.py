@@ -686,7 +686,8 @@ class SQLiteProgressTracker:
         storage_type: str,
         limit: int = 100,
         status_filter: str | None = None,
-        converted_barcodes: set[str] | None = None
+        converted_barcodes: set[str] | None = None,
+        specific_barcodes: list[str] | None = None
     ) -> list[str]:
         """Get barcodes for books that need syncing to storage.
 
@@ -695,20 +696,29 @@ class SQLiteProgressTracker:
             limit: Maximum number of books to return
             status_filter: Optional sync status filter ("pending", "failed", etc.)
             converted_barcodes: Optional set of barcodes known to be converted/ready for download
+            specific_barcodes: Optional list of specific barcodes to sync
 
         Returns:
             List of barcodes that need syncing
         """
         await self.init_db()
 
-        if converted_barcodes:
+        if specific_barcodes:
+            # Filter to only the specific barcodes requested
+            placeholders = ','.join('?' * len(specific_barcodes))
+            base_query = f"""
+                SELECT barcode FROM books
+                WHERE barcode IN ({placeholders})
+            """
+            params: list[Any] = list(specific_barcodes)
+        elif converted_barcodes:
             # Filter to only books that are known to be converted AND exist in our database
             placeholders = ','.join('?' * len(converted_barcodes))
             base_query = f"""
                 SELECT barcode FROM books
                 WHERE barcode IN ({placeholders})
             """
-            params: list[Any] = list(converted_barcodes)
+            params = list(converted_barcodes)
         else:
             # Original behavior - check all books in database
             base_query = """
@@ -810,7 +820,7 @@ class SQLiteProgressTracker:
                 SELECT COUNT(DISTINCT b.barcode)
                 FROM books b
                 JOIN book_status_history h ON b.barcode = h.barcode
-                {where_clause} AND h.status_type = 'sync' AND h.status_value = 'downloaded'
+                {where_clause} AND h.status_type = 'sync' AND h.status_value = 'completed'
                 AND h.timestamp = (
                     SELECT MAX(timestamp)
                     FROM book_status_history h2
