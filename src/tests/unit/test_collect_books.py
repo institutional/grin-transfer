@@ -73,7 +73,7 @@ class TestRateLimiter:
         start_time = asyncio.get_event_loop().time()
         await limiter.acquire()
         elapsed = asyncio.get_event_loop().time() - start_time
-        
+
         assert elapsed < 0.1  # Should be nearly instantaneous
 
     @pytest.mark.asyncio
