@@ -156,10 +156,6 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict, storage_
         return False
 
 
-# Backwards compatibility alias
-async def ensure_bucket_exists_with_storage(storage, storage_type: str, storage_config: dict) -> bool:
-    """Legacy function for backwards compatibility."""
-    return await ensure_bucket_exists(storage_type, storage_config, storage)
 
 
 async def download_book(
