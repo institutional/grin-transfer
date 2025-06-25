@@ -87,6 +87,7 @@ def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
     # Replace flush method - type ignore for dynamic assignment
     file_handler.flush = make_flush_func(file_handler)  # type: ignore[method-assign]
 
+    print(f"Logging to file: {log_file}")
     logger.info(f"Logging to file: {log_file}")
     logger.info(f"Logging initialized at {level} level")
 
