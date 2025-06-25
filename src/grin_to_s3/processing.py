@@ -31,7 +31,7 @@ class ProcessingClient:
 
     def __init__(
         self,
-        directory: str = "Harvard",
+        directory: str,
         rate_limit_delay: float = 0.2,  # 5 QPS
         secrets_dir: str | None = None,
         timeout: int = 60,
@@ -184,7 +184,7 @@ class ProcessingPipeline:
     def __init__(
         self,
         db_path: str,
-        directory: str = "Harvard",
+        directory: str,
         rate_limit_delay: float = 0.2,  # 5 QPS
         batch_size: int = 200,  # Increased from 100 based on testing
         max_in_process: int = 50000,  # GRIN's max queue limit
@@ -617,7 +617,7 @@ class ProcessingPipeline:
 class ProcessingMonitor:
     """Monitor for GRIN book processing status."""
 
-    def __init__(self, directory: str = "Harvard", secrets_dir: str | None = None):
+    def __init__(self, directory: str, secrets_dir: str | None = None):
         self.directory = directory
         self.grin_client = GRINClient(secrets_dir=secrets_dir)
         self.db_path: str | None = None
@@ -985,6 +985,12 @@ async def cmd_request(args) -> None:
     # Apply run configuration defaults
     apply_run_config_to_args(args, args.db_path)
 
+    # Validate that we have a library directory
+    if not getattr(args, 'grin_library_directory', None):
+        print("❌ Error: No GRIN library directory specified. This should be set in the run configuration.")
+        print("Make sure you collected books with --library-directory argument.")
+        sys.exit(1)
+
     # Validate database
     validate_database_file(args.db_path)
 
@@ -998,7 +1004,7 @@ async def cmd_request(args) -> None:
     try:
         pipeline = ProcessingPipeline(
             db_path=args.db_path,
-            directory="Harvard",  # Use default if not set
+            directory=args.grin_library_directory,
             rate_limit_delay=args.rate_limit,
             batch_size=args.batch_size,
             max_in_process=args.max_in_process,
@@ -1061,9 +1067,15 @@ async def cmd_request(args) -> None:
 
 async def cmd_monitor(args) -> None:
     """Handle the 'monitor' command."""
+    # Validate that we have a library directory from run config
+    if not getattr(args, 'grin_library_directory', None):
+        print("❌ Error: No GRIN library directory specified. This should be set in the run configuration.")
+        print("Make sure you collected books with --library-directory argument.")
+        sys.exit(1)
+
     try:
         monitor = ProcessingMonitor(
-            directory="Harvard",  # Use default if not set
+            directory=args.grin_library_directory,
             secrets_dir=args.secrets_dir,
         )
 
@@ -1072,7 +1084,7 @@ async def cmd_monitor(args) -> None:
 
         # Validate credentials
         try:
-            await monitor.grin_client.auth.validate_credentials("Harvard")
+            await monitor.grin_client.auth.validate_credentials(args.grin_library_directory)
         except Exception as e:
             print(f"Error: Credential validation failed: {e}")
             sys.exit(1)

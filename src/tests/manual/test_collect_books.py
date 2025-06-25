@@ -103,7 +103,7 @@ async def test_grin_line_parsing():
     print("Testing GRIN Line Parsing")
     print("=" * 24)
 
-    collector = BookCollector()
+    collector = BookCollector(directory="TestLibrary")
 
     # Test sample GRIN line (format from V1)
     sample_line = "TEST123\t2024/01/01 10:00\t2024/01/02 11:00\t2024/01/03 12:00\t2024/01/04 13:00\t2024/01/05 14:00\t\t2024/01/06 15:00\thttps://books.google.com/books?id=test"
@@ -196,7 +196,7 @@ async def test_integration_simulation():
         Path(temp_dir) / "integration_test.csv"
 
         # Mock some book processing
-        collector = BookCollector(rate_limit=100.0)  # Very fast for testing
+        collector = BookCollector(directory="TestLibrary", rate_limit=100.0)  # Very fast for testing
 
         # Simulate processing a few books
         mock_states = {

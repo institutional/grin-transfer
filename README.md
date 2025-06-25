@@ -28,19 +28,21 @@ Collects book metadata from GRIN into local SQLite database with run configurati
 ```bash
 # Basic collection with three-bucket storage
 python grin.py collect --run-name "harvard_2024" \
+  --library-directory Harvard \
   --storage r2 \
   --bucket-raw grin-raw \
   --bucket-meta grin-meta \
   --bucket-full grin-full
 
 # Local storage (no buckets required)
-python grin.py collect --run-name "local_test" --storage local
+python grin.py collect --run-name "local_test" --library-directory Harvard --storage local
 
 # Test mode with mock data
-python grin.py collect --test-mode --limit 100 --storage local
+python grin.py collect --test-mode --library-directory Harvard --limit 100 --storage local
 ```
 
 **Key options:**
+- `--library-directory`: GRIN library directory name (required, e.g., Harvard, MIT, Yale)
 - `--run-name`: Named run for organized output (defaults to timestamp)
 - `--storage`: Storage backend (`local`, `minio`, `r2`, `s3`)
 - `--bucket-raw`: Raw data bucket (sync archives)
@@ -149,25 +151,25 @@ The system uses a three-bucket architecture for different data types:
 
 **Local Storage:**
 ```bash
-python grin.py collect --run-name "local" --storage local
+python grin.py collect --run-name "local" --library-directory Harvard --storage local
 ```
 
 **Cloudflare R2:**
 ```bash
-python grin.py collect --run-name "r2" --storage r2 \
+python grin.py collect --run-name "r2" --library-directory Harvard --storage r2 \
   --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
 ```
 
 **MinIO:**
 ```bash
-python grin.py collect --run-name "minio" --storage minio \
+python grin.py collect --run-name "minio" --library-directory Harvard --storage minio \
   --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full \
   --storage-config endpoint_url=localhost:9000
 ```
 
 **AWS S3:**
 ```bash
-python grin.py collect --run-name "s3" --storage s3 \
+python grin.py collect --run-name "s3" --library-directory Harvard --storage s3 \
   --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
 ```
 
@@ -177,7 +179,7 @@ The first command (`grin.py collect`) writes configuration to the run directory.
 
 ```bash
 # Initial collection creates run config
-python grin.py collect --run-name "my_run" --storage r2 \
+python grin.py collect --run-name "my_run" --library-directory Harvard --storage r2 \
   --bucket-raw raw --bucket-meta meta --bucket-full full
 
 # Other commands auto-detect config from run name
@@ -193,7 +195,7 @@ Configuration is stored in `output/{run_name}/run_config.json` and includes stor
 1. **Collect books** with storage configuration:
    ```bash
    python grin.py collect --run-name "collection_2024" \
-     --storage r2 --bucket-raw raw --bucket-meta meta --bucket-full full
+     --library-directory Harvard --storage r2 --bucket-raw raw --bucket-meta meta --bucket-full full
    ```
 
 2. **Request processing** for conversion:
