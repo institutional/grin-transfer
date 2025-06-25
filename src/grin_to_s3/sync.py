@@ -39,6 +39,15 @@ from grin_to_s3.run_config import (
 
 logger = logging.getLogger(__name__)
 
+# Global cache for bucket existence checks
+_bucket_checked_cache: set[str] = set()
+
+
+def reset_bucket_cache() -> None:
+    """Reset the bucket existence cache (useful for testing)."""
+    global _bucket_checked_cache
+    _bucket_checked_cache.clear()
+
 
 def validate_and_parse_barcodes(barcodes_str: str) -> list[str]:
     """Validate and parse comma-separated barcode string.
@@ -263,6 +272,85 @@ class SyncPipeline:
             logger.warning(f"[{barcode}] Error checking existing file for ETag: {e}")
             return False
 
+    async def _ensure_bucket_exists(self, bucket_name: str) -> bool:
+        """Ensure the bucket exists, create if it doesn't.
+
+        Args:
+            bucket_name: Name of the bucket to check/create
+
+        Returns:
+            True if bucket exists or was created successfully, False otherwise
+        """
+        if self.storage_type == "local":
+            return True
+
+        bucket_key = f"{self.storage_type}:{bucket_name}"
+
+        # Check cache first to avoid repeated checks
+        if bucket_key in _bucket_checked_cache:
+            logger.debug(f"Bucket {bucket_name} already verified (skipping check)")
+            return True
+
+        try:
+            # Check if bucket exists using boto3 directly (more reliable than fsspec)
+            if self.storage_type in ("minio", "s3", "r2"):
+                import boto3
+                from botocore.exceptions import ClientError
+
+                # Create boto3 client with same credentials
+                s3_config = {
+                    "aws_access_key_id": self.storage_config.get("access_key"),
+                    "aws_secret_access_key": self.storage_config.get("secret_key"),
+                }
+                if self.storage_type == "minio":
+                    s3_config["endpoint_url"] = self.storage_config.get("endpoint_url")
+                elif self.storage_type == "r2":
+                    account_id = self.storage_config.get("account_id")
+                    if account_id:
+                        s3_config["endpoint_url"] = f"https://{account_id}.r2.cloudflarestorage.com"
+
+                s3_client = boto3.client('s3', **s3_config)
+
+                try:
+                    s3_client.head_bucket(Bucket=bucket_name)
+                    logger.debug(f"Bucket '{bucket_name}' exists")
+                    _bucket_checked_cache.add(bucket_key)
+                    return True
+                except ClientError as e:
+                    if e.response['Error']['Code'] == '404':
+                        # Bucket doesn't exist, try to create it
+                        logger.info(f"Bucket '{bucket_name}' does not exist. Creating automatically...")
+                        try:
+                            s3_client.create_bucket(Bucket=bucket_name)
+
+                            # Verify the bucket was actually created
+                            buckets_response = s3_client.list_buckets()
+                            bucket_names = [b['Name'] for b in buckets_response.get('Buckets', [])]
+
+                            if bucket_name in bucket_names:
+                                logger.info(f"Created and verified bucket '{bucket_name}'")
+                                _bucket_checked_cache.add(bucket_key)
+                                return True
+                            else:
+                                logger.error(f"Bucket '{bucket_name}' not found in list after creation")
+                                return False
+
+                        except ClientError as create_error:
+                            logger.error(f"Failed to create bucket '{bucket_name}': {create_error}")
+                            return False
+                    else:
+                        # Some other error occurred
+                        logger.error(f"Error checking bucket '{bucket_name}': {e}")
+                        return False
+            else:
+                # For other storage types, assume bucket exists
+                _bucket_checked_cache.add(bucket_key)
+                return True
+
+        except Exception as e:
+            logger.error(f"Error checking bucket '{bucket_name}': {type(e).__name__}: {e}")
+            return False
+
     async def _mark_book_as_converted(self, barcode: str) -> None:
         """Mark a book as converted in our database after successful download."""
         try:
@@ -422,11 +510,7 @@ class SyncPipeline:
             # Ensure bucket exists before upload
             if self.storage_type in ("minio", "s3", "r2") and bucket_name:
                 try:
-                    from grin_to_s3.download import ensure_bucket_exists
-                    # Create storage config with bucket name for existence check
-                    storage_config_with_bucket = (self.storage_config or {}).copy()
-                    storage_config_with_bucket["bucket"] = bucket_name
-                    await ensure_bucket_exists(self.storage_type, storage_config_with_bucket)
+                    await self._ensure_bucket_exists(bucket_name)
                 except Exception as e:
                     logger.error(f"[{barcode}] Bucket creation failed: {e}")
                     raise
@@ -608,7 +692,6 @@ class SyncPipeline:
         logger.info(f"Concurrent downloads: {self.concurrent_downloads}")
 
         # Reset bucket cache at start of sync
-        from grin_to_s3.download import reset_bucket_cache
         reset_bucket_cache()
 
         start_time = time.time()
@@ -1035,315 +1118,6 @@ class SyncPipeline:
 
             logger.info("Sync pipeline completed")
 
-    async def sync_single_book(
-        self,
-        barcode: str,
-        show_progress: bool = True,
-        fast_mode: bool = False,
-    ) -> dict:
-        """Sync a single book with download.py-compatible interface.
-
-        Args:
-            barcode: Book barcode to sync
-            show_progress: Whether to show progress indicators
-            fast_mode: If True, skip staging directory (download directly to storage)
-
-        Returns:
-            Dict with same structure as download.py:
-            {
-                "barcode": str,
-                "status": "completed" | "failed" | "skipped",
-                "storage_type": str,
-                "archive_path": str,
-                "file_size": int,
-                "download_time": float,
-                "storage_time": float,
-                "total_time": float,
-                "download_speed_mbps": float,
-                "google_etag": str | None,
-                "is_decrypted": bool,
-                "error": str | None (only if status is "failed"),
-                "skipped": bool (only if status is "skipped"),
-            }
-        """
-        start_time = time.time()
-
-        if show_progress:
-            print(f"Starting sync for single book: {barcode}")
-            print(f"Storage: {self.storage_type}")
-            print(f"Fast mode: {'enabled' if fast_mode else 'disabled'}")
-            if not fast_mode:
-                print(f"Staging directory: {self.staging_dir}")
-            print()
-
-        # Validate that book is eligible for sync
-        try:
-            # Check if book exists in database and is converted
-            converted_books = await self.get_converted_books()
-            if barcode not in converted_books:
-                error_msg = f"Book {barcode} is not in converted state in GRIN"
-                if show_progress:
-                    print(f"Error: {error_msg}")
-                return {
-                    "barcode": barcode,
-                    "status": "failed",
-                    "storage_type": self.storage_type,
-                    "archive_path": "",
-                    "file_size": 0,
-                    "download_time": 0.0,
-                    "storage_time": 0.0,
-                    "total_time": time.time() - start_time,
-                    "download_speed_mbps": 0.0,
-                    "google_etag": None,
-                    "is_decrypted": False,
-                    "error": error_msg,
-                }
-        except Exception as e:
-            error_msg = f"Failed to check converted books: {e}"
-            logger.error(f"[{barcode}] {error_msg}")
-            if show_progress:
-                print(f"Error: {error_msg}")
-            return {
-                "barcode": barcode,
-                "status": "failed",
-                "storage_type": self.storage_type,
-                "archive_path": "",
-                "file_size": 0,
-                "download_time": 0.0,
-                "storage_time": 0.0,
-                "total_time": time.time() - start_time,
-                "download_speed_mbps": 0.0,
-                "google_etag": None,
-                "is_decrypted": False,
-                "error": error_msg,
-            }
-
-        # Check Google ETag for optimization
-        if show_progress:
-            print(f"Checking Google ETag for {barcode}...")
-
-        google_etag, google_file_size = await self._check_google_etag(barcode)
-
-        # Check if download can be skipped
-        if await self._should_skip_download(barcode, google_etag):
-            if show_progress:
-                print(f"✅ {barcode} already exists with matching ETag, skipping download")
-
-            # Update sync tracking
-            from datetime import UTC
-            skip_sync_data: dict[str, Any] = {
-                "last_etag_check": datetime.now(UTC).isoformat(),
-                "google_etag": google_etag,
-            }
-            await self.db_tracker.update_sync_data(barcode, skip_sync_data)
-
-            return {
-                "barcode": barcode,
-                "status": "skipped",
-                "storage_type": self.storage_type,
-                "archive_path": "",  # Could be filled in if needed
-                "file_size": google_file_size or 0,
-                "download_time": 0.0,
-                "storage_time": 0.0,
-                "total_time": time.time() - start_time,
-                "download_speed_mbps": 0.0,
-                "google_etag": google_etag,
-                "is_decrypted": True,  # Assume existing file is decrypted
-                "skipped": True,
-            }
-
-        try:
-            # Mark as syncing
-            await self.db_tracker.add_status_change(barcode, "sync", "syncing")
-
-            if fast_mode:
-                # Fast mode: download directly to storage using download.py logic
-                if show_progress:
-                    print(f"Fast mode: downloading {barcode} directly to storage...")
-
-                # Import here to avoid circular imports
-                from grin_to_s3.download import download_book
-
-                # Create minimal storage config for download.py
-                storage_config_for_download = self.storage_config.copy()
-
-                # Call download_book with our parameters
-                result = await download_book(
-                    barcode=barcode,
-                    storage_type=self.storage_type,
-                    storage_config=storage_config_for_download,
-                    directory=self.directory,
-                    secrets_dir=self.secrets_dir,
-                    gpg_key_file=self.gpg_key_file,
-                    force=self.force,
-                    db_tracker=self.db_tracker,
-                    verbose=show_progress,
-                    show_progress=show_progress,
-                )
-
-                # Convert download.py result to our expected forma
-                status = "completed" if result.get("skipped") else "completed"
-                if "error" in result:
-                    status = "failed"
-
-                return {
-                    "barcode": result["barcode"],
-                    "status": status,
-                    "storage_type": result["storage_type"],
-                    "archive_path": result["archive_path"],
-                    "file_size": result["file_size"],
-                    "download_time": result["download_time"],
-                    "storage_time": result.get("storage_time", 0.0),
-                    "total_time": result["total_time"],
-                    "download_speed_mbps": result.get("download_speed_mbps", 0.0),
-                    "google_etag": result.get("google_etag"),
-                    "is_decrypted": result.get("is_decrypted", False),
-                    "skipped": result.get("skipped", False),
-                }
-
-            else:
-                # Standard mode: download to staging then upload
-                if show_progress:
-                    print(f"Downloading {barcode} to staging directory...")
-
-                download_start_time = time.time()
-
-                # Download to staging
-                try:
-                    barcode_result, staging_file_path, download_metadata = await self._download_only(barcode)
-                    download_time = time.time() - download_start_time
-
-                    if download_metadata.get("skipped"):
-                        # Download was skipped due to ETag match
-                        if show_progress:
-                            print(f"✅ {barcode} download skipped (ETag match)")
-
-                        return {
-                            "barcode": barcode,
-                            "status": "skipped",
-                            "storage_type": self.storage_type,
-                            "archive_path": "",
-                            "file_size": download_metadata.get("file_size", 0),
-                            "download_time": download_time,
-                            "storage_time": 0.0,
-                            "total_time": time.time() - start_time,
-                            "download_speed_mbps": 0.0,
-                            "google_etag": download_metadata.get("google_etag"),
-                            "is_decrypted": True,
-                            "skipped": True,
-                        }
-
-                    file_size = download_metadata.get("file_size", 0)
-                    if show_progress:
-                        file_size_mb = file_size / (1024 * 1024)
-                        download_speed = file_size / download_time / (1024 * 1024) if download_time > 0 else 0
-                        print(
-                            f"✅ {barcode} downloaded {file_size_mb:.1f} MB in {download_time:.1f}s "
-                            f"({download_speed:.1f} MB/s)"
-                        )
-                        print(f"Uploading {barcode} to storage...")
-
-                    # Upload from staging
-                    upload_start_time = time.time()
-                    upload_result = await self._upload_book(
-                        barcode,
-                        staging_file_path,
-                        download_metadata.get("google_etag")
-                    )
-                    upload_time = time.time() - upload_start_time
-
-                    total_time = time.time() - start_time
-                    download_speed_mbps = file_size / download_time / (1024 * 1024) if download_time > 0 else 0.0
-
-                    if upload_result["status"] == "completed":
-                        await self._mark_book_as_converted(barcode)
-
-                        if show_progress:
-                            print(f"✅ {barcode} sync completed successfully")
-                            print(f"   Total time: {total_time:.1f}s")
-                            print(f"   Download: {download_time:.1f}s ({download_speed_mbps:.1f} MB/s)")
-                            print(f"   Upload: {upload_time:.1f}s")
-
-                        return {
-                            "barcode": barcode,
-                            "status": "completed",
-                            "storage_type": self.storage_type,
-                            "archive_path": "",  # Could extract from upload_result if needed
-                            "file_size": file_size,
-                            "download_time": download_time,
-                            "storage_time": upload_time,
-                            "total_time": total_time,
-                            "download_speed_mbps": download_speed_mbps,
-                            "google_etag": download_metadata.get("google_etag"),
-                            "is_decrypted": upload_result.get("decrypted_success", False),
-                        }
-                    else:
-                        # Upload failed
-                        error_msg = upload_result.get("error", "Upload failed")
-                        if show_progress:
-                            print(f"❌ {barcode} upload failed: {error_msg}")
-
-                        return {
-                            "barcode": barcode,
-                            "status": "failed",
-                            "storage_type": self.storage_type,
-                            "archive_path": "",
-                            "file_size": file_size,
-                            "download_time": download_time,
-                            "storage_time": upload_time,
-                            "total_time": time.time() - start_time,
-                            "download_speed_mbps": download_speed_mbps,
-                            "google_etag": download_metadata.get("google_etag"),
-                            "is_decrypted": False,
-                            "error": error_msg,
-                        }
-
-                except Exception as e:
-                    download_time = time.time() - download_start_time
-                    error_msg = f"Download failed: {e}"
-                    logger.error(f"[{barcode}] {error_msg}")
-                    if show_progress:
-                        print(f"❌ {barcode} download failed: {e}")
-
-                    await self.db_tracker.add_status_change(barcode, "sync", "failed")
-
-                    return {
-                        "barcode": barcode,
-                        "status": "failed",
-                        "storage_type": self.storage_type,
-                        "archive_path": "",
-                        "file_size": 0,
-                        "download_time": download_time,
-                        "storage_time": 0.0,
-                        "total_time": time.time() - start_time,
-                        "download_speed_mbps": 0.0,
-                        "google_etag": google_etag,
-                        "is_decrypted": False,
-                        "error": error_msg,
-                    }
-
-        except Exception as e:
-            error_msg = f"Sync failed: {e}"
-            logger.error(f"[{barcode}] {error_msg}", exc_info=True)
-            if show_progress:
-                print(f"❌ {barcode} sync failed: {e}")
-
-            await self.db_tracker.add_status_change(barcode, "sync", "failed")
-
-            return {
-                "barcode": barcode,
-                "status": "failed",
-                "storage_type": self.storage_type,
-                "archive_path": "",
-                "file_size": 0,
-                "download_time": 0.0,
-                "storage_time": 0.0,
-                "total_time": time.time() - start_time,
-                "download_speed_mbps": 0.0,
-                "google_etag": google_etag,
-                "is_decrypted": False,
-                "error": error_msg,
-            }
 
     async def _run_catchup_sync(self, barcodes: list[str], limit: int | None = None) -> None:
         """Run catchup sync for specific books."""
@@ -1660,113 +1434,6 @@ def validate_database_file(db_path: str) -> None:
     logger.debug(f"Using database: {db_path}")
 
 
-async def sync_single_book(barcode: str, args) -> None:
-    """Sync a single book with progress display."""
-    # Validate barcode forma
-    try:
-        validate_and_parse_barcodes(barcode)
-    except ValueError as e:
-        print(f"Error: Invalid barcode '{barcode}': {e}")
-        sys.exit(1)
-
-    # Set up database path and apply run configuration
-    db_path = setup_run_database_path(args, args.run_name)
-    logger.debug(f"Using run: {args.run_name}")
-    print(f"Database: {db_path}")
-    print(f"Syncing single book: {barcode}")
-    print()
-
-    # Apply run configuration defaults
-    apply_run_config_to_args(args, args.db_path)
-
-    # Validate database
-    validate_database_file(args.db_path)
-
-    # Validate that we have required storage arguments
-    if not args.storage:
-        print("Error: --storage argument is required (or must be in run config)")
-        sys.exit(1)
-
-    missing_buckets = validate_bucket_arguments(args, args.storage)
-    if missing_buckets:
-        print(f"Error: The following bucket arguments are required for MinIO: {', '.join(missing_buckets)}")
-        print("  For R2/S3: bucket names can be specified in credentials file")
-        sys.exit(1)
-
-    # Build storage configuration
-    storage_config = build_storage_config_dict(args)
-
-    # Set up storage with auto-configuration and connectivity checks
-    await setup_storage_with_checks(args.storage, storage_config)
-
-    # Set up logging
-    db_name = Path(args.db_path).stem
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"logs/sync_single_{args.storage}_{db_name}_{timestamp}.log"
-    setup_logging(args.log_level, log_file)
-
-    # Create and run pipeline for single book
-    try:
-        pipeline = SyncPipeline(
-            db_path=args.db_path,
-            storage_type=args.storage,
-            storage_config=storage_config,
-            concurrent_downloads=1,  # Single book - use 1 concurrent download
-            concurrent_uploads=1,    # Single book - use 1 concurrent upload
-            batch_size=1,           # Single book batch
-            directory="Harvard",
-            secrets_dir=args.secrets_dir,
-            gpg_key_file=args.gpg_key_file,
-            force=args.force,
-            staging_dir=args.staging_dir,
-            disk_space_threshold=args.disk_space_threshold,
-        )
-
-        # Set up signal handlers for graceful shutdown
-        def signal_handler(signum: int, frame: Any) -> None:
-            if pipeline._shutdown_requested:
-                # Second interrupt - hard exi
-                print(f"\nReceived second signal {signum}, forcing immediate exit...")
-                import sys
-                sys.exit(1)
-            print(f"\nReceived signal {signum}, shutting down gracefully...")
-            print("Press Control-C again to force immediate exit")
-            pipeline._shutdown_requested = True
-
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-
-        # Determine if fast mode should be enabled
-        fast_mode = getattr(args, 'fast_mode', False)
-
-        # Use the new sync_single_book method
-        result = await pipeline.sync_single_book(
-            barcode=barcode,
-            show_progress=True,
-            fast_mode=fast_mode,
-        )
-
-        # Report final resul
-        print("\nSync completed:")
-        print(f"  Status: {result['status']}")
-        print(f"  Total time: {result['total_time']:.1f}s")
-        if result['status'] == 'failed' and 'error' in result:
-            print(f"  Error: {result['error']}")
-            sys.exit(1)
-        elif result['status'] == 'skipped':
-            print("  File already exists and is up to date")
-        else:
-            print(f"  File size: {result['file_size'] / (1024 * 1024):.1f} MB")
-            print(f"  Download time: {result['download_time']:.1f}s")
-            print(f"  Upload time: {result['storage_time']:.1f}s")
-            if result.get('download_speed_mbps', 0) > 0:
-                print(f"  Download speed: {result['download_speed_mbps']:.1f} MB/s")
-
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-    except Exception as e:
-        print(f"Single book sync failed: {e}")
-        sys.exit(1)
 
 
 async def cmd_pipeline(args) -> None:
@@ -1875,6 +1542,31 @@ async def cmd_pipeline(args) -> None:
                 print(f"Error: Invalid barcodes: {e}")
                 sys.exit(1)
 
+        # Auto-optimization for single barcode processing
+        if specific_barcodes and len(specific_barcodes) == 1:
+            print(f"Single barcode detected: {specific_barcodes[0]}")
+            print("Auto-optimizing settings for single book processing...")
+
+            # Create optimized pipeline for single book
+            pipeline = SyncPipeline(
+                db_path=args.db_path,
+                storage_type=args.storage,
+                storage_config=storage_config,
+                concurrent_downloads=1,  # Optimal for single book
+                concurrent_uploads=1,    # Optimal for single book
+                batch_size=1,           # Single book batch
+                directory="Harvard",
+                secrets_dir=args.secrets_dir,
+                gpg_key_file=args.gpg_key_file,
+                force=args.force,
+                staging_dir=args.staging_dir,
+                disk_space_threshold=args.disk_space_threshold,
+            )
+            print("  - Concurrent downloads: 1")
+            print("  - Concurrent uploads: 1")
+            print("  - Batch size: 1")
+            print()
+
         await pipeline.run_sync(limit=args.limit, specific_barcodes=specific_barcodes)
 
     except KeyboardInterrupt:
@@ -1900,10 +1592,6 @@ async def cmd_status(args) -> None:
         print(f"Error: {e}")
         sys.exit(1)
 
-
-async def cmd_single(args) -> None:
-    """Handle the 'single' command."""
-    await sync_single_book(args.barcode, args)
 
 
 async def cmd_catchup(args) -> None:
@@ -2129,8 +1817,8 @@ Examples:
   # Sync specific books only
   python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
 
-  # Sync a single book with progress display
-  python grin.py sync single --run-name harvard_2024 --barcode 39015123456789
+  # Sync a single book (auto-optimized settings)
+  python grin.py sync pipeline --run-name harvard_2024 --barcodes "39015123456789"
 
   # Check sync status
   python grin.py sync status --run-name harvard_2024
@@ -2270,76 +1958,6 @@ Examples:
     catchup_parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
     catchup_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
 
-    # Single command - for syncing individual books
-    single_parser = subparsers.add_parser(
-        "single",
-        help="Sync a single book with progress display",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Sync a single book (auto-detects storage config from run)
-  python grin.py sync single --run-name harvard_2024 --barcode 39015123456789
-
-  # Sync with explicit storage configuration
-  python grin.py sync single --run-name harvard_2024 --barcode 39015123456789
-      --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
-
-  # Force overwrite existing files
-  python grin.py sync single --run-name harvard_2024 --barcode 39015123456789 --force
-
-  # Use fast mode (skip staging directory)
-  python grin.py sync single --run-name harvard_2024 --barcode 39015123456789 --fast-mode
-        """,
-    )
-
-    single_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
-    single_parser.add_argument("--barcode", required=True, help="Book barcode to sync")
-
-    # Storage configuration (same as pipeline)
-    single_parser.add_argument(
-        "--storage",
-        choices=["minio", "r2", "s3"],
-        help="Storage backend (auto-detected from run config if not specified)",
-    )
-    single_parser.add_argument(
-        "--bucket-raw", help="Raw data bucket (auto-detected from run config if not specified)"
-    )
-    single_parser.add_argument(
-        "--bucket-meta", help="Metadata bucket (auto-detected from run config if not specified)"
-    )
-    single_parser.add_argument(
-        "--bucket-full", help="Full-text bucket (auto-detected from run config if not specified)"
-    )
-    single_parser.add_argument("--credentials-file", help="Custom credentials file path")
-
-    # Single sync options
-    single_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
-    single_parser.add_argument(
-        "--fast-mode",
-        action="store_true",
-        dest="fast_mode",
-        help="Skip staging directory and download directly to storage (faster for single books)"
-    )
-
-    # Staging directory options
-    single_parser.add_argument(
-        "--staging-dir", help="Custom staging directory path (default: output/run-name/staging)"
-    )
-    single_parser.add_argument(
-        "--disk-space-threshold",
-        type=float,
-        default=0.9,
-        help="Disk usage threshold to pause downloads (0.0-1.0, default: 0.9)",
-    )
-
-    # GRIN options
-    single_parser.add_argument(
-        "--secrets-dir", help="Directory containing GRIN secrets (auto-detected from run config if not specified)"
-    )
-    single_parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
-
-    # Logging
-    single_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
 
     args = parser.parse_args()
 
@@ -2353,8 +1971,6 @@ Examples:
         await cmd_status(args)
     elif args.command == "catchup":
         await cmd_catchup(args)
-    elif args.command == "single":
-        await cmd_single(args)
 
 
 if __name__ == "__main__":
