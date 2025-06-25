@@ -30,6 +30,7 @@ logs/
 # Temporary files
 **/temp_*
 **/*_temp.py
+*~
 
 # Virtual environments
 venv/
