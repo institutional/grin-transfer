@@ -241,23 +241,9 @@ Examples:
     args = parser.parse_args()
 
     # Validate storage arguments
-    # For MinIO, bucket names are required on command line
     # For R2 and S3, bucket names are optional (can be in config files)
+    # For MinIO, bucket names are auto-configured from docker-compose
     # For local, no buckets needed
-    if args.storage == "minio":
-        missing_buckets = []
-        if not args.bucket_raw:
-            missing_buckets.append("--bucket-raw")
-        if not args.bucket_meta:
-            missing_buckets.append("--bucket-meta")
-        if not args.bucket_full:
-            missing_buckets.append("--bucket-full")
-
-        if missing_buckets:
-            parser.error(
-                f"The following bucket parameters are required when using "
-                f"--storage=minio: {', '.join(missing_buckets)}"
-            )
 
     # Handle config creation
     if args.create_config:
