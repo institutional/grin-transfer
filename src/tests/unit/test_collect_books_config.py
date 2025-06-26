@@ -128,9 +128,8 @@ class TestExportConfig:
 
         config = ExportConfig.load_from_file(non_existent_path)
 
-        # Should return default config
-        assert config.library_directory == "REQUIRED"
-        assert config.rate_limit == 5.0
+        # Should return None when file doesn't exist
+        assert config is None
 
     def test_export_config_update_from_args(self):
         """Test updating config from CLI arguments."""
@@ -157,8 +156,8 @@ class TestConfigManager:
         """Test loading default configuration."""
         config = ConfigManager.load_config()
 
-        # Should return default config with placeholder
-        assert config.library_directory == "REQUIRED"
+        # Should return default config with empty library_directory (CLI will override)
+        assert config.library_directory == ""
         assert config.rate_limit == 5.0
         assert config.pagination.page_size == 10000
 

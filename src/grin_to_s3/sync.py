@@ -1496,6 +1496,10 @@ async def cmd_pipeline(args) -> None:
     # Set up logging - use unified log file from run config
     from grin_to_s3.run_config import find_run_config
     run_config = find_run_config(args.db_path)
+    if run_config is None:
+        print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
+        print("Run 'python grin.py collect' first to generate the run configuration.")
+        sys.exit(1)
     setup_logging(args.log_level, run_config.log_file, append=True)
 
     # Log sync pipeline startup
