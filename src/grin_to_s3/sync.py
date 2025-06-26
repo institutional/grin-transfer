@@ -1500,7 +1500,7 @@ async def cmd_pipeline(args) -> None:
         print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
         print("Run 'python grin.py collect' first to generate the run configuration.")
         sys.exit(1)
-    setup_logging(args.log_level, run_config.log_file, append=True)
+    setup_logging(args.log_level, run_config.log_file)
 
     # Log sync pipeline startup
     logger = logging.getLogger(__name__)

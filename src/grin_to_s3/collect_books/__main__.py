@@ -377,7 +377,7 @@ Examples:
         return 0
 
     # Initialize logging
-    setup_logging(level=args.log_level, log_file=log_file)
+    setup_logging(level=args.log_level, log_file=log_file, append=False)
 
     logger = logging.getLogger(__name__)
     limit_info = f" limit={args.limit}" if args.limit else ""
