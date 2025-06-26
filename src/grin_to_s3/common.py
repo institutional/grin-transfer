@@ -959,13 +959,14 @@ class RateLimiter:
         self.last_request_time = time.time()
 
 
-def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
+def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool = False) -> None:
     """
     Configure logging for all pipeline operations.
 
     Args:
         level: Logging level (DEBUG, INFO, WARNING, ERROR)
         log_file: Optional log file path (defaults to timestamped file in logs/)
+        append: Whether to append to existing log file (default: False)
     """
     import logging
     from datetime import datetime
@@ -1006,7 +1007,7 @@ def setup_logging(level: str = "INFO", log_file: str | None = None) -> None:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    file_handler = logging.FileHandler(str(log_file))
+    file_handler = logging.FileHandler(str(log_file), mode='a' if append else 'w')
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
 

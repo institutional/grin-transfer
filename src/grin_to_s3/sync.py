@@ -1494,11 +1494,10 @@ async def cmd_pipeline(args) -> None:
     # Set up storage with auto-configuration and connectivity checks
     await setup_storage_with_checks(args.storage, storage_config)
 
-    # Set up logging
-    db_name = Path(args.db_path).stem
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"logs/sync_pipeline_{args.storage}_{db_name}_{timestamp}.log"
-    setup_logging(args.log_level, log_file)
+    # Set up logging - use unified log file from run config
+    from grin_to_s3.run_config import find_run_config
+    run_config = find_run_config(args.db_path)
+    setup_logging(args.log_level, run_config.log_file, append=True)
 
     # Create and run pipeline
     try:

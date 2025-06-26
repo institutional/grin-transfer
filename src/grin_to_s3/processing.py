@@ -994,11 +994,10 @@ async def cmd_request(args) -> None:
     # Validate database
     validate_database_file(args.db_path)
 
-    # Set up logging
-    db_name = Path(args.db_path).stem
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"logs/processing_request_{db_name}_{timestamp}.log"
-    setup_logging(args.log_level, log_file)
+    # Set up logging - use unified log file from run config
+    from grin_to_s3.run_config import find_run_config
+    run_config = find_run_config(args.db_path)
+    setup_logging(args.log_level, run_config.log_file, append=True)
 
     # Create and run pipeline
     try:

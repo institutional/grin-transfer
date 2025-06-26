@@ -157,8 +157,10 @@ Examples:
         help="Logging level (default: INFO)",
     )
     parser.add_argument(
-        "--log-file",
-        help="Log file path (default: auto-generated timestamped file in logs/ directory)"
+        "--log-dir",
+        type=str,
+        default="logs",
+        help="Directory for log files (default: logs)"
     )
 
     # Storage options
@@ -296,7 +298,7 @@ Examples:
         output_file = f"output/{run_name}/books_{timestamp}.csv"
 
     # Generate file paths - resume files stay consistent, outputs get timestamped
-    log_file = args.log_file or f"logs/collect_books_{run_identifier}_{timestamp}.log"
+    log_file = f"{args.log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
     progress_file = f"output/{run_name}/progress.json"  # No timestamp for resume
     sqlite_db = f"output/{run_name}/books.db"  # No timestamp for resume
 
@@ -356,6 +358,7 @@ Examples:
             "output_directory": f"output/{run_name}",
             "sqlite_db_path": sqlite_db,
             "progress_file": progress_file,
+            "log_file": log_file,
             "storage_config": storage_config,
             "secrets_dir": args.secrets_dir,
             "limit": args.limit,
@@ -445,6 +448,7 @@ Examples:
             "output_directory": f"output/{run_name}",
             "sqlite_db_path": sqlite_db,
             "progress_file": progress_file,
+            "log_file": log_file,
             "storage_config": storage_config,
             "secrets_dir": args.secrets_dir,
             "limit": args.limit,
