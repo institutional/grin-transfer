@@ -92,6 +92,11 @@ class RunConfig:
         """Get the limit parameter."""
         return self.config_dict.get("limit")
 
+    @property
+    def log_file(self) -> str:
+        """Get the unified log file path."""
+        return self.config_dict["log_file"]
+
     def get_storage_args(self) -> dict[str, str]:
         """Get storage arguments suitable for command line scripts."""
         args: dict[str, str] = {}

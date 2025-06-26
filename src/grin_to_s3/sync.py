@@ -1440,7 +1440,6 @@ async def cmd_pipeline(args) -> None:
     """Handle the 'pipeline' command."""
     # Set up database path and apply run configuration
     db_path = setup_run_database_path(args, args.run_name)
-    logger.debug(f"Using run: {args.run_name}")
     print(f"Database: {db_path}")
 
     # Apply run configuration defaults
@@ -1494,11 +1493,22 @@ async def cmd_pipeline(args) -> None:
     # Set up storage with auto-configuration and connectivity checks
     await setup_storage_with_checks(args.storage, storage_config)
 
-    # Set up logging
-    db_name = Path(args.db_path).stem
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = f"logs/sync_pipeline_{args.storage}_{db_name}_{timestamp}.log"
-    setup_logging(args.log_level, log_file)
+    # Set up logging - use unified log file from run config
+    from grin_to_s3.run_config import find_run_config
+    run_config = find_run_config(args.db_path)
+    if run_config is None:
+        print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
+        print("Run 'python grin.py collect' first to generate the run configuration.")
+        sys.exit(1)
+    setup_logging(args.log_level, run_config.log_file)
+
+    # Log sync pipeline startup
+    logger = logging.getLogger(__name__)
+    barcodes_info = f" barcodes={','.join(args.barcodes)}" if hasattr(args, 'barcodes') and args.barcodes else ""
+    limit_info = f" limit={args.limit}" if hasattr(args, 'limit') and args.limit else ""
+    logger.info(f"SYNC PIPELINE STARTED - storage={args.storage} concurrent={args.concurrent}/{args.concurrent_uploads}"
+               f" force={args.force}{barcodes_info}{limit_info}")
+    logger.info(f"Command: {' '.join(sys.argv)}")
 
     # Create and run pipeline
     try:

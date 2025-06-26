@@ -9,7 +9,6 @@ Run with: python grin.py collect
 import argparse
 import asyncio
 import logging
-import os
 import sys
 
 from .config import ConfigManager
@@ -157,8 +156,10 @@ Examples:
         help="Logging level (default: INFO)",
     )
     parser.add_argument(
-        "--log-file",
-        help="Log file path (default: auto-generated timestamped file in logs/ directory)"
+        "--log-dir",
+        type=str,
+        default="logs",
+        help="Directory for log files (default: logs)"
     )
 
     # Storage options
@@ -296,7 +297,7 @@ Examples:
         output_file = f"output/{run_name}/books_{timestamp}.csv"
 
     # Generate file paths - resume files stay consistent, outputs get timestamped
-    log_file = args.log_file or f"logs/collect_books_{run_identifier}_{timestamp}.log"
+    log_file = f"{args.log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
     progress_file = f"output/{run_name}/progress.json"  # No timestamp for resume
     sqlite_db = f"output/{run_name}/books.db"  # No timestamp for resume
 
@@ -356,6 +357,7 @@ Examples:
             "output_directory": f"output/{run_name}",
             "sqlite_db_path": sqlite_db,
             "progress_file": progress_file,
+            "log_file": log_file,
             "storage_config": storage_config,
             "secrets_dir": args.secrets_dir,
             "limit": args.limit,
@@ -375,21 +377,13 @@ Examples:
         return 0
 
     # Initialize logging
-    setup_logging(level=args.log_level, log_file=log_file)
+    setup_logging(level=args.log_level, log_file=log_file, append=False)
 
     logger = logging.getLogger(__name__)
-    logger.info("Book Collection Pipeline started")
-    logger.info(f"Run name: {run_name}")
-    logger.info(f"Output file: {output_file}")
-    logger.info(f"Progress file: {progress_file}")
-    logger.info(f"SQLite database: {sqlite_db}")
-
-    # Log full command for debugging
-    import sys
-
-    logger.info(f"Full command: {' '.join(sys.argv)}")
-    logger.info(f"Python version: {sys.version}")
-    logger.info(f"Working directory: {os.getcwd()}")
+    limit_info = f" limit={args.limit}" if args.limit else ""
+    logger.info(f"COLLECTION PIPELINE STARTED - run={run_name} storage={args.storage} "
+               f"rate_limit={args.rate_limit}{limit_info}")
+    logger.info(f"Command: {' '.join(sys.argv)}")
 
     # Build storage configuration
     storage_config = None
@@ -445,6 +439,7 @@ Examples:
             "output_directory": f"output/{run_name}",
             "sqlite_db_path": sqlite_db,
             "progress_file": progress_file,
+            "log_file": log_file,
             "storage_config": storage_config,
             "secrets_dir": args.secrets_dir,
             "limit": args.limit,
