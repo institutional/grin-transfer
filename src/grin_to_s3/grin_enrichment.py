@@ -690,8 +690,7 @@ Examples:
         sys.exit(1)
 
     # Set up database path and apply run configuration
-    db_path = setup_run_database_path(args, args.run_name)
-    logger.debug(f"Using database: {db_path}")
+    setup_run_database_path(args, args.run_name)
 
     # Validate database file exists and is accessible
     validate_database_file(args.db_path)
@@ -711,6 +710,12 @@ Examples:
         from grin_to_s3.run_config import find_run_config
         run_config = find_run_config(args.db_path)
         setup_logging(args.log_level, run_config.log_file, append=True)
+
+        # Log enrichment startup
+        logger = logging.getLogger(__name__)
+        logger.info(f"ENRICHMENT PIPELINE STARTED - {args.command} directory={args.grin_library_directory} "
+                   f"rate_limit={args.rate_limit} batch_size={args.batch_size}")
+        logger.info(f"Command: {' '.join(sys.argv)}")
 
     try:
         match args.command:

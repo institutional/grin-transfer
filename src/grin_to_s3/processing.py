@@ -999,6 +999,12 @@ async def cmd_request(args) -> None:
     run_config = find_run_config(args.db_path)
     setup_logging(args.log_level, run_config.log_file, append=True)
 
+    # Log processing pipeline startup
+    logger = logging.getLogger(__name__)
+    logger.info(f"PROCESSING PIPELINE STARTED - {args.command} directory={args.grin_library_directory} "
+               f"rate_limit={args.rate_limit} batch_size={args.batch_size}")
+    logger.info(f"Command: {' '.join(sys.argv)}")
+
     # Create and run pipeline
     try:
         pipeline = ProcessingPipeline(

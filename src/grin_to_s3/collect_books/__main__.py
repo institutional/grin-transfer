@@ -9,7 +9,6 @@ Run with: python grin.py collect
 import argparse
 import asyncio
 import logging
-import os
 import sys
 
 from .config import ConfigManager
@@ -381,18 +380,10 @@ Examples:
     setup_logging(level=args.log_level, log_file=log_file)
 
     logger = logging.getLogger(__name__)
-    logger.info("Book Collection Pipeline started")
-    logger.info(f"Run name: {run_name}")
-    logger.info(f"Output file: {output_file}")
-    logger.info(f"Progress file: {progress_file}")
-    logger.info(f"SQLite database: {sqlite_db}")
-
-    # Log full command for debugging
-    import sys
-
-    logger.info(f"Full command: {' '.join(sys.argv)}")
-    logger.info(f"Python version: {sys.version}")
-    logger.info(f"Working directory: {os.getcwd()}")
+    limit_info = f" limit={args.limit}" if args.limit else ""
+    logger.info(f"COLLECTION PIPELINE STARTED - run={run_name} storage={args.storage} "
+               f"rate_limit={args.rate_limit}{limit_info}")
+    logger.info(f"Command: {' '.join(sys.argv)}")
 
     # Build storage configuration
     storage_config = None

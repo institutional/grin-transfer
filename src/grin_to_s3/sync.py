@@ -1440,7 +1440,6 @@ async def cmd_pipeline(args) -> None:
     """Handle the 'pipeline' command."""
     # Set up database path and apply run configuration
     db_path = setup_run_database_path(args, args.run_name)
-    logger.debug(f"Using run: {args.run_name}")
     print(f"Database: {db_path}")
 
     # Apply run configuration defaults
@@ -1498,6 +1497,14 @@ async def cmd_pipeline(args) -> None:
     from grin_to_s3.run_config import find_run_config
     run_config = find_run_config(args.db_path)
     setup_logging(args.log_level, run_config.log_file, append=True)
+
+    # Log sync pipeline startup
+    logger = logging.getLogger(__name__)
+    barcodes_info = f" barcodes={','.join(args.barcodes)}" if hasattr(args, 'barcodes') and args.barcodes else ""
+    limit_info = f" limit={args.limit}" if hasattr(args, 'limit') and args.limit else ""
+    logger.info(f"SYNC PIPELINE STARTED - storage={args.storage} concurrent={args.concurrent}/{args.concurrent_uploads}"
+               f" force={args.force}{barcodes_info}{limit_info}")
+    logger.info(f"Command: {' '.join(sys.argv)}")
 
     # Create and run pipeline
     try:
