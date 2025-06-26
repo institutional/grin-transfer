@@ -690,8 +690,7 @@ Examples:
         sys.exit(1)
 
     # Set up database path and apply run configuration
-    db_path = setup_run_database_path(args, args.run_name)
-    logger.debug(f"Using database: {db_path}")
+    setup_run_database_path(args, args.run_name)
 
     # Validate database file exists and is accessible
     validate_database_file(args.db_path)
@@ -706,16 +705,21 @@ Examples:
             print("Make sure you collected books with --library-directory argument.")
             sys.exit(1)
 
-    # Generate log file name based on command and database
+    # Set up logging - use unified log file from run config
     if args.command in ["enrich", "export-csv"]:
-        from datetime import datetime
-        from pathlib import Path
+        from grin_to_s3.run_config import find_run_config
+        run_config = find_run_config(args.db_path)
+        if run_config is None:
+            print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
+            print("Run 'python grin.py collect' first to generate the run configuration.")
+            sys.exit(1)
+        setup_logging(args.log_level, run_config.log_file)
 
-        db_name = Path(args.db_path).stem
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = f"logs/grin_enrichment_{args.command}_{db_name}_{timestamp}.log"
-
-        setup_logging(args.log_level, log_file)
+        # Log enrichment startup
+        logger = logging.getLogger(__name__)
+        logger.info(f"ENRICHMENT PIPELINE STARTED - {args.command} directory={args.grin_library_directory} "
+                   f"rate_limit={args.rate_limit} batch_size={args.batch_size}")
+        logger.info(f"Command: {' '.join(sys.argv)}")
 
     try:
         match args.command:
