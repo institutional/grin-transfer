@@ -10,6 +10,7 @@ from typing import TypedDict
 
 class SyncStats(TypedDict):
     """Statistics for sync operations."""
+
     processed: int
     completed: int
     failed: int
@@ -20,6 +21,7 @@ class SyncStats(TypedDict):
 
 class BookSyncResult(TypedDict):
     """Result of syncing a single book."""
+
     barcode: str
     status: str
     skipped: bool
@@ -44,7 +46,7 @@ def validate_and_parse_barcodes(barcodes_str: str) -> list[str]:
         raise ValueError("Barcodes string cannot be empty")
 
     # Split by comma and clean up whitespace
-    barcodes = [barcode.strip() for barcode in barcodes_str.split(',')]
+    barcodes = [barcode.strip() for barcode in barcodes_str.split(",")]
 
     # Remove empty entries
     barcodes = [barcode for barcode in barcodes if barcode]
@@ -59,10 +61,9 @@ def validate_and_parse_barcodes(barcodes_str: str) -> list[str]:
         if len(barcode) < 3 or len(barcode) > 50:
             raise ValueError(f"Barcode '{barcode}' has invalid length (must be 3-50 characters)")
         # Check for reasonable characters (alphanumeric, dash, underscore)
-        if not all(c.isalnum() or c in '-_' for c in barcode):
+        if not all(c.isalnum() or c in "-_" for c in barcode):
             raise ValueError(
-                f"Barcode '{barcode}' contains invalid characters "
-                f"(only alphanumeric, dash, underscore allowed)"
+                f"Barcode '{barcode}' contains invalid characters (only alphanumeric, dash, underscore allowed)"
             )
 
     return barcodes

@@ -21,9 +21,7 @@ def reset_bucket_cache() -> None:
     _bucket_checked_cache.clear()
 
 
-async def ensure_bucket_exists(
-    storage_type: str, storage_config: dict[str, Any], bucket_name: str
-) -> bool:
+async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any], bucket_name: str) -> bool:
     """Ensure the bucket exists, create if it doesn't.
 
     Args:
@@ -62,7 +60,7 @@ async def ensure_bucket_exists(
                 if account_id:
                     s3_config["endpoint_url"] = f"https://{account_id}.r2.cloudflarestorage.com"
 
-            s3_client = boto3.client('s3', **s3_config)
+            s3_client = boto3.client("s3", **s3_config)
 
             try:
                 s3_client.head_bucket(Bucket=bucket_name)
@@ -70,7 +68,7 @@ async def ensure_bucket_exists(
                 _bucket_checked_cache.add(bucket_key)
                 return True
             except ClientError as e:
-                if e.response['Error']['Code'] == '404':
+                if e.response["Error"]["Code"] == "404":
                     # Bucket doesn't exist, try to create it
                     logger.info(f"Bucket '{bucket_name}' does not exist. Creating automatically...")
                     try:
@@ -78,7 +76,7 @@ async def ensure_bucket_exists(
 
                         # Verify the bucket was actually created
                         buckets_response = s3_client.list_buckets()
-                        bucket_names = [b['Name'] for b in buckets_response.get('Buckets', [])]
+                        bucket_names = [b["Name"] for b in buckets_response.get("Buckets", [])]
 
                         if bucket_name in bucket_names:
                             logger.info(f"Created and verified bucket '{bucket_name}'")
@@ -105,9 +103,7 @@ async def ensure_bucket_exists(
         return False
 
 
-async def check_google_etag(
-    grin_client, library_directory: str, barcode: str
-) -> tuple[str | None, int | None]:
+async def check_google_etag(grin_client, library_directory: str, barcode: str) -> tuple[str | None, int | None]:
     """Make HEAD request to get Google's ETag and file size before downloading.
 
     Args:
@@ -126,13 +122,11 @@ async def check_google_etag(
 
         async with create_http_session() as session:
             # Make HEAD request to get headers without downloading content
-            head_response = await grin_client.auth.make_authenticated_request(
-                session, grin_url, method="HEAD"
-            )
+            head_response = await grin_client.auth.make_authenticated_request(session, grin_url, method="HEAD")
 
             # Look for ETag and Content-Length headers
-            etag = head_response.headers.get('ETag', '').strip('"')
-            content_length = head_response.headers.get('Content-Length', '')
+            etag = head_response.headers.get("ETag", "").strip('"')
+            content_length = head_response.headers.get("Content-Length", "")
 
             file_size = int(content_length) if content_length else None
 

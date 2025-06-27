@@ -76,7 +76,7 @@ class TestSlidingWindowRateCalculator:
         calc.add_batch(101.0, 10)  # Only one entry
 
         # Should use fallback calculation - using a fixed time for deterministic testing
-        with patch('time.time', return_value=101.0):
+        with patch("time.time", return_value=101.0):
             rate = calc.get_rate(fallback_start_time=100.0, fallback_processed_count=10)
             expected_rate = 10 / 1.0  # 10 items in 1 second
             assert rate == expected_rate
@@ -103,9 +103,9 @@ class TestSlidingWindowRateCalculator:
     def test_get_rate_multiple_entries_uses_window_span(self):
         """Test rate calculation uses oldest to newest in window."""
         calc = SlidingWindowRateCalculator(window_size=3)
-        calc.add_batch(100.0, 10)   # oldest in window
-        calc.add_batch(101.0, 20)   # middle
-        calc.add_batch(104.0, 50)   # newest in window
+        calc.add_batch(100.0, 10)  # oldest in window
+        calc.add_batch(101.0, 20)  # middle
+        calc.add_batch(104.0, 50)  # newest in window
 
         # Should use span from oldest (100.0, 10) to newest (104.0, 50)
         # Rate = (50-10) / (104-100) = 40/4 = 10 items/sec
@@ -128,10 +128,10 @@ class TestSlidingWindowRateCalculator:
 
         # Simulate processing batches over time
         start_time = 1000.0
-        calc.add_batch(1001.0, 5)    # 5 items after 1 second
-        calc.add_batch(1002.0, 12)   # 12 items after 2 seconds
-        calc.add_batch(1003.0, 18)   # 18 items after 3 seconds
-        calc.add_batch(1005.0, 28)   # 28 items after 5 seconds
+        calc.add_batch(1001.0, 5)  # 5 items after 1 second
+        calc.add_batch(1002.0, 12)  # 12 items after 2 seconds
+        calc.add_batch(1003.0, 18)  # 18 items after 3 seconds
+        calc.add_batch(1005.0, 28)  # 28 items after 5 seconds
 
         # Rate from first to last: (28-5)/(1005-1001) = 23/4 = 5.75 items/sec
         rate = calc.get_rate(fallback_start_time=start_time, fallback_processed_count=28)
@@ -153,5 +153,7 @@ class TestSlidingWindowRateCalculator:
         calc = SlidingWindowRateCalculator()
 
         # This should raise AttributeError - documenting the expected interface
-        with pytest.raises(AttributeError, match="'SlidingWindowRateCalculator' object has no attribute 'add_completion'"):
+        with pytest.raises(
+            AttributeError, match="'SlidingWindowRateCalculator' object has no attribute 'add_completion'"
+        ):
             calc.add_completion(time.time())

@@ -16,11 +16,13 @@ logger = logging.getLogger(__name__)
 
 class StagingDirectoryError(Exception):
     """Raised when staging directory operations fail."""
+
     pass
 
 
 class DiskSpaceError(StagingDirectoryError):
     """Raised when disk space is insufficient."""
+
     pass
 
 
@@ -170,7 +172,9 @@ class StagingDirectoryManager:
                     file_size = path.stat().st_size
                     path.unlink()
                     total_freed += file_size
-                    logger.debug(f"[{barcode}] Cleaned up staging file: {path.name} ({file_size / (1024*1024):.1f} MB)")
+                    logger.debug(
+                        f"[{barcode}] Cleaned up staging file: {path.name} ({file_size / (1024 * 1024):.1f} MB)"
+                    )
                 except OSError as e:
                     logger.warning(f"[{barcode}] Failed to clean up {path.name}: {e}")
 
@@ -202,7 +206,7 @@ class StagingDirectoryManager:
             if should_cleanup:
                 logger.info(f"Cleaning up orphaned files for barcode: {barcode}")
                 freed_bytes = self.cleanup_files(barcode)
-                logger.info(f"Freed {freed_bytes / (1024*1024):.1f} MB from orphaned staging files for {barcode}")
+                logger.info(f"Freed {freed_bytes / (1024 * 1024):.1f} MB from orphaned staging files for {barcode}")
                 cleaned_count += len(file_paths)
 
         return cleaned_count
@@ -234,5 +238,5 @@ class StagingDirectoryManager:
             "staging_size_mb": staging_size / (1024**2),
             "orphaned_files_count": len(orphaned_files),
             "capacity_threshold": self.capacity_threshold,
-            "space_available": usage_ratio < self.capacity_threshold
+            "space_available": usage_ratio < self.capacity_threshold,
         }

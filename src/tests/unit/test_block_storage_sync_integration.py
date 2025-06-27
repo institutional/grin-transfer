@@ -36,7 +36,7 @@ class TestBlockStorageSyncIntegration:
                 storage_config=storage_config,
                 library_directory="test_library",
                 concurrent_downloads=1,
-                staging_dir=str(staging_dir)
+                staging_dir=str(staging_dir),
             )
 
             # Use REAL SlidingWindowRateCalculator to catch method name issues
@@ -48,22 +48,19 @@ class TestBlockStorageSyncIntegration:
             pipeline.staging_manager = MagicMock()
 
             # Mock the pipeline processing methods but use real rate calculator
-            with patch.object(pipeline, '_process_book_with_staging') as mock_process, \
-                 patch.object(pipeline, '_upload_book_from_staging') as mock_upload, \
-                 patch('grin_to_s3.sync.pipeline.SlidingWindowRateCalculator', return_value=real_calc):
-
+            with (
+                patch.object(pipeline, "_process_book_with_staging") as mock_process,
+                patch.object(pipeline, "_upload_book_from_staging") as mock_upload,
+                patch("grin_to_s3.sync.pipeline.SlidingWindowRateCalculator", return_value=real_calc),
+            ):
                 mock_process.return_value = {
-                    'barcode': 'TEST123',
-                    'download_success': True,
-                    'staging_file_path': '/tmp/staging/TEST123.tar.gz',
-                    'google_etag': 'test-etag',
-                    'metadata': {'size': 1000}
+                    "barcode": "TEST123",
+                    "download_success": True,
+                    "staging_file_path": "/tmp/staging/TEST123.tar.gz",
+                    "google_etag": "test-etag",
+                    "metadata": {"size": 1000},
                 }
-                mock_upload.return_value = {
-                    'barcode': 'TEST123',
-                    'upload_success': True,
-                    'result': {'success': True}
-                }
+                mock_upload.return_value = {"barcode": "TEST123", "upload_success": True, "result": {"success": True}}
 
                 # This should work without errors if method names are correct
                 await pipeline._run_block_storage_sync(["TEST123"], 1)
@@ -102,7 +99,7 @@ class TestBlockStorageSyncIntegration:
                 db_path=str(db_path),
                 storage_type="s3",
                 storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
-                library_directory="test_library"
+                library_directory="test_library",
             )
 
             # Test that local storage doesn't create staging manager
@@ -110,7 +107,7 @@ class TestBlockStorageSyncIntegration:
                 db_path=str(db_path),
                 storage_type="local",
                 storage_config={"base_path": temp_dir},
-                library_directory="test_library"
+                library_directory="test_library",
             )
 
             # Verify correct staging manager setup
@@ -137,7 +134,7 @@ class TestBlockStorageSyncIntegration:
                 library_directory="test_library",
                 concurrent_downloads=2,
                 concurrent_uploads=3,
-                staging_dir=str(staging_dir)
+                staging_dir=str(staging_dir),
             )
 
             # Verify semaphore limits are set correctly
@@ -161,7 +158,7 @@ class TestBlockStorageSyncIntegration:
                 storage_type="s3",
                 storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
                 library_directory="test_library",
-                staging_dir=str(staging_dir)
+                staging_dir=str(staging_dir),
             )
 
             # Test cleanup doesn't error
@@ -188,7 +185,7 @@ class TestBlockStorageSyncIntegration:
                 storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
                 library_directory="test_library",
                 concurrent_downloads=1,
-                staging_dir=str(staging_dir)
+                staging_dir=str(staging_dir),
             )
 
             # Mock dependencies
@@ -198,19 +195,18 @@ class TestBlockStorageSyncIntegration:
 
             # Mock mixed success/failure scenario
             results = [
-                {'barcode': 'TEST1', 'download_success': True, 'staging_file_path': '/tmp/test1.tar.gz'},
-                {'barcode': 'TEST2', 'download_success': False, 'error': 'Download failed'}
+                {"barcode": "TEST1", "download_success": True, "staging_file_path": "/tmp/test1.tar.gz"},
+                {"barcode": "TEST2", "download_success": False, "error": "Download failed"},
             ]
-            upload_results = [
-                {'barcode': 'TEST1', 'upload_success': True, 'result': {'success': True}}
-            ]
+            upload_results = [{"barcode": "TEST1", "upload_success": True, "result": {"success": True}}]
 
-            with patch.object(pipeline, '_process_book_with_staging', side_effect=results), \
-                 patch.object(pipeline, '_upload_book_from_staging', side_effect=upload_results):
-
+            with (
+                patch.object(pipeline, "_process_book_with_staging", side_effect=results),
+                patch.object(pipeline, "_upload_book_from_staging", side_effect=upload_results),
+            ):
                 await pipeline._run_block_storage_sync(["TEST1", "TEST2"], 2)
 
                 # Verify statistics are correct
                 assert pipeline.stats["completed"] == 1  # TEST1 succeeded
-                assert pipeline.stats["failed"] == 1     # TEST2 failed
+                assert pipeline.stats["failed"] == 1  # TEST2 failed
                 assert pipeline.stats["skipped"] == 0

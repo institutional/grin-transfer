@@ -19,9 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 async def find_catchup_books(
-    db_path: str,
-    library_directory: str,
-    secrets_dir: str | None = None
+    db_path: str, library_directory: str, secrets_dir: str | None = None
 ) -> tuple[set[str], set[str], set[str]]:
     """Find books available for catchup sync.
 
@@ -66,10 +64,7 @@ async def find_catchup_books(
 
 
 async def get_books_for_catchup_sync(
-    db_path: str,
-    storage_type: str,
-    catchup_candidates: set[str],
-    limit: int | None = None
+    db_path: str, storage_type: str, catchup_candidates: set[str], limit: int | None = None
 ) -> list[str]:
     """Get books that need catchup sync.
 
@@ -154,11 +149,7 @@ def confirm_catchup_sync(books_to_sync: list[str], auto_confirm: bool = False) -
     return True
 
 
-async def mark_books_for_catchup_processing(
-    db_path: str,
-    books_to_sync: list[str],
-    timestamp: str
-) -> None:
+async def mark_books_for_catchup_processing(db_path: str, books_to_sync: list[str], timestamp: str) -> None:
     """Mark books as being processed for catchup.
 
     Args:
@@ -182,9 +173,7 @@ async def mark_books_for_catchup_processing(
 
 
 async def run_catchup_validation(
-    run_config: dict[str, Any],
-    storage_type: str,
-    storage_config: dict[str, Any]
+    run_config: dict[str, Any], storage_type: str, storage_config: dict[str, Any]
 ) -> tuple[str, dict[str, Any]]:
     """Validate catchup configuration and return validated config.
 

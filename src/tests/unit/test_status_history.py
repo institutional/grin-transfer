@@ -42,15 +42,13 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             barcode=barcode,
             title="Test Book",
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book)
 
         # Add status change
         result = await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="processing_request",
-            status_value="requested"
+            barcode=barcode, status_type="processing_request", status_value="requested"
         )
 
         self.assertTrue(result)
@@ -68,7 +66,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             barcode=barcode,
             title="Test Book 2",
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book)
 
@@ -79,20 +77,21 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             status_type="processing_request",
             status_value="requested",
             session_id="session_123",
-            metadata=metadata
+            metadata=metadata,
         )
 
         self.assertTrue(result)
 
         # Verify the metadata was stored correctly
         import aiosqlite
+
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
                 SELECT metadata, session_id FROM book_status_history
                 WHERE barcode = ? AND status_type = ?
                 """,
-                (barcode, "processing_request")
+                (barcode, "processing_request"),
             )
             row = await cursor.fetchone()
 
@@ -110,7 +109,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             barcode=barcode,
             title="Test Book 3",
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book)
 
@@ -118,11 +117,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         statuses = ["requested", "in_process", "converted"]
 
         for status in statuses:
-            await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="processing_request",
-                status_value=status
-            )
+            await self.tracker.add_status_change(barcode=barcode, status_type="processing_request", status_value=status)
             # Small delay to ensure different timestamps
             await asyncio.sleep(0.001)
 
@@ -132,6 +127,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
 
         # Verify all history is preserved
         import aiosqlite
+
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
@@ -139,7 +135,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
                 WHERE barcode = ? AND status_type = ?
                 ORDER BY timestamp ASC, id ASC
                 """,
-                (barcode, "processing_request")
+                (barcode, "processing_request"),
             )
             rows = await cursor.fetchall()
 
@@ -155,28 +151,18 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             barcode=barcode,
             title="Test Book 4",
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book)
 
         # Add different types of status changes
         await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="processing_request",
-            status_value="requested"
+            barcode=barcode, status_type="processing_request", status_value="requested"
         )
 
-        await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="sync",
-            status_value="pending"
-        )
+        await self.tracker.add_status_change(barcode=barcode, status_type="sync", status_value="pending")
 
-        await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="enrichment",
-            status_value="completed"
-        )
+        await self.tracker.add_status_change(barcode=barcode, status_type="enrichment", status_value="completed")
 
         # Verify each status type has correct latest value
         processing_status = await self.tracker.get_latest_status(barcode, "processing_request")
@@ -195,7 +181,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             ("BOOK002", "in_process"),
             ("BOOK003", "converted"),
             ("BOOK004", "requested"),
-            ("BOOK005", "failed")
+            ("BOOK005", "failed"),
         ]
 
         for barcode, status in books:
@@ -204,31 +190,23 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
                 barcode=barcode,
                 title=f"Test Book {barcode}",
                 created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat()
+                updated_at=datetime.now(UTC).isoformat(),
             )
             await self.tracker.save_book(book)
 
             # Add status
-            await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="processing_request",
-                status_value=status
-            )
+            await self.tracker.add_status_change(barcode=barcode, status_type="processing_request", status_value=status)
 
         # Query books with specific statuses
         requested_books = await self.tracker.get_books_with_latest_status(
-            status_type="processing_request",
-            status_values=["requested"]
+            status_type="processing_request", status_values=["requested"]
         )
 
         processing_books = await self.tracker.get_books_with_latest_status(
-            status_type="processing_request",
-            status_values=["in_process", "converted"]
+            status_type="processing_request", status_values=["in_process", "converted"]
         )
 
-        all_books = await self.tracker.get_books_with_latest_status(
-            status_type="processing_request"
-        )
+        all_books = await self.tracker.get_books_with_latest_status(status_type="processing_request")
 
         # Verify results
         requested_barcodes = [book[0] for book in requested_books]
@@ -252,15 +230,13 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             barcode=barcode,
             title="Test Book 5",
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book)
 
         # Add processing_request status change
         await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="processing_request",
-            status_value="converted"
+            barcode=barcode, status_type="processing_request", status_value="converted"
         )
 
         # Status changes only update status history now
@@ -269,11 +245,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         self.assertEqual(processing_status, "converted")
 
         # Add sync status change
-        await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="sync",
-            status_value="completed"
-        )
+        await self.tracker.add_status_change(barcode=barcode, status_type="sync", status_value="completed")
 
         # Verify sync status is in history
         sync_status = await self.tracker.get_latest_status(barcode, "sync")
@@ -293,27 +265,21 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             barcode=barcode,
             title="Test Book 6",
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book)
 
         # Add multiple status changes with same timestamp (edge case)
         await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="processing_request",
-            status_value="requested"
+            barcode=barcode, status_type="processing_request", status_value="requested"
         )
 
         await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="processing_request",
-            status_value="in_process"
+            barcode=barcode, status_type="processing_request", status_value="in_process"
         )
 
         await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="processing_request",
-            status_value="converted"
+            barcode=barcode, status_type="processing_request", status_value="converted"
         )
 
         # The latest status should be "converted" (last added)
@@ -327,7 +293,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             ("SYNC001", "converted"),
             ("SYNC002", "in_process"),
             ("SYNC003", "requested"),
-            ("SYNC004", "failed")
+            ("SYNC004", "failed"),
         ]
 
         for barcode, final_status in test_books:
@@ -336,44 +302,33 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
                 barcode=barcode,
                 title=f"Sync Test {barcode}",
                 created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat()
+                updated_at=datetime.now(UTC).isoformat(),
             )
             await self.tracker.save_book(book)
 
             # Add progression: requested -> (in_process) -> final_status
             await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="processing_request",
-                status_value="requested"
+                barcode=barcode, status_type="processing_request", status_value="requested"
             )
 
             if final_status != "requested":
                 if final_status in ("converted", "in_process"):
                     await self.tracker.add_status_change(
-                        barcode=barcode,
-                        status_type="processing_request",
-                        status_value="in_process"
+                        barcode=barcode, status_type="processing_request", status_value="in_process"
                     )
 
                 if final_status == "converted":
                     await self.tracker.add_status_change(
-                        barcode=barcode,
-                        status_type="processing_request",
-                        status_value="converted"
+                        barcode=barcode, status_type="processing_request", status_value="converted"
                     )
                 elif final_status == "failed":
                     await self.tracker.add_status_change(
-                        barcode=barcode,
-                        status_type="processing_request",
-                        status_value="failed"
+                        barcode=barcode, status_type="processing_request", status_value="failed"
                     )
 
         # Test get_books_for_sync - should find books that have been requested
         # and are in valid processing states (excludes failed books)
-        sync_books = await self.tracker.get_books_for_sync(
-            storage_type="test",
-            limit=10
-        )
+        sync_books = await self.tracker.get_books_for_sync(storage_type="test", limit=10)
 
         sync_barcodes = set(sync_books)
         expected_barcodes = {"SYNC001", "SYNC002", "SYNC003", "SYNC004"}
@@ -388,29 +343,24 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
                 barcode=barcode,
                 title=f"Limit Test {barcode}",
                 created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat()
+                updated_at=datetime.now(UTC).isoformat(),
             )
             await self.tracker.save_book(book)
 
             await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="processing_request",
-                status_value="requested"
+                barcode=barcode, status_type="processing_request", status_value="requested"
             )
 
         # Test with limit
         limited_books = await self.tracker.get_books_with_latest_status(
-            status_type="processing_request",
-            status_values=["requested"],
-            limit=5
+            status_type="processing_request", status_values=["requested"], limit=5
         )
 
         self.assertEqual(len(limited_books), 5)
 
         # Test without limit
         all_books = await self.tracker.get_books_with_latest_status(
-            status_type="processing_request",
-            status_values=["requested"]
+            status_type="processing_request", status_values=["requested"]
         )
 
         self.assertEqual(len(all_books), 10)

@@ -46,22 +46,18 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
                 title=f"Test Book {barcode}",
                 processing_request_timestamp=datetime.now(UTC).isoformat(),
                 created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat()
+                updated_at=datetime.now(UTC).isoformat(),
             )
             await self.tracker.save_book(book)
 
             # Add initial status
             await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="processing_request",
-                status_value="requested"
+                barcode=barcode, status_type="processing_request", status_value="requested"
             )
 
             # Move to in_process
             await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="processing_request",
-                status_value="in_process"
+                barcode=barcode, status_type="processing_request", status_value="in_process"
             )
 
         # Mock GRIN responses - some books are now converted
@@ -69,10 +65,11 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         in_process_books = ["CONV002"]
         failed_books = []
 
-        with patch.object(self.monitor, 'get_converted_books', new_callable=AsyncMock) as mock_converted, \
-             patch.object(self.monitor, 'get_in_process_books', new_callable=AsyncMock) as mock_in_process, \
-             patch.object(self.monitor, 'get_failed_books', new_callable=AsyncMock) as mock_failed:
-
+        with (
+            patch.object(self.monitor, "get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch.object(self.monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
+            patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
+        ):
             mock_converted.return_value = converted_books
             mock_in_process.return_value = in_process_books
             mock_failed.return_value = failed_books
@@ -106,15 +103,13 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
                 title=f"Test Book {barcode}",
                 processing_request_timestamp=datetime.now(UTC).isoformat(),
                 created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat()
+                updated_at=datetime.now(UTC).isoformat(),
             )
             await self.tracker.save_book(book)
 
             # Add initial status
             await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="processing_request",
-                status_value="requested"
+                barcode=barcode, status_type="processing_request", status_value="requested"
             )
 
         # Mock GRIN responses - books are now in process
@@ -122,10 +117,11 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         in_process_books = ["PROC001", "PROC002"]
         failed_books = []
 
-        with patch.object(self.monitor, 'get_converted_books', new_callable=AsyncMock) as mock_converted, \
-             patch.object(self.monitor, 'get_in_process_books', new_callable=AsyncMock) as mock_in_process, \
-             patch.object(self.monitor, 'get_failed_books', new_callable=AsyncMock) as mock_failed:
-
+        with (
+            patch.object(self.monitor, "get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch.object(self.monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
+            patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
+        ):
             mock_converted.return_value = converted_books
             mock_in_process.return_value = in_process_books
             mock_failed.return_value = failed_books
@@ -155,15 +151,13 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
                 title=f"Test Book {barcode}",
                 processing_request_timestamp=datetime.now(UTC).isoformat(),
                 created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat()
+                updated_at=datetime.now(UTC).isoformat(),
             )
             await self.tracker.save_book(book)
 
             # Add initial status
             await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="processing_request",
-                status_value="requested"
+                barcode=barcode, status_type="processing_request", status_value="requested"
             )
 
         # Mock GRIN responses - books have failed
@@ -171,10 +165,11 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         in_process_books = []
         failed_books = ["FAIL001", "FAIL002"]
 
-        with patch.object(self.monitor, 'get_converted_books', new_callable=AsyncMock) as mock_converted, \
-             patch.object(self.monitor, 'get_in_process_books', new_callable=AsyncMock) as mock_in_process, \
-             patch.object(self.monitor, 'get_failed_books', new_callable=AsyncMock) as mock_failed:
-
+        with (
+            patch.object(self.monitor, "get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch.object(self.monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
+            patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
+        ):
             mock_converted.return_value = converted_books
             mock_in_process.return_value = in_process_books
             mock_failed.return_value = failed_books
@@ -203,22 +198,21 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
             title=f"Test Book {barcode}",
             processing_request_timestamp=datetime.now(UTC).isoformat(),
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book)
 
         # Add initial status
         await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="processing_request",
-            status_value="converted"
+            barcode=barcode, status_type="processing_request", status_value="converted"
         )
 
         # Mock GRIN responses - book is still converted
-        with patch.object(self.monitor, 'get_converted_books', new_callable=AsyncMock) as mock_converted, \
-             patch.object(self.monitor, 'get_in_process_books', new_callable=AsyncMock) as mock_in_process, \
-             patch.object(self.monitor, 'get_failed_books', new_callable=AsyncMock) as mock_failed:
-
+        with (
+            patch.object(self.monitor, "get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch.object(self.monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
+            patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
+        ):
             mock_converted.return_value = [barcode]
             mock_in_process.return_value = []
             mock_failed.return_value = []
@@ -233,13 +227,14 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
 
         # Verify only one status entry exists
         import aiosqlite
+
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
                 SELECT COUNT(*) FROM book_status_history
                 WHERE barcode = ? AND status_type = ? AND status_value = ?
                 """,
-                (barcode, "processing_request", "converted")
+                (barcode, "processing_request", "converted"),
             )
             count = (await cursor.fetchone())[0]
 
@@ -262,15 +257,13 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
                 title=f"Test Book {barcode}",
                 processing_request_timestamp=datetime.now(UTC).isoformat(),
                 created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat()
+                updated_at=datetime.now(UTC).isoformat(),
             )
             await self.tracker.save_book(book)
 
             # Add initial status
             await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="processing_request",
-                status_value=initial_status
+                barcode=barcode, status_type="processing_request", status_value=initial_status
             )
 
         # Mock GRIN responses based on final statuses
@@ -278,10 +271,11 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         in_process_books = ["MIX001"]
         failed_books = ["MIX003"]
 
-        with patch.object(self.monitor, 'get_converted_books', new_callable=AsyncMock) as mock_converted, \
-             patch.object(self.monitor, 'get_in_process_books', new_callable=AsyncMock) as mock_in_process, \
-             patch.object(self.monitor, 'get_failed_books', new_callable=AsyncMock) as mock_failed:
-
+        with (
+            patch.object(self.monitor, "get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch.object(self.monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
+            patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
+        ):
             mock_converted.return_value = converted_books
             mock_in_process.return_value = in_process_books
             mock_failed.return_value = failed_books
@@ -290,9 +284,9 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
             updates = await self.monitor.update_book_statuses()
 
         # Verify update counts
-        self.assertEqual(updates["converted"], 1)   # MIX002: in_process -> converted
+        self.assertEqual(updates["converted"], 1)  # MIX002: in_process -> converted
         self.assertEqual(updates["in_process"], 1)  # MIX001: requested -> in_process
-        self.assertEqual(updates["failed"], 1)      # MIX003: requested -> failed
+        self.assertEqual(updates["failed"], 1)  # MIX003: requested -> failed
         # MIX004 should not be updated (already converted)
 
         # Verify final statuses
@@ -323,16 +317,14 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
                 title=f"Test Book {barcode}",
                 processing_request_timestamp=datetime.now(UTC).isoformat(),
                 created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat()
+                updated_at=datetime.now(UTC).isoformat(),
             )
             await self.tracker.save_book(book)
 
             # Add status progression
             for status in status_progression:
                 await self.tracker.add_status_change(
-                    barcode=barcode,
-                    status_type="processing_request",
-                    status_value=status
+                    barcode=barcode, status_type="processing_request", status_value=status
                 )
 
         # Get requested books (should include all since they all have processing_request_timestamp)
@@ -349,10 +341,11 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         bad_monitor.db_path = "/nonexistent/path/to/database.db"
 
         # Mock GRIN responses
-        with patch.object(bad_monitor, 'get_converted_books', new_callable=AsyncMock) as mock_converted, \
-             patch.object(bad_monitor, 'get_in_process_books', new_callable=AsyncMock) as mock_in_process, \
-             patch.object(bad_monitor, 'get_failed_books', new_callable=AsyncMock) as mock_failed:
-
+        with (
+            patch.object(bad_monitor, "get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch.object(bad_monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
+            patch.object(bad_monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
+        ):
             mock_converted.return_value = ["TEST001"]
             mock_in_process.return_value = []
             mock_failed.return_value = []

@@ -62,6 +62,7 @@ class TestLocalStorageValidation:
         # Create storage with missing base_path in options
         config = StorageConfig(protocol="file")
         from grin_to_s3.storage import Storage
+
         storage = Storage(config)
 
         # Should raise error when normalizing relative path
@@ -131,11 +132,7 @@ class TestSyncPipelineLocalOptimization:
         """Test that sync pipeline detects local storage correctly."""
         # This test validates the concept - actual implementation will be tested
         # after sync.py modifications are made
-        storage_config = {
-            "type": "local",
-            "config": {"base_path": "/tmp/test"},
-            "prefix": ""
-        }
+        storage_config = {"type": "local", "config": {"base_path": "/tmp/test"}, "prefix": ""}
 
         # Verify storage type detection logic
         assert storage_config["type"] == "local"
@@ -160,7 +157,7 @@ class TestSyncPipelineLocalOptimization:
                 storage_config=storage_config,
                 library_directory="test_library",
                 concurrent_downloads=1,
-                staging_dir=Path(temp_dir) / "staging"  # Should not be used
+                staging_dir=Path(temp_dir) / "staging",  # Should not be used
             )
 
             # Verify staging directory is not created for local storage

@@ -274,14 +274,22 @@ async def export_sync_status_csv(db_path: str, output_path: str, storage_type: s
         rows = await cursor.fetchall()
 
         # Write CSV
-        with open(output_path, 'w', newline='') as csvfile:
+        with open(output_path, "w", newline="") as csvfile:
             writer = csv.writer(csvfile)
 
             # Header
-            writer.writerow([
-                'barcode', 'storage_type', 'storage_path', 'storage_decrypted_path',
-                'is_decrypted', 'sync_timestamp', 'sync_error', 'sync_status'
-            ])
+            writer.writerow(
+                [
+                    "barcode",
+                    "storage_type",
+                    "storage_path",
+                    "storage_decrypted_path",
+                    "is_decrypted",
+                    "sync_timestamp",
+                    "sync_error",
+                    "sync_status",
+                ]
+            )
 
             # Data rows
             for row in rows:

@@ -43,7 +43,7 @@ class TestLocalStorageIntegration:
             # Mock converted books
             mock_converted_books = {"TEST123"}
 
-            with patch('grin_to_s3.sync.utils.get_converted_books', return_value=mock_converted_books):
+            with patch("grin_to_s3.sync.utils.get_converted_books", return_value=mock_converted_books):
                 # This should exercise the complete pipeline
                 status = await pipeline.get_sync_status()
 
@@ -74,9 +74,9 @@ class TestLocalStorageIntegration:
             pipeline.db_tracker.get_books_for_sync = AsyncMock(return_value=[])
 
             # Mock get_converted_books to return empty list so sync exits early
-            with patch('grin_to_s3.sync.utils.get_converted_books', return_value=set()):
+            with patch("grin_to_s3.sync.utils.get_converted_books", return_value=set()):
                 # Capture print output to verify storage configuration display
-                with patch('builtins.print') as mock_print:
+                with patch("builtins.print") as mock_print:
                     await pipeline.run_sync(limit=0)
 
                     # Check that target directory was printed in startup configuration
@@ -87,8 +87,8 @@ class TestLocalStorageIntegration:
             # Test case 2: None storage config (edge case)
             pipeline.storage_config = None
 
-            with patch('grin_to_s3.sync.utils.get_converted_books', return_value=set()):
-                with patch('builtins.print') as mock_print:
+            with patch("grin_to_s3.sync.utils.get_converted_books", return_value=set()):
+                with patch("builtins.print") as mock_print:
                     await pipeline.run_sync(limit=0)
 
                     # Should handle None gracefully by showing "None"
@@ -119,12 +119,12 @@ class TestLocalStorageIntegration:
             reporter = pipeline.progress_reporter
 
             # These should exist and be callable
-            assert hasattr(reporter, 'start'), "ProgressReporter should have start() method"
-            assert hasattr(reporter, 'increment'), "ProgressReporter should have increment() method"
-            assert hasattr(reporter, 'finish'), "ProgressReporter should have finish() method"
+            assert hasattr(reporter, "start"), "ProgressReporter should have start() method"
+            assert hasattr(reporter, "increment"), "ProgressReporter should have increment() method"
+            assert hasattr(reporter, "finish"), "ProgressReporter should have finish() method"
 
             # This should NOT exist (would have caught the .stop() bug)
-            assert not hasattr(reporter, 'stop'), "ProgressReporter should NOT have stop() method"
+            assert not hasattr(reporter, "stop"), "ProgressReporter should NOT have stop() method"
 
             # Test that the methods actually work
             reporter.start()

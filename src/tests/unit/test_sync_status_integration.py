@@ -44,23 +44,18 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
                 title=f"Test Book {barcode}",
                 processing_request_timestamp=datetime.now(UTC).isoformat(),
                 created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat()
+                updated_at=datetime.now(UTC).isoformat(),
             )
             await self.tracker.save_book(book)
 
             # Add status progression
             for status in status_progression:
                 await self.tracker.add_status_change(
-                    barcode=barcode,
-                    status_type="processing_request",
-                    status_value=status
+                    barcode=barcode, status_type="processing_request", status_value=status
                 )
 
         # Test get_books_for_sync - should include books with valid processing states
-        sync_books = await self.tracker.get_books_for_sync(
-            storage_type="test",
-            limit=10
-        )
+        sync_books = await self.tracker.get_books_for_sync(storage_type="test", limit=10)
 
         sync_barcodes = set(sync_books)
         expected_barcodes = {"SYNC001", "SYNC002", "SYNC003", "SYNC004"}
@@ -78,24 +73,20 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
                 title=f"Test Book {barcode}",
                 processing_request_timestamp=datetime.now(UTC).isoformat(),
                 created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat()
+                updated_at=datetime.now(UTC).isoformat(),
             )
             await self.tracker.save_book(book)
 
             # Add processing status
             await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="processing_request",
-                status_value="converted"
+                barcode=barcode, status_type="processing_request", status_value="converted"
             )
 
         # Test with converted_barcodes filter (simulating GRIN's converted list)
         converted_barcodes = {"FILT001", "FILT003"}  # Only some books are actually converted
 
         sync_books = await self.tracker.get_books_for_sync(
-            storage_type="test",
-            limit=10,
-            converted_barcodes=converted_barcodes
+            storage_type="test", limit=10, converted_barcodes=converted_barcodes
         )
 
         # Only books in the converted_barcodes set should be returned
@@ -110,7 +101,7 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             barcode=barcode,
             title=f"Test Book {barcode}",
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book)
         # Note: No processing_request status added
@@ -122,21 +113,16 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             title=f"Test Book {barcode2}",
             processing_request_timestamp=datetime.now(UTC).isoformat(),
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book2)
 
         await self.tracker.add_status_change(
-            barcode=barcode2,
-            status_type="processing_request",
-            status_value="requested"
+            barcode=barcode2, status_type="processing_request", status_value="requested"
         )
 
         # Test get_books_for_sync
-        sync_books = await self.tracker.get_books_for_sync(
-            storage_type="test",
-            limit=10
-        )
+        sync_books = await self.tracker.get_books_for_sync(storage_type="test", limit=10)
 
         self.assertEqual(set(sync_books), {barcode, barcode2})
 
@@ -150,26 +136,20 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             title=f"Test Book {barcode}",
             processing_request_timestamp=datetime.now(UTC).isoformat(),
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book)
 
         # Add processing status
         await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="processing_request",
-            status_value="converted"
+            barcode=barcode, status_type="processing_request", status_value="converted"
         )
 
         # Add sync status changes
         sync_statuses = ["pending", "syncing", "completed"]
 
         for status in sync_statuses:
-            await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="sync",
-                status_value=status
-            )
+            await self.tracker.add_status_change(barcode=barcode, status_type="sync", status_value=status)
 
         # Verify latest sync status
         latest_sync_status = await self.tracker.get_latest_status(barcode, "sync")
@@ -179,10 +159,10 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         """Test get_books_for_sync with sync status filter."""
         # Create test books with different sync statuses
         test_data = [
-            ("STAT001", None),        # No sync status
-            ("STAT002", "pending"),   # Pending sync
-            ("STAT003", "completed"), # Already synced
-            ("STAT004", "failed"),    # Failed sync
+            ("STAT001", None),  # No sync status
+            ("STAT002", "pending"),  # Pending sync
+            ("STAT003", "completed"),  # Already synced
+            ("STAT004", "failed"),  # Failed sync
         ]
 
         for barcode, sync_status in test_data:
@@ -192,41 +172,28 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
                 title=f"Test Book {barcode}",
                 processing_request_timestamp=datetime.now(UTC).isoformat(),
                 created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat()
+                updated_at=datetime.now(UTC).isoformat(),
             )
             await self.tracker.save_book(book)
 
             # Add processing status
             await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="processing_request",
-                status_value="converted"
+                barcode=barcode, status_type="processing_request", status_value="converted"
             )
 
             # Add sync status if specified
             if sync_status:
-                await self.tracker.add_status_change(
-                    barcode=barcode,
-                    status_type="sync",
-                    status_value=sync_status
-                )
+                await self.tracker.add_status_change(barcode=barcode, status_type="sync", status_value=sync_status)
 
         # Test with no status filter (default: pending or NULL)
-        all_sync_books = await self.tracker.get_books_for_sync(
-            storage_type="test",
-            limit=10
-        )
+        all_sync_books = await self.tracker.get_books_for_sync(storage_type="test", limit=10)
 
         # Should include books with no sync status or failed status
         expected_all = {"STAT001", "STAT004"}  # NULL or failed
         self.assertEqual(set(all_sync_books), expected_all)
 
         # Test with specific status filter
-        failed_sync_books = await self.tracker.get_books_for_sync(
-            storage_type="test",
-            limit=10,
-            status_filter="failed"
-        )
+        failed_sync_books = await self.tracker.get_books_for_sync(storage_type="test", limit=10, status_filter="failed")
 
         # Should only include books with failed status
         self.assertEqual(set(failed_sync_books), {"STAT004"})
@@ -241,23 +208,18 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             title=f"Test Book {barcode}",
             processing_request_timestamp=datetime.now(UTC).isoformat(),
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book)
 
         # Add processing status
         await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="processing_request",
-            status_value="converted"
+            barcode=barcode, status_type="processing_request", status_value="converted"
         )
 
         # Test with different storage types
         for storage_type in ["r2", "minio", "s3"]:
-            sync_books = await self.tracker.get_books_for_sync(
-                storage_type=storage_type,
-                limit=10
-            )
+            sync_books = await self.tracker.get_books_for_sync(storage_type=storage_type, limit=10)
 
             # Book should be eligible for all storage types
             self.assertIn(barcode, sync_books)
@@ -272,15 +234,12 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             title=f"Test Book {barcode}",
             processing_request_timestamp=datetime.now(UTC).isoformat(),
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book)
 
         # Test get_books_for_sync - should include this book even without status history
-        sync_books = await self.tracker.get_books_for_sync(
-            storage_type="test",
-            limit=10
-        )
+        sync_books = await self.tracker.get_books_for_sync(storage_type="test", limit=10)
 
         self.assertIn(barcode, sync_books)
 
@@ -294,7 +253,7 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             title=f"Test Book {barcode}",
             processing_request_timestamp=datetime.now(UTC).isoformat(),
             created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat()
+            updated_at=datetime.now(UTC).isoformat(),
         )
         await self.tracker.save_book(book)
 
@@ -302,20 +261,13 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         statuses = ["requested", "in_process", "converted", "failed", "converted"]
 
         for status in statuses:
-            await self.tracker.add_status_change(
-                barcode=barcode,
-                status_type="processing_request",
-                status_value=status
-            )
+            await self.tracker.add_status_change(barcode=barcode, status_type="processing_request", status_value=status)
 
         # The latest status should be "converted" (last in sequence)
         latest_status = await self.tracker.get_latest_status(barcode, "processing_request")
         self.assertEqual(latest_status, "converted")
 
         # Book should be eligible for sync since it has processing history
-        sync_books = await self.tracker.get_books_for_sync(
-            storage_type="test",
-            limit=10
-        )
+        sync_books = await self.tracker.get_books_for_sync(storage_type="test", limit=10)
 
         self.assertIn(barcode, sync_books)
