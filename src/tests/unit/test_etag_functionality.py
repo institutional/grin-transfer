@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.sync import SyncPipeline
+from grin_to_s3.sync.pipeline import SyncPipeline
 
 
 class TestETagFunctionality(unittest.TestCase):

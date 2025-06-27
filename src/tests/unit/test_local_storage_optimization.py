@@ -145,7 +145,7 @@ class TestSyncPipelineLocalOptimization:
     async def test_no_staging_for_local_storage(self):
         """Test that local storage skips staging directory."""
         from grin_to_s3.collect_books.models import SQLiteProgressTracker
-        from grin_to_s3.sync import SyncPipeline
+        from grin_to_s3.sync.pipeline import SyncPipeline
 
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create test database

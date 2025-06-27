@@ -11,7 +11,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from botocore.exceptions import ClientError
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.sync import SyncPipeline, reset_bucket_cache
+from grin_to_s3.sync.pipeline import SyncPipeline
+from grin_to_s3.sync.utils import reset_bucket_cache
 
 
 class TestBucketCreation(IsolatedAsyncioTestCase):
