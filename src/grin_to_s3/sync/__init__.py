@@ -14,7 +14,7 @@ from .catchup import (
     run_catchup_validation,
     show_catchup_dry_run,
 )
-from .core import (
+from .operations import (
     check_and_handle_etag_skip,
     download_book_to_staging,
     sync_book_to_local_storage,

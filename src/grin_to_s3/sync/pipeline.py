@@ -20,7 +20,7 @@ from grin_to_s3.common import (
     pluralize,
 )
 
-from .core import (
+from .operations import (
     check_and_handle_etag_skip,
     download_book_to_staging,
     sync_book_to_local_storage,

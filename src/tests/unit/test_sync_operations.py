@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from grin_to_s3.sync.core import (
+from grin_to_s3.sync.operations import (
     check_and_handle_etag_skip,
     sync_book_to_local_storage,
     upload_book_from_staging,
@@ -22,8 +22,8 @@ class TestETagSkipHandling:
         self, mock_grin_client, mock_progress_tracker, mock_storage_config
     ):
         """Test ETag check when file should not be skipped."""
-        with patch('grin_to_s3.sync.core.check_google_etag') as mock_check_etag, \
-             patch('grin_to_s3.sync.core.should_skip_download') as mock_should_skip:
+        with patch('grin_to_s3.sync.operations.check_google_etag') as mock_check_etag, \
+             patch('grin_to_s3.sync.operations.should_skip_download') as mock_should_skip:
 
             mock_check_etag.return_value = ("abc123", 1024)
             mock_should_skip.return_value = False
@@ -41,8 +41,8 @@ class TestETagSkipHandling:
         self, mock_grin_client, mock_progress_tracker, mock_storage_config
     ):
         """Test ETag check when file should be skipped."""
-        with patch('grin_to_s3.sync.core.check_google_etag') as mock_check_etag, \
-             patch('grin_to_s3.sync.core.should_skip_download') as mock_should_skip:
+        with patch('grin_to_s3.sync.operations.check_google_etag') as mock_check_etag, \
+             patch('grin_to_s3.sync.operations.should_skip_download') as mock_should_skip:
 
             mock_check_etag.return_value = ("abc123", 1024)
             mock_should_skip.return_value = True

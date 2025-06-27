@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.sync.core import check_and_handle_etag_skip
+from grin_to_s3.sync.operations import check_and_handle_etag_skip
 from grin_to_s3.sync.utils import check_google_etag, should_skip_download
 
 
