@@ -534,7 +534,6 @@ class BookCollector:
 
         return states
 
-
     async def save_pagination_state(self, pagination_state: dict):
         """Save pagination state for resume functionality."""
         self.pagination_state.update(pagination_state)
@@ -644,7 +643,6 @@ class BookCollector:
         # Then, yield books from the main _all_books catalog
         async for book_line, known_barcodes in self.get_all_books_html():
             yield book_line, known_barcodes
-
 
     def _looks_like_date(self, text: str) -> bool:
         """Check if text looks like a date string."""

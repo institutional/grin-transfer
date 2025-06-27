@@ -139,9 +139,7 @@ async def download_book_to_staging(
                     if not staging_manager.check_disk_space():
                         # Clean up partial file and pause
                         staging_file.unlink(missing_ok=True)
-                        logger.warning(
-                            f"[{barcode}] Disk space exhausted during download, cleaning up and retrying..."
-                        )
+                        logger.warning(f"[{barcode}] Disk space exhausted during download, cleaning up and retrying...")
                         await asyncio.sleep(60)  # Wait longer before retry
                         return await download_book_to_staging(
                             barcode, grin_client, library_directory, staging_manager, google_etag, secrets_dir
@@ -251,9 +249,7 @@ async def upload_book_from_staging(
         # Upload encrypted file first with Google ETag metadata
         try:
             logger.info(f"[{barcode}] Uploading encrypted archive...")
-            encrypted_result = await book_storage.save_archive_from_file(
-                barcode, str(encrypted_file), google_etag
-            )
+            encrypted_result = await book_storage.save_archive_from_file(barcode, str(encrypted_file), google_etag)
             upload_results.append(encrypted_result)
             logger.info(f"[{barcode}] Encrypted archive upload completed")
         except Exception as e:
@@ -391,12 +387,7 @@ async def sync_book_to_local_storage(
         # Decrypt directly to final location
         logger.info(f"[{barcode}] Decrypting to {final_decrypted_path}")
         try:
-            await decrypt_gpg_file(
-                str(final_encrypted_path),
-                str(final_decrypted_path),
-                gpg_key_file,
-                secrets_dir
-            )
+            await decrypt_gpg_file(str(final_encrypted_path), str(final_decrypted_path), gpg_key_file, secrets_dir)
         except Exception as e:
             logger.error(f"[{barcode}] Decryption failed: {e}")
             # Clean up encrypted file on decryption failure

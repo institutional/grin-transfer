@@ -89,11 +89,7 @@ class TestRunConfigLogFile:
 
     def test_run_config_log_file_property(self):
         """Test that RunConfig.log_file returns the correct path."""
-        config_dict = {
-            "log_file": "/path/to/logfile.log",
-            "run_name": "test_run",
-            "storage_config": {"type": "local"}
-        }
+        config_dict = {"log_file": "/path/to/logfile.log", "run_name": "test_run", "storage_config": {"type": "local"}}
 
         run_config = RunConfig(config_dict)
 
@@ -104,7 +100,7 @@ class TestRunConfigLogFile:
         config_dict = {
             "log_file": "logs/grin_pipeline_my_test_run_20250626_105045.log",
             "run_name": "my_test_run",
-            "storage_config": {"type": "local"}
+            "storage_config": {"type": "local"},
         }
 
         run_config = RunConfig(config_dict)
@@ -126,11 +122,7 @@ class TestUnifiedLoggingIntegration:
             log_file = f"{log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
 
             # Create config dict as collect would
-            config_dict = {
-                "run_name": run_name,
-                "log_file": log_file,
-                "storage_config": {"type": "local"}
-            }
+            config_dict = {"run_name": run_name, "log_file": log_file, "storage_config": {"type": "local"}}
 
             # Write config file
             config_path = Path(temp_dir) / "run_config.json"
@@ -151,11 +143,7 @@ class TestUnifiedLoggingIntegration:
             custom_log_dir = "custom_logs"
             log_file = f"{custom_log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
 
-            config_dict = {
-                "run_name": run_name,
-                "log_file": log_file,
-                "storage_config": {"type": "local"}
-            }
+            config_dict = {"run_name": run_name, "log_file": log_file, "storage_config": {"type": "local"}}
 
             run_config = RunConfig(config_dict)
             assert run_config.log_file.startswith("custom_logs/")
@@ -166,11 +154,7 @@ class TestUnifiedLoggingIntegration:
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = str(Path(temp_dir) / "grin_pipeline_test_20250626_105045.log")
 
-            config_dict = {
-                "run_name": "test",
-                "log_file": log_file,
-                "storage_config": {"type": "local"}
-            }
+            config_dict = {"run_name": "test", "log_file": log_file, "storage_config": {"type": "local"}}
 
             # First command (collect) creates log
             setup_logging("INFO", log_file)

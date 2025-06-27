@@ -22,9 +22,10 @@ class TestETagSkipHandling:
         self, mock_grin_client, mock_progress_tracker, mock_storage_config
     ):
         """Test ETag check when file should not be skipped."""
-        with patch('grin_to_s3.sync.operations.check_google_etag') as mock_check_etag, \
-             patch('grin_to_s3.sync.operations.should_skip_download') as mock_should_skip:
-
+        with (
+            patch("grin_to_s3.sync.operations.check_google_etag") as mock_check_etag,
+            patch("grin_to_s3.sync.operations.should_skip_download") as mock_should_skip,
+        ):
             mock_check_etag.return_value = ("abc123", 1024)
             mock_should_skip.return_value = False
 
@@ -41,9 +42,10 @@ class TestETagSkipHandling:
         self, mock_grin_client, mock_progress_tracker, mock_storage_config
     ):
         """Test ETag check when file should be skipped."""
-        with patch('grin_to_s3.sync.operations.check_google_etag') as mock_check_etag, \
-             patch('grin_to_s3.sync.operations.should_skip_download') as mock_should_skip:
-
+        with (
+            patch("grin_to_s3.sync.operations.check_google_etag") as mock_check_etag,
+            patch("grin_to_s3.sync.operations.should_skip_download") as mock_should_skip,
+        ):
             mock_check_etag.return_value = ("abc123", 1024)
             mock_should_skip.return_value = True
 
@@ -77,8 +79,7 @@ class TestBookUpload:
     ):
         """Test upload handling skip download scenario."""
         result = await upload_book_from_staging(
-            "TEST123", "SKIP_DOWNLOAD", "minio", mock_storage_config,
-            mock_staging_manager, mock_progress_tracker
+            "TEST123", "SKIP_DOWNLOAD", "minio", mock_storage_config, mock_staging_manager, mock_progress_tracker
         )
 
         assert result["barcode"] == "TEST123"

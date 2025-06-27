@@ -220,22 +220,22 @@ def apply_run_config_to_args(args: Any, db_path: str) -> None:
         return
 
     # Apply library directory if not set
-    if hasattr(args, 'grin_library_directory') and not getattr(args, 'grin_library_directory', None):
+    if hasattr(args, "grin_library_directory") and not getattr(args, "grin_library_directory", None):
         args.grin_library_directory = config.library_directory
 
     # Apply secrets_dir if not set
-    if hasattr(args, 'secrets_dir') and not getattr(args, 'secrets_dir', None):
+    if hasattr(args, "secrets_dir") and not getattr(args, "secrets_dir", None):
         args.secrets_dir = config.secrets_dir
 
     # Apply limit if not set
-    if hasattr(args, 'limit') and not getattr(args, 'limit', None):
+    if hasattr(args, "limit") and not getattr(args, "limit", None):
         args.limit = config.limit
 
     # Apply storage configuration if not set
     storage_args = config.get_storage_args()
     for arg_name, value in storage_args.items():
         # Convert argument name to attribute name (replace dashes with underscores)
-        attr_name = arg_name.replace('-', '_')
+        attr_name = arg_name.replace("-", "_")
         if hasattr(args, attr_name) and not getattr(args, attr_name, None):
             setattr(args, attr_name, value)
 
@@ -262,14 +262,14 @@ def print_run_config_info(db_path: str) -> None:
         if config.storage_config:
             storage = config.storage_config
             print(f"  Storage Type: {storage.get('type')}")
-            storage_config = storage.get('config', {})
-            if 'bucket_raw' in storage_config:
+            storage_config = storage.get("config", {})
+            if "bucket_raw" in storage_config:
                 print(f"  Raw Data Bucket: {storage_config['bucket_raw']}")
-            if 'bucket_meta' in storage_config:
+            if "bucket_meta" in storage_config:
                 print(f"  Metadata Bucket: {storage_config['bucket_meta']}")
-            if 'bucket_full' in storage_config:
+            if "bucket_full" in storage_config:
                 print(f"  Full-text Bucket: {storage_config['bucket_full']}")
-            if 'prefix' in storage_config:
+            if "prefix" in storage_config:
                 print(f"  Storage Prefix: {storage_config['prefix']}")
     else:
         run_name, output_dir = get_run_info_from_db_path(db_path)
@@ -316,11 +316,11 @@ def validate_bucket_arguments(args: Any, storage_type: str | None = None) -> lis
 
     # For MinIO, bucket names are required (since it's typically used for local development)
     missing_buckets = []
-    if not getattr(args, 'bucket_raw', None):
+    if not getattr(args, "bucket_raw", None):
         missing_buckets.append("--bucket-raw")
-    if not getattr(args, 'bucket_meta', None):
+    if not getattr(args, "bucket_meta", None):
         missing_buckets.append("--bucket-meta")
-    if not getattr(args, 'bucket_full', None):
+    if not getattr(args, "bucket_full", None):
         missing_buckets.append("--bucket-full")
 
     return missing_buckets
@@ -339,40 +339,40 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
     storage_dict: dict[str, str] = {}
 
     # Add bucket names if provided
-    if getattr(args, 'bucket_raw', None):
+    if getattr(args, "bucket_raw", None):
         storage_dict["bucket_raw"] = args.bucket_raw
-    if getattr(args, 'bucket_meta', None):
+    if getattr(args, "bucket_meta", None):
         storage_dict["bucket_meta"] = args.bucket_meta
-    if getattr(args, 'bucket_full', None):
+    if getattr(args, "bucket_full", None):
         storage_dict["bucket_full"] = args.bucket_full
 
     # Add additional storage config from --storage-config arguments
-    if getattr(args, 'storage_config', None):
+    if getattr(args, "storage_config", None):
         for item in args.storage_config:
             if "=" in item:
                 key, value = item.split("=", 1)
                 storage_dict[key] = value
 
     # For R2 storage, always load credentials from file
-    storage_type = getattr(args, 'storage', None)
-    if storage_type == 'r2':
+    storage_type = getattr(args, "storage", None)
+    if storage_type == "r2":
         # Check if buckets are missing and try to load from credentials
         missing_buckets = []
-        for bucket_attr in ['bucket_raw', 'bucket_meta', 'bucket_full']:
+        for bucket_attr in ["bucket_raw", "bucket_meta", "bucket_full"]:
             if bucket_attr not in storage_dict:
                 missing_buckets.append(bucket_attr)
 
         # Load R2 credentials if buckets are missing OR credentials are missing
-        if missing_buckets or not all(key in storage_dict for key in ['access_key', 'secret_key', 'account_id']):
+        if missing_buckets or not all(key in storage_dict for key in ["access_key", "secret_key", "account_id"]):
             try:
                 from pathlib import Path
 
                 from .common import load_json_credentials
 
                 # Determine credentials file path
-                credentials_file = getattr(args, 'credentials_file', None)
+                credentials_file = getattr(args, "credentials_file", None)
                 if not credentials_file:
-                    secrets_dir = getattr(args, 'secrets_dir', None)
+                    secrets_dir = getattr(args, "secrets_dir", None)
                     if secrets_dir:
                         credentials_file = Path(secrets_dir) / "r2-credentials.json"
                     else:
@@ -386,7 +386,7 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
                         storage_dict[bucket_attr] = creds[bucket_attr]
 
                 # Also include R2 credentials for storage creation
-                for cred_attr in ['access_key', 'secret_key', 'account_id']:
+                for cred_attr in ["access_key", "secret_key", "account_id"]:
                     if cred_attr in creds:
                         storage_dict[cred_attr] = creds[cred_attr]
             except Exception:
@@ -394,7 +394,7 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
                 pass
 
     # Add other optional arguments
-    for attr in ['prefix', 'endpoint_url', 'access_key', 'secret_key', 'account_id', 'credentials_file']:
+    for attr in ["prefix", "endpoint_url", "access_key", "secret_key", "account_id", "credentials_file"]:
         value = getattr(args, attr, None)
         if value:
             storage_dict[attr] = value

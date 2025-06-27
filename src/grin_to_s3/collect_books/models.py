@@ -154,8 +154,6 @@ class BookRecord:
         ]
 
 
-
-
 class BoundedSet:
     """
     A memory-bounded set that automatically evicts old items when capacity is exceeded.
@@ -237,12 +235,12 @@ class SQLiteProgressTracker:
         if not schema_file.exists():
             raise FileNotFoundError(f"Database schema file not found: {schema_file}")
 
-        schema_sql = schema_file.read_text(encoding='utf-8')
+        schema_sql = schema_file.read_text(encoding="utf-8")
 
         async with aiosqlite.connect(self.db_path) as db:
             # Execute the complete schema
             # Split by semicolon and execute each statement separately
-            statements = [stmt.strip() for stmt in schema_sql.split(';') if stmt.strip()]
+            statements = [stmt.strip() for stmt in schema_sql.split(";") if stmt.strip()]
 
             for statement in statements:
                 if statement.strip():
@@ -488,7 +486,7 @@ class SQLiteProgressTracker:
                     book.analyzed_date,
                     book.ocr_date,
                     book.google_books_link,
-                    getattr(book, 'processing_request_timestamp', None),
+                    getattr(book, "processing_request_timestamp", None),
                     book.grin_state,
                     book.viewability,
                     book.opted_out,
@@ -505,14 +503,14 @@ class SQLiteProgressTracker:
                     book.enrichment_timestamp,
                     book.csv_exported,
                     book.csv_updated,
-                    getattr(book, 'storage_type', None),
-                    getattr(book, 'storage_path', None),
-                    getattr(book, 'storage_decrypted_path', None),
-                    getattr(book, 'last_etag_check', None),
-                    getattr(book, 'google_etag', None),
-                    getattr(book, 'is_decrypted', False),
-                    getattr(book, 'sync_timestamp', None),
-                    getattr(book, 'sync_error', None),
+                    getattr(book, "storage_type", None),
+                    getattr(book, "storage_path", None),
+                    getattr(book, "storage_decrypted_path", None),
+                    getattr(book, "last_etag_check", None),
+                    getattr(book, "google_etag", None),
+                    getattr(book, "is_decrypted", False),
+                    getattr(book, "sync_timestamp", None),
+                    getattr(book, "sync_error", None),
                     book.created_at or now,
                     book.updated_at or now,
                 ),
@@ -680,14 +678,13 @@ class SQLiteProgressTracker:
             await db.commit()
             return rows_affected > 0
 
-
     async def get_books_for_sync(
         self,
         storage_type: str,
         limit: int = 100,
         status_filter: str | None = None,
         converted_barcodes: set[str] | None = None,
-        specific_barcodes: list[str] | None = None
+        specific_barcodes: list[str] | None = None,
     ) -> list[str]:
         """Get barcodes for books that need syncing to storage.
 
@@ -705,7 +702,7 @@ class SQLiteProgressTracker:
 
         if specific_barcodes:
             # Filter to only the specific barcodes requested
-            placeholders = ','.join('?' * len(specific_barcodes))
+            placeholders = ",".join("?" * len(specific_barcodes))
             base_query = f"""
                 SELECT barcode FROM books
                 WHERE barcode IN ({placeholders})
@@ -713,7 +710,7 @@ class SQLiteProgressTracker:
             params: list[Any] = list(specific_barcodes)
         elif converted_barcodes:
             # Filter to only books that are known to be converted AND exist in our database
-            placeholders = ','.join('?' * len(converted_barcodes))
+            placeholders = ",".join("?" * len(converted_barcodes))
             base_query = f"""
                 SELECT barcode FROM books
                 WHERE barcode IN ({placeholders})
@@ -726,7 +723,6 @@ class SQLiteProgressTracker:
                 WHERE 1=1
             """
             params = []
-
 
         # Filter by sync status using status history
         if status_filter:
@@ -816,7 +812,8 @@ class SQLiteProgressTracker:
 
             # Get latest sync status for each book using status history
             # Synced books (downloaded status)
-            cursor = await db.execute(f"""
+            cursor = await db.execute(
+                f"""
                 SELECT COUNT(DISTINCT b.barcode)
                 FROM books b
                 JOIN book_status_history h ON b.barcode = h.barcode
@@ -826,12 +823,15 @@ class SQLiteProgressTracker:
                     FROM book_status_history h2
                     WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
                 )
-            """, params)
+            """,
+                params,
+            )
             row = await cursor.fetchone()
             synced_count = row[0] if row else 0
 
             # Failed sync books
-            cursor = await db.execute(f"""
+            cursor = await db.execute(
+                f"""
                 SELECT COUNT(DISTINCT b.barcode)
                 FROM books b
                 JOIN book_status_history h ON b.barcode = h.barcode
@@ -841,12 +841,15 @@ class SQLiteProgressTracker:
                     FROM book_status_history h2
                     WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
                 )
-            """, params)
+            """,
+                params,
+            )
             row = await cursor.fetchone()
             failed_count = row[0] if row else 0
 
             # Currently syncing
-            cursor = await db.execute(f"""
+            cursor = await db.execute(
+                f"""
                 SELECT COUNT(DISTINCT b.barcode)
                 FROM books b
                 JOIN book_status_history h ON b.barcode = h.barcode
@@ -856,23 +859,29 @@ class SQLiteProgressTracker:
                     FROM book_status_history h2
                     WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
                 )
-            """, params)
+            """,
+                params,
+            )
             row = await cursor.fetchone()
             syncing_count = row[0] if row else 0
 
             # Pending/not started (books with no sync status history or latest status is pending)
-            cursor = await db.execute(f"""
+            cursor = await db.execute(
+                f"""
                 SELECT COUNT(*) FROM books b {where_clause}
                 AND b.barcode NOT IN (
                     SELECT DISTINCT barcode
                     FROM book_status_history
                     WHERE status_type = 'sync'
                 )
-            """, params)
+            """,
+                params,
+            )
             row = await cursor.fetchone()
             no_sync_history = row[0] if row else 0
 
-            cursor = await db.execute(f"""
+            cursor = await db.execute(
+                f"""
                 SELECT COUNT(DISTINCT b.barcode)
                 FROM books b
                 JOIN book_status_history h ON b.barcode = h.barcode
@@ -882,7 +891,9 @@ class SQLiteProgressTracker:
                     FROM book_status_history h2
                     WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
                 )
-            """, params)
+            """,
+                params,
+            )
             row = await cursor.fetchone()
             pending_with_history = row[0] if row else 0
 
@@ -921,7 +932,7 @@ class SQLiteProgressTracker:
         status_type: str,
         status_value: str,
         session_id: str | None = None,
-        metadata: dict | None = None
+        metadata: dict | None = None,
     ) -> bool:
         """Atomically record a status change for a book.
 
@@ -947,14 +958,11 @@ class SQLiteProgressTracker:
                 (barcode, status_type, status_value, timestamp, session_id, metadata)
                 VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (barcode, status_type, status_value, now, session_id, metadata_json)
+                (barcode, status_type, status_value, now, session_id, metadata_json),
             )
 
             # Update the updated_at timestamp in books table
-            await db.execute(
-                "UPDATE books SET updated_at = ? WHERE barcode = ?",
-                (now, barcode)
-            )
+            await db.execute("UPDATE books SET updated_at = ? WHERE barcode = ?", (now, barcode))
 
             await db.commit()
             return True
@@ -979,16 +987,13 @@ class SQLiteProgressTracker:
                 ORDER BY timestamp DESC, id DESC
                 LIMIT 1
                 """,
-                (barcode, status_type)
+                (barcode, status_type),
             )
             row = await cursor.fetchone()
             return row[0] if row else None
 
     async def get_books_with_latest_status(
-        self,
-        status_type: str,
-        status_values: list[str] | None = None,
-        limit: int | None = None
+        self, status_type: str, status_values: list[str] | None = None, limit: int | None = None
     ) -> list[tuple[str, str]]:
         """Get books with their latest status for a given status type.
 
@@ -1020,7 +1025,7 @@ class SQLiteProgressTracker:
         params = [status_type, status_type]
 
         if status_values:
-            placeholders = ','.join('?' * len(status_values))
+            placeholders = ",".join("?" * len(status_values))
             base_query += f" AND h1.status_value IN ({placeholders})"
             params.extend(status_values)
 

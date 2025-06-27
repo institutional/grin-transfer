@@ -121,8 +121,7 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
             base_path = config.get("base_path")
             if not base_path:
                 raise ValueError(
-                    "Local storage requires explicit base_path. "
-                    "Provide base_path in storage configuration."
+                    "Local storage requires explicit base_path. Provide base_path in storage configuration."
                 )
             return create_local_storage(base_path)
 
@@ -145,9 +144,7 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
                 creds = load_json_credentials(str(credentials_file))
                 validate_required_keys(creds, ["account_id", "access_key", "secret_key"], "R2 credentials")
                 return create_r2_storage(
-                    account_id=creds["account_id"],
-                    access_key=creds["access_key"],
-                    secret_key=creds["secret_key"]
+                    account_id=creds["account_id"], access_key=creds["access_key"], secret_key=creds["secret_key"]
                 )
             except FileNotFoundError as e:
                 if config.get("credentials_file"):
@@ -312,6 +309,7 @@ class SlidingWindowRateCalculator:
         else:
             # Fallback to overall rate for first batch
             import time
+
             current_time = time.time()
             overall_elapsed = current_time - fallback_start_time
             return fallback_processed_count / max(1, overall_elapsed)
@@ -535,19 +533,14 @@ def get_gpg_passphrase_from_secrets(secrets_dir: str | None = None) -> str:
     else:
         # Search common locations in home directory
         home = Path.home()
-        search_paths.extend([
-            home / ".config" / "grin-to-s3",
-            home,
-            home / ".grin",
-            home / ".config"
-        ])
+        search_paths.extend([home / ".config" / "grin-to-s3", home, home / ".grin", home / ".config"])
 
     # Look for gpg_passphrase.asc file
     for search_path in search_paths:
         passphrase_file = search_path / "gpg_passphrase.asc"
         if passphrase_file.exists():
             try:
-                passphrase = passphrase_file.read_text(encoding='utf-8').strip()
+                passphrase = passphrase_file.read_text(encoding="utf-8").strip()
                 if not passphrase:
                     raise ValueError(f"GPG passphrase file is empty: {passphrase_file}")
                 return passphrase
@@ -568,10 +561,7 @@ def check_gpg_keys_available() -> bool:
     """
     try:
         result = subprocess.run(
-            ["gpg", "--list-secret-keys", "--batch", "--no-tty"],
-            capture_output=True,
-            check=True,
-            timeout=10
+            ["gpg", "--list-secret-keys", "--batch", "--no-tty"], capture_output=True, check=True, timeout=10
         )
         # If we have any output, we have secret keys
         return len(result.stdout.strip()) > 0
@@ -600,7 +590,7 @@ async def import_gpg_key_if_available(gpg_key_file: str | None = None) -> bool:
             ["gpg", "--quiet", "--batch", "--no-tty", "--import", str(gpg_key_path)],
             capture_output=True,
             check=True,
-            timeout=30
+            timeout=30,
         )
         return True
     except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
@@ -649,17 +639,24 @@ async def decrypt_gpg_data(
                 # --pinentry-mode loopback: read passphrase from stdin
                 # --passphrase-fd 0: read passphrase from stdin (fd 0)
                 # --decrypt: decrypt mode
-                gpg_input = passphrase.encode('utf-8') + b'\n' + encrypted_data
+                gpg_input = passphrase.encode("utf-8") + b"\n" + encrypted_data
                 result = subprocess.run(
                     [
-                        "gpg", "--quiet", "--batch", "--no-tty",
-                        "--pinentry-mode", "loopback", "--passphrase-fd", "0", "--decrypt"
+                        "gpg",
+                        "--quiet",
+                        "--batch",
+                        "--no-tty",
+                        "--pinentry-mode",
+                        "loopback",
+                        "--passphrase-fd",
+                        "0",
+                        "--decrypt",
                     ],
                     input=gpg_input,
                     capture_output=True,
                     check=True,
                     timeout=600,  # 10 minute timeout for decryption
-                    env={**os.environ, "GPG_TTY": ""}  # Disable TTY usage
+                    env={**os.environ, "GPG_TTY": ""},  # Disable TTY usage
                 )
             else:
                 # Use gpg command without passphrase (key has no passphrase)
@@ -674,7 +671,7 @@ async def decrypt_gpg_data(
                     capture_output=True,
                     check=True,
                     timeout=600,  # 10 minute timeout for decryption
-                    env={**os.environ, "GPG_TTY": ""}  # Disable TTY usage
+                    env={**os.environ, "GPG_TTY": ""},  # Disable TTY usage
                 )
             return result.stdout
         except FileNotFoundError:
@@ -682,7 +679,7 @@ async def decrypt_gpg_data(
         except subprocess.TimeoutExpired:
             raise RuntimeError("GPG decryption timed out after 10 minutes.") from None
         except subprocess.CalledProcessError as e:
-            stderr_msg = e.stderr.decode('utf-8', errors='replace') if e.stderr else "Unknown error"
+            stderr_msg = e.stderr.decode("utf-8", errors="replace") if e.stderr else "Unknown error"
 
             # Check for specific GPG key-related error messages
             if "no secret key" in stderr_msg.lower() or "secret key not available" in stderr_msg.lower():
@@ -732,12 +729,7 @@ def get_gpg_passphrase_file_path(secrets_dir: str | None = None) -> str | None:
     else:
         # Search common locations in home directory
         home = Path.home()
-        search_paths.extend([
-            home / ".config" / "grin-to-s3",
-            home,
-            home / ".grin",
-            home / ".config"
-        ])
+        search_paths.extend([home / ".config" / "grin-to-s3", home, home / ".grin", home / ".config"])
 
     # Look for gpg_passphrase.asc file
     for search_path in search_paths:
@@ -749,10 +741,7 @@ def get_gpg_passphrase_file_path(secrets_dir: str | None = None) -> str | None:
 
 
 async def decrypt_gpg_file(
-    encrypted_file_path: str,
-    decrypted_file_path: str,
-    gpg_key_file: str | None = None,
-    secrets_dir: str | None = None
+    encrypted_file_path: str, decrypted_file_path: str, gpg_key_file: str | None = None, secrets_dir: str | None = None
 ) -> None:
     """
     Decrypt GPG-encrypted file to another file using the system's gpg command.
@@ -783,25 +772,39 @@ async def decrypt_gpg_file(
             if passphrase_file_path:
                 subprocess.run(
                     [
-                        "gpg", "--batch", "--yes", "--output", decrypted_file_path,
-                        "--passphrase-file", passphrase_file_path, "--quiet", "--decrypt", encrypted_file_path
+                        "gpg",
+                        "--batch",
+                        "--yes",
+                        "--output",
+                        decrypted_file_path,
+                        "--passphrase-file",
+                        passphrase_file_path,
+                        "--quiet",
+                        "--decrypt",
+                        encrypted_file_path,
                     ],
                     capture_output=True,
                     check=True,
                     timeout=600,  # 10 minute timeout for decryption
-                    env=env
+                    env=env,
                 )
             else:
                 # No passphrase file available - try without passphrase
                 subprocess.run(
                     [
-                        "gpg", "--batch", "--yes", "--output", decrypted_file_path,
-                        "--quiet", "--decrypt", encrypted_file_path
+                        "gpg",
+                        "--batch",
+                        "--yes",
+                        "--output",
+                        decrypted_file_path,
+                        "--quiet",
+                        "--decrypt",
+                        encrypted_file_path,
                     ],
                     capture_output=True,
                     check=True,
                     timeout=600,  # 10 minute timeout for decryption
-                    env=env
+                    env=env,
                 )
 
             return True
@@ -810,7 +813,7 @@ async def decrypt_gpg_file(
         except subprocess.TimeoutExpired:
             raise RuntimeError("GPG decryption timed out after 10 minutes.") from None
         except subprocess.CalledProcessError as e:
-            stderr_msg = e.stderr.decode('utf-8', errors='replace') if e.stderr else "Unknown error"
+            stderr_msg = e.stderr.decode("utf-8", errors="replace") if e.stderr else "Unknown error"
             # Same error handling as decrypt_gpg_data
             if "no secret key" in stderr_msg.lower() or "secret key not available" in stderr_msg.lower():
                 gpg_key_path = get_gpg_key_path(gpg_key_file)
@@ -853,7 +856,7 @@ async def check_minio_connectivity(storage_config: dict) -> None:
         exit(1)
 
     # Extract base URL for health check
-    if endpoint_url.endswith('/'):
+    if endpoint_url.endswith("/"):
         health_url = f"{endpoint_url}minio/health/live"
     else:
         health_url = f"{endpoint_url}/minio/health/live"
@@ -925,8 +928,9 @@ def auto_configure_minio(storage_config: dict) -> None:
         print(f"Warning: Failed to read examples/docker-compose.minio.yml: {e}")
 
 
-async def setup_storage_with_checks(storage_type: str, storage_config: dict,
-                                   required_credentials: list[str] | None = None) -> None:
+async def setup_storage_with_checks(
+    storage_type: str, storage_config: dict, required_credentials: list[str] | None = None
+) -> None:
     """Set up storage with auto-configuration and connectivity checks.
 
     Args:
@@ -1022,7 +1026,7 @@ def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
-    file_handler = logging.FileHandler(str(log_file), mode='a' if append else 'w')
+    file_handler = logging.FileHandler(str(log_file), mode="a" if append else "w")
     file_handler.setFormatter(formatter)
     root_logger.addHandler(file_handler)
 

@@ -179,7 +179,11 @@ class TestConfigManager:
             config_path = Path(temp_dir) / "custom_config.json"
 
             # Create config file
-            config_data = {"library_directory": "Duke", "rate_limit": 0.5, "pagination": {"page_size": 500, "max_pages": 2000}}
+            config_data = {
+                "library_directory": "Duke",
+                "rate_limit": 0.5,
+                "pagination": {"page_size": 500, "max_pages": 2000},
+            }
 
             with open(config_path, "w") as f:
                 json.dump(config_data, f)

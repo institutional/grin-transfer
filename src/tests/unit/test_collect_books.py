@@ -50,7 +50,10 @@ class TestBookRecord:
     def test_to_csv_row(self):
         """Test CSV row conversion."""
         record = BookRecord(
-            barcode="TEST456", title="Test Book Title", scanned_date="2024-01-01T10:00:00", processing_request_timestamp="2024-01-02T10:00:00"
+            barcode="TEST456",
+            title="Test Book Title",
+            scanned_date="2024-01-01T10:00:00",
+            processing_request_timestamp="2024-01-02T10:00:00",
         )
 
         row = record.to_csv_row()
@@ -235,10 +238,9 @@ class TestBookCollector:
 
             # Create config with test database path
             from grin_to_s3.collect_books.config import ExportConfig
+
             config = ExportConfig(
-                library_directory="TestLibrary",
-                resume_file=str(progress_file),
-                sqlite_db_path=str(test_db_path)
+                library_directory="TestLibrary", resume_file=str(progress_file), sqlite_db_path=str(test_db_path)
             )
 
             exporter = BookCollector(directory="TestLibrary", config=config)
@@ -255,9 +257,7 @@ class TestBookCollector:
 
             # Create new exporter and load progress
             config2 = ExportConfig(
-                library_directory="TestLibrary",
-                resume_file=str(progress_file),
-                sqlite_db_path=str(test_db_path)
+                library_directory="TestLibrary", resume_file=str(progress_file), sqlite_db_path=str(test_db_path)
             )
             exporter2 = BookCollector(directory="TestLibrary", config=config2)
             await exporter2.load_progress()

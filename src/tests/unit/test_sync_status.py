@@ -51,7 +51,7 @@ class TestValidateDatabaseFile:
         db_path = str(tmp_path / "corrupted.db")
 
         # Create a file that's not a valid SQLite database
-        with open(db_path, 'w') as f:
+        with open(db_path, "w") as f:
             f.write("This is not a database")
 
         with pytest.raises(SystemExit):
@@ -64,7 +64,7 @@ class TestSyncStatistics:
     @pytest.mark.asyncio
     async def test_get_sync_statistics(self, temp_db_path):
         """Test getting sync statistics."""
-        with patch('grin_to_s3.sync.status.SQLiteProgressTracker') as mock_tracker_class:
+        with patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class:
             mock_tracker = MagicMock()
             mock_tracker_class.return_value = mock_tracker
 
@@ -72,14 +72,16 @@ class TestSyncStatistics:
             mock_tracker.get_book_count = AsyncMock(return_value=100)
             mock_tracker.get_enriched_book_count = AsyncMock(return_value=80)
             mock_tracker.get_converted_books_count = AsyncMock(return_value=50)
-            mock_tracker.get_sync_stats = AsyncMock(return_value={
-                "total_converted": 50,
-                "synced": 30,
-                "failed": 5,
-                "pending": 15,
-                "syncing": 0,
-                "decrypted": 25,
-            })
+            mock_tracker.get_sync_stats = AsyncMock(
+                return_value={
+                    "total_converted": 50,
+                    "synced": 30,
+                    "failed": 5,
+                    "pending": 15,
+                    "syncing": 0,
+                    "decrypted": 25,
+                }
+            )
             mock_tracker._db = MagicMock()
             mock_tracker._db.close = AsyncMock()
 
@@ -96,21 +98,23 @@ class TestSyncStatistics:
     @pytest.mark.asyncio
     async def test_get_sync_statistics_with_storage_filter(self, temp_db_path):
         """Test getting sync statistics with storage type filter."""
-        with patch('grin_to_s3.sync.status.SQLiteProgressTracker') as mock_tracker_class:
+        with patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class:
             mock_tracker = MagicMock()
             mock_tracker_class.return_value = mock_tracker
 
             mock_tracker.get_book_count = AsyncMock(return_value=100)
             mock_tracker.get_enriched_book_count = AsyncMock(return_value=80)
             mock_tracker.get_converted_books_count = AsyncMock(return_value=50)
-            mock_tracker.get_sync_stats = AsyncMock(return_value={
-                "total_converted": 25,
-                "synced": 20,
-                "failed": 2,
-                "pending": 3,
-                "syncing": 0,
-                "decrypted": 18,
-            })
+            mock_tracker.get_sync_stats = AsyncMock(
+                return_value={
+                    "total_converted": 25,
+                    "synced": 20,
+                    "failed": 2,
+                    "pending": 3,
+                    "syncing": 0,
+                    "decrypted": 18,
+                }
+            )
             mock_tracker._db = MagicMock()
             mock_tracker._db.close = AsyncMock()
 
@@ -135,9 +139,10 @@ class TestShowSyncStatus:
     @pytest.mark.asyncio
     async def test_show_sync_status_success(self, temp_db_path, capsys):
         """Test successful sync status display."""
-        with patch('grin_to_s3.sync.status.SQLiteProgressTracker') as mock_tracker_class, \
-             patch('aiosqlite.connect') as mock_connect:
-
+        with (
+            patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class,
+            patch("aiosqlite.connect") as mock_connect,
+        ):
             mock_tracker = MagicMock()
             mock_tracker_class.return_value = mock_tracker
 
@@ -145,14 +150,16 @@ class TestShowSyncStatus:
             mock_tracker.get_book_count = AsyncMock(return_value=100)
             mock_tracker.get_enriched_book_count = AsyncMock(return_value=80)
             mock_tracker.get_converted_books_count = AsyncMock(return_value=50)
-            mock_tracker.get_sync_stats = AsyncMock(return_value={
-                "total_converted": 50,
-                "synced": 30,
-                "failed": 5,
-                "pending": 15,
-                "syncing": 0,
-                "decrypted": 25,
-            })
+            mock_tracker.get_sync_stats = AsyncMock(
+                return_value={
+                    "total_converted": 50,
+                    "synced": 30,
+                    "failed": 5,
+                    "pending": 15,
+                    "syncing": 0,
+                    "decrypted": 25,
+                }
+            )
             mock_tracker._db = MagicMock()
             mock_tracker._db.close = AsyncMock()
 
@@ -162,17 +169,21 @@ class TestShowSyncStatus:
 
             # Mock storage breakdown query
             mock_cursor1 = MagicMock()
-            mock_cursor1.fetchall = AsyncMock(return_value=[
-                ("minio", "test-bucket/book1", 10),
-                ("r2", "prod-bucket/book2", 20),
-            ])
+            mock_cursor1.fetchall = AsyncMock(
+                return_value=[
+                    ("minio", "test-bucket/book1", 10),
+                    ("r2", "prod-bucket/book2", 20),
+                ]
+            )
 
             # Mock recent activity query
             mock_cursor2 = MagicMock()
-            mock_cursor2.fetchall = AsyncMock(return_value=[
-                ("TEST123", "completed", "2024-01-01T10:00:00", None, "minio"),
-                ("TEST456", "failed", "2024-01-01T09:00:00", "Network error", "r2"),
-            ])
+            mock_cursor2.fetchall = AsyncMock(
+                return_value=[
+                    ("TEST123", "completed", "2024-01-01T10:00:00", None, "minio"),
+                    ("TEST456", "failed", "2024-01-01T09:00:00", "Network error", "r2"),
+                ]
+            )
 
             mock_db.execute = AsyncMock(side_effect=[mock_cursor1, mock_cursor2])
 
@@ -194,17 +205,35 @@ class TestExportSyncStatusCsv:
         """Test exporting sync status to CSV."""
         output_path = str(tmp_path / "sync_status.csv")
 
-        with patch('aiosqlite.connect') as mock_connect:
+        with patch("aiosqlite.connect") as mock_connect:
             mock_db = MagicMock()
             mock_connect.return_value.__aenter__.return_value = mock_db
 
             mock_cursor = MagicMock()
-            mock_cursor.fetchall = AsyncMock(return_value=[
-                ("TEST123", "minio", "bucket/TEST123.tar.gz", "bucket/TEST123.tar.gz",
-                 True, "2024-01-01T10:00:00", None, "completed"),
-                ("TEST456", "r2", "bucket/TEST456.tar.gz", "bucket/TEST456.tar.gz",
-                 False, "2024-01-01T09:00:00", "Upload failed", "failed"),
-            ])
+            mock_cursor.fetchall = AsyncMock(
+                return_value=[
+                    (
+                        "TEST123",
+                        "minio",
+                        "bucket/TEST123.tar.gz",
+                        "bucket/TEST123.tar.gz",
+                        True,
+                        "2024-01-01T10:00:00",
+                        None,
+                        "completed",
+                    ),
+                    (
+                        "TEST456",
+                        "r2",
+                        "bucket/TEST456.tar.gz",
+                        "bucket/TEST456.tar.gz",
+                        False,
+                        "2024-01-01T09:00:00",
+                        "Upload failed",
+                        "failed",
+                    ),
+                ]
+            )
             mock_db.execute = AsyncMock(return_value=mock_cursor)
 
             await export_sync_status_csv(temp_db_path, output_path)
@@ -228,15 +257,25 @@ class TestExportSyncStatusCsv:
         """Test exporting sync status to CSV with storage type filter."""
         output_path = str(tmp_path / "sync_status_filtered.csv")
 
-        with patch('aiosqlite.connect') as mock_connect:
+        with patch("aiosqlite.connect") as mock_connect:
             mock_db = MagicMock()
             mock_connect.return_value.__aenter__.return_value = mock_db
 
             mock_cursor = MagicMock()
-            mock_cursor.fetchall = AsyncMock(return_value=[
-                ("TEST123", "minio", "bucket/TEST123.tar.gz", "bucket/TEST123.tar.gz",
-                 True, "2024-01-01T10:00:00", None, "completed"),
-            ])
+            mock_cursor.fetchall = AsyncMock(
+                return_value=[
+                    (
+                        "TEST123",
+                        "minio",
+                        "bucket/TEST123.tar.gz",
+                        "bucket/TEST123.tar.gz",
+                        True,
+                        "2024-01-01T10:00:00",
+                        None,
+                        "completed",
+                    ),
+                ]
+            )
             mock_db.execute = AsyncMock(return_value=mock_cursor)
 
             await export_sync_status_csv(temp_db_path, output_path, "minio")

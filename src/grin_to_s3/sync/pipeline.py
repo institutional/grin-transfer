@@ -109,14 +109,12 @@ class SyncPipeline:
         rate_calculator,
         active_downloads: dict | None = None,
         active_uploads: dict | None = None,
-        active_tasks: dict | None = None
+        active_tasks: dict | None = None,
     ) -> tuple[float, int]:
         """Show detailed progress at intervals. Returns (new_last_report_time, new_initial_count)."""
         current_time = time.time()
         current_interval = (
-            INITIAL_PROGRESS_INTERVAL
-            if initial_reports_count < max_initial_reports
-            else REGULAR_PROGRESS_INTERVAL
+            INITIAL_PROGRESS_INTERVAL if initial_reports_count < max_initial_reports else REGULAR_PROGRESS_INTERVAL
         )
 
         if current_time - last_progress_report >= current_interval:
@@ -163,9 +161,7 @@ class SyncPipeline:
             # Update tracking variables
             new_last_report = current_time
             new_initial_count = (
-                initial_reports_count + 1
-                if initial_reports_count < max_initial_reports
-                else initial_reports_count
+                initial_reports_count + 1 if initial_reports_count < max_initial_reports else initial_reports_count
             )
             return new_last_report, new_initial_count
 
@@ -212,8 +208,7 @@ class SyncPipeline:
         }
 
     async def _run_local_storage_sync(
-        self, available_to_sync: list[str], books_to_process: int,
-        specific_barcodes: list[str] | None = None
+        self, available_to_sync: list[str], books_to_process: int, specific_barcodes: list[str] | None = None
     ) -> None:
         """Run sync pipeline for local storage with direct processing."""
         print("Using optimized local storage sync (no staging directory)")
@@ -239,11 +234,18 @@ class SyncPipeline:
             for _ in range(self.concurrent_downloads):
                 try:
                     barcode = next(book_iter)
-                    task = asyncio.create_task(sync_book_to_local_storage(
-                        barcode, self.grin_client, self.library_directory,
-                        self.storage_config, self.db_tracker, None,  # No ETag for initial call
-                        self.gpg_key_file, self.secrets_dir
-                    ))
+                    task = asyncio.create_task(
+                        sync_book_to_local_storage(
+                            barcode,
+                            self.grin_client,
+                            self.library_directory,
+                            self.storage_config,
+                            self.db_tracker,
+                            None,  # No ETag for initial call
+                            self.gpg_key_file,
+                            self.secrets_dir,
+                        )
+                    )
                     active_tasks[barcode] = task
                     logger.info(f"[{barcode}] Started local storage sync")
                 except StopIteration:
@@ -252,10 +254,7 @@ class SyncPipeline:
             # Process books
             while active_tasks:
                 # Wait for any task to complete
-                done, pending = await asyncio.wait(
-                    active_tasks.values(),
-                    return_when=asyncio.FIRST_COMPLETED
-                )
+                done, pending = await asyncio.wait(active_tasks.values(), return_when=asyncio.FIRST_COMPLETED)
 
                 # Process completed tasks
                 for task in done:
@@ -279,7 +278,7 @@ class SyncPipeline:
                                 logger.info(f"[{completed_barcode}] ✅ Local storage sync completed")
                             else:
                                 self.stats["failed"] += 1
-                                error_msg = result.get('error')
+                                error_msg = result.get("error")
                                 logger.error(f"[{completed_barcode}] ❌ Local storage sync failed: {error_msg}")
 
                         except Exception as e:
@@ -291,19 +290,31 @@ class SyncPipeline:
 
                         # Show detailed progress at intervals
                         last_progress_report, initial_reports_count = self._maybe_show_progress(
-                            processed_count, books_to_process, start_time,
-                            last_progress_report, initial_reports_count, max_initial_reports,
-                            rate_calculator, active_tasks=active_tasks
+                            processed_count,
+                            books_to_process,
+                            start_time,
+                            last_progress_report,
+                            initial_reports_count,
+                            max_initial_reports,
+                            rate_calculator,
+                            active_tasks=active_tasks,
                         )
 
                         # Start next book if available
                         try:
                             next_barcode = next(book_iter)
-                            task = asyncio.create_task(sync_book_to_local_storage(
-                                next_barcode, self.grin_client, self.library_directory,
-                                self.storage_config, self.db_tracker, None,
-                                self.gpg_key_file, self.secrets_dir
-                            ))
+                            task = asyncio.create_task(
+                                sync_book_to_local_storage(
+                                    next_barcode,
+                                    self.grin_client,
+                                    self.library_directory,
+                                    self.storage_config,
+                                    self.db_tracker,
+                                    None,
+                                    self.gpg_key_file,
+                                    self.secrets_dir,
+                                )
+                            )
                             active_tasks[next_barcode] = task
                             logger.info(f"[{next_barcode}] Started local storage sync")
                         except StopIteration:
@@ -336,15 +347,14 @@ class SyncPipeline:
             print(f"  Successfully synced: {self.stats['completed']:,}")
             print(f"  Failed: {self.stats['failed']:,}")
 
-            if total_elapsed > 0 and self.stats['completed'] > 0:
-                avg_rate = self.stats['completed'] / total_elapsed
+            if total_elapsed > 0 and self.stats["completed"] > 0:
+                avg_rate = self.stats["completed"] / total_elapsed
                 print(f"  Average rate: {avg_rate:.1f} books/second")
 
             logger.info("Sync completed")
 
     async def _run_block_storage_sync(
-        self, available_to_sync: list[str], books_to_process: int,
-        specific_barcodes: list[str] | None = None
+        self, available_to_sync: list[str], books_to_process: int, specific_barcodes: list[str] | None = None
     ) -> None:
         """Run sync pipeline for block storage (S3, R2, MinIO)."""
         self.progress_reporter = ProgressReporter("sync", books_to_process)
@@ -394,31 +404,29 @@ class SyncPipeline:
                         result = await completed_task
 
                         if result:
-                            barcode = result.get('barcode')
+                            barcode = result.get("barcode")
 
                             # Remove from active downloads if completed
                             if barcode in active_downloads and active_downloads[barcode] == completed_task:
                                 del active_downloads[barcode]
 
                                 # If download successful, start upload
-                                if result.get('download_success'):
-                                    upload_task = asyncio.create_task(
-                                        self._upload_book_from_staging(barcode, result)
-                                    )
+                                if result.get("download_success"):
+                                    upload_task = asyncio.create_task(self._upload_book_from_staging(barcode, result))
                                     active_uploads[barcode] = upload_task
                                 else:
                                     # Download failed, update stats
-                                    self.stats['failed'] += 1
+                                    self.stats["failed"] += 1
 
                             # Remove from active uploads if completed
                             elif barcode in active_uploads and active_uploads[barcode] == completed_task:
                                 del active_uploads[barcode]
 
                                 # Update stats based on upload result
-                                if result.get('upload_success'):
-                                    self.stats['completed'] += 1
+                                if result.get("upload_success"):
+                                    self.stats["completed"] += 1
                                 else:
-                                    self.stats['failed'] += 1
+                                    self.stats["failed"] += 1
 
                             # Update progress (disable auto-reporting since we handle it manually)
                             processed_count += 1
@@ -429,9 +437,15 @@ class SyncPipeline:
 
                             # Show detailed progress at intervals
                             last_progress_report, initial_reports_count = self._maybe_show_progress(
-                                processed_count, books_to_process, start_time,
-                                last_progress_report, initial_reports_count, max_initial_reports,
-                                rate_calculator, active_downloads=active_downloads, active_uploads=active_uploads
+                                processed_count,
+                                books_to_process,
+                                start_time,
+                                last_progress_report,
+                                initial_reports_count,
+                                max_initial_reports,
+                                rate_calculator,
+                                active_downloads=active_downloads,
+                                active_uploads=active_uploads,
                             )
 
                             # Start next download if available
@@ -446,7 +460,7 @@ class SyncPipeline:
 
                     except Exception as e:
                         logger.error(f"Error processing completed task: {e}", exc_info=True)
-                        self.stats['failed'] += 1
+                        self.stats["failed"] += 1
 
         finally:
             # Cancel remaining tasks
@@ -471,8 +485,8 @@ class SyncPipeline:
             print(f"  Failed: {self.stats['failed']:,}")
             print(f"  Skipped (ETag match): {self.stats['skipped']:,}")
 
-            if total_elapsed > 0 and self.stats['completed'] > 0:
-                avg_rate = self.stats['completed'] / total_elapsed
+            if total_elapsed > 0 and self.stats["completed"] > 0:
+                avg_rate = self.stats["completed"] / total_elapsed
                 print(f"  Average rate: {avg_rate:.1f} books/second")
 
             logger.info("Sync completed")
@@ -483,40 +497,40 @@ class SyncPipeline:
             try:
                 # Check ETag and handle skip scenario
                 skip_result, google_etag, file_size = await check_and_handle_etag_skip(
-                    barcode, self.grin_client, self.library_directory,
-                    self.storage_type, self.storage_config, self.db_tracker, self.force
+                    barcode,
+                    self.grin_client,
+                    self.library_directory,
+                    self.storage_type,
+                    self.storage_config,
+                    self.db_tracker,
+                    self.force,
                 )
 
                 if skip_result:
-                    self.stats['skipped'] += 1
-                    return {
-                        'barcode': barcode,
-                        'download_success': False,
-                        'skipped': True,
-                        'skip_result': skip_result
-                    }
+                    self.stats["skipped"] += 1
+                    return {"barcode": barcode, "download_success": False, "skipped": True, "skip_result": skip_result}
 
                 # Download to staging
                 _, staging_file_path, metadata = await download_book_to_staging(
-                    barcode, self.grin_client, self.library_directory,
-                    self.staging_manager, google_etag, self.secrets_dir
+                    barcode,
+                    self.grin_client,
+                    self.library_directory,
+                    self.staging_manager,
+                    google_etag,
+                    self.secrets_dir,
                 )
 
                 return {
-                    'barcode': barcode,
-                    'download_success': True,
-                    'staging_file_path': staging_file_path,
-                    'google_etag': google_etag,
-                    'metadata': metadata
+                    "barcode": barcode,
+                    "download_success": True,
+                    "staging_file_path": staging_file_path,
+                    "google_etag": google_etag,
+                    "metadata": metadata,
                 }
 
             except Exception as e:
                 logger.error(f"[{barcode}] Download failed: {e}", exc_info=True)
-                return {
-                    'barcode': barcode,
-                    'download_success': False,
-                    'error': str(e)
-                }
+                return {"barcode": barcode, "download_success": False, "error": str(e)}
 
     async def _upload_book_from_staging(self, barcode: str, download_result: dict[str, Any]) -> dict[str, Any]:
         """Upload a book from staging directory to storage."""
@@ -524,29 +538,25 @@ class SyncPipeline:
             try:
                 upload_result = await upload_book_from_staging(
                     barcode,
-                    download_result['staging_file_path'],
+                    download_result["staging_file_path"],
                     self.storage_type,
                     self.storage_config,
                     self.staging_manager,
                     self.db_tracker,
-                    download_result.get('google_etag'),
+                    download_result.get("google_etag"),
                     self.gpg_key_file,
-                    self.secrets_dir
+                    self.secrets_dir,
                 )
 
                 return {
-                    'barcode': barcode,
-                    'upload_success': upload_result.get('success', False),
-                    'result': upload_result
+                    "barcode": barcode,
+                    "upload_success": upload_result.get("success", False),
+                    "result": upload_result,
                 }
 
             except Exception as e:
                 logger.error(f"[{barcode}] Upload failed: {e}", exc_info=True)
-                return {
-                    'barcode': barcode,
-                    'upload_success': False,
-                    'error': str(e)
-                }
+                return {"barcode": barcode, "upload_success": False, "error": str(e)}
 
     async def _run_catchup_sync(self, barcodes: list[str], limit: int | None = None) -> None:
         """Run catchup sync for specific books."""
@@ -579,8 +589,13 @@ class SyncPipeline:
                     barcode = next(book_iter)
                     # For catchup, check ETag and handle skips
                     skip_result, google_etag, _ = await check_and_handle_etag_skip(
-                        barcode, self.grin_client, self.library_directory,
-                        self.storage_type, self.storage_config, self.db_tracker, self.force
+                        barcode,
+                        self.grin_client,
+                        self.library_directory,
+                        self.storage_type,
+                        self.storage_config,
+                        self.db_tracker,
+                        self.force,
                     )
 
                     if skip_result:
@@ -592,10 +607,16 @@ class SyncPipeline:
                         continue
 
                     # Start download task
-                    task = asyncio.create_task(download_book_to_staging(
-                        barcode, self.grin_client, self.library_directory,
-                        self.staging_manager, google_etag, self.secrets_dir
-                    ))
+                    task = asyncio.create_task(
+                        download_book_to_staging(
+                            barcode,
+                            self.grin_client,
+                            self.library_directory,
+                            self.staging_manager,
+                            google_etag,
+                            self.secrets_dir,
+                        )
+                    )
                     active_tasks[barcode] = task
                     logger.info(f"[{barcode}] Started catchup download")
                 except StopIteration:
@@ -603,10 +624,7 @@ class SyncPipeline:
 
             # Process downloads and uploads
             while active_tasks:
-                done, pending = await asyncio.wait(
-                    active_tasks.values(),
-                    return_when=asyncio.FIRST_COMPLETED
-                )
+                done, pending = await asyncio.wait(active_tasks.values(), return_when=asyncio.FIRST_COMPLETED)
 
                 for task in done:
                     # Find completed barcode
@@ -626,9 +644,15 @@ class SyncPipeline:
                             # Start upload task
                             google_etag = metadata.get("google_etag")
                             upload_result = await upload_book_from_staging(
-                                barcode, staging_path, self.storage_type, self.storage_config,
-                                self.staging_manager, self.db_tracker, google_etag,
-                                self.gpg_key_file, self.secrets_dir
+                                barcode,
+                                staging_path,
+                                self.storage_type,
+                                self.storage_config,
+                                self.staging_manager,
+                                self.db_tracker,
+                                google_etag,
+                                self.gpg_key_file,
+                                self.secrets_dir,
                             )
 
                             if upload_result["status"] == "completed":
@@ -653,8 +677,13 @@ class SyncPipeline:
                             next_barcode = next(book_iter)
                             # Check ETag for next book
                             skip_result, google_etag, _ = await check_and_handle_etag_skip(
-                                next_barcode, self.grin_client, self.library_directory,
-                                self.storage_type, self.storage_config, self.db_tracker, self.force
+                                next_barcode,
+                                self.grin_client,
+                                self.library_directory,
+                                self.storage_type,
+                                self.storage_config,
+                                self.db_tracker,
+                                self.force,
                             )
 
                             if skip_result:
@@ -663,10 +692,16 @@ class SyncPipeline:
                                 self.progress_reporter.increment(1, record_id=next_barcode)
                                 continue
 
-                            task = asyncio.create_task(download_book_to_staging(
-                                next_barcode, self.grin_client, self.library_directory,
-                                self.staging_manager, google_etag, self.secrets_dir
-                            ))
+                            task = asyncio.create_task(
+                                download_book_to_staging(
+                                    next_barcode,
+                                    self.grin_client,
+                                    self.library_directory,
+                                    self.staging_manager,
+                                    google_etag,
+                                    self.secrets_dir,
+                                )
+                            )
                             active_tasks[next_barcode] = task
                         except StopIteration:
                             pass
@@ -707,7 +742,7 @@ class SyncPipeline:
 
         # Display storage configuration details
         if self.storage_type == "local":
-            base_path = self.storage_config.get('base_path') if self.storage_config else None
+            base_path = self.storage_config.get("base_path") if self.storage_config else None
             print(f"Storage: Local filesystem at {base_path or 'None'}")
         elif self.storage_type in ["s3", "r2", "minio"]:
             storage_names = {"s3": "AWS S3", "r2": "Cloudflare R2", "minio": "MinIO"}
@@ -823,4 +858,3 @@ class SyncPipeline:
             logger.error(f"Pipeline failed: {e}", exc_info=True)
         finally:
             await self.cleanup()
-

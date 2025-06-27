@@ -135,25 +135,24 @@ class Storage:
         if self.config.protocol == "s3":
             # Use aioboto3 for non-blocking S3 uploads
             try:
-
                 import aioboto3
 
                 normalized_path = self._normalize_path(path)
 
                 # Use the credentials from the storage config
                 session_kwargs = {
-                    'aws_access_key_id': self.config.options.get('key'),
-                    'aws_secret_access_key': self.config.options.get('secret'),
+                    "aws_access_key_id": self.config.options.get("key"),
+                    "aws_secret_access_key": self.config.options.get("secret"),
                 }
 
                 # Add endpoint URL if present
                 if self.config.endpoint_url:
-                    session_kwargs['endpoint_url'] = self.config.endpoint_url
+                    session_kwargs["endpoint_url"] = self.config.endpoint_url
 
                 session = aioboto3.Session()
-                async with session.client('s3', **session_kwargs) as s3_client:
+                async with session.client("s3", **session_kwargs) as s3_client:
                     # Parse bucket and key from path
-                    path_parts = normalized_path.split('/', 1)
+                    path_parts = normalized_path.split("/", 1)
                     if len(path_parts) == 2:
                         bucket, key = path_parts
 
@@ -161,11 +160,7 @@ class Storage:
                         if len(data) > 5 * 1024 * 1024:
                             await self._multipart_upload(s3_client, bucket, key, data)
                         else:
-                            await s3_client.put_object(
-                                Bucket=bucket,
-                                Key=key,
-                                Body=data
-                            )
+                            await s3_client.put_object(Bucket=bucket, Key=key, Body=data)
                         return
             except Exception as e:
                 print(f"Failed to write with aioboto3, falling back to sync: {e}")
@@ -196,18 +191,18 @@ class Storage:
 
                 # Use the credentials from the storage config
                 session_kwargs = {
-                    'aws_access_key_id': self.config.options.get('key'),
-                    'aws_secret_access_key': self.config.options.get('secret'),
+                    "aws_access_key_id": self.config.options.get("key"),
+                    "aws_secret_access_key": self.config.options.get("secret"),
                 }
 
                 # Add endpoint URL if present
                 if self.config.endpoint_url:
-                    session_kwargs['endpoint_url'] = self.config.endpoint_url
+                    session_kwargs["endpoint_url"] = self.config.endpoint_url
 
                 session = aioboto3.Session()
-                async with session.client('s3', **session_kwargs) as s3_client:
+                async with session.client("s3", **session_kwargs) as s3_client:
                     # Parse bucket and key from path
-                    path_parts = normalized_path.split('/', 1)
+                    path_parts = normalized_path.split("/", 1)
                     if len(path_parts) == 2:
                         bucket, key = path_parts
 
@@ -219,20 +214,17 @@ class Storage:
                             await self._multipart_upload_from_file(s3_client, bucket, key, file_path)
                         else:
                             # Single-part upload for files ≤50MB - much faster, single API call
-                            async with aiofiles.open(file_path, 'rb') as f:
+                            async with aiofiles.open(file_path, "rb") as f:
                                 file_data = await f.read()
-                                await s3_client.put_object(
-                                    Bucket=bucket,
-                                    Key=key,
-                                    Body=file_data
-                                )
+                                await s3_client.put_object(Bucket=bucket, Key=key, Body=file_data)
                         return
             except Exception as e:
                 raise RuntimeError(f"Failed to stream upload file: {e}") from e
         else:
             # For non-S3 storage, read file and use write_bytes
             import aiofiles
-            async with aiofiles.open(file_path, 'rb') as f:
+
+            async with aiofiles.open(file_path, "rb") as f:
                 data = await f.read()
             await self.write_bytes(path, data)
 
@@ -250,26 +242,21 @@ class Storage:
 
             # Use the credentials from the storage config
             session_kwargs = {
-                'aws_access_key_id': self.config.options.get('key'),
-                'aws_secret_access_key': self.config.options.get('secret'),
+                "aws_access_key_id": self.config.options.get("key"),
+                "aws_secret_access_key": self.config.options.get("secret"),
             }
 
             # Add endpoint URL if present
             if self.config.endpoint_url:
-                session_kwargs['endpoint_url'] = self.config.endpoint_url
+                session_kwargs["endpoint_url"] = self.config.endpoint_url
 
             session = aioboto3.Session()
-            async with session.client('s3', **session_kwargs) as s3_client:
+            async with session.client("s3", **session_kwargs) as s3_client:
                 # Parse bucket and key from path
-                path_parts = normalized_path.split('/', 1)
+                path_parts = normalized_path.split("/", 1)
                 if len(path_parts) == 2:
                     bucket, key = path_parts
-                    await s3_client.put_object(
-                        Bucket=bucket,
-                        Key=key,
-                        Body=data,
-                        Metadata=metadata
-                    )
+                    await s3_client.put_object(Bucket=bucket, Key=key, Body=data, Metadata=metadata)
         except Exception as e:
             print(f"Failed to write with metadata: {e}")
             # Fall back to regular write
@@ -280,12 +267,9 @@ class Storage:
         import io
 
         # Initiate multipart upload
-        response = await s3_client.create_multipart_upload(
-            Bucket=bucket,
-            Key=key
-        )
+        response = await s3_client.create_multipart_upload(Bucket=bucket, Key=key)
 
-        upload_id = response['UploadId']
+        upload_id = response["UploadId"]
         parts = []
         part_number = 1
         chunk_size = 8 * 1024 * 1024  # 8MB chunks
@@ -300,36 +284,22 @@ class Storage:
 
                 # Upload part
                 part_response = await s3_client.upload_part(
-                    Bucket=bucket,
-                    Key=key,
-                    PartNumber=part_number,
-                    UploadId=upload_id,
-                    Body=chunk
+                    Bucket=bucket, Key=key, PartNumber=part_number, UploadId=upload_id, Body=chunk
                 )
 
-                parts.append({
-                    'ETag': part_response['ETag'],
-                    'PartNumber': part_number
-                })
+                parts.append({"ETag": part_response["ETag"], "PartNumber": part_number})
 
                 part_number += 1
 
             # Complete multipart upload
             await s3_client.complete_multipart_upload(
-                Bucket=bucket,
-                Key=key,
-                UploadId=upload_id,
-                MultipartUpload={'Parts': parts}
+                Bucket=bucket, Key=key, UploadId=upload_id, MultipartUpload={"Parts": parts}
             )
 
         except Exception as e:
             # Abort multipart upload on error
             try:
-                await s3_client.abort_multipart_upload(
-                    Bucket=bucket,
-                    Key=key,
-                    UploadId=upload_id
-                )
+                await s3_client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
             except Exception:
                 pass  # Ignore errors when aborting
 
@@ -340,20 +310,16 @@ class Storage:
 
         import aiofiles
 
-
         # Initiate multipart upload
-        response = await s3_client.create_multipart_upload(
-            Bucket=bucket,
-            Key=key
-        )
+        response = await s3_client.create_multipart_upload(Bucket=bucket, Key=key)
 
-        upload_id = response['UploadId']
+        upload_id = response["UploadId"]
         parts = []
         part_number = 1
         chunk_size = 50 * 1024 * 1024  # 50MB chunks for better R2 performance
 
         try:
-            async with aiofiles.open(file_path, 'rb') as f:
+            async with aiofiles.open(file_path, "rb") as f:
                 while True:
                     chunk = await f.read(chunk_size)
                     if not chunk:
@@ -361,36 +327,22 @@ class Storage:
 
                     # Upload part
                     part_response = await s3_client.upload_part(
-                        Bucket=bucket,
-                        Key=key,
-                        PartNumber=part_number,
-                        UploadId=upload_id,
-                        Body=chunk
+                        Bucket=bucket, Key=key, PartNumber=part_number, UploadId=upload_id, Body=chunk
                     )
 
-                    parts.append({
-                        'ETag': part_response['ETag'],
-                        'PartNumber': part_number
-                    })
+                    parts.append({"ETag": part_response["ETag"], "PartNumber": part_number})
 
                     part_number += 1
 
                 # Complete multipart upload
                 await s3_client.complete_multipart_upload(
-                    Bucket=bucket,
-                    Key=key,
-                    UploadId=upload_id,
-                    MultipartUpload={'Parts': parts}
+                    Bucket=bucket, Key=key, UploadId=upload_id, MultipartUpload={"Parts": parts}
                 )
 
         except Exception as e:
             # Abort multipart upload on error
             try:
-                await s3_client.abort_multipart_upload(
-                    Bucket=bucket,
-                    Key=key,
-                    UploadId=upload_id
-                )
+                await s3_client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
             except Exception:
                 pass  # Ignore errors when aborting
 
@@ -502,7 +454,8 @@ class BookStorage:
         if self.storage.config.protocol == "s3" and google_etag:
             # For S3 with metadata, we need to read the file and use write_bytes_with_metadata
             import aiofiles
-            async with aiofiles.open(archive_file_path, 'rb') as f:
+
+            async with aiofiles.open(archive_file_path, "rb") as f:
                 archive_data = await f.read()
             await self.storage.write_bytes_with_metadata(path, archive_data, {"google-etag": google_etag})
         else:
@@ -562,36 +515,35 @@ class BookStorage:
 
                 # Use the credentials from the storage config
                 session_kwargs = {
-                    'aws_access_key_id': self.storage.config.options.get('key'),
-                    'aws_secret_access_key': self.storage.config.options.get('secret'),
+                    "aws_access_key_id": self.storage.config.options.get("key"),
+                    "aws_secret_access_key": self.storage.config.options.get("secret"),
                 }
 
                 # Add endpoint URL if present
                 if self.storage.config.endpoint_url:
-                    session_kwargs['endpoint_url'] = self.storage.config.endpoint_url
+                    session_kwargs["endpoint_url"] = self.storage.config.endpoint_url
 
                 session = aioboto3.Session()
-                async with session.client('s3', **session_kwargs) as s3_client:
+                async with session.client("s3", **session_kwargs) as s3_client:
                     # Parse bucket and key from path
                     normalized_path = self.storage._normalize_path(path)
-                    path_parts = normalized_path.split('/', 1)
+                    path_parts = normalized_path.split("/", 1)
                     if len(path_parts) == 2:
                         bucket, key = path_parts
                         response = await s3_client.head_object(Bucket=bucket, Key=key)
-                        metadata = response.get('Metadata', {})
+                        metadata = response.get("Metadata", {})
                     else:
                         metadata = {}
             except Exception:
                 metadata = {}
 
             # Check if stored Google ETag matches
-            stored_google_etag = metadata.get('google-etag', '')
+            stored_google_etag = metadata.get("google-etag", "")
             return stored_google_etag == google_etag
 
         except Exception:
             # If anything fails, assume no match
             return False
-
 
     async def get_archive(self, barcode: str) -> bytes:
         """Get encrypted archive data."""
@@ -637,6 +589,7 @@ def create_r2_storage(account_id: str, access_key: str, secret_key: str, **kwarg
 # Storage management functionality for CLI
 try:
     import boto3
+
     _BOTO3_AVAILABLE = True
 except ImportError:
     _BOTO3_AVAILABLE = False
@@ -659,15 +612,15 @@ def _create_s3_client_from_storage(storage: Storage) -> Any:
         raise ValueError("Storage instance missing required S3 credentials")
 
     client_kwargs = {
-        'aws_access_key_id': access_key,
-        'aws_secret_access_key': secret_key,
-        'region_name': region,
+        "aws_access_key_id": access_key,
+        "aws_secret_access_key": secret_key,
+        "region_name": region,
     }
 
     if endpoint_url:
-        client_kwargs['endpoint_url'] = endpoint_url
+        client_kwargs["endpoint_url"] = endpoint_url
 
-    return boto3.client('s3', **client_kwargs)
+    return boto3.client("s3", **client_kwargs)
 
 
 def list_bucket_files(storage: Storage, bucket: str, prefix: str = "") -> list[tuple[str, int]]:
@@ -677,17 +630,17 @@ def list_bucket_files(storage: Storage, bucket: str, prefix: str = "") -> list[t
 
     s3_client = _create_s3_client_from_storage(storage)
 
-    list_kwargs = {'Bucket': bucket}
+    list_kwargs = {"Bucket": bucket}
     if prefix:
-        list_kwargs['Prefix'] = prefix
+        list_kwargs["Prefix"] = prefix
 
-    paginator = s3_client.get_paginator('list_objects_v2')
+    paginator = s3_client.get_paginator("list_objects_v2")
 
     files = []
     for page in paginator.paginate(**list_kwargs):
-        contents = page.get('Contents', [])
+        contents = page.get("Contents", [])
         for obj in contents:
-            files.append((obj['Key'], obj['Size']))
+            files.append((obj["Key"], obj["Size"]))
 
     return files
 
@@ -699,20 +652,20 @@ def get_bucket_stats(storage: Storage, bucket: str, prefix: str = "") -> tuple[i
 
     s3_client = _create_s3_client_from_storage(storage)
 
-    list_kwargs = {'Bucket': bucket}
+    list_kwargs = {"Bucket": bucket}
     if prefix:
-        list_kwargs['Prefix'] = prefix
+        list_kwargs["Prefix"] = prefix
 
-    paginator = s3_client.get_paginator('list_objects_v2')
+    paginator = s3_client.get_paginator("list_objects_v2")
 
     total_files = 0
     total_size = 0
 
     for page in paginator.paginate(**list_kwargs):
-        contents = page.get('Contents', [])
+        contents = page.get("Contents", [])
         for obj in contents:
             total_files += 1
-            total_size += obj['Size']
+            total_size += obj["Size"]
 
     return total_files, total_size
 
@@ -725,17 +678,17 @@ def delete_bucket_contents(storage: Storage, bucket: str, prefix: str = "") -> t
     s3_client = _create_s3_client_from_storage(storage)
 
     # First, get list of all objects to delete
-    list_kwargs = {'Bucket': bucket}
+    list_kwargs = {"Bucket": bucket}
     if prefix:
-        list_kwargs['Prefix'] = prefix
+        list_kwargs["Prefix"] = prefix
 
-    paginator = s3_client.get_paginator('list_objects_v2')
+    paginator = s3_client.get_paginator("list_objects_v2")
     objects_to_delete = []
 
     for page in paginator.paginate(**list_kwargs):
-        contents = page.get('Contents', [])
+        contents = page.get("Contents", [])
         for obj in contents:
-            objects_to_delete.append(obj['Key'])
+            objects_to_delete.append(obj["Key"])
 
     if not objects_to_delete:
         return 0, 0
@@ -746,20 +699,17 @@ def delete_bucket_contents(storage: Storage, bucket: str, prefix: str = "") -> t
     batch_size = 1000
 
     for i in range(0, len(objects_to_delete), batch_size):
-        batch = objects_to_delete[i:i + batch_size]
-        delete_objects = [{'Key': filename} for filename in batch]
+        batch = objects_to_delete[i : i + batch_size]
+        delete_objects = [{"Key": filename} for filename in batch]
 
         try:
-            response = s3_client.delete_objects(
-                Bucket=bucket,
-                Delete={'Objects': delete_objects}
-            )
+            response = s3_client.delete_objects(Bucket=bucket, Delete={"Objects": delete_objects})
 
             # Count successful deletions
-            deleted_count += len(response.get('Deleted', []))
+            deleted_count += len(response.get("Deleted", []))
 
             # Count failures
-            failed_count += len(response.get('Errors', []))
+            failed_count += len(response.get("Errors", []))
 
         except Exception:
             failed_count += len(batch)
@@ -770,12 +720,11 @@ def delete_bucket_contents(storage: Storage, bucket: str, prefix: str = "") -> t
 def format_size(size_bytes: int) -> str:
     """Format size in human-readable format."""
     size_float = float(size_bytes)
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
         if size_float < 1024.0:
             return f"{size_float:.1f} {unit}"
         size_float = size_float / 1024.0
     return f"{size_float:.1f} PB"
-
 
 
 logger = logging.getLogger(__name__)
@@ -818,13 +767,14 @@ async def cmd_ls(args) -> None:
 
         # Build full storage config with credentials
         from argparse import Namespace
+
         temp_args = Namespace(
             storage=storage_type,
             secrets_dir=run_config.get("secrets_dir"),
             bucket_raw=None,
             bucket_meta=None,
             bucket_full=None,
-            storage_config=None
+            storage_config=None,
         )
 
         credentials_config = build_storage_config_dict(temp_args)
@@ -915,6 +865,7 @@ async def cmd_ls(args) -> None:
 
     except Exception as e:
         import traceback
+
         print(f"❌ Error: {e}")
         traceback.print_exc()
         sys.exit(1)
@@ -957,13 +908,14 @@ async def cmd_rm(args) -> None:
 
         # Build full storage config with credentials
         from argparse import Namespace
+
         temp_args = Namespace(
             storage=storage_type,
             secrets_dir=run_config.get("secrets_dir"),
             bucket_raw=None,
             bucket_meta=None,
             bucket_full=None,
-            storage_config=None
+            storage_config=None,
         )
 
         credentials_config = build_storage_config_dict(temp_args)
@@ -1070,6 +1022,7 @@ async def cmd_rm(args) -> None:
 
     except Exception as e:
         import traceback
+
         print(f"❌ Error: {e}")
         traceback.print_exc()
         sys.exit(1)
@@ -1115,13 +1068,12 @@ Examples:
         help="Remove all contents from a storage bucket",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    rm_parser.add_argument("bucket_name", choices=["raw", "meta", "full"],
-                          help="Bucket to clear (raw, meta, or full)")
+    rm_parser.add_argument("bucket_name", choices=["raw", "meta", "full"], help="Bucket to clear (raw, meta, or full)")
     rm_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
-    rm_parser.add_argument("--yes", "-y", action="store_true",
-                          help="Auto-confirm without prompting (dangerous!)")
-    rm_parser.add_argument("--dry-run", action="store_true",
-                          help="Show what would be deleted without actually deleting")
+    rm_parser.add_argument("--yes", "-y", action="store_true", help="Auto-confirm without prompting (dangerous!)")
+    rm_parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be deleted without actually deleting"
+    )
 
     args = parser.parse_args()
 

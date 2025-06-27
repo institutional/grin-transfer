@@ -27,13 +27,13 @@ class TestConfirmCatchupSync:
 
     def test_confirm_catchup_sync_user_yes(self, monkeypatch):
         """Test user confirmation with 'yes' response."""
-        monkeypatch.setattr('builtins.input', lambda _: 'y')
+        monkeypatch.setattr("builtins.input", lambda _: "y")
         result = confirm_catchup_sync(["TEST123", "TEST456"], auto_confirm=False)
         assert result is True
 
     def test_confirm_catchup_sync_user_no(self, monkeypatch, capsys):
         """Test user confirmation with 'no' response."""
-        monkeypatch.setattr('builtins.input', lambda _: 'n')
+        monkeypatch.setattr("builtins.input", lambda _: "n")
         result = confirm_catchup_sync(["TEST123", "TEST456"], auto_confirm=False)
         assert result is False
 
@@ -42,7 +42,7 @@ class TestConfirmCatchupSync:
 
     def test_confirm_catchup_sync_user_full_yes(self, monkeypatch):
         """Test user confirmation with 'yes' full word response."""
-        monkeypatch.setattr('builtins.input', lambda _: 'yes')
+        monkeypatch.setattr("builtins.input", lambda _: "yes")
         result = confirm_catchup_sync(["TEST123"], auto_confirm=False)
         assert result is True
 
@@ -89,11 +89,12 @@ class TestFindCatchupBooks:
     @pytest.mark.asyncio
     async def test_find_catchup_books_success(self, temp_db_path, capsys):
         """Test successful finding of catchup books."""
-        with patch('grin_to_s3.sync.catchup.get_converted_books') as mock_get_converted, \
-             patch('grin_to_s3.sync.catchup.GRINClient') as mock_client_class, \
-             patch('grin_to_s3.sync.catchup.SQLiteProgressTracker') as mock_tracker_class, \
-             patch('aiosqlite.connect') as mock_connect:
-
+        with (
+            patch("grin_to_s3.sync.catchup.get_converted_books") as mock_get_converted,
+            patch("grin_to_s3.sync.catchup.GRINClient") as mock_client_class,
+            patch("grin_to_s3.sync.catchup.SQLiteProgressTracker") as mock_tracker_class,
+            patch("aiosqlite.connect") as mock_connect,
+        ):
             # Mock GRIN client
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
@@ -112,14 +113,16 @@ class TestFindCatchupBooks:
             mock_db = MagicMock()
             mock_connect.return_value.__aenter__.return_value = mock_db
             mock_cursor = MagicMock()
-            mock_cursor.fetchall = AsyncMock(return_value=[
-                ("TEST123",), ("TEST456",), ("TEST999",)  # Third book not converted
-            ])
+            mock_cursor.fetchall = AsyncMock(
+                return_value=[
+                    ("TEST123",),
+                    ("TEST456",),
+                    ("TEST999",),  # Third book not converted
+                ]
+            )
             mock_db.execute = AsyncMock(return_value=mock_cursor)
 
-            converted, all_books, candidates = await find_catchup_books(
-                temp_db_path, "Harvard", "/secrets"
-            )
+            converted, all_books, candidates = await find_catchup_books(temp_db_path, "Harvard", "/secrets")
 
             assert converted == {"TEST123", "TEST456", "TEST789"}
             assert all_books == {"TEST123", "TEST456", "TEST999"}
@@ -133,10 +136,11 @@ class TestFindCatchupBooks:
     @pytest.mark.asyncio
     async def test_find_catchup_books_grin_error(self, temp_db_path):
         """Test handling of GRIN API error."""
-        with patch('grin_to_s3.sync.catchup.get_converted_books') as mock_get_converted, \
-             patch('grin_to_s3.sync.catchup.GRINClient') as mock_client_class, \
-             pytest.raises(SystemExit):
-
+        with (
+            patch("grin_to_s3.sync.catchup.get_converted_books") as mock_get_converted,
+            patch("grin_to_s3.sync.catchup.GRINClient") as mock_client_class,
+            pytest.raises(SystemExit),
+        ):
             mock_client = MagicMock()
             mock_client_class.return_value = mock_client
             mock_client.session = MagicMock()
@@ -154,19 +158,15 @@ class TestGetBooksForCatchupSync:
     @pytest.mark.asyncio
     async def test_get_books_for_catchup_sync(self, temp_db_path, capsys):
         """Test getting books for catchup sync."""
-        with patch('grin_to_s3.sync.catchup.SQLiteProgressTracker') as mock_tracker_class:
+        with patch("grin_to_s3.sync.catchup.SQLiteProgressTracker") as mock_tracker_class:
             mock_tracker = MagicMock()
             mock_tracker_class.return_value = mock_tracker
 
             # Mock books that need sync
-            mock_tracker.get_books_for_sync = AsyncMock(return_value=[
-                "TEST123", "TEST456", "TEST789"
-            ])
+            mock_tracker.get_books_for_sync = AsyncMock(return_value=["TEST123", "TEST456", "TEST789"])
 
             candidates = {"TEST123", "TEST456", "TEST789", "TEST999"}
-            books = await get_books_for_catchup_sync(
-                temp_db_path, "minio", candidates, limit=None
-            )
+            books = await get_books_for_catchup_sync(temp_db_path, "minio", candidates, limit=None)
 
             assert books == ["TEST123", "TEST456", "TEST789"]
 
@@ -176,18 +176,16 @@ class TestGetBooksForCatchupSync:
     @pytest.mark.asyncio
     async def test_get_books_for_catchup_sync_with_limit(self, temp_db_path, capsys):
         """Test getting books for catchup sync with limit."""
-        with patch('grin_to_s3.sync.catchup.SQLiteProgressTracker') as mock_tracker_class:
+        with patch("grin_to_s3.sync.catchup.SQLiteProgressTracker") as mock_tracker_class:
             mock_tracker = MagicMock()
             mock_tracker_class.return_value = mock_tracker
 
-            mock_tracker.get_books_for_sync = AsyncMock(return_value=[
-                "TEST123", "TEST456", "TEST789", "TEST999", "TEST000"
-            ])
+            mock_tracker.get_books_for_sync = AsyncMock(
+                return_value=["TEST123", "TEST456", "TEST789", "TEST999", "TEST000"]
+            )
 
             candidates = {"TEST123", "TEST456", "TEST789", "TEST999", "TEST000"}
-            books = await get_books_for_catchup_sync(
-                temp_db_path, "minio", candidates, limit=3
-            )
+            books = await get_books_for_catchup_sync(temp_db_path, "minio", candidates, limit=3)
 
             assert books == ["TEST123", "TEST456", "TEST789"]
 
@@ -198,16 +196,14 @@ class TestGetBooksForCatchupSync:
     @pytest.mark.asyncio
     async def test_get_books_for_catchup_sync_none_available(self, temp_db_path, capsys):
         """Test getting books when none are available for sync."""
-        with patch('grin_to_s3.sync.catchup.SQLiteProgressTracker') as mock_tracker_class:
+        with patch("grin_to_s3.sync.catchup.SQLiteProgressTracker") as mock_tracker_class:
             mock_tracker = MagicMock()
             mock_tracker_class.return_value = mock_tracker
 
             mock_tracker.get_books_for_sync = AsyncMock(return_value=[])
 
             candidates = {"TEST123", "TEST456"}
-            books = await get_books_for_catchup_sync(
-                temp_db_path, "minio", candidates, limit=None
-            )
+            books = await get_books_for_catchup_sync(temp_db_path, "minio", candidates, limit=None)
 
             assert books == []
 
@@ -222,7 +218,7 @@ class TestMarkBooksForCatchupProcessing:
     @pytest.mark.asyncio
     async def test_mark_books_for_catchup_processing(self, temp_db_path):
         """Test marking books for catchup processing."""
-        with patch('grin_to_s3.sync.catchup.SQLiteProgressTracker') as mock_tracker_class:
+        with patch("grin_to_s3.sync.catchup.SQLiteProgressTracker") as mock_tracker_class:
             mock_tracker = MagicMock()
             mock_tracker_class.return_value = mock_tracker
             mock_tracker.add_status_change = AsyncMock()
@@ -251,19 +247,11 @@ class TestRunCatchupValidation:
     @pytest.mark.asyncio
     async def test_run_catchup_validation_success(self, capsys):
         """Test successful catchup validation."""
-        run_config = {
-            "library_directory": "Harvard",
-            "secrets_dir": "/secrets"
-        }
+        run_config = {"library_directory": "Harvard", "secrets_dir": "/secrets"}
         storage_type = "minio"
-        storage_config = {
-            "bucket_raw": "test-bucket",
-            "endpoint_url": "localhost:9000"
-        }
+        storage_config = {"bucket_raw": "test-bucket", "endpoint_url": "localhost:9000"}
 
-        result_type, result_config = await run_catchup_validation(
-            run_config, storage_type, storage_config
-        )
+        result_type, result_config = await run_catchup_validation(run_config, storage_type, storage_config)
 
         assert result_type == "minio"
         assert result_config == storage_config
@@ -275,18 +263,11 @@ class TestRunCatchupValidation:
     @pytest.mark.asyncio
     async def test_run_catchup_validation_local_storage(self, capsys):
         """Test catchup validation for local storage."""
-        run_config = {
-            "library_directory": "Harvard",
-            "secrets_dir": "/secrets"
-        }
+        run_config = {"library_directory": "Harvard", "secrets_dir": "/secrets"}
         storage_type = "local"
-        storage_config = {
-            "base_path": "/tmp/storage"
-        }
+        storage_config = {"base_path": "/tmp/storage"}
 
-        result_type, result_config = await run_catchup_validation(
-            run_config, storage_type, storage_config
-        )
+        result_type, result_config = await run_catchup_validation(run_config, storage_type, storage_config)
 
         assert result_type == "local"
         assert result_config == storage_config

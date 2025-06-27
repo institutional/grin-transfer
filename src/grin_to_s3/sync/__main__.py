@@ -61,13 +61,15 @@ async def cmd_pipeline(args) -> None:
             storage_config = existing_storage_config.get("config", {})
 
             # Check if any storage-related arguments were explicitly provided that should override
-            explicit_storage_args = any([
-                getattr(args, 'storage', None) and args.storage,
-                getattr(args, 'bucket_raw', None),
-                getattr(args, 'bucket_meta', None),
-                getattr(args, 'bucket_full', None),
-                getattr(args, 'storage_config', None),
-            ])
+            explicit_storage_args = any(
+                [
+                    getattr(args, "storage", None) and args.storage,
+                    getattr(args, "bucket_raw", None),
+                    getattr(args, "bucket_meta", None),
+                    getattr(args, "bucket_full", None),
+                    getattr(args, "storage_config", None),
+                ]
+            )
 
             if explicit_storage_args:
                 print("Explicit storage arguments provided, merging with run config...")
@@ -113,6 +115,7 @@ async def cmd_pipeline(args) -> None:
 
     # Set up logging - use unified log file from run config
     from grin_to_s3.run_config import find_run_config
+
     run_config = find_run_config(args.db_path)
     if run_config is None:
         print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
@@ -122,10 +125,12 @@ async def cmd_pipeline(args) -> None:
 
     # Log sync pipeline startup
     logger = logging.getLogger(__name__)
-    barcodes_info = f" barcodes={','.join(args.barcodes)}" if hasattr(args, 'barcodes') and args.barcodes else ""
-    limit_info = f" limit={args.limit}" if hasattr(args, 'limit') and args.limit else ""
-    logger.info(f"SYNC PIPELINE STARTED - storage={args.storage} concurrent={args.concurrent}/{args.concurrent_uploads}"
-               f" force={args.force}{barcodes_info}{limit_info}")
+    barcodes_info = f" barcodes={','.join(args.barcodes)}" if hasattr(args, "barcodes") and args.barcodes else ""
+    limit_info = f" limit={args.limit}" if hasattr(args, "limit") and args.limit else ""
+    logger.info(
+        f"SYNC PIPELINE STARTED - storage={args.storage} concurrent={args.concurrent}/{args.concurrent_uploads}"
+        f" force={args.force}{barcodes_info}{limit_info}"
+    )
     logger.info(f"Command: {' '.join(sys.argv)}")
 
     # Import and create pipeline
@@ -162,7 +167,7 @@ async def cmd_pipeline(args) -> None:
 
         # Parse barcodes if provided
         specific_barcodes = None
-        if hasattr(args, 'barcodes') and args.barcodes:
+        if hasattr(args, "barcodes") and args.barcodes:
             try:
                 specific_barcodes = validate_and_parse_barcodes(args.barcodes)
                 print(f"Filtering to specific barcodes: {', '.join(specific_barcodes)}")
@@ -182,8 +187,8 @@ async def cmd_pipeline(args) -> None:
                 storage_config=storage_config,
                 library_directory=args.grin_library_directory,
                 concurrent_downloads=1,  # Optimal for single book
-                concurrent_uploads=1,    # Optimal for single book
-                batch_size=1,           # Single book batch
+                concurrent_uploads=1,  # Optimal for single book
+                batch_size=1,  # Single book batch
                 secrets_dir=args.secrets_dir,
                 gpg_key_file=args.gpg_key_file,
                 force=args.force,
@@ -280,9 +285,7 @@ async def cmd_catchup(args) -> None:
             return
 
         # Get books that need sync
-        books_to_sync = await get_books_for_catchup_sync(
-            args.db_path, storage_type, catchup_candidates, args.limit
-        )
+        books_to_sync = await get_books_for_catchup_sync(args.db_path, storage_type, catchup_candidates, args.limit)
 
         if not books_to_sync:
             return

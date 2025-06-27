@@ -986,7 +986,7 @@ async def cmd_request(args) -> None:
     apply_run_config_to_args(args, args.db_path)
 
     # Validate that we have a library directory
-    if not getattr(args, 'grin_library_directory', None):
+    if not getattr(args, "grin_library_directory", None):
         print("❌ Error: No GRIN library directory specified. This should be set in the run configuration.")
         print("Make sure you collected books with --library-directory argument.")
         sys.exit(1)
@@ -996,6 +996,7 @@ async def cmd_request(args) -> None:
 
     # Set up logging - use unified log file from run config
     from grin_to_s3.run_config import find_run_config
+
     run_config = find_run_config(args.db_path)
     if run_config is None:
         print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
@@ -1005,8 +1006,10 @@ async def cmd_request(args) -> None:
 
     # Log processing pipeline startup
     logger = logging.getLogger(__name__)
-    logger.info(f"PROCESSING PIPELINE STARTED - {args.command} directory={args.grin_library_directory} "
-               f"rate_limit={args.rate_limit} batch_size={args.batch_size}")
+    logger.info(
+        f"PROCESSING PIPELINE STARTED - {args.command} directory={args.grin_library_directory} "
+        f"rate_limit={args.rate_limit} batch_size={args.batch_size}"
+    )
     logger.info(f"Command: {' '.join(sys.argv)}")
 
     # Create and run pipeline
@@ -1077,7 +1080,7 @@ async def cmd_request(args) -> None:
 async def cmd_monitor(args) -> None:
     """Handle the 'monitor' command."""
     # Validate that we have a library directory from run config
-    if not getattr(args, 'grin_library_directory', None):
+    if not getattr(args, "grin_library_directory", None):
         print("❌ Error: No GRIN library directory specified. This should be set in the run configuration.")
         print("Make sure you collected books with --library-directory argument.")
         sys.exit(1)
