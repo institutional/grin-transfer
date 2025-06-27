@@ -5,7 +5,7 @@ Sync Models and Data Validation
 Data models, validation functions, and type definitions for sync operations.
 """
 
-from typing import Any, TypedDict
+from typing import TypedDict
 
 
 class SyncStats(TypedDict):

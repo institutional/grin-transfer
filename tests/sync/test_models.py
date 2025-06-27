@@ -4,6 +4,7 @@ Tests for sync models and data validation.
 """
 
 import pytest
+
 from grin_to_s3.sync.models import (
     create_book_sync_result,
     create_sync_stats,

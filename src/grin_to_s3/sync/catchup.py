@@ -7,7 +7,6 @@ Functions for catching up on already-converted books from GRIN.
 
 import logging
 import sys
-from datetime import datetime
 from typing import Any
 
 import aiosqlite
@@ -20,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 async def find_catchup_books(
-    db_path: str, 
+    db_path: str,
     library_directory: str,
     secrets_dir: str | None = None
 ) -> tuple[set[str], set[str], set[str]]:
@@ -84,7 +83,7 @@ async def get_books_for_catchup_sync(
         list: Books ready for catchup sync
     """
     db_tracker = SQLiteProgressTracker(db_path)
-    
+
     # Filter out books already successfully synced using efficient batch query
     books_to_sync = await db_tracker.get_books_for_sync(
         storage_type=storage_type,
@@ -146,12 +145,12 @@ def confirm_catchup_sync(books_to_sync: list[str], auto_confirm: bool = False) -
     """
     if auto_confirm:
         return True
-        
+
     response = input(f"\nDownload {len(books_to_sync):,} books? [y/N]: ").strip().lower()
     if response not in ("y", "yes"):
         print("Catchup cancelled")
         return False
-    
+
     return True
 
 
@@ -168,7 +167,7 @@ async def mark_books_for_catchup_processing(
         timestamp: Timestamp for session tracking
     """
     db_tracker = SQLiteProgressTracker(db_path)
-    
+
     # Record that these books are being processed as part of catchup
     session_id = f"catchup_{timestamp}"
     for barcode in books_to_sync:

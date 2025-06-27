@@ -3,12 +3,13 @@
 Shared test fixtures for sync module testing.
 """
 
-import pytest
-import tempfile
 import sqlite3
+import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from grin_to_s3.sync.models import create_sync_stats
 
@@ -18,7 +19,7 @@ def temp_db_path():
     """Create a temporary database file for testing."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
-    
+
     # Initialize with basic schema
     conn = sqlite3.connect(db_path)
     conn.execute("""
@@ -44,19 +45,19 @@ def temp_db_path():
     """)
     conn.commit()
     conn.close()
-    
+
     yield db_path
-    
+
     # Cleanup
     Path(db_path).unlink(missing_ok=True)
 
 
 @pytest.fixture
-def mock_storage_config() -> Dict[str, Any]:
+def mock_storage_config() -> dict[str, Any]:
     """Mock storage configuration for testing."""
     return {
         "bucket_raw": "test-raw",
-        "bucket_meta": "test-meta", 
+        "bucket_meta": "test-meta",
         "bucket_full": "test-full",
         "access_key": "test-access",
         "secret_key": "test-secret",

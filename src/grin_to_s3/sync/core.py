@@ -16,7 +16,7 @@ import aiofiles
 from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
     create_http_session,
-    create_storage_from_config, 
+    create_storage_from_config,
     decrypt_gpg_file,
 )
 from grin_to_s3.storage import BookStorage

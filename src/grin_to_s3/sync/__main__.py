@@ -11,7 +11,6 @@ import json
 import logging
 import signal
 import sys
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -21,7 +20,6 @@ from grin_to_s3.run_config import (
     apply_run_config_to_args,
     build_storage_config_dict,
     setup_run_database_path,
-    validate_bucket_arguments,
 )
 from grin_to_s3.sync.catchup import (
     confirm_catchup_sync,

@@ -166,8 +166,8 @@ class TestSyncPipelineLocalOptimization:
             # Verify staging directory is not created for local storage
             assert not (Path(temp_dir) / "staging").exists()
 
-            # Test that _process_local_storage_book exists
-            assert hasattr(pipeline, "_process_local_storage_book")
+            # Test that local storage sync method exists
+            assert hasattr(pipeline, "_run_local_storage_sync")
 
             # Close database connection
             if hasattr(db_tracker, "_db") and db_tracker._db:

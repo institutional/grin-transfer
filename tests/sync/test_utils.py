@@ -3,8 +3,10 @@
 Tests for sync utility functions.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+
 from grin_to_s3.sync.utils import (
     check_google_etag,
     ensure_bucket_exists,
@@ -23,7 +25,7 @@ class TestBucketOperations:
         from grin_to_s3.sync.utils import _bucket_checked_cache
         _bucket_checked_cache.add("test:bucket")
         assert len(_bucket_checked_cache) > 0
-        
+
         # Reset and verify empty
         reset_bucket_cache()
         assert len(_bucket_checked_cache) == 0
@@ -40,7 +42,7 @@ class TestBucketOperations:
         # Add to cache
         from grin_to_s3.sync.utils import _bucket_checked_cache
         _bucket_checked_cache.add("minio:test-bucket")
-        
+
         result = await ensure_bucket_exists("minio", mock_storage_config, "test-bucket")
         assert result is True
 
@@ -52,11 +54,11 @@ class TestBucketOperations:
         mock_s3 = MagicMock()
         mock_boto3_client.return_value = mock_s3
         mock_s3.head_bucket.return_value = None  # Bucket exists
-        
+
         reset_bucket_cache()  # Clear cache
         result = await ensure_bucket_exists("minio", mock_storage_config, "test-bucket")
         assert result is True
-        
+
         # Verify correct client configuration
         mock_boto3_client.assert_called_once_with(
             's3',
@@ -70,25 +72,25 @@ class TestBucketOperations:
     async def test_ensure_bucket_exists_create_bucket(self, mock_boto3_client, mock_storage_config):
         """Test bucket creation when bucket doesn't exist."""
         from botocore.exceptions import ClientError
-        
+
         # Mock S3 client
         mock_s3 = MagicMock()
         mock_boto3_client.return_value = mock_s3
-        
+
         # Mock bucket doesn't exist, then creation succeeds
         mock_s3.head_bucket.side_effect = ClientError(
-            error_response={'Error': {'Code': '404'}}, 
+            error_response={'Error': {'Code': '404'}},
             operation_name='HeadBucket'
         )
         mock_s3.create_bucket.return_value = None
         mock_s3.list_buckets.return_value = {
             'Buckets': [{'Name': 'test-bucket'}]
         }
-        
+
         reset_bucket_cache()  # Clear cache
         result = await ensure_bucket_exists("minio", mock_storage_config, "test-bucket")
         assert result is True
-        
+
         mock_s3.create_bucket.assert_called_once_with(Bucket="test-bucket")
 
 
@@ -104,14 +106,14 @@ class TestETagOperations:
             'ETag': '"abc123def"',
             'Content-Length': '1024'
         }
-        
+
         mock_grin_client.auth.make_authenticated_request.return_value = mock_response
-        
+
         with patch('grin_to_s3.common.create_http_session') as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
-            
+
             etag, file_size = await check_google_etag(mock_grin_client, "Harvard", "TEST123")
-            
+
             assert etag == "abc123def"  # ETag should be stripped of quotes
             assert file_size == 1024
 
@@ -121,14 +123,14 @@ class TestETagOperations:
         # Mock HTTP session and response without ETag
         mock_response = MagicMock()
         mock_response.headers = {'Content-Length': '2048'}
-        
+
         mock_grin_client.auth.make_authenticated_request.return_value = mock_response
-        
+
         with patch('grin_to_s3.common.create_http_session') as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
-            
+
             etag, file_size = await check_google_etag(mock_grin_client, "Harvard", "TEST123")
-            
+
             assert etag is None
             assert file_size == 2048
 
@@ -136,12 +138,12 @@ class TestETagOperations:
     async def test_check_google_etag_error(self, mock_grin_client):
         """Test ETag check when request fails."""
         mock_grin_client.auth.make_authenticated_request.side_effect = Exception("Network error")
-        
+
         with patch('grin_to_s3.common.create_http_session') as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
-            
+
             etag, file_size = await check_google_etag(mock_grin_client, "Harvard", "TEST123")
-            
+
             assert etag is None
             assert file_size is None
 
@@ -178,9 +180,9 @@ class TestConvertedBooks:
         """Test successful retrieval of converted books."""
         mock_response = "TEST123.tar.gz.gpg\nTEST456.tar.gz.gpg\nTEST789.tar.gz.gpg\n"
         mock_grin_client.fetch_resource.return_value = mock_response
-        
+
         result = await get_converted_books(mock_grin_client, "Harvard")
-        
+
         assert result == {"TEST123", "TEST456", "TEST789"}
         mock_grin_client.fetch_resource.assert_called_once_with("Harvard", "_converted?format=text")
 
@@ -188,9 +190,9 @@ class TestConvertedBooks:
     async def test_get_converted_books_empty_response(self, mock_grin_client):
         """Test handling of empty response."""
         mock_grin_client.fetch_resource.return_value = ""
-        
+
         result = await get_converted_books(mock_grin_client, "Harvard")
-        
+
         assert result == set()
 
     @pytest.mark.asyncio
@@ -204,16 +206,16 @@ class TestConvertedBooks:
         TEST789.tar.gz.gpg
         """
         mock_grin_client.fetch_resource.return_value = mock_response
-        
+
         result = await get_converted_books(mock_grin_client, "Harvard")
-        
+
         assert result == {"TEST123", "TEST456", "TEST789"}
 
     @pytest.mark.asyncio
     async def test_get_converted_books_error(self, mock_grin_client):
         """Test error handling in converted books retrieval."""
         mock_grin_client.fetch_resource.side_effect = Exception("Network error")
-        
+
         result = await get_converted_books(mock_grin_client, "Harvard")
-        
+
         assert result == set()

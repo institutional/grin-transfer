@@ -3,13 +3,12 @@
 Tests for core sync functions.
 """
 
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from pathlib import Path
 
 from grin_to_s3.sync.core import (
     check_and_handle_etag_skip,
-    download_book_to_staging,
     sync_book_to_local_storage,
     upload_book_from_staging,
 )
@@ -25,14 +24,14 @@ class TestETagSkipHandling:
         """Test ETag check when file should not be skipped."""
         with patch('grin_to_s3.sync.core.check_google_etag') as mock_check_etag, \
              patch('grin_to_s3.sync.core.should_skip_download') as mock_should_skip:
-            
+
             mock_check_etag.return_value = ("abc123", 1024)
             mock_should_skip.return_value = False
-            
+
             result, etag, file_size = await check_and_handle_etag_skip(
                 "TEST123", mock_grin_client, "Harvard", "minio", mock_storage_config, mock_progress_tracker
             )
-            
+
             assert result is None  # No skip
             assert etag == "abc123"
             assert file_size == 1024
@@ -44,14 +43,14 @@ class TestETagSkipHandling:
         """Test ETag check when file should be skipped."""
         with patch('grin_to_s3.sync.core.check_google_etag') as mock_check_etag, \
              patch('grin_to_s3.sync.core.should_skip_download') as mock_should_skip:
-            
+
             mock_check_etag.return_value = ("abc123", 1024)
             mock_should_skip.return_value = True
-            
+
             result, etag, file_size = await check_and_handle_etag_skip(
                 "TEST123", mock_grin_client, "Harvard", "minio", mock_storage_config, mock_progress_tracker
             )
-            
+
             assert result is not None  # Skip result returned
             assert result["barcode"] == "TEST123"
             assert result["status"] == "completed"
@@ -64,7 +63,7 @@ class TestETagSkipHandling:
 
 class TestBookDownload:
     """Test book download functionality."""
-    
+
     # TODO: Fix async mocking issues with GRIN client
     # These tests need proper async mocking setup for the GRIN client's HTTP session
 
@@ -76,10 +75,10 @@ class TestBookUpload:
     async def test_upload_book_from_staging_skip_scenario(self, mock_storage_config, mock_staging_manager, mock_progress_tracker):
         """Test upload handling skip download scenario."""
         result = await upload_book_from_staging(
-            "TEST123", "SKIP_DOWNLOAD", "minio", mock_storage_config, 
+            "TEST123", "SKIP_DOWNLOAD", "minio", mock_storage_config,
             mock_staging_manager, mock_progress_tracker
         )
-        
+
         assert result["barcode"] == "TEST123"
         assert result["status"] == "completed"
         assert result["skipped"] is True
@@ -106,11 +105,11 @@ class TestLocalStorageSync:
     async def test_sync_book_to_local_storage_missing_base_path(self, mock_grin_client, mock_progress_tracker):
         """Test local storage sync with missing base_path."""
         storage_config = {}  # No base_path
-        
+
         result = await sync_book_to_local_storage(
             "TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker
         )
-        
+
         assert result["barcode"] == "TEST123"
         assert result["status"] == "failed"
         assert "Local storage requires" in result["error"]

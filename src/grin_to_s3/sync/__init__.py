@@ -5,6 +5,7 @@ GRIN Sync Module
 Modular sync operations for downloading and uploading books from GRIN to storage.
 """
 
+from .__main__ import main
 from .catchup import (
     confirm_catchup_sync,
     find_catchup_books,
@@ -40,7 +41,6 @@ from .utils import (
     reset_bucket_cache,
     should_skip_download,
 )
-from .__main__ import main
 
 __all__ = [
     # Catchup operations
@@ -53,11 +53,11 @@ __all__ = [
     # Core sync functions
     "check_and_handle_etag_skip",
     "download_book_to_staging",
-    "sync_book_to_local_storage", 
+    "sync_book_to_local_storage",
     "upload_book_from_staging",
     # Models and data structures
     "BookSyncResult",
-    "SyncStats", 
+    "SyncStats",
     "create_book_sync_result",
     "create_sync_stats",
     "validate_and_parse_barcodes",
@@ -70,7 +70,7 @@ __all__ = [
     "validate_database_file",
     # Utility functions
     "check_google_etag",
-    "ensure_bucket_exists", 
+    "ensure_bucket_exists",
     "get_converted_books",
     "reset_bucket_cache",
     "should_skip_download",

@@ -206,23 +206,23 @@ async def get_sync_statistics(db_path: str, storage_type: str | None = None) -> 
         dict: Sync statistics
     """
     tracker = SQLiteProgressTracker(db_path)
-    
+
     try:
         # Get overall counts
         total_books = await tracker.get_book_count()
         enriched_books = await tracker.get_enriched_book_count()
         converted_books = await tracker.get_converted_books_count()
-        
+
         # Get sync statistics
         sync_stats = await tracker.get_sync_stats(storage_type)
-        
+
         return {
             "total_books": total_books,
             "enriched_books": enriched_books,
             "converted_books": converted_books,
             **sync_stats,
         }
-        
+
     finally:
         # Clean up database connections
         try:
@@ -241,7 +241,7 @@ async def export_sync_status_csv(db_path: str, output_path: str, storage_type: s
         storage_type: Optional storage type filter
     """
     import csv
-    
+
     async with aiosqlite.connect(db_path) as db:
         query = """
             SELECT 
@@ -263,28 +263,28 @@ async def export_sync_status_csv(db_path: str, output_path: str, storage_type: s
               )
         """
         params = []
-        
+
         if storage_type:
             query += " AND b.storage_type = ?"
             params.append(storage_type)
-            
+
         query += " ORDER BY b.sync_timestamp DESC"
-        
+
         cursor = await db.execute(query, params)
         rows = await cursor.fetchall()
-        
+
         # Write CSV
         with open(output_path, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
-            
+
             # Header
             writer.writerow([
                 'barcode', 'storage_type', 'storage_path', 'storage_decrypted_path',
                 'is_decrypted', 'sync_timestamp', 'sync_error', 'sync_status'
             ])
-            
+
             # Data rows
             for row in rows:
                 writer.writerow(row)
-    
+
     print(f"Sync status exported to: {output_path}")
