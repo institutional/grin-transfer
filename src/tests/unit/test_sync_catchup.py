@@ -115,7 +115,7 @@ class TestFindCatchupBooks:
             mock_cursor.fetchall = AsyncMock(return_value=[
                 ("TEST123",), ("TEST456",), ("TEST999",)  # Third book not converted
             ])
-            mock_db.execute.return_value = mock_cursor
+            mock_db.execute = AsyncMock(return_value=mock_cursor)
 
             converted, all_books, candidates = await find_catchup_books(
                 temp_db_path, "Harvard", "/secrets"

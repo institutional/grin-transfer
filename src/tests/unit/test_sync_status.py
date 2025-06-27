@@ -174,7 +174,7 @@ class TestShowSyncStatus:
                 ("TEST456", "failed", "2024-01-01T09:00:00", "Network error", "r2"),
             ])
 
-            mock_db.execute.side_effect = [mock_cursor1, mock_cursor2]
+            mock_db.execute = AsyncMock(side_effect=[mock_cursor1, mock_cursor2])
 
             await show_sync_status(temp_db_path)
 
@@ -205,7 +205,7 @@ class TestExportSyncStatusCsv:
                 ("TEST456", "r2", "bucket/TEST456.tar.gz", "bucket/TEST456.tar.gz",
                  False, "2024-01-01T09:00:00", "Upload failed", "failed"),
             ])
-            mock_db.execute.return_value = mock_cursor
+            mock_db.execute = AsyncMock(return_value=mock_cursor)
 
             await export_sync_status_csv(temp_db_path, output_path)
 
@@ -237,7 +237,7 @@ class TestExportSyncStatusCsv:
                 ("TEST123", "minio", "bucket/TEST123.tar.gz", "bucket/TEST123.tar.gz",
                  True, "2024-01-01T10:00:00", None, "completed"),
             ])
-            mock_db.execute.return_value = mock_cursor
+            mock_db.execute = AsyncMock(return_value=mock_cursor)
 
             await export_sync_status_csv(temp_db_path, output_path, "minio")
 
