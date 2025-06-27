@@ -904,6 +904,14 @@ def auto_configure_minio(storage_config: dict) -> None:
             if "secret_key" not in storage_config:
                 storage_config["secret_key"] = env.get("MINIO_ROOT_PASSWORD", "minioadmin123")
 
+            # Auto-configure bucket names for MinIO if not provided
+            if "bucket_raw" not in storage_config:
+                storage_config["bucket_raw"] = "grin-raw"
+            if "bucket_meta" not in storage_config:
+                storage_config["bucket_meta"] = "grin-meta"
+            if "bucket_full" not in storage_config:
+                storage_config["bucket_full"] = "grin-full"
+
             print("Auto-configured MinIO from examples/docker-compose.minio.yml")
 
     except Exception as e:

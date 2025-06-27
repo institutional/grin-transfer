@@ -15,8 +15,14 @@
 # Console: http://localhost:9001 (minioadmin/minioadmin123)
 #
 # GRIN-to-S3 Integration:
+# python grin.py collect --run-name test --storage minio --library-directory <directory>
 # python grin.py sync pipeline --run-name test --storage minio
 # python grin.py sync catchup --run-name test --storage minio
+#
+# Buckets:
+# - grin-raw: Encrypted archives from GRIN
+# - grin-meta: CSV exports and metadata files
+# - grin-full: Decrypted text and JSON exports
 
 version: '3.8'
 
@@ -30,6 +36,7 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_DEFAULT_BUCKETS: "grin-raw:none,grin-meta:none,grin-full:none"
     command: server /data --console-address ":9001"
     volumes:
       - grin-to-s3-minio-data:/data
