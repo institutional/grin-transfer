@@ -20,13 +20,13 @@ from grin_to_s3.common import (
     pluralize,
 )
 
+from .models import create_sync_stats
 from .operations import (
     check_and_handle_etag_skip,
     download_book_to_staging,
     sync_book_to_local_storage,
     upload_book_from_staging,
 )
-from .models import create_sync_stats
 from .utils import get_converted_books, reset_bucket_cache
 
 logger = logging.getLogger(__name__)

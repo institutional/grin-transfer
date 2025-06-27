@@ -14,18 +14,18 @@ from .catchup import (
     run_catchup_validation,
     show_catchup_dry_run,
 )
-from .operations import (
-    check_and_handle_etag_skip,
-    download_book_to_staging,
-    sync_book_to_local_storage,
-    upload_book_from_staging,
-)
 from .models import (
     BookSyncResult,
     SyncStats,
     create_book_sync_result,
     create_sync_stats,
     validate_and_parse_barcodes,
+)
+from .operations import (
+    check_and_handle_etag_skip,
+    download_book_to_staging,
+    sync_book_to_local_storage,
+    upload_book_from_staging,
 )
 from .pipeline import SyncPipeline
 from .status import (
