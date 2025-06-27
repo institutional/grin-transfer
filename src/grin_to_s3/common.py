@@ -118,7 +118,12 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
     """
     match storage_type:
         case "local":
-            base_path = config.get("base_path", ".")
+            base_path = config.get("base_path")
+            if not base_path:
+                raise ValueError(
+                    "Local storage requires explicit base_path. "
+                    "Provide base_path in storage configuration."
+                )
             return create_local_storage(base_path)
 
         case "minio":
@@ -334,13 +339,15 @@ class ProgressReporter:
         self.start_time = time.perf_counter()
         self.last_report_time = self.start_time
 
-    def update(self, items: int = 1, bytes_count: int = 0, force: bool = False, record_id: str | None = None) -> None:
+    def increment(
+        self, items: int = 1, bytes_count: int = 0, force: bool = False, record_id: str | None = None
+    ) -> None:
         """
-        Update progress.
+        Increment progress by the specified amount.
 
         Args:
-            items: Number of items processed in this update
-            bytes_count: Number of bytes processed in this update
+            items: Number of items processed in this increment
+            bytes_count: Number of bytes processed in this increment
             force: Force progress report even if time threshold not met
             record_id: ID of the record being processed (e.g., barcode)
         """
