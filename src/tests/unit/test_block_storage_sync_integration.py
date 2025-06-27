@@ -85,7 +85,7 @@ class TestBlockStorageSyncIntegration:
         # Test correct interface methods
         calc.add_batch(12345.0, 10)  # timestamp, processed_count
         rate = calc.get_rate(12344.0, 10)  # fallback_start_time, fallback_processed_count
-        assert isinstance(rate, (int, float))
+        assert isinstance(rate, int | float)
 
     @pytest.mark.asyncio
     async def test_staging_vs_local_sync_selection(self):

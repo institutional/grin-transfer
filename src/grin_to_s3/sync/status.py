@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 async def show_sync_status(db_path: str, storage_type: str | None = None) -> None:
     """Show sync status for books in the database.
-    
+
     Args:
         db_path: Path to the SQLite database
         storage_type: Optional storage type filter
@@ -153,10 +153,10 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
 
 def validate_database_file(db_path: str) -> None:
     """Validate that the database file exists and contains the required tables.
-    
+
     Args:
         db_path: Path to the SQLite database
-        
+
     Raises:
         SystemExit: If database is invalid
     """
@@ -197,11 +197,11 @@ def validate_database_file(db_path: str) -> None:
 
 async def get_sync_statistics(db_path: str, storage_type: str | None = None) -> dict[str, Any]:
     """Get sync statistics for the database.
-    
+
     Args:
-        db_path: Path to the SQLite database  
+        db_path: Path to the SQLite database
         storage_type: Optional storage type filter
-        
+
     Returns:
         dict: Sync statistics
     """
@@ -234,7 +234,7 @@ async def get_sync_statistics(db_path: str, storage_type: str | None = None) -> 
 
 async def export_sync_status_csv(db_path: str, output_path: str, storage_type: str | None = None) -> None:
     """Export sync status to CSV file.
-    
+
     Args:
         db_path: Path to the SQLite database
         output_path: Path for output CSV file
@@ -244,7 +244,7 @@ async def export_sync_status_csv(db_path: str, output_path: str, storage_type: s
 
     async with aiosqlite.connect(db_path) as db:
         query = """
-            SELECT 
+            SELECT
                 b.barcode,
                 b.storage_type,
                 b.storage_path,

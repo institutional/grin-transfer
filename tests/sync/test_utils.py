@@ -202,7 +202,7 @@ class TestConvertedBooks:
         TEST123.tar.gz.gpg
         some_other_file.txt
         TEST456.tar.gz.gpg
-        
+
         TEST789.tar.gz.gpg
         """
         mock_grin_client.fetch_resource.return_value = mock_response

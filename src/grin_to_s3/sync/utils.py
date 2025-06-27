@@ -219,11 +219,11 @@ async def should_skip_download(
 
 async def get_converted_books(grin_client, library_directory: str) -> set[str]:
     """Get set of books that are converted and ready for download.
-    
+
     Args:
         grin_client: GRIN client instance
         library_directory: Library directory name
-        
+
     Returns:
         set: Set of converted book barcodes
     """

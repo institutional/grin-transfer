@@ -24,12 +24,12 @@ async def find_catchup_books(
     secrets_dir: str | None = None
 ) -> tuple[set[str], set[str], set[str]]:
     """Find books available for catchup sync.
-    
+
     Args:
         db_path: Path to the SQLite database
         library_directory: GRIN library directory
         secrets_dir: Secrets directory path
-        
+
     Returns:
         tuple: (converted_barcodes, all_books, catchup_candidates)
     """
@@ -72,13 +72,13 @@ async def get_books_for_catchup_sync(
     limit: int | None = None
 ) -> list[str]:
     """Get books that need catchup sync.
-    
+
     Args:
         db_path: Path to the SQLite database
         storage_type: Storage type for filtering
         catchup_candidates: Set of candidate barcodes
         limit: Optional limit on number of books
-        
+
     Returns:
         list: Books ready for catchup sync
     """
@@ -109,7 +109,7 @@ async def get_books_for_catchup_sync(
 
 def show_catchup_dry_run(books_to_sync: list[str]) -> None:
     """Show what books would be synced in dry run mode.
-    
+
     Args:
         books_to_sync: List of books that would be synced
     """
@@ -135,11 +135,11 @@ def show_catchup_dry_run(books_to_sync: list[str]) -> None:
 
 def confirm_catchup_sync(books_to_sync: list[str], auto_confirm: bool = False) -> bool:
     """Confirm with user before starting catchup sync.
-    
+
     Args:
         books_to_sync: List of books to sync
         auto_confirm: Whether to skip confirmation prompt
-        
+
     Returns:
         bool: True if user confirmed, False otherwise
     """
@@ -160,7 +160,7 @@ async def mark_books_for_catchup_processing(
     timestamp: str
 ) -> None:
     """Mark books as being processed for catchup.
-    
+
     Args:
         db_path: Path to the SQLite database
         books_to_sync: List of books to mark
@@ -187,12 +187,12 @@ async def run_catchup_validation(
     storage_config: dict[str, Any]
 ) -> tuple[str, dict[str, Any]]:
     """Validate catchup configuration and return validated config.
-    
+
     Args:
         run_config: Run configuration dictionary
         storage_type: Storage type
         storage_config: Storage configuration
-        
+
     Returns:
         tuple: (storage_type, storage_config)
     """

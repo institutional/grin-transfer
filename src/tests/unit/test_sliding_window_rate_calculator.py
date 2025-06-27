@@ -145,7 +145,7 @@ class TestSlidingWindowRateCalculator:
         calc.add_batch(time.time(), 10)
         rate = calc.get_rate(time.time() - 1, 10)
 
-        assert isinstance(rate, (int, float))
+        assert isinstance(rate, int | float)
         assert rate >= 0
 
     def test_add_completion_method_does_not_exist(self):

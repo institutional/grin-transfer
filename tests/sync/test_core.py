@@ -72,7 +72,9 @@ class TestBookUpload:
     """Test book upload functionality."""
 
     @pytest.mark.asyncio
-    async def test_upload_book_from_staging_skip_scenario(self, mock_storage_config, mock_staging_manager, mock_progress_tracker):
+    async def test_upload_book_from_staging_skip_scenario(
+        self, mock_storage_config, mock_staging_manager, mock_progress_tracker
+    ):
         """Test upload handling skip download scenario."""
         result = await upload_book_from_staging(
             "TEST123", "SKIP_DOWNLOAD", "minio", mock_storage_config,
@@ -85,7 +87,9 @@ class TestBookUpload:
 
     # TODO: Fix async mocking issues
     # @pytest.mark.asyncio
-    # async def test_upload_book_from_staging_success(self, mock_storage_config, mock_staging_manager, mock_progress_tracker):
+    # async def test_upload_book_from_staging_success(
+    #     self, mock_storage_config, mock_staging_manager, mock_progress_tracker
+    # ):
     #     """Test successful book upload from staging."""
     #     # This test needs fixing for async mocking
     #     pass
