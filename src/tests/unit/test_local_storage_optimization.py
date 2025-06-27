@@ -145,7 +145,7 @@ class TestSyncPipelineLocalOptimization:
     async def test_no_staging_for_local_storage(self):
         """Test that local storage skips staging directory."""
         from grin_to_s3.collect_books.models import SQLiteProgressTracker
-        from grin_to_s3.sync import SyncPipeline
+        from grin_to_s3.sync.pipeline import SyncPipeline
 
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create test database
@@ -166,8 +166,8 @@ class TestSyncPipelineLocalOptimization:
             # Verify staging directory is not created for local storage
             assert not (Path(temp_dir) / "staging").exists()
 
-            # Test that _process_local_storage_book exists
-            assert hasattr(pipeline, "_process_local_storage_book")
+            # Test that local storage sync method exists
+            assert hasattr(pipeline, "_run_local_storage_sync")
 
             # Close database connection
             if hasattr(db_tracker, "_db") and db_tracker._db:
