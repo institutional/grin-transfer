@@ -115,6 +115,8 @@ class RunConfig:
                 args["bucket-meta"] = value
             elif key == "bucket_full":
                 args["bucket-full"] = value
+            elif key == "base_path":
+                args["base-path"] = value
             elif key == "prefix":
                 args["prefix"] = value
             elif key == "endpoint_url":

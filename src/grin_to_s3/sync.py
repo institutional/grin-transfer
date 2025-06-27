@@ -132,12 +132,15 @@ class SyncPipeline:
         self.progress_reporter = ProgressReporter("sync", None)
         self.grin_client = GRINClient(secrets_dir=secrets_dir)
 
-        # Initialize staging directory manager
-        from grin_to_s3.staging import StagingDirectoryManager
+        # Initialize staging directory manager only for non-local storage
+        if self.storage_type != "local":
+            from grin_to_s3.staging import StagingDirectoryManager
 
-        self.staging_manager = StagingDirectoryManager(
-            staging_path=self.staging_dir, capacity_threshold=self.disk_space_threshold
-        )
+            self.staging_manager = StagingDirectoryManager(
+                staging_path=self.staging_dir, capacity_threshold=self.disk_space_threshold
+            )
+        else:
+            self.staging_manager = None  # Not needed for local storage
 
         # Concurrency control
         self._download_semaphore = asyncio.Semaphore(concurrent_downloads)
@@ -151,6 +154,7 @@ class SyncPipeline:
             "completed": 0,
             "failed": 0,
             "skipped": 0,
+            "uploaded": 0,  # Add missing uploaded key
             "total_bytes": 0,
         }
 
@@ -359,6 +363,43 @@ class SyncPipeline:
         except Exception as e:
             logger.warning(f"[{barcode}] Failed to mark as converted: {e}")
 
+    async def _check_and_handle_etag_skip(self, barcode: str) -> tuple[dict | None, str | None, int]:
+        """Check ETag and handle skip scenario if applicable.
+
+        Returns:
+            tuple: (skip_result, google_etag, google_file_size)
+            - skip_result: Skip result dict if file should be skipped, None if processing should continue
+            - google_etag: Google ETag for this file
+            - google_file_size: Google file size for this file
+        """
+        # Check Google ETag first
+        google_etag, google_file_size = await self._check_google_etag(barcode)
+
+        # Check if we should skip download based on ETag match
+        if await self._should_skip_download(barcode, google_etag):
+            self.stats["skipped"] += 1
+            logger.info(f"[{barcode}] Skipping download - file unchanged (ETag match)")
+
+            # Update sync tracking to record the ETag check
+            from datetime import UTC
+            etag_sync_data: dict[str, Any] = {
+                "last_etag_check": datetime.now(UTC).isoformat(),
+                "google_etag": google_etag,
+            }
+            await self.db_tracker.update_sync_data(barcode, etag_sync_data)
+
+            skip_result = {
+                "barcode": barcode,
+                "status": "completed",
+                "skipped": True,
+                "google_etag": google_etag,
+                "file_size": google_file_size or 0,
+                "total_time": 0,
+            }
+            return skip_result, google_etag, google_file_size or 0
+
+        return None, google_etag, google_file_size or 0  # Continue with processing
+
     async def get_converted_books(self) -> set[str]:
         """Get set of books that are converted and ready for download."""
         try:
@@ -376,28 +417,25 @@ class SyncPipeline:
 
     async def _download_only(self, barcode: str) -> tuple[str, str, dict]:
         """Download a book to staging directory, returning file path for separate upload."""
-        # Check Google ETag first to see if we can skip download
-        google_etag, google_file_size = await self._check_google_etag(barcode)
-
-        # Check if we should skip download based on ETag match
-        if await self._should_skip_download(barcode, google_etag):
-            self.stats["skipped"] += 1
-            logger.info(f"[{barcode}] Skipping download - file unchanged (ETag match)")
-
-            # Return skip metadata - the upload task will handle this appropriately
+        # Check ETag and handle skip scenario
+        skip_result, google_etag, google_file_size = await self._check_and_handle_etag_skip(barcode)
+        if skip_result:
+            # Return skip metadata in the format expected by upload task
             return (
                 barcode,
                 "SKIP_DOWNLOAD",  # Special marker to indicate skip
                 {
-                    "file_size": google_file_size or 0,
-                    "total_time": 0,
-                    "google_etag": google_etag,
+                    "file_size": skip_result["file_size"],
+                    "total_time": skip_result["total_time"],
+                    "google_etag": skip_result["google_etag"],
                     "skipped": True,
                 },
             )
 
         # Wait for disk space to become available
         space_warned = False
+        if not self.staging_manager:
+            raise RuntimeError("Staging manager not available for non-local storage")
         while not self.staging_manager.check_disk_space():
             if not space_warned:
                 used_bytes, total_bytes, usage_ratio = self.staging_manager.get_disk_usage()
@@ -423,6 +461,8 @@ class SyncPipeline:
             logger.info(f"[{barcode}] Starting download from {grin_url}")
 
             # Get staging file path
+            if not self.staging_manager:
+                raise RuntimeError("Staging manager not available for non-local storage")
             staging_file = self.staging_manager.get_encrypted_file_path(barcode)
 
             # Download directly to staging file
@@ -473,14 +513,8 @@ class SyncPipeline:
             if staging_file_path == "SKIP_DOWNLOAD":
                 logger.info(f"[{barcode}] Skipped download (ETag match), marking as completed")
 
-                # Update sync tracking to record the ETag check
-                from datetime import UTC
-                etag_sync_data: dict[str, Any] = {
-                    "last_etag_check": datetime.now(UTC).isoformat(),
-                    "google_etag": google_etag,
-                }
-                await self.db_tracker.update_sync_data(barcode, etag_sync_data)
-
+                # ETag tracking already handled in _check_and_handle_etag_skip
+                # Just return the upload format result
                 return {
                     "barcode": barcode,
                     "status": "completed",
@@ -519,6 +553,8 @@ class SyncPipeline:
 
             # Get staging file paths
             encrypted_file = Path(staging_file_path)
+            if not self.staging_manager:
+                raise RuntimeError("Staging manager not available for non-local storage")
             decrypted_file = self.staging_manager.get_decrypted_file_path(barcode)
 
             # Decrypt to staging directory
@@ -527,7 +563,10 @@ class SyncPipeline:
             except Exception as e:
                 logger.error(f"[{barcode}] Decryption failed: {e}")
                 # Clean up staging files on decryption failure
-                freed_bytes = self.staging_manager.cleanup_files(barcode)
+                if self.staging_manager:
+                    freed_bytes = self.staging_manager.cleanup_files(barcode)
+                else:
+                    freed_bytes = 0
                 logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB from staging after failure")
                 # Decryption failure is fatal - signal pipeline to stop
                 self._fatal_error = f"GPG decryption failed for {barcode}: {e}"
@@ -594,7 +633,10 @@ class SyncPipeline:
             await self.db_tracker.update_sync_data(barcode, sync_data)
 
             # Clean up staging files after successful uploads
-            freed_bytes = self.staging_manager.cleanup_files(barcode)
+            if self.staging_manager:
+                freed_bytes = self.staging_manager.cleanup_files(barcode)
+            else:
+                freed_bytes = 0
             logger.info(f"[{barcode}] ✅ Upload completed: encrypted=True, decrypted=True")
             if freed_bytes > 0:
                 logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB disk space from staging directory")
@@ -618,6 +660,238 @@ class SyncPipeline:
     async def _upload_task(self, barcode: str, staging_file_path: str, google_etag: str | None = None):
         """Handle upload task from staging directory files."""
         return await self._upload_book(barcode, staging_file_path, google_etag)
+
+    async def _process_local_storage_book(self, barcode: str) -> dict:
+        """Process a book directly to local storage without staging.
+
+        This method downloads and decrypts directly to the final storage location,
+        skipping the staging directory entirely for better performance and disk usage.
+        """
+        try:
+            # Check ETag and handle skip scenario
+            skip_result, google_etag, google_file_size = await self._check_and_handle_etag_skip(barcode)
+            if skip_result:
+                return skip_result
+
+            # Import here to avoid circular imports
+            from grin_to_s3.common import create_storage_from_config, decrypt_gpg_file
+            from grin_to_s3.storage import BookStorage
+
+            # Create storage and book storage
+            storage = create_storage_from_config(self.storage_type, self.storage_config or {})
+            base_path = self.storage_config.get("base_path") if self.storage_config else None
+            if not base_path:
+                raise ValueError("Local storage requires base_path in configuration")
+            book_storage = BookStorage(storage, base_prefix="")
+
+            # Generate final file paths
+            encrypted_filename = f"{barcode}.tar.gz.gpg"
+            decrypted_filename = f"{barcode}.tar.gz"
+            encrypted_path = book_storage._book_path(barcode, encrypted_filename)
+            decrypted_path = book_storage._book_path(barcode, decrypted_filename)
+
+            # Get absolute paths for local storage
+            final_encrypted_path = Path(base_path) / encrypted_path
+            final_decrypted_path = Path(base_path) / decrypted_path
+
+            # Ensure directory exists
+            final_encrypted_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Download directly to final location
+            async with self._download_semaphore:
+                # Import here to avoid circular imports
+                import aiofiles
+
+                from grin_to_s3.common import create_http_session
+
+                client = GRINClient(secrets_dir=self.secrets_dir)
+                grin_url = f"https://books.google.com/libraries/{self.library_directory}/{barcode}.tar.gz.gpg"
+
+                logger.info(f"[{barcode}] Downloading directly to {final_encrypted_path}")
+
+                # Download directly to final location
+                async with create_http_session() as session:
+                    response = await client.auth.make_authenticated_request(session, grin_url)
+
+                    total_bytes = 0
+                    async with aiofiles.open(final_encrypted_path, "wb") as f:
+                        async for chunk in response.content.iter_chunked(1024 * 1024):
+                            await f.write(chunk)
+                            total_bytes += len(chunk)
+                        await f.flush()
+
+                logger.info(f"[{barcode}] Downloaded {total_bytes / (1024 * 1024):.1f} MB")
+
+            # Decrypt directly to final location
+            logger.info(f"[{barcode}] Decrypting to {final_decrypted_path}")
+            try:
+                await decrypt_gpg_file(
+                    str(final_encrypted_path),
+                    str(final_decrypted_path),
+                    self.gpg_key_file,
+                    self.secrets_dir
+                )
+            except Exception as e:
+                logger.error(f"[{barcode}] Decryption failed: {e}")
+                # Clean up encrypted file on decryption failure
+                final_encrypted_path.unlink(missing_ok=True)
+                raise
+
+            # Update status tracking
+            await self.db_tracker.add_status_change(barcode, "sync", "stored")
+            await self.db_tracker.add_status_change(barcode, "sync", "decrypted")
+            await self.db_tracker.add_status_change(barcode, "sync", "completed")
+
+            # Update book record with sync data
+            from datetime import UTC
+            sync_data: dict[str, Any] = {
+                "storage_type": self.storage_type,
+                "storage_path": str(encrypted_path),
+                "storage_decrypted_path": str(decrypted_path),
+                "is_decrypted": True,
+                "sync_timestamp": datetime.now(UTC).isoformat(),
+                "google_etag": google_etag,
+                "last_etag_check": datetime.now(UTC).isoformat(),
+            }
+            await self.db_tracker.update_sync_data(barcode, sync_data)
+
+            self.stats["uploaded"] += 1
+            logger.info(f"[{barcode}] ✅ Successfully synced to local storage")
+
+            return {
+                "barcode": barcode,
+                "status": "completed",
+                "encrypted_success": True,
+                "decrypted_success": True,
+            }
+
+        except Exception as e:
+            self.stats["failed"] += 1
+            logger.error(f"[{barcode}] Local storage sync failed: {e}")
+            return {
+                "barcode": barcode,
+                "status": "failed",
+                "error": str(e),
+            }
+
+    async def _run_local_storage_sync(self, available_to_sync: list[str], books_to_process: int,
+                                     specific_barcodes: list[str] | None = None) -> None:
+        """Run sync pipeline for local storage with direct processing."""
+        print("Using optimized local storage sync (no staging directory)")
+        base_path = self.storage_config.get('base_path') if self.storage_config else None
+        print(f"Target directory: {base_path or 'Unknown'}")
+        print("---")
+
+        start_time = time.time()
+        processed_count = 0
+        active_tasks: dict[str, asyncio.Task] = {}
+
+        # Initialize sliding window rate calculator
+        rate_calculator = SlidingWindowRateCalculator(window_size=20)
+
+        try:
+            # Create iterator for books
+            book_iter = iter(available_to_sync[:books_to_process])
+
+            # Fill initial processing queue
+            for _ in range(self.concurrent_downloads):
+                try:
+                    barcode = next(book_iter)
+                    task = asyncio.create_task(self._process_local_storage_book(barcode))
+                    active_tasks[barcode] = task
+                    logger.info(f"[{barcode}] Started local storage sync")
+                except StopIteration:
+                    break
+
+            # Process books
+            while active_tasks:
+                # Wait for any task to complete
+                done, pending = await asyncio.wait(
+                    active_tasks.values(),
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+
+                # Process completed tasks
+                for task in done:
+                    # Find which barcode this task belongs to
+                    completed_barcode = None
+                    for barcode, task_ref in active_tasks.items():
+                        if task_ref == task:
+                            completed_barcode = barcode
+                            break
+
+                    if completed_barcode:
+                        del active_tasks[completed_barcode]
+
+                        try:
+                            result = await task
+                            processed_count += 1
+
+                            # Track progress
+                            current_time = time.time()
+                            rate_calculator.add_batch(current_time, processed_count)
+                            rate = rate_calculator.get_rate(start_time, processed_count)
+
+                            # Report progress (increment by 1 for this completed book)
+                            self.progress_reporter.increment(1)
+
+                            if result.get("status") == "completed":
+                                if result.get("skipped"):
+                                    logger.info(f"[{completed_barcode}] Skipped (unchanged)")
+                                else:
+                                    logger.info(f"[{completed_barcode}] Successfully synced")
+                            else:
+                                logger.error(f"[{completed_barcode}] Failed: {result.get('error')}")
+
+                        except Exception as e:
+                            self.stats["failed"] += 1
+                            logger.error(f"[{completed_barcode}] Task failed: {e}")
+                            processed_count += 1
+
+                        # Try to start new task if there are more books
+                        if processed_count < books_to_process:
+                            try:
+                                next_barcode = next(book_iter)
+                                new_task = asyncio.create_task(self._process_local_storage_book(next_barcode))
+                                active_tasks[next_barcode] = new_task
+                                logger.info(f"[{next_barcode}] Started local storage sync")
+                            except StopIteration:
+                                pass
+
+                # Progress reporting
+                if processed_count > 0 and processed_count % 100 == 0:
+                    elapsed = time.time() - start_time
+                    rate = processed_count / elapsed
+                    remaining = books_to_process - processed_count
+                    eta_seconds = remaining / rate if rate > 0 else 0
+                    eta_str = format_duration(eta_seconds)
+                    print(f"Progress: {processed_count}/{books_to_process} ({rate:.1f} books/sec, ETA: {eta_str})")
+
+        except Exception as e:
+            print(f"\n❌ Local storage sync failed: {e}")
+            logger.error(f"Local storage sync failed: {e}", exc_info=True)
+
+        finally:
+            # Cancel any remaining tasks
+            for task in active_tasks.values():
+                task.cancel()
+
+            # Wait for cancellations to complete
+            if active_tasks:
+                await asyncio.gather(*active_tasks.values(), return_exceptions=True)
+
+            # Stop progress reporter
+            self.progress_reporter.finish()
+
+            # Final statistics
+            elapsed = time.time() - start_time
+            print("\nLocal storage sync completed:")
+            print(f"  Processed: {processed_count:,} books")
+            print(f"  Successful: {self.stats['uploaded']:,}")
+            print(f"  Skipped: {self.stats['skipped']:,}")
+            print(f"  Failed: {self.stats['failed']:,}")
+            print(f"  Duration: {format_duration(elapsed)}")
+            print(f"  Average rate: {processed_count / max(1, elapsed):.1f} books/sec")
 
     async def process_batch(self, barcodes: list[str]) -> list[dict]:
         """Process a batch of downloads concurrently."""
@@ -757,39 +1031,46 @@ class SyncPipeline:
 
                 return
 
-            # Check for existing staging files from previous runs
-            staging_files = self.staging_manager.get_staging_files()
-            if staging_files:
-                print(f"Found {len(staging_files)} existing staging files from previous runs")
-                staging_summary = self.staging_manager.get_staging_summary()
-                print(
-                    f"Staging directory usage: {staging_summary['staging_size_mb']:.1f}MB "
-                    f"({staging_summary['disk_usage_ratio']:.1%} disk usage)"
-                )
+            # Check for existing staging files from previous runs (only for non-local storage)
+            staging_files = []
+            if self.staging_manager:
+                staging_files = self.staging_manager.get_staging_files()
+                if staging_files:
+                    print(f"Found {len(staging_files)} existing staging files from previous runs")
+                    staging_summary = self.staging_manager.get_staging_summary()
+                    print(
+                        f"Staging directory usage: {staging_summary['staging_size_mb']:.1f}MB "
+                        f"({staging_summary['disk_usage_ratio']:.1%} disk usage)"
+                    )
 
-                # Clean up old orphaned files (>24h old)
-                cleaned_count = self.staging_manager.cleanup_orphaned_files(max_age_hours=24)
-                if cleaned_count > 0:
-                    print(f"Cleaned up {cleaned_count} orphaned staging files")
+                    # Clean up old orphaned files (>24h old)
+                    cleaned_count = self.staging_manager.cleanup_orphaned_files(max_age_hours=24)
+                    if cleaned_count > 0:
+                        print(f"Cleaned up {cleaned_count} orphaned staging files")
 
-            # Check disk space after clearing staging files
-            if not self.staging_manager.check_disk_space():
-                print(
-                    f"❌ Disk space limit still exceeded after clearing staging files "
-                    f"(>{self.disk_space_threshold:.0%} full)"
-                )
-                print("Cannot start new downloads. Please free up disk space or increase threshold.")
-                run_name = Path(self.db_path).parent.name
-                print(
-                    f"To increase threshold: python grin.py sync pipeline --run-name {run_name} "
-                    f"--disk-space-threshold 0.95"
-                )
-                return
+                # Check disk space after clearing staging files
+                if not self.staging_manager.check_disk_space():
+                    print(
+                        f"❌ Disk space limit still exceeded after clearing staging files "
+                        f"(>{self.disk_space_threshold:.0%} full)"
+                    )
+                    print("Cannot start new downloads. Please free up disk space or increase threshold.")
+                    run_name = Path(self.db_path).parent.name
+                    print(
+                        f"To increase threshold: python grin.py sync pipeline --run-name {run_name} "
+                        f"--disk-space-threshold 0.95"
+                    )
+                    return
 
             # Set up progress tracking
             books_to_process = min(limit or len(available_to_sync), len(available_to_sync))
             self.progress_reporter = ProgressReporter("sync", books_to_process)
             self.progress_reporter.start()
+
+            # For local storage, use direct processing without staging
+            if self.storage_type == "local":
+                await self._run_local_storage_sync(available_to_sync, books_to_process, specific_barcodes)
+                return
 
             # Decoupled download/upload processing for continuous downloads
             downloads_started = 0  # Track total downloads started to respect limit
@@ -1204,7 +1485,7 @@ class SyncPipeline:
 
                 # Update progress
                 processed_count += len(batch)
-                self.progress_reporter.update(
+                self.progress_reporter.increment(
                     items=len(batch),
                     bytes_count=sum(r.get("size", 0) for r in batch_results),
                     force=False,  # Don't force output on every batch
@@ -1459,10 +1740,7 @@ async def cmd_pipeline(args) -> None:
         print("  For R2/S3: bucket names can be specified in credentials file")
         sys.exit(1)
 
-    # Build storage configuration
-    storage_config = build_storage_config_dict(args)
-
-    # Update run configuration with storage parameters if they were provided
+    # Load storage configuration from run config instead of building from args
     config_path = Path(args.db_path).parent / "run_config.json"
     if config_path.exists():
         try:
@@ -1470,25 +1748,59 @@ async def cmd_pipeline(args) -> None:
             with open(config_path) as f:
                 run_config = json.load(f)
 
-            # Update storage configuration
-            storage_config_dict = {
-                "type": args.storage,
-                "config": {k: v for k, v in storage_config.items() if v is not None},
-                "prefix": storage_config.get("prefix", "grin-books"),
-            }
+            # Get storage config from run config
+            existing_storage_config = run_config.get("storage_config", {})
+            storage_type = existing_storage_config.get("type")
+            storage_config = existing_storage_config.get("config", {})
 
-            run_config["storage_config"] = storage_config_dict
+            # Check if any storage-related arguments were explicitly provided that should override
+            explicit_storage_args = any([
+                getattr(args, 'storage', None) and args.storage,
+                getattr(args, 'bucket_raw', None),
+                getattr(args, 'bucket_meta', None),
+                getattr(args, 'bucket_full', None),
+                getattr(args, 'storage_config', None),
+            ])
 
-            # Write back to config file
-            with open(config_path, "w") as f:
-                json.dump(run_config, f, indent=2)
+            if explicit_storage_args:
+                print("Explicit storage arguments provided, merging with run config...")
+                # Build args-based config and merge with existing
+                args_storage_config = build_storage_config_dict(args)
 
-            print(f"Updated storage configuration in {config_path}")
+                # Merge: start with existing and override with args
+                merged_config = storage_config.copy()
+                for k, v in args_storage_config.items():
+                    if v is not None:
+                        merged_config[k] = v
+
+                storage_config_dict = {
+                    "type": args.storage or storage_type,
+                    "config": merged_config,
+                    "prefix": args_storage_config.get("prefix", existing_storage_config.get("prefix", "grin-books")),
+                }
+
+                run_config["storage_config"] = storage_config_dict
+                storage_config = merged_config
+
+                # Write back to config file
+                with open(config_path, "w") as f:
+                    json.dump(run_config, f, indent=2)
+
+                print(f"Updated storage configuration in {config_path}")
+            else:
+                print(f"Using existing storage configuration from {config_path}")
+                # Use storage type from run config if not explicitly provided
+                if not args.storage:
+                    args.storage = storage_type
+
 
         except (json.JSONDecodeError, OSError) as e:
-            print(f"Warning: Could not update run config: {e}")
+            print(f"Warning: Could not read run config: {e}")
+            # Fall back to building from args
+            storage_config = build_storage_config_dict(args)
     else:
-        print(f"Note: No run config found at {config_path} to update")
+        print(f"Note: No run config found at {config_path}, building from args")
+        storage_config = build_storage_config_dict(args)
 
     # Set up storage with auto-configuration and connectivity checks
     await setup_storage_with_checks(args.storage, storage_config)

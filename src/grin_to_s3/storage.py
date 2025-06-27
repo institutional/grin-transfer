@@ -55,8 +55,10 @@ class StorageConfig:
         return cls(protocol="gcs", project=project, **kwargs)
 
     @classmethod
-    def local(cls, base_path: str = ".") -> "StorageConfig":
-        """Configure for local filesystem."""
+    def local(cls, base_path: str) -> "StorageConfig":
+        """Configure for local filesystem (base_path required)."""
+        if not base_path:
+            raise ValueError("Local storage requires explicit base_path")
         return cls(protocol="file", base_path=base_path)
 
     @classmethod
@@ -90,7 +92,9 @@ class Storage:
         if self.config.protocol == "file":
             # For local filesystem, ensure absolute path
             if not path.startswith("/"):
-                base_path = self.config.options.get("base_path", ".")
+                base_path = self.config.options.get("base_path")
+                if not base_path:
+                    raise ValueError("Local storage requires explicit base_path")
                 path = str(Path(base_path) / path)
         elif self.config.protocol in ("s3", "gcs", "abfs"):
             # For cloud storage, ensure no leading slash
@@ -610,8 +614,10 @@ def create_s3_storage(bucket: str, **kwargs: Any) -> Storage:
     return Storage(config)
 
 
-def create_local_storage(base_path: str = ".") -> Storage:
-    """Create local filesystem storage."""
+def create_local_storage(base_path: str) -> Storage:
+    """Create local filesystem storage (base_path required)."""
+    if not base_path:
+        raise ValueError("Local storage requires explicit base_path")
     config = StorageConfig.local(base_path)
     return Storage(config)
 

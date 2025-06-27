@@ -916,7 +916,7 @@ class BookCollector:
                                 logger.warning(f"Slow CSV I/O: {io_elapsed:.2f}s at {io_time}")
 
                             processed_count += 1
-                            self.progress.update(1, record_id=record.barcode)
+                            self.progress.increment(1, record_id=record.barcode)
 
                             # Save progress periodically
                             if processed_count % 100 == 0:

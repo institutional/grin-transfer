@@ -121,8 +121,9 @@ Examples:
                          --bucket-meta grin-meta --bucket-full grin-full \
                          --storage-config endpoint_url=localhost:9000
 
-  # Local storage (no buckets required)
-  python grin.py collect --storage local --run-name "local_test"
+  # Local storage (requires base_path, no buckets needed)
+  python grin.py collect --storage local --run-name "local_test" \
+                         --storage-config base_path=/path/to/storage
 
   # Resume interrupted collection (uses run-specific progress files and saved config)
   python grin.py collect --run-name "harvard_fall_2024" --storage r2 \
@@ -243,7 +244,23 @@ Examples:
     # Validate storage arguments
     # For R2 and S3, bucket names are optional (can be in config files)
     # For MinIO, bucket names are auto-configured from docker-compose
-    # For local, no buckets needed
+    # For local, no buckets needed but base_path is required
+
+    # Validate local storage has base_path
+    if args.storage == "local":
+        # Check if base_path is provided in storage_config
+        has_base_path = False
+        if args.storage_config:
+            for item in args.storage_config:
+                if "=" in item and item.split("=", 1)[0] == "base_path":
+                    has_base_path = True
+                    break
+
+        if not has_base_path:
+            parser.error(
+                "Local storage requires explicit base_path. "
+                "Use: --storage local --storage-config base_path=/path/to/storage"
+            )
 
     # Handle config creation
     if args.create_config:
