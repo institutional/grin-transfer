@@ -146,20 +146,33 @@ class TestETagOperations:
     @pytest.mark.asyncio
     async def test_should_skip_download_force_flag(self, mock_storage_config):
         """Test that force flag prevents skipping."""
-        result = await should_skip_download("TEST123", "abc123", "minio", mock_storage_config, force=True)
-        assert result is False
+        from unittest.mock import AsyncMock
+        mock_tracker = AsyncMock()
+        should_skip, reason = await should_skip_download("TEST123", "abc123", mock_tracker, force=True)
+        assert should_skip is False
+        assert reason == "force_flag"
 
     @pytest.mark.asyncio
     async def test_should_skip_download_no_etag(self, mock_storage_config):
         """Test that missing ETag prevents skipping."""
-        result = await should_skip_download("TEST123", None, "minio", mock_storage_config, force=False)
-        assert result is False
+        from unittest.mock import AsyncMock
+        mock_tracker = AsyncMock()
+        should_skip, reason = await should_skip_download("TEST123", None, mock_tracker, force=False)
+        assert should_skip is False
+        assert reason == "no_etag"
 
     @pytest.mark.asyncio
-    async def test_should_skip_download_local_storage(self, mock_storage_config):
-        """Test that local storage prevents ETag skipping."""
-        result = await should_skip_download("TEST123", "abc123", "local", mock_storage_config, force=False)
-        assert result is False
+    async def test_should_skip_download_database_error(self, mock_storage_config):
+        """Test that database errors are handled gracefully."""
+        from unittest.mock import AsyncMock, patch
+        mock_tracker = AsyncMock()
+        mock_tracker.db_path = "/fake/path"
+        
+        with patch("grin_to_s3.sync.utils.aiosqlite.connect") as mock_connect:
+            mock_connect.side_effect = Exception("Database error")
+            should_skip, reason = await should_skip_download("TEST123", "abc123", mock_tracker, force=False)
+            assert should_skip is False
+            assert "error" in reason
 
 
 class TestConvertedBooks:

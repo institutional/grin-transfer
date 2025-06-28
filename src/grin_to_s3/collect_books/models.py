@@ -992,6 +992,27 @@ class SQLiteProgressTracker:
             row = await cursor.fetchone()
             return row[0] if row else None
 
+    async def get_latest_status_with_metadata(self, barcode: str, status_type: str) -> tuple[str | None, dict | None]:
+        """Get the latest status value and metadata for a book and status type.
+
+        Args:
+            barcode: Book barcode
+            status_type: Type of status to retrieve
+
+        Returns:
+            tuple: (status_value, metadata_dict) or (None, None) if no status found
+        """
+        await self.init_db()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT status_value, metadata FROM book_status_history "
+                "WHERE barcode = ? AND status_type = ? ORDER BY timestamp DESC, id DESC LIMIT 1",
+                (barcode, status_type),
+            )
+            if row := await cursor.fetchone():
+                return row[0], json.loads(row[1]) if row[1] else None
+            return None, None
+
     async def get_books_with_latest_status(
         self, status_type: str, status_values: list[str] | None = None, limit: int | None = None
     ) -> list[tuple[str, str]]:

@@ -99,3 +99,4 @@ CREATE INDEX IF NOT EXISTS idx_status_history_barcode ON book_status_history(bar
 CREATE INDEX IF NOT EXISTS idx_status_history_type ON book_status_history(status_type);
 CREATE INDEX IF NOT EXISTS idx_status_history_timestamp ON book_status_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_status_history_latest ON book_status_history(barcode, status_type, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_status_history_etag ON book_status_history(barcode, status_type, timestamp DESC) WHERE json_extract(metadata, '$.grin_etag') IS NOT NULL;

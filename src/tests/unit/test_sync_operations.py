@@ -27,7 +27,7 @@ class TestETagSkipHandling:
             patch("grin_to_s3.sync.operations.should_skip_download") as mock_should_skip,
         ):
             mock_check_etag.return_value = ("abc123", 1024)
-            mock_should_skip.return_value = False
+            mock_should_skip.return_value = (False, "no_skip_reason")
 
             result, etag, file_size = await check_and_handle_etag_skip(
                 "TEST123", mock_grin_client, "Harvard", "minio", mock_storage_config, mock_progress_tracker
@@ -47,7 +47,7 @@ class TestETagSkipHandling:
             patch("grin_to_s3.sync.operations.should_skip_download") as mock_should_skip,
         ):
             mock_check_etag.return_value = ("abc123", 1024)
-            mock_should_skip.return_value = True
+            mock_should_skip.return_value = (True, "etag_match")
 
             result, etag, file_size = await check_and_handle_etag_skip(
                 "TEST123", mock_grin_client, "Harvard", "minio", mock_storage_config, mock_progress_tracker

@@ -57,25 +57,29 @@ async def check_and_handle_etag_skip(
     google_etag, google_file_size = await check_google_etag(grin_client, library_directory, barcode)
 
     # Check if we should skip download based on ETag match
-    if await should_skip_download(barcode, google_etag, storage_type, storage_config, force):
-        logger.info(f"[{barcode}] Skipping download - file unchanged (ETag match)")
+    should_skip, skip_reason = await should_skip_download(barcode, google_etag, db_tracker, force)
+    if should_skip:
+        logger.info(f"[{barcode}] Skipping download - {skip_reason}")
 
-        # Update sync tracking to record the ETag check
-        etag_sync_data: dict[str, Any] = {
-            "last_etag_check": datetime.now(UTC).isoformat(),
-            "google_etag": google_etag,
-        }
-        await db_tracker.update_sync_data(barcode, etag_sync_data)
-
-        skip_result = create_book_sync_result(
-            barcode=barcode,
-            status="completed",
-            skipped=True,
-            google_etag=google_etag,
-            file_size=google_file_size or 0,
-            total_time=0,
+        # Record ETag check in status history with metadata
+        await db_tracker.add_status_change(
+            barcode,
+            "sync",
+            "skipped",
+            metadata={
+                "grin_etag": google_etag,
+                "etag_checked_at": datetime.now(UTC).isoformat(),
+                "storage_type": storage_type,
+                "skipped": True,
+                "skip_reason": skip_reason,
+            },
         )
-        return skip_result, google_etag, google_file_size or 0
+
+        return (
+            create_book_sync_result(barcode, "completed", True, google_etag, google_file_size or 0, 0),
+            google_etag,
+            google_file_size or 0,
+        )
 
     return None, google_etag, google_file_size or 0
 
@@ -279,10 +283,17 @@ async def upload_book_from_staging(
                 errors.append(f"decrypted: {upload_results[1]}")
             raise Exception(f"Upload failed - {', '.join(errors)}")
 
-        # Success - update status tracking
-        await db_tracker.add_status_change(barcode, "sync", "stored")
-        await db_tracker.add_status_change(barcode, "sync", "decrypted")
-        await db_tracker.add_status_change(barcode, "sync", "completed")
+        # Success - update status tracking with ETag
+        metadata = {
+            "grin_etag": google_etag,
+            "etag_stored_at": datetime.now(UTC).isoformat(),
+            "storage_type": storage_type,
+            "encrypted_success": True,
+            "decrypted_success": True,
+        }
+        await db_tracker.add_status_change(barcode, "sync", "stored", metadata=metadata)
+        await db_tracker.add_status_change(barcode, "sync", "decrypted", metadata=metadata)
+        await db_tracker.add_status_change(barcode, "sync", "completed", metadata=metadata)
 
         # Update book record with sync data including Google ETag
         sync_data: dict[str, Any] = {
@@ -394,10 +405,17 @@ async def sync_book_to_local_storage(
             final_encrypted_path.unlink(missing_ok=True)
             raise
 
-        # Update status tracking
-        await db_tracker.add_status_change(barcode, "sync", "stored")
-        await db_tracker.add_status_change(barcode, "sync", "decrypted")
-        await db_tracker.add_status_change(barcode, "sync", "completed")
+        # Update status tracking with ETag
+        metadata = {
+            "grin_etag": google_etag,
+            "etag_stored_at": datetime.now(UTC).isoformat(),
+            "storage_type": "local",
+            "encrypted_success": True,
+            "decrypted_success": True,
+        }
+        await db_tracker.add_status_change(barcode, "sync", "stored", metadata=metadata)
+        await db_tracker.add_status_change(barcode, "sync", "decrypted", metadata=metadata)
+        await db_tracker.add_status_change(barcode, "sync", "completed", metadata=metadata)
 
         # Update book record with sync data
         sync_data: dict[str, Any] = {
