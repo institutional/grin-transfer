@@ -102,6 +102,9 @@ class SyncPipeline:
         # Track actual active task counts for accurate reporting
         self._active_download_count = 0
         self._active_upload_count = 0
+        
+        # Simple gate to prevent race conditions in task creation
+        self._task_creation_lock = asyncio.Lock()
 
         # Statistics
         self.stats = create_sync_stats()
@@ -385,8 +388,8 @@ class SyncPipeline:
             # Create iterator for books
             book_iter = iter(available_to_sync[:books_to_process])
 
-            # Fill initial download queue - only create up to concurrent_downloads tasks
-            while len(active_downloads) < self.concurrent_downloads:
+            # Fill initial download queue - semaphore will control concurrency
+            for _ in range(self.concurrent_downloads):
                 try:
                     barcode = next(book_iter)
                     if specific_barcodes is None or barcode in specific_barcodes:
@@ -394,7 +397,7 @@ class SyncPipeline:
                         active_downloads[barcode] = task
                         logger.debug(
                             f"Created initial download task for {barcode} "
-                            f"(queue: {len(active_downloads)}/{self.concurrent_downloads})"
+                            f"(queue: {len(active_downloads)}, semaphore controls concurrency)"
                         )
                 except StopIteration:
                     break
@@ -447,19 +450,20 @@ class SyncPipeline:
                                     active_uploads=active_uploads,
                                 )
 
-                                # Start next download if available and under limit (only when download completes)
-                                if len(active_downloads) < self.concurrent_downloads:
-                                    try:
-                                        next_barcode = next(book_iter)
-                                        if specific_barcodes is None or next_barcode in specific_barcodes:
-                                            task = asyncio.create_task(self._process_book_with_staging(next_barcode))
-                                            active_downloads[next_barcode] = task
-                                            logger.debug(
-                                                f"Created new download task for {next_barcode} "
-                                                f"(queue: {len(active_downloads)}/{self.concurrent_downloads})"
-                                            )
-                                    except StopIteration:
-                                        pass
+                                # Start next download if available and under limit (thread-safe)
+                                async with self._task_creation_lock:
+                                    if len(active_downloads) < self.concurrent_downloads:
+                                        try:
+                                            next_barcode = next(book_iter)
+                                            if specific_barcodes is None or next_barcode in specific_barcodes:
+                                                task = asyncio.create_task(self._process_book_with_staging(next_barcode))
+                                                active_downloads[next_barcode] = task
+                                                logger.debug(
+                                                    f"Created new download task for {next_barcode} "
+                                                    f"(queue: {len(active_downloads)}/{self.concurrent_downloads})"
+                                                )
+                                        except StopIteration:
+                                            pass
 
                             # Handle upload completion
                             elif barcode in active_uploads and active_uploads[barcode] == completed_task:
