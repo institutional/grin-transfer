@@ -40,11 +40,11 @@ CREATE TABLE IF NOT EXISTS books (
     csv_updated TEXT,
     
     -- Sync tracking for storage pipeline (status tracked in history table)
-    storage_type TEXT, -- "r2", "minio", "s3", "local"
+    storage_type TEXT, -- "s3", "local"
     storage_path TEXT, -- Path to encrypted archive in storage
     storage_decrypted_path TEXT, -- Path to decrypted archive in storage
     last_etag_check TEXT, -- ISO timestamp of last ETag verification
-    google_etag TEXT, -- Google's ETag for duplicate detection
+    encrypted_etag TEXT, -- Encrypted file's ETag for duplicate detection
     is_decrypted BOOLEAN DEFAULT FALSE, -- Whether decrypted version exists
     sync_timestamp TEXT, -- ISO timestamp of last successful sync
     sync_error TEXT, -- Error message if sync failed
@@ -99,4 +99,4 @@ CREATE INDEX IF NOT EXISTS idx_status_history_barcode ON book_status_history(bar
 CREATE INDEX IF NOT EXISTS idx_status_history_type ON book_status_history(status_type);
 CREATE INDEX IF NOT EXISTS idx_status_history_timestamp ON book_status_history(timestamp);
 CREATE INDEX IF NOT EXISTS idx_status_history_latest ON book_status_history(barcode, status_type, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_status_history_etag ON book_status_history(barcode, status_type, timestamp DESC) WHERE json_extract(metadata, '$.grin_etag') IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_status_history_etag ON book_status_history(barcode, status_type, timestamp DESC) WHERE json_extract(metadata, '$.encrypted_etag') IS NOT NULL;

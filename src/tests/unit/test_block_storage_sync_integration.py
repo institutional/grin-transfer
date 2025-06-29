@@ -57,7 +57,7 @@ class TestBlockStorageSyncIntegration:
                     "barcode": "TEST123",
                     "download_success": True,
                     "staging_file_path": "/tmp/staging/TEST123.tar.gz",
-                    "google_etag": "test-etag",
+                    "encrypted_etag": "test-etag",
                     "metadata": {"size": 1000},
                 }
                 mock_upload.return_value = {"barcode": "TEST123", "upload_success": True, "result": {"success": True}}

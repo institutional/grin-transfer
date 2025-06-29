@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from grin_to_s3.sync.utils import (
-    check_google_etag,
+    check_encrypted_etag,
     ensure_bucket_exists,
     get_converted_books,
     reset_bucket_cache,
@@ -50,23 +50,22 @@ class TestBucketOperations:
 
     @pytest.mark.asyncio
     @patch("boto3.client")
-    async def test_ensure_bucket_exists_minio_success(self, mock_boto3_client, mock_storage_config):
-        """Test successful bucket creation for MinIO."""
+    async def test_ensure_bucket_exists_s3_success(self, mock_boto3_client, mock_storage_config):
+        """Test successful bucket creation for S3-compatible storage."""
         # Mock S3 client
         mock_s3 = MagicMock()
         mock_boto3_client.return_value = mock_s3
         mock_s3.head_bucket.return_value = None  # Bucket exists
 
         reset_bucket_cache()  # Clear cache
-        result = await ensure_bucket_exists("minio", mock_storage_config, "test-bucket")
+        result = await ensure_bucket_exists("s3", mock_storage_config, "test-bucket")
         assert result is True
 
-        # Verify correct client configuration
+        # Verify correct client configuration (S3 without custom endpoint)
         mock_boto3_client.assert_called_once_with(
             "s3",
             aws_access_key_id="test-access",
             aws_secret_access_key="test-secret",
-            endpoint_url="http://localhost:9000",
         )
 
     @pytest.mark.asyncio
@@ -87,7 +86,7 @@ class TestBucketOperations:
         mock_s3.list_buckets.return_value = {"Buckets": [{"Name": "test-bucket"}]}
 
         reset_bucket_cache()  # Clear cache
-        result = await ensure_bucket_exists("minio", mock_storage_config, "test-bucket")
+        result = await ensure_bucket_exists("s3", mock_storage_config, "test-bucket")
         assert result is True
 
         mock_s3.create_bucket.assert_called_once_with(Bucket="test-bucket")
@@ -97,7 +96,7 @@ class TestETagOperations:
     """Test ETag-related utility functions."""
 
     @pytest.mark.asyncio
-    async def test_check_google_etag_success(self, mock_grin_client):
+    async def test_check_encrypted_etag_success(self, mock_grin_client):
         """Test successful ETag retrieval from Google."""
         # Mock HTTP session and response
         mock_response = MagicMock()
@@ -108,13 +107,13 @@ class TestETagOperations:
         with patch("grin_to_s3.common.create_http_session") as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
-            etag, file_size = await check_google_etag(mock_grin_client, "Harvard", "TEST123")
+            etag, file_size = await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123")
 
             assert etag == "abc123def"  # ETag should be stripped of quotes
             assert file_size == 1024
 
     @pytest.mark.asyncio
-    async def test_check_google_etag_no_etag(self, mock_grin_client):
+    async def test_check_encrypted_etag_no_etag(self, mock_grin_client):
         """Test ETag check when no ETag is present."""
         # Mock HTTP session and response without ETag
         mock_response = MagicMock()
@@ -125,20 +124,20 @@ class TestETagOperations:
         with patch("grin_to_s3.common.create_http_session") as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
-            etag, file_size = await check_google_etag(mock_grin_client, "Harvard", "TEST123")
+            etag, file_size = await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123")
 
             assert etag is None
             assert file_size == 2048
 
     @pytest.mark.asyncio
-    async def test_check_google_etag_error(self, mock_grin_client):
+    async def test_check_encrypted_etag_error(self, mock_grin_client):
         """Test ETag check when request fails."""
         mock_grin_client.auth.make_authenticated_request.side_effect = Exception("Network error")
 
         with patch("grin_to_s3.common.create_http_session") as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
-            etag, file_size = await check_google_etag(mock_grin_client, "Harvard", "TEST123")
+            etag, file_size = await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123")
 
             assert etag is None
             assert file_size is None
@@ -148,7 +147,7 @@ class TestETagOperations:
         """Test that force flag prevents skipping."""
         from unittest.mock import AsyncMock
         mock_tracker = AsyncMock()
-        should_skip, reason = await should_skip_download("TEST123", "abc123", mock_tracker, force=True)
+        should_skip, reason = await should_skip_download("TEST123", "abc123", "local", {}, mock_tracker, force=True)
         assert should_skip is False
         assert reason == "force_flag"
 
@@ -157,7 +156,7 @@ class TestETagOperations:
         """Test that missing ETag prevents skipping."""
         from unittest.mock import AsyncMock
         mock_tracker = AsyncMock()
-        should_skip, reason = await should_skip_download("TEST123", None, mock_tracker, force=False)
+        should_skip, reason = await should_skip_download("TEST123", None, "local", {}, mock_tracker, force=False)
         assert should_skip is False
         assert reason == "no_etag"
 
@@ -167,10 +166,10 @@ class TestETagOperations:
         from unittest.mock import AsyncMock, patch
         mock_tracker = AsyncMock()
         mock_tracker.db_path = "/fake/path"
-        
+
         with patch("grin_to_s3.sync.utils.aiosqlite.connect") as mock_connect:
             mock_connect.side_effect = Exception("Database error")
-            should_skip, reason = await should_skip_download("TEST123", "abc123", mock_tracker, force=False)
+            should_skip, reason = await should_skip_download("TEST123", "abc123", "local", {}, mock_tracker, force=False)
             assert should_skip is False
             assert "error" in reason
 

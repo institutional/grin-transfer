@@ -23,7 +23,7 @@ class TestETagSkipHandling:
     ):
         """Test ETag check when file should not be skipped."""
         with (
-            patch("grin_to_s3.sync.operations.check_google_etag") as mock_check_etag,
+            patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check_etag,
             patch("grin_to_s3.sync.operations.should_skip_download") as mock_should_skip,
         ):
             mock_check_etag.return_value = ("abc123", 1024)
@@ -43,7 +43,7 @@ class TestETagSkipHandling:
     ):
         """Test ETag check when file should be skipped."""
         with (
-            patch("grin_to_s3.sync.operations.check_google_etag") as mock_check_etag,
+            patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check_etag,
             patch("grin_to_s3.sync.operations.should_skip_download") as mock_should_skip,
         ):
             mock_check_etag.return_value = ("abc123", 1024)
@@ -57,7 +57,7 @@ class TestETagSkipHandling:
             assert result["barcode"] == "TEST123"
             assert result["status"] == "completed"
             assert result["skipped"] is True
-            assert result["google_etag"] == "abc123"
+            assert result["encrypted_etag"] == "abc123"
             assert result["file_size"] == 1024
             assert etag == "abc123"
             assert file_size == 1024

@@ -17,6 +17,7 @@ from grin_to_s3.common import (
     ProgressReporter,
     SlidingWindowRateCalculator,
     format_duration,
+    get_storage_protocol,
     pluralize,
 )
 
@@ -55,7 +56,10 @@ class SyncPipeline:
         disk_space_threshold: float = 0.9,
     ):
         self.db_path = db_path
+        # Keep original storage type for storage creation
         self.storage_type = storage_type
+        # Determine storage protocol for operational logic
+        self.storage_protocol = get_storage_protocol(storage_type)
         self.storage_config = storage_config
         self.concurrent_downloads = concurrent_downloads
         self.concurrent_uploads = concurrent_uploads
@@ -80,7 +84,7 @@ class SyncPipeline:
         self.grin_client = GRINClient(secrets_dir=secrets_dir)
 
         # Initialize staging directory manager only for non-local storage
-        if self.storage_type != "local":
+        if self.storage_protocol != "local":
             from grin_to_s3.staging import StagingDirectoryManager
 
             self.staging_manager = StagingDirectoryManager(
@@ -201,7 +205,7 @@ class SyncPipeline:
 
     async def get_sync_status(self) -> dict:
         """Get current sync status and statistics."""
-        stats = await self.db_tracker.get_sync_stats(self.storage_type)
+        stats = await self.db_tracker.get_sync_stats(self.storage_protocol)
         return {
             **stats,
             "session_stats": self.stats,
@@ -496,7 +500,7 @@ class SyncPipeline:
         async with self._download_semaphore:
             try:
                 # Check ETag and handle skip scenario
-                skip_result, google_etag, file_size = await check_and_handle_etag_skip(
+                skip_result, encrypted_etag, file_size = await check_and_handle_etag_skip(
                     barcode,
                     self.grin_client,
                     self.library_directory,
@@ -516,7 +520,7 @@ class SyncPipeline:
                     self.grin_client,
                     self.library_directory,
                     self.staging_manager,
-                    google_etag,
+                    encrypted_etag,
                     self.secrets_dir,
                 )
 
@@ -524,7 +528,7 @@ class SyncPipeline:
                     "barcode": barcode,
                     "download_success": True,
                     "staging_file_path": staging_file_path,
-                    "google_etag": google_etag,
+                    "encrypted_etag": encrypted_etag,
                     "metadata": metadata,
                 }
 
@@ -543,7 +547,7 @@ class SyncPipeline:
                     self.storage_config,
                     self.staging_manager,
                     self.db_tracker,
-                    download_result.get("google_etag"),
+                    download_result.get("encrypted_etag"),
                     self.gpg_key_file,
                     self.secrets_dir,
                 )
@@ -575,7 +579,7 @@ class SyncPipeline:
 
         try:
             # For local storage, use direct processing
-            if self.storage_type == "local":
+            if self.storage_protocol == "local":
                 await self._run_local_storage_sync(barcodes, books_to_process)
                 return
 
@@ -588,7 +592,7 @@ class SyncPipeline:
                 try:
                     barcode = next(book_iter)
                     # For catchup, check ETag and handle skips
-                    skip_result, google_etag, _ = await check_and_handle_etag_skip(
+                    skip_result, encrypted_etag, _ = await check_and_handle_etag_skip(
                         barcode,
                         self.grin_client,
                         self.library_directory,
@@ -613,7 +617,7 @@ class SyncPipeline:
                             self.grin_client,
                             self.library_directory,
                             self.staging_manager,
-                            google_etag,
+                            encrypted_etag,
                             self.secrets_dir,
                         )
                     )
@@ -642,7 +646,7 @@ class SyncPipeline:
                             barcode, staging_path, metadata = await task
 
                             # Start upload task
-                            google_etag = metadata.get("google_etag")
+                            encrypted_etag = metadata.get("encrypted_etag")
                             upload_result = await upload_book_from_staging(
                                 barcode,
                                 staging_path,
@@ -650,7 +654,7 @@ class SyncPipeline:
                                 self.storage_config,
                                 self.staging_manager,
                                 self.db_tracker,
-                                google_etag,
+                                encrypted_etag,
                                 self.gpg_key_file,
                                 self.secrets_dir,
                             )
@@ -676,7 +680,7 @@ class SyncPipeline:
                         try:
                             next_barcode = next(book_iter)
                             # Check ETag for next book
-                            skip_result, google_etag, _ = await check_and_handle_etag_skip(
+                            skip_result, encrypted_etag, _ = await check_and_handle_etag_skip(
                                 next_barcode,
                                 self.grin_client,
                                 self.library_directory,
@@ -698,7 +702,7 @@ class SyncPipeline:
                                     self.grin_client,
                                     self.library_directory,
                                     self.staging_manager,
-                                    google_etag,
+                                    encrypted_etag,
                                     self.secrets_dir,
                                 )
                             )
@@ -796,7 +800,7 @@ class SyncPipeline:
 
             # Check how many requested books need syncing (only those actually converted by GRIN)
             available_to_sync = await self.db_tracker.get_books_for_sync(
-                storage_type=self.storage_type,
+                storage_type=self.storage_protocol,
                 limit=999999,  # Get all available
                 converted_barcodes=converted_barcodes,  # Only sync books that GRIN reports as converted
                 specific_barcodes=specific_barcodes,  # Optionally limit to specific barcodes
@@ -812,7 +816,7 @@ class SyncPipeline:
 
                 # Report on pending books
                 pending_books = await self.db_tracker.get_books_for_sync(
-                    storage_type=self.storage_type,
+                    storage_type=self.storage_protocol,
                     limit=999999,
                     converted_barcodes=None,  # Get all requested books regardless of conversion
                 )
@@ -835,7 +839,7 @@ class SyncPipeline:
             self.progress_reporter.start()
 
             # For local storage, use direct processing without staging
-            if self.storage_type == "local":
+            if self.storage_protocol == "local":
                 await self._run_local_storage_sync(available_to_sync, books_to_process, specific_barcodes)
                 return
 

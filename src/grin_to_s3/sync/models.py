@@ -25,7 +25,7 @@ class BookSyncResult(TypedDict):
     barcode: str
     status: str
     skipped: bool
-    google_etag: str | None
+    encrypted_etag: str | None
     file_size: int
     total_time: float
 
@@ -85,7 +85,7 @@ def create_book_sync_result(
     barcode: str,
     status: str = "completed",
     skipped: bool = False,
-    google_etag: str | None = None,
+    encrypted_etag: str | None = None,
     file_size: int = 0,
     total_time: float = 0.0,
 ) -> BookSyncResult:
@@ -94,7 +94,7 @@ def create_book_sync_result(
         barcode=barcode,
         status=status,
         skipped=skipped,
-        google_etag=google_etag,
+        encrypted_etag=encrypted_etag,
         file_size=file_size,
         total_time=total_time,
     )

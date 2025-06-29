@@ -117,7 +117,7 @@ def mock_book_storage():
     """Mock book storage for testing."""
     storage = MagicMock()
     storage.archive_exists = AsyncMock(return_value=False)
-    storage.archive_matches_google_etag = AsyncMock(return_value=False)
+    storage.archive_matches_encrypted_etag = AsyncMock(return_value=False)
     return storage
 
 

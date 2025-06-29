@@ -35,7 +35,7 @@ from .status import (
     validate_database_file,
 )
 from .utils import (
-    check_google_etag,
+    check_encrypted_etag,
     ensure_bucket_exists,
     get_converted_books,
     reset_bucket_cache,
@@ -69,7 +69,7 @@ __all__ = [
     "show_sync_status",
     "validate_database_file",
     # Utility functions
-    "check_google_etag",
+    "check_encrypted_etag",
     "ensure_bucket_exists",
     "get_converted_books",
     "reset_bucket_cache",
