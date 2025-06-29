@@ -187,7 +187,7 @@ async def should_skip_download(
             bucket_name = storage_config.get("bucket_raw") if storage_config else None
 
             # For S3-compatible storage, bucket name must be included in path prefix
-            if storage_type == "s3" and bucket_name:
+            if storage_protocol == "s3" and bucket_name:
                 if base_prefix:
                     base_prefix = f"{bucket_name}/{base_prefix}"
                 else:
@@ -196,8 +196,12 @@ async def should_skip_download(
             book_storage = BookStorage(storage, base_prefix=base_prefix)
 
             # Check if decrypted archive exists and matches encrypted ETag
-            if await book_storage.decrypted_archive_exists(barcode):
-                if await book_storage.archive_matches_encrypted_etag(barcode, encrypted_etag):
+            archive_exists = await book_storage.decrypted_archive_exists(barcode)
+            logger.debug(f"[{barcode}] Archive exists check: {archive_exists} (base_prefix='{base_prefix}')")
+
+            if archive_exists:
+                etag_matches = await book_storage.archive_matches_encrypted_etag(barcode, encrypted_etag)
+                if etag_matches:
                     logger.info(f"[{barcode}] File unchanged (ETag match in storage metadata), skipping download")
                     return True, "storage_etag_match"
                 else:

@@ -85,7 +85,7 @@ async def cmd_pipeline(args) -> None:
                 storage_config_dict = {
                     "type": args.storage or storage_type,
                     "config": merged_config,
-                    "prefix": args_storage_config.get("prefix", existing_storage_config.get("prefix", "grin-books")),
+                    "prefix": args_storage_config.get("prefix", existing_storage_config.get("prefix", "")),
                 }
 
                 run_config["storage_config"] = storage_config_dict
