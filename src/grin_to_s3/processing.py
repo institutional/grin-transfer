@@ -9,14 +9,18 @@ Based on v1 conversion system with modern async architecture.
 import argparse
 import asyncio
 import logging
+import sqlite3
 import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 
+import aiosqlite
+
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import RateLimiter, format_duration, pluralize, setup_logging
+from grin_to_s3.database_utils import validate_database_file
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
 
 logger = logging.getLogger(__name__)
@@ -315,8 +319,6 @@ class ProcessingPipeline:
             print()
 
             # Get books from database, filtering out those already in GRIN
-            import aiosqlite
-
             candidate_barcodes: list[str] = []
             fetch_offset = 0
             fetch_batch_size = min(books_to_request * 100, 50000)  # Start with reasonable batch
@@ -677,8 +679,6 @@ class ProcessingMonitor:
             return set()
 
         try:
-            import sqlite3
-
             # Use a shorter timeout to avoid hanging in CI
             with sqlite3.connect(self.db_path, timeout=5.0) as conn:
                 cursor = conn.cursor()
@@ -951,33 +951,6 @@ class ProcessingMonitor:
             return {}
 
 
-def validate_database_file(db_path: str) -> None:
-    """Validate that the database file exists and contains books."""
-    import sqlite3
-
-    db_file = Path(db_path)
-
-    if not db_file.exists():
-        print(f"Error: Database file does not exist: {db_path}")
-        print("\nRun a book collection first:")
-        print("python collect_books.py --run-name <your_run_name>")
-        sys.exit(1)
-
-    try:
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM books")
-            count = cursor.fetchone()[0]
-
-            if count == 0:
-                print(f"Error: Database contains no books: {db_path}")
-                sys.exit(1)
-
-            logger.debug(f"Using database: {db_path} ({count:,} books)")
-
-    except sqlite3.Error as e:
-        print(f"Error: Cannot read SQLite database: {e}")
-        sys.exit(1)
 
 
 async def cmd_request(args) -> None:
@@ -992,7 +965,7 @@ async def cmd_request(args) -> None:
         sys.exit(1)
 
     # Validate database
-    validate_database_file(args.db_path)
+    validate_database_file(args.db_path, check_books_count=True)
 
     # Set up logging - use unified log file from run config
     from grin_to_s3.run_config import find_run_config
@@ -1039,8 +1012,6 @@ async def cmd_request(args) -> None:
             print(f"  Total books: {total_books:,}")
 
             # Count books by processing request status
-            import aiosqlite
-
             async with aiosqlite.connect(pipeline.db_path) as db:
                 cursor = await db.execute(
                     """
