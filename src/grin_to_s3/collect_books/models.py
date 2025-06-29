@@ -774,7 +774,7 @@ class SQLiteProgressTracker:
             base_query += " AND (storage_type IS NULL OR storage_type = ?)"
             params.append(storage_type)
 
-        base_query += " ORDER BY created_at LIMIT ?"
+        base_query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
 
         async with aiosqlite.connect(self.db_path) as db:

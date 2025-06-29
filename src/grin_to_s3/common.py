@@ -1046,15 +1046,27 @@ def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool
     root_logger.handlers.clear()
 
     # Suppress debug logging from dependency modules
-    if level.upper() == "DEBUG":
-        # Set dependency modules to INFO level to reduce noise
-        logging.getLogger("aiosqlite").setLevel(logging.INFO)
-        logging.getLogger("urllib3").setLevel(logging.INFO)
-        logging.getLogger("requests").setLevel(logging.INFO)
-        logging.getLogger("google").setLevel(logging.INFO)
-        logging.getLogger("google.auth").setLevel(logging.INFO)
-        logging.getLogger("google.oauth2").setLevel(logging.INFO)
-        logging.getLogger("asyncio").setLevel(logging.INFO)
+    # Set dependency modules to INFO level to reduce noise
+    logging.getLogger("aiosqlite").setLevel(logging.INFO)
+    logging.getLogger("urllib3").setLevel(logging.INFO)
+    logging.getLogger("requests").setLevel(logging.INFO)
+    logging.getLogger("google").setLevel(logging.INFO)
+    logging.getLogger("google.auth").setLevel(logging.INFO)
+    logging.getLogger("google.oauth2").setLevel(logging.INFO)
+    logging.getLogger("asyncio").setLevel(logging.INFO)
+    # Suppress boto3/botocore verbose logging
+    logging.getLogger("boto3").setLevel(logging.WARNING)
+    logging.getLogger("botocore").setLevel(logging.WARNING)
+    logging.getLogger("s3transfer").setLevel(logging.WARNING)
+    logging.getLogger("aioboto3").setLevel(logging.WARNING)
+    logging.getLogger("aiobotocore").setLevel(logging.WARNING)
+    logging.getLogger("s3fs").setLevel(logging.WARNING)
+    # Suppress specific botocore sub-modules
+    logging.getLogger("botocore.hooks").setLevel(logging.WARNING)
+    logging.getLogger("botocore.endpoint").setLevel(logging.WARNING)
+    logging.getLogger("botocore.credentials").setLevel(logging.WARNING)
+    logging.getLogger("botocore.awsrequest").setLevel(logging.WARNING)
+    logging.getLogger("botocore.regions").setLevel(logging.WARNING)
 
     # Create formatter
     formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")

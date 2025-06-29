@@ -243,14 +243,14 @@ async def upload_book_from_staging(
             raise Exception(f"GPG decryption failed for {barcode}: {e}") from e
 
         # Upload decrypted file
-        logger.info(f"[{barcode}] 🚀 Upload started")
+        logger.debug(f"[{barcode}] 🚀 Upload started")
 
         try:
-            logger.info(f"[{barcode}] Uploading decrypted archive with encrypted ETag metadata...")
+            logger.debug(f"[{barcode}] Uploading decrypted archive with encrypted ETag metadata...")
             decrypted_result = await book_storage.save_decrypted_archive_from_file(
                 barcode, str(decrypted_file), encrypted_etag
             )
-            logger.info(f"[{barcode}] Decrypted archive upload completed")
+            logger.debug(f"[{barcode}] Decrypted archive upload completed")
         except Exception as e:
             logger.error(f"[{barcode}] Decrypted archive upload failed: {e}")
             raise Exception(f"Upload failed - decrypted: {e}") from e

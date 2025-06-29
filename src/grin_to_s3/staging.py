@@ -206,7 +206,7 @@ class StagingDirectoryManager:
             if should_cleanup:
                 logger.info(f"Cleaning up orphaned files for barcode: {barcode}")
                 freed_bytes = self.cleanup_files(barcode)
-                logger.info(f"Freed {freed_bytes / (1024 * 1024):.1f} MB from orphaned staging files for {barcode}")
+                logger.debug(f"Freed {freed_bytes / (1024 * 1024):.1f} MB from orphaned staging files for {barcode}")
                 cleaned_count += len(file_paths)
 
         return cleaned_count
