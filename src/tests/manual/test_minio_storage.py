@@ -10,8 +10,7 @@ import time
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from grin_to_s3.common import create_storage_from_config
-from grin_to_s3.storage import BookStorage
+from grin_to_s3.storage import BookStorage, create_storage_from_config
 
 # MinIO configuration (adjust if needed)
 MINIO_CONFIG = {

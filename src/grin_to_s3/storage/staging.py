@@ -1,5 +1,5 @@
 """
-Staging directory management for download and upload pipeline.
+Staging Directory Management
 
 Handles disk space monitoring, file management, and cleanup for the staging directory
 where downloaded files are temporarily stored before upload.
@@ -16,13 +16,11 @@ logger = logging.getLogger(__name__)
 
 class StagingDirectoryError(Exception):
     """Raised when staging directory operations fail."""
-
     pass
 
 
 class DiskSpaceError(StagingDirectoryError):
     """Raised when disk space is insufficient."""
-
     pass
 
 

@@ -27,12 +27,11 @@ from grin_to_s3.common import (
     BackupManager,
     ProgressReporter,
     RateLimiter,
-    create_storage_from_config,
     format_bytes,
     format_duration,
     pluralize,
 )
-from grin_to_s3.storage import BookStorage
+from grin_to_s3.storage import BookStorage, create_storage_from_config
 
 from .config import ExportConfig, PaginationConfig
 from .models import BookRecord, BoundedSet, SQLiteProgressTracker

@@ -17,9 +17,9 @@ from grin_to_s3.common import (
     ProgressReporter,
     SlidingWindowRateCalculator,
     format_duration,
-    get_storage_protocol,
     pluralize,
 )
+from grin_to_s3.storage import get_storage_protocol
 
 from .models import create_sync_stats
 from .operations import (
@@ -85,7 +85,7 @@ class SyncPipeline:
 
         # Initialize staging directory manager only for non-local storage
         if self.storage_protocol != "local":
-            from grin_to_s3.staging import StagingDirectoryManager
+            from grin_to_s3.storage import StagingDirectoryManager
 
             self.staging_manager = StagingDirectoryManager(
                 staging_path=self.staging_dir, capacity_threshold=self.disk_space_threshold

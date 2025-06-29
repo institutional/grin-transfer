@@ -5,7 +5,6 @@ Shared functions and patterns to eliminate code duplication across V2 modules.
 """
 
 import asyncio
-import json
 import logging
 import os
 import subprocess
@@ -14,8 +13,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aiohttp
-
-from grin_to_s3.storage import Storage, create_local_storage, create_minio_storage, create_r2_storage, create_s3_storage
 
 logger = logging.getLogger(__name__)
 
@@ -56,132 +53,6 @@ def expand_path(path: str) -> str:
     """
     return os.path.expanduser(path)
 
-
-def load_json_credentials(credentials_file: str) -> dict:
-    """
-    Load JSON credentials from file with proper error handling.
-
-    Args:
-        credentials_file: Path to JSON credentials file
-
-    Returns:
-        dict: Loaded credentials
-
-    Raises:
-        FileNotFoundError: If credentials file doesn't exist
-        ValueError: If credentials file is invalid JSON
-    """
-    credentials_path = expand_path(credentials_file)
-
-    if not os.path.exists(credentials_path):
-        raise FileNotFoundError(f"Credentials file not found: {credentials_path}")
-
-    try:
-        with open(credentials_path) as f:
-            return json.load(f)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON in credentials file {credentials_path}: {e}") from e
-
-
-def get_storage_protocol(storage_type: str) -> str:
-    """
-    Determine storage protocol from storage type.
-
-    Args:
-        storage_type: Original storage type (minio, r2, s3, local)
-
-    Returns:
-        str: Storage protocol ("s3" or "local")
-    """
-    return "s3" if storage_type in ("minio", "r2", "s3") else "local"
-
-
-def validate_required_keys(data: dict, required_keys: list, context: str = "configuration") -> None:
-    """
-    Validate that required keys exist in configuration dictionary.
-
-    Args:
-        data: Dictionary to validate
-        required_keys: List of required key names
-        context: Description for error messages
-
-    Raises:
-        ValueError: If any required keys are missing
-    """
-    missing_keys = [key for key in required_keys if key not in data]
-    if missing_keys:
-        raise ValueError(f"Missing required {context} keys: {missing_keys}")
-
-
-def create_storage_from_config(storage_type: str, config: dict) -> Storage:
-    """
-    Create storage instance based on type and configuration.
-
-    Centralized storage factory to eliminate duplication between modules.
-
-    Args:
-        storage_type: Storage backend type (local, minio, r2, s3)
-        config: Configuration dictionary for the storage type
-
-    Returns:
-        Storage: Configured storage instance
-
-    Raises:
-        ValueError: If storage type is unknown or configuration is invalid
-    """
-    match storage_type:
-        case "local":
-            base_path = config.get("base_path")
-            if not base_path:
-                raise ValueError(
-                    "Local storage requires explicit base_path. Provide base_path in storage configuration."
-                )
-            return create_local_storage(base_path)
-
-        case "minio":
-            return create_minio_storage(
-                endpoint_url=config.get("endpoint_url", "http://localhost:9000"),
-                access_key=config.get("access_key", "minioadmin"),
-                secret_key=config.get("secret_key", "minioadmin123"),
-            )
-
-        case "r2":
-            # Check for credentials file (custom path or default)
-            credentials_file = config.get("credentials_file")
-            if not credentials_file:
-                # Use default path in config directory
-                home = Path.home()
-                credentials_file = home / ".config" / "grin-to-s3" / "r2_credentials.json"
-
-            try:
-                creds = load_json_credentials(str(credentials_file))
-                validate_required_keys(creds, ["account_id", "access_key", "secret_key"], "R2 credentials")
-                return create_r2_storage(
-                    account_id=creds["account_id"], access_key=creds["access_key"], secret_key=creds["secret_key"]
-                )
-            except FileNotFoundError as e:
-                if config.get("credentials_file"):
-                    # Custom path was specified but file doesn't exist
-                    raise ValueError(f"R2 credentials file not found: {credentials_file}") from e
-                else:
-                    # Default path doesn't exist, provide helpful error
-                    raise ValueError(
-                        f"R2 credentials file not found at {credentials_file}. "
-                        f"Create this file with your R2 credentials or specify a custom path with --credentials-file"
-                    ) from e
-            except (ValueError, KeyError) as e:
-                raise ValueError(f"Invalid R2 credentials file {credentials_file}: {e}") from e
-
-        case "s3":
-            bucket = config.get("bucket") or config.get("bucket_raw")
-            if not bucket:
-                raise ValueError("S3 storage requires bucket name")
-
-            # AWS credentials from environment or ~/.aws/credentials
-            return create_s3_storage(bucket=bucket)
-
-        case _:
-            raise ValueError(f"Unknown storage type: {storage_type}")
 
 
 def format_bytes(size_bytes: int) -> str:
