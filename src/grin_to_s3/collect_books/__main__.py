@@ -15,7 +15,12 @@ from .config import ConfigManager
 from .exporter import BookCollector
 
 sys.path.append("..")
-from grin_to_s3.common import setup_logging, setup_storage_with_checks
+from grin_to_s3.common import (
+    create_storage_buckets_or_directories,
+    get_storage_protocol,
+    setup_logging,
+    setup_storage_with_checks,
+)
 
 # Check Python version requirement
 
@@ -370,10 +375,20 @@ Examples:
                     key, value = item.split("=", 1)
                     final_storage_dict[key] = value
 
-        storage_config = {"type": args.storage, "config": final_storage_dict, "prefix": ""}
+        # Determine storage protocol for operational logic
+        storage_protocol = get_storage_protocol(args.storage)
+        storage_config = {
+            "type": args.storage,
+            "protocol": storage_protocol,
+            "config": final_storage_dict,
+            "prefix": ""
+        }
 
         # Set up storage with auto-configuration and connectivity checks
         await setup_storage_with_checks(args.storage, final_storage_dict)
+
+        # Create all required buckets/directories early to fail fast
+        await create_storage_buckets_or_directories(args.storage, final_storage_dict)
 
     try:
         # Load configuration with CLI overrides

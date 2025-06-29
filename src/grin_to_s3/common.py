@@ -83,6 +83,19 @@ def load_json_credentials(credentials_file: str) -> dict:
         raise ValueError(f"Invalid JSON in credentials file {credentials_path}: {e}") from e
 
 
+def get_storage_protocol(storage_type: str) -> str:
+    """
+    Determine storage protocol from storage type.
+
+    Args:
+        storage_type: Original storage type (minio, r2, s3, local)
+
+    Returns:
+        str: Storage protocol ("s3" or "local")
+    """
+    return "s3" if storage_type in ("minio", "r2", "s3") else "local"
+
+
 def validate_required_keys(data: dict, required_keys: list, context: str = "configuration") -> None:
     """
     Validate that required keys exist in configuration dictionary.
@@ -160,7 +173,7 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
                 raise ValueError(f"Invalid R2 credentials file {credentials_file}: {e}") from e
 
         case "s3":
-            bucket = config.get("bucket")
+            bucket = config.get("bucket") or config.get("bucket_raw")
             if not bucket:
                 raise ValueError("S3 storage requires bucket name")
 
@@ -928,6 +941,40 @@ def auto_configure_minio(storage_config: dict) -> None:
         print(f"Warning: Failed to read examples/docker-compose.minio.yml: {e}")
 
 
+async def create_storage_buckets_or_directories(storage_type: str, storage_config: dict) -> None:
+    """Create all required buckets or directories for the storage type.
+
+    Args:
+        storage_type: Type of storage ("minio", "r2", "s3", "local")
+        storage_config: Storage configuration dictionary
+    """
+    if storage_type == "local":
+        # Create directories for local storage
+        base_path = storage_config.get("base_path")
+        if not base_path:
+            raise ValueError("Local storage requires base_path in configuration")
+
+        base_path = Path(base_path)
+        # Create the main directories
+        (base_path / "raw").mkdir(parents=True, exist_ok=True)
+        (base_path / "meta").mkdir(parents=True, exist_ok=True)
+        (base_path / "full").mkdir(parents=True, exist_ok=True)
+        print(f"Created local storage directories at {base_path}")
+
+    elif storage_type in ("minio", "r2", "s3"):
+        # Create buckets for S3-compatible storage
+        from grin_to_s3.sync.utils import ensure_bucket_exists
+
+        buckets = ["bucket_raw", "bucket_meta", "bucket_full"]
+        for bucket_key in buckets:
+            bucket_name = storage_config.get(bucket_key)
+            if bucket_name:
+                success = await ensure_bucket_exists(storage_type, storage_config, bucket_name)
+                if not success:
+                    raise ValueError(f"Failed to create/verify bucket {bucket_name}")
+        print(f"Verified/created all buckets for {storage_type} storage")
+
+
 async def setup_storage_with_checks(
     storage_type: str, storage_config: dict, required_credentials: list[str] | None = None
 ) -> None:
@@ -999,15 +1046,27 @@ def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool
     root_logger.handlers.clear()
 
     # Suppress debug logging from dependency modules
-    if level.upper() == "DEBUG":
-        # Set dependency modules to INFO level to reduce noise
-        logging.getLogger("aiosqlite").setLevel(logging.INFO)
-        logging.getLogger("urllib3").setLevel(logging.INFO)
-        logging.getLogger("requests").setLevel(logging.INFO)
-        logging.getLogger("google").setLevel(logging.INFO)
-        logging.getLogger("google.auth").setLevel(logging.INFO)
-        logging.getLogger("google.oauth2").setLevel(logging.INFO)
-        logging.getLogger("asyncio").setLevel(logging.INFO)
+    # Set dependency modules to INFO level to reduce noise
+    logging.getLogger("aiosqlite").setLevel(logging.INFO)
+    logging.getLogger("urllib3").setLevel(logging.INFO)
+    logging.getLogger("requests").setLevel(logging.INFO)
+    logging.getLogger("google").setLevel(logging.INFO)
+    logging.getLogger("google.auth").setLevel(logging.INFO)
+    logging.getLogger("google.oauth2").setLevel(logging.INFO)
+    logging.getLogger("asyncio").setLevel(logging.INFO)
+    # Suppress boto3/botocore verbose logging
+    logging.getLogger("boto3").setLevel(logging.WARNING)
+    logging.getLogger("botocore").setLevel(logging.WARNING)
+    logging.getLogger("s3transfer").setLevel(logging.WARNING)
+    logging.getLogger("aioboto3").setLevel(logging.WARNING)
+    logging.getLogger("aiobotocore").setLevel(logging.WARNING)
+    logging.getLogger("s3fs").setLevel(logging.WARNING)
+    # Suppress specific botocore sub-modules
+    logging.getLogger("botocore.hooks").setLevel(logging.WARNING)
+    logging.getLogger("botocore.endpoint").setLevel(logging.WARNING)
+    logging.getLogger("botocore.credentials").setLevel(logging.WARNING)
+    logging.getLogger("botocore.awsrequest").setLevel(logging.WARNING)
+    logging.getLogger("botocore.regions").setLevel(logging.WARNING)
 
     # Create formatter
     formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")

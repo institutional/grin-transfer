@@ -6,8 +6,11 @@ Shared utility functions for sync operations including bucket management,
 storage helpers, and common operations.
 """
 
+import json
 import logging
 from typing import Any
+
+import aiosqlite
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +47,7 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
 
     try:
         # Use boto3 directly for bucket operations (fsspec doesn't support bucket creation)
-        if storage_type in ("minio", "s3", "r2"):
+        if storage_type in ("s3", "minio", "r2"):
             import boto3
             from botocore.exceptions import ClientError
 
@@ -68,7 +71,7 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
                 _bucket_checked_cache.add(bucket_key)
                 return True
             except ClientError as e:
-                if e.response["Error"]["Code"] == "404":
+                if e.response.get("Error", {}).get("Code") == "404":
                     # Bucket doesn't exist, try to create it
                     logger.info(f"Bucket '{bucket_name}' does not exist. Creating automatically...")
                     try:
@@ -76,7 +79,7 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
 
                         # Verify the bucket was actually created
                         buckets_response = s3_client.list_buckets()
-                        bucket_names = [b["Name"] for b in buckets_response.get("Buckets", [])]
+                        bucket_names = [b.get("Name", "") for b in buckets_response.get("Buckets", []) if "Name" in b]
 
                         if bucket_name in bucket_names:
                             logger.info(f"Created and verified bucket '{bucket_name}'")
@@ -103,8 +106,8 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
         return False
 
 
-async def check_google_etag(grin_client, library_directory: str, barcode: str) -> tuple[str | None, int | None]:
-    """Make HEAD request to get Google's ETag and file size before downloading.
+async def check_encrypted_etag(grin_client, library_directory: str, barcode: str) -> tuple[str | None, int | None]:
+    """Make HEAD request to get encrypted file's ETag and file size before downloading.
 
     Args:
         grin_client: GRIN client instance
@@ -118,7 +121,7 @@ async def check_google_etag(grin_client, library_directory: str, barcode: str) -
         from grin_to_s3.common import create_http_session
 
         grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
-        logger.debug(f"[{barcode}] Checking Google ETag via HEAD request to {grin_url}")
+        logger.debug(f"[{barcode}] Checking encrypted ETag via HEAD request to {grin_url}")
 
         async with create_http_session() as session:
             # Make HEAD request to get headers without downloading content
@@ -131,84 +134,115 @@ async def check_google_etag(grin_client, library_directory: str, barcode: str) -
             file_size = int(content_length) if content_length else None
 
             if etag:
-                logger.debug(f"[{barcode}] Google ETag: {etag}, size: {file_size or 'unknown'}")
+                logger.debug(f"[{barcode}] Encrypted ETag: {etag}, size: {file_size or 'unknown'}")
                 return etag, file_size
             else:
                 logger.debug(f"[{barcode}] No ETag found in Google response")
                 return None, file_size
 
     except Exception as e:
-        logger.warning(f"[{barcode}] Failed to check Google ETag: {e}")
+        logger.warning(f"[{barcode}] Failed to check encrypted ETag: {e}")
         return None, None
 
 
 async def should_skip_download(
-    barcode: str,
-    google_etag: str | None,
-    storage_type: str,
-    storage_config: dict[str, Any],
-    force: bool = False,
-) -> bool:
-    """Check if existing storage files match Google's ETag to skip downloads.
+    barcode: str, encrypted_etag: str | None, storage_type: str, storage_config: dict, db_tracker, force: bool = False
+) -> tuple[bool, str | None]:
+    """Check if stored ETag matches encrypted file's ETag to skip downloads.
+
+    Uses different strategies based on storage type:
+    - Block storage (S3/R2/MinIO): Check metadata on decrypted file
+    - Local storage: Check database ETag history
 
     Args:
         barcode: Book barcode
-        google_etag: ETag from Google's HEAD response
+        encrypted_etag: ETag from GRIN HEAD response
         storage_type: Type of storage
         storage_config: Storage configuration
+        db_tracker: Database tracker instance
         force: Force download even if ETag matches
 
     Returns:
-        bool: True if download should be skipped (file unchanged)
+        tuple: (should_skip, reason)
     """
-    if force:
-        logger.debug(f"[{barcode}] Force flag enabled, not skipping download")
-        return False
+    if force or not encrypted_etag:
+        return False, "force_flag" if force else "no_etag"
 
-    if not google_etag:
-        logger.debug(f"[{barcode}] No Google ETag available, cannot skip download")
-        return False
+    # Determine storage protocol for logic decisions
+    from grin_to_s3.common import get_storage_protocol
+    storage_protocol = get_storage_protocol(storage_type)
 
-    if storage_type == "local":
-        logger.debug(f"[{barcode}] Local storage doesn't support ETag checking, cannot skip")
-        return False
+    # For S3-compatible storage, check metadata on decrypted file
+    if storage_protocol == "s3":
+        try:
+            # Import here to avoid circular imports
+            from grin_to_s3.common import create_storage_from_config
+            from grin_to_s3.storage import BookStorage
 
+            # Create storage
+            storage = create_storage_from_config(storage_type, storage_config or {})
+
+            # Get bucket and prefix information
+            base_prefix = storage_config.get("prefix", "")
+            bucket_name = storage_config.get("bucket_raw") if storage_config else None
+
+            # For S3-compatible storage, bucket name must be included in path prefix
+            if storage_protocol == "s3" and bucket_name:
+                if base_prefix:
+                    base_prefix = f"{bucket_name}/{base_prefix}"
+                else:
+                    base_prefix = bucket_name
+
+            book_storage = BookStorage(storage, base_prefix=base_prefix)
+
+            # Check if decrypted archive exists and matches encrypted ETag
+            if await book_storage.decrypted_archive_exists(barcode):
+                if await book_storage.archive_matches_encrypted_etag(barcode, encrypted_etag):
+                    logger.info(f"[{barcode}] File unchanged (ETag match in storage metadata), skipping download")
+                    return True, "storage_etag_match"
+                else:
+                    logger.debug(f"[{barcode}] Decrypted archive exists but ETag differs, will download")
+                    return False, "storage_etag_mismatch"
+            else:
+                logger.debug(f"[{barcode}] Decrypted archive doesn't exist, will download")
+                return False, "no_decrypted_archive"
+
+        except Exception as e:
+            logger.warning(f"[{barcode}] Error checking storage metadata for ETag: {e}")
+            # Fall back to database check for block storage too
+            pass
+
+    # For local storage or fallback, use database check
     try:
-        # Import here to avoid circular imports
-        from grin_to_s3.common import create_storage_from_config
-        from grin_to_s3.storage import BookStorage
+        async with aiosqlite.connect(db_tracker.db_path) as db:
+            async with db.execute("BEGIN IMMEDIATE"):
+                cursor = await db.execute(
+                    """
+                    SELECT status_value, metadata FROM book_status_history
+                    WHERE barcode = ? AND status_type = 'sync'
+                    ORDER BY timestamp DESC, id DESC LIMIT 1
+                """,
+                    (barcode,),
+                )
 
-        # Create storage
-        storage = create_storage_from_config(storage_type, storage_config or {})
+                if not (row := await cursor.fetchone()):
+                    return False, "no_metadata"
 
-        # Get bucket and prefix information
-        base_prefix = storage_config.get("prefix", "")
-        bucket_name = storage_config.get("bucket_raw") if storage_config else None
+                if not (metadata := json.loads(row[1]) if row[1] else None):
+                    return False, "no_metadata"
 
-        # For S3/MinIO/R2, bucket name must be included in path prefix
-        if storage_type in ("minio", "s3", "r2") and bucket_name:
-            if base_prefix:
-                base_prefix = f"{bucket_name}/{base_prefix}"
-            else:
-                base_prefix = bucket_name
+                if not (stored_etag := metadata.get("encrypted_etag")):
+                    return False, "no_stored_etag"
 
-        book_storage = BookStorage(storage, base_prefix=base_prefix)
-
-        # Check if archive exists and matches Google's ETag
-        if await book_storage.archive_exists(barcode):
-            if await book_storage.archive_matches_google_etag(barcode, google_etag):
-                logger.info(f"[{barcode}] File unchanged (ETag match), skipping download")
-                return True
-            else:
-                logger.debug(f"[{barcode}] Archive exists but ETag differs, will download")
-                return False
-        else:
-            logger.debug(f"[{barcode}] Archive doesn't exist, will download")
-            return False
+                match = stored_etag.strip('"') == encrypted_etag.strip('"')
+                action = "skipping" if match else "downloading"
+                status = "matches" if match else "differs"
+                logger.info(f"[{barcode}] ETag {status} in database, {action}")
+                return match, "database_etag_match" if match else "database_etag_mismatch"
 
     except Exception as e:
-        logger.warning(f"[{barcode}] Error checking existing file for ETag: {e}")
-        return False
+        logger.error(f"[{barcode}] Database ETag check failed: {type(e).__name__}")
+        return False, f"error_{type(e).__name__.lower()}"
 
 
 async def get_converted_books(grin_client, library_directory: str) -> set[str]:

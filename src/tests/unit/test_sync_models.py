@@ -112,7 +112,7 @@ class TestBookSyncResult:
         assert result["barcode"] == "TEST123"
         assert result["status"] == "completed"
         assert result["skipped"] is False
-        assert result["google_etag"] is None
+        assert result["encrypted_etag"] is None
         assert result["file_size"] == 0
         assert result["total_time"] == 0.0
 
@@ -122,13 +122,13 @@ class TestBookSyncResult:
             barcode="TEST456",
             status="failed",
             skipped=True,
-            google_etag="abc123",
+            encrypted_etag="abc123",
             file_size=1024,
             total_time=5.5,
         )
         assert result["barcode"] == "TEST456"
         assert result["status"] == "failed"
         assert result["skipped"] is True
-        assert result["google_etag"] == "abc123"
+        assert result["encrypted_etag"] == "abc123"
         assert result["file_size"] == 1024
         assert result["total_time"] == 5.5

@@ -57,7 +57,7 @@ class TestBlockStorageSyncIntegration:
                     "barcode": "TEST123",
                     "download_success": True,
                     "staging_file_path": "/tmp/staging/TEST123.tar.gz",
-                    "google_etag": "test-etag",
+                    "encrypted_etag": "test-etag",
                     "metadata": {"size": 1000},
                 }
                 mock_upload.return_value = {"barcode": "TEST123", "upload_success": True, "result": {"success": True}}
@@ -65,10 +65,9 @@ class TestBlockStorageSyncIntegration:
                 # This should work without errors if method names are correct
                 await pipeline._run_block_storage_sync(["TEST123"], 1)
 
-                # Verify batch was added to rate calculator (called twice: download + upload completion)
-                assert len(real_calc.batch_times) == 2
-                assert real_calc.batch_times[0][1] == 1  # First completion (processed_count=1)
-                assert real_calc.batch_times[1][1] == 2  # Second completion (processed_count=2)
+                # Verify batch was added to rate calculator (called once: download completion)
+                assert len(real_calc.batch_times) == 1
+                assert real_calc.batch_times[0][1] == 1  # Download completion (processed_count=1)
 
     @pytest.mark.asyncio
     async def test_rate_calculator_interface_validation(self):

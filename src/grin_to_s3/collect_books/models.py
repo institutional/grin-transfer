@@ -63,7 +63,7 @@ class BookRecord:
     storage_path: str | None = None  # Path to the encrypted archive in storage
     storage_decrypted_path: str | None = None  # Path to the decrypted archive in storage
     last_etag_check: str | None = None  # ISO timestamp of last ETag verification
-    google_etag: str | None = None  # Google's ETag for the file
+    encrypted_etag: str | None = None  # Encrypted file's ETag for the file
     is_decrypted: bool = False  # Whether decrypted version exists
     sync_timestamp: str | None = None  # ISO timestamp of last successful sync
     sync_error: str | None = None  # Error message if sync failed
@@ -106,7 +106,7 @@ class BookRecord:
             "Storage Path",
             "Storage Decrypted Path",
             "Last ETag Check",
-            "Google ETag",
+            "Encrypted ETag",
             "Is Decrypted",
             "Sync Timestamp",
             "Sync Error",
@@ -146,7 +146,7 @@ class BookRecord:
             self.storage_path or "",
             self.storage_decrypted_path or "",
             self.last_etag_check or "",
-            self.google_etag or "",
+            self.encrypted_etag or "",
             str(self.is_decrypted) if self.is_decrypted else "",
             # Sync status removed - tracked in history table
             self.sync_timestamp or "",
@@ -467,7 +467,7 @@ class SQLiteProgressTracker:
                     material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
                     ocr_gtd_score, digitization_method, enrichment_timestamp,
                     csv_exported, csv_updated, storage_type, storage_path,
-                    storage_decrypted_path, last_etag_check, google_etag,
+                    storage_decrypted_path, last_etag_check, encrypted_etag,
                     is_decrypted, sync_timestamp, sync_error,
                     created_at, updated_at
                 ) VALUES (
@@ -507,7 +507,7 @@ class SQLiteProgressTracker:
                     getattr(book, "storage_path", None),
                     getattr(book, "storage_decrypted_path", None),
                     getattr(book, "last_etag_check", None),
-                    getattr(book, "google_etag", None),
+                    getattr(book, "encrypted_etag", None),
                     getattr(book, "is_decrypted", False),
                     getattr(book, "sync_timestamp", None),
                     getattr(book, "sync_error", None),
@@ -531,7 +531,7 @@ class SQLiteProgressTracker:
                        material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
                        ocr_gtd_score, digitization_method, enrichment_timestamp,
                        csv_exported, csv_updated, storage_type, storage_path,
-                       storage_decrypted_path, last_etag_check, google_etag,
+                       storage_decrypted_path, last_etag_check, encrypted_etag,
                        is_decrypted, sync_timestamp, sync_error, created_at, updated_at
                 FROM books WHERE barcode = ?
             """,
@@ -615,7 +615,7 @@ class SQLiteProgressTracker:
                        material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
                        ocr_gtd_score, digitization_method, enrichment_timestamp,
                        csv_exported, csv_updated, storage_type, storage_path,
-                       storage_decrypted_path, last_etag_check, google_etag,
+                       storage_decrypted_path, last_etag_check, encrypted_etag,
                        is_decrypted, sync_status, sync_timestamp, sync_error
                 FROM books ORDER BY barcode
             """)
@@ -655,7 +655,7 @@ class SQLiteProgressTracker:
                 """
                 UPDATE books SET
                     storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
-                    last_etag_check = ?, google_etag = ?, is_decrypted = ?,
+                    last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
                     sync_timestamp = ?, sync_error = ?,
                     updated_at = ?
                 WHERE barcode = ?
@@ -665,7 +665,7 @@ class SQLiteProgressTracker:
                     sync_data.get("storage_path"),
                     sync_data.get("storage_decrypted_path"),
                     sync_data.get("last_etag_check"),
-                    sync_data.get("google_etag"),
+                    sync_data.get("encrypted_etag"),
                     sync_data.get("is_decrypted", False),
                     sync_data.get("sync_timestamp", now),
                     sync_data.get("sync_error"),
@@ -774,7 +774,7 @@ class SQLiteProgressTracker:
             base_query += " AND (storage_type IS NULL OR storage_type = ?)"
             params.append(storage_type)
 
-        base_query += " ORDER BY created_at LIMIT ?"
+        base_query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
 
         async with aiosqlite.connect(self.db_path) as db:
@@ -991,6 +991,27 @@ class SQLiteProgressTracker:
             )
             row = await cursor.fetchone()
             return row[0] if row else None
+
+    async def get_latest_status_with_metadata(self, barcode: str, status_type: str) -> tuple[str | None, dict | None]:
+        """Get the latest status value and metadata for a book and status type.
+
+        Args:
+            barcode: Book barcode
+            status_type: Type of status to retrieve
+
+        Returns:
+            tuple: (status_value, metadata_dict) or (None, None) if no status found
+        """
+        await self.init_db()
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT status_value, metadata FROM book_status_history "
+                "WHERE barcode = ? AND status_type = ? ORDER BY timestamp DESC, id DESC LIMIT 1",
+                (barcode, status_type),
+            )
+            if row := await cursor.fetchone():
+                return row[0], json.loads(row[1]) if row[1] else None
+            return None, None
 
     async def get_books_with_latest_status(
         self, status_type: str, status_values: list[str] | None = None, limit: int | None = None

@@ -22,7 +22,7 @@ from grin_to_s3.common import (
 from grin_to_s3.storage import BookStorage
 
 from .models import BookSyncResult, create_book_sync_result
-from .utils import check_google_etag, ensure_bucket_exists, should_skip_download
+from .utils import check_encrypted_etag, should_skip_download
 
 logger = logging.getLogger(__name__)
 
@@ -48,36 +48,42 @@ async def check_and_handle_etag_skip(
         force: Force download even if ETag matches
 
     Returns:
-        tuple: (skip_result, google_etag, google_file_size)
+        tuple: (skip_result, encrypted_etag, encrypted_file_size)
         - skip_result: Skip result if file should be skipped, None if processing should continue
-        - google_etag: Google ETag for this file
-        - google_file_size: Google file size for this file
+        - encrypted_etag: Encrypted ETag for this file
+        - encrypted_file_size: File size for this file
     """
-    # Check Google ETag first
-    google_etag, google_file_size = await check_google_etag(grin_client, library_directory, barcode)
+    # Check encrypted ETag first
+    encrypted_etag, encrypted_file_size = await check_encrypted_etag(grin_client, library_directory, barcode)
 
     # Check if we should skip download based on ETag match
-    if await should_skip_download(barcode, google_etag, storage_type, storage_config, force):
-        logger.info(f"[{barcode}] Skipping download - file unchanged (ETag match)")
+    should_skip, skip_reason = await should_skip_download(
+        barcode, encrypted_etag, storage_type, storage_config, db_tracker, force
+    )
+    if should_skip:
+        logger.info(f"[{barcode}] Skipping download - {skip_reason}")
 
-        # Update sync tracking to record the ETag check
-        etag_sync_data: dict[str, Any] = {
-            "last_etag_check": datetime.now(UTC).isoformat(),
-            "google_etag": google_etag,
-        }
-        await db_tracker.update_sync_data(barcode, etag_sync_data)
-
-        skip_result = create_book_sync_result(
-            barcode=barcode,
-            status="completed",
-            skipped=True,
-            google_etag=google_etag,
-            file_size=google_file_size or 0,
-            total_time=0,
+        # Record ETag check in status history with metadata
+        await db_tracker.add_status_change(
+            barcode,
+            "sync",
+            "skipped",
+            metadata={
+                "encrypted_etag": encrypted_etag,
+                "etag_checked_at": datetime.now(UTC).isoformat(),
+                "storage_type": storage_type,
+                "skipped": True,
+                "skip_reason": skip_reason,
+            },
         )
-        return skip_result, google_etag, google_file_size or 0
 
-    return None, google_etag, google_file_size or 0
+        return (
+            create_book_sync_result(barcode, "completed", True, encrypted_etag, encrypted_file_size or 0, 0),
+            encrypted_etag,
+            encrypted_file_size or 0,
+        )
+
+    return None, encrypted_etag, encrypted_file_size or 0
 
 
 async def download_book_to_staging(
@@ -85,7 +91,7 @@ async def download_book_to_staging(
     grin_client: GRINClient,
     library_directory: str,
     staging_manager,
-    google_etag: str | None,
+    encrypted_etag: str | None,
     secrets_dir: str | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     """Download a book to staging directory.
@@ -95,7 +101,7 @@ async def download_book_to_staging(
         grin_client: GRIN client instance
         library_directory: Library directory name
         staging_manager: Staging directory manager
-        google_etag: Google ETag for the file
+        encrypted_etag: Encrypted ETag for the file
         secrets_dir: Secrets directory path
 
     Returns:
@@ -142,7 +148,7 @@ async def download_book_to_staging(
                         logger.warning(f"[{barcode}] Disk space exhausted during download, cleaning up and retrying...")
                         await asyncio.sleep(60)  # Wait longer before retry
                         return await download_book_to_staging(
-                            barcode, grin_client, library_directory, staging_manager, google_etag, secrets_dir
+                            barcode, grin_client, library_directory, staging_manager, encrypted_etag, secrets_dir
                         )
 
             # Ensure all data is flushed to disk
@@ -160,7 +166,7 @@ async def download_book_to_staging(
             {
                 "file_size": total_bytes,
                 "total_time": 0,  # We'll track this separately
-                "google_etag": google_etag,
+                "google_etag": encrypted_etag,
             },
         )
 
@@ -172,7 +178,7 @@ async def upload_book_from_staging(
     storage_config: dict[str, Any],
     staging_manager,
     db_tracker,
-    google_etag: str | None = None,
+    encrypted_etag: str | None = None,
     gpg_key_file: str | None = None,
     secrets_dir: str | None = None,
 ) -> dict[str, Any]:
@@ -185,7 +191,7 @@ async def upload_book_from_staging(
         storage_config: Storage configuration
         staging_manager: Staging directory manager
         db_tracker: Database tracker instance
-        google_etag: Google ETag for the file
+        encrypted_etag: Encrypted ETag for the file
         gpg_key_file: GPG key file path
         secrets_dir: Secrets directory path
 
@@ -199,7 +205,6 @@ async def upload_book_from_staging(
             return {
                 "barcode": barcode,
                 "status": "completed",
-                "encrypted_success": True,
                 "decrypted_success": True,
                 "skipped": True,
             }
@@ -207,24 +212,19 @@ async def upload_book_from_staging(
         # Create storage
         storage = create_storage_from_config(storage_type, storage_config or {})
 
-        # Get bucket and prefix information
+        # Get bucket and prefix information (use raw bucket for decrypted files)
         base_prefix = storage_config.get("prefix", "")
         bucket_name = storage_config.get("bucket_raw") if storage_config else None
 
-        # For S3/MinIO/R2, bucket name must be included in path prefix
-        if storage_type in ("minio", "s3", "r2") and bucket_name:
+        # For S3-compatible storage, handle bucket configuration
+        from grin_to_s3.common import get_storage_protocol
+        storage_protocol = get_storage_protocol(storage_type)
+        if storage_protocol == "s3" and bucket_name:
+            # Include bucket name in path prefix for fsspec S3
             if base_prefix:
                 base_prefix = f"{bucket_name}/{base_prefix}"
             else:
                 base_prefix = bucket_name
-
-        # Ensure bucket exists before upload
-        if storage_type in ("minio", "s3", "r2") and bucket_name:
-            try:
-                await ensure_bucket_exists(storage_type, storage_config, bucket_name)
-            except Exception as e:
-                logger.error(f"[{barcode}] Bucket creation failed: {e}")
-                raise
 
         book_storage = BookStorage(storage, base_prefix=base_prefix)
 
@@ -242,71 +242,50 @@ async def upload_book_from_staging(
             logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB from staging after failure")
             raise Exception(f"GPG decryption failed for {barcode}: {e}") from e
 
-        # Upload files
-        logger.info(f"[{barcode}] 🚀 Upload started")
-        upload_results = []
+        # Upload decrypted file
+        logger.debug(f"[{barcode}] 🚀 Upload started")
 
-        # Upload encrypted file first with Google ETag metadata
         try:
-            logger.info(f"[{barcode}] Uploading encrypted archive...")
-            encrypted_result = await book_storage.save_archive_from_file(barcode, str(encrypted_file), google_etag)
-            upload_results.append(encrypted_result)
-            logger.info(f"[{barcode}] Encrypted archive upload completed")
-        except Exception as e:
-            logger.error(f"[{barcode}] Encrypted archive upload failed: {e}")
-            upload_results.append(e)
-
-        # Upload decrypted file second
-        try:
-            logger.info(f"[{barcode}] Uploading decrypted archive...")
-            decrypted_result = await book_storage.save_decrypted_archive_from_file(barcode, str(decrypted_file))
-            upload_results.append(decrypted_result)
-            logger.info(f"[{barcode}] Decrypted archive upload completed")
+            logger.debug(f"[{barcode}] Uploading decrypted archive with encrypted ETag metadata...")
+            decrypted_result = await book_storage.save_decrypted_archive_from_file(
+                barcode, str(decrypted_file), encrypted_etag
+            )
+            logger.debug(f"[{barcode}] Decrypted archive upload completed")
         except Exception as e:
             logger.error(f"[{barcode}] Decrypted archive upload failed: {e}")
-            upload_results.append(e)
+            raise Exception(f"Upload failed - decrypted: {e}") from e
 
-        # Check results
-        encrypted_success = not isinstance(upload_results[0], Exception)
-        decrypted_success = not isinstance(upload_results[1], Exception)
+        # Success - update status tracking with ETag
+        metadata = {
+            "encrypted_etag": encrypted_etag,
+            "etag_stored_at": datetime.now(UTC).isoformat(),
+            "storage_type": storage_type,
+            "decrypted_success": True,
+        }
+        await db_tracker.add_status_change(barcode, "sync", "decrypted", metadata=metadata)
+        await db_tracker.add_status_change(barcode, "sync", "completed", metadata=metadata)
 
-        if not encrypted_success or not decrypted_success:
-            # Upload failure
-            errors = []
-            if not encrypted_success:
-                errors.append(f"encrypted: {upload_results[0]}")
-            if not decrypted_success:
-                errors.append(f"decrypted: {upload_results[1]}")
-            raise Exception(f"Upload failed - {', '.join(errors)}")
-
-        # Success - update status tracking
-        await db_tracker.add_status_change(barcode, "sync", "stored")
-        await db_tracker.add_status_change(barcode, "sync", "decrypted")
-        await db_tracker.add_status_change(barcode, "sync", "completed")
-
-        # Update book record with sync data including Google ETag
+        # Update book record with sync data including encrypted ETag
         sync_data: dict[str, Any] = {
             "storage_type": storage_type,
-            "storage_path": upload_results[0],  # encrypted file path
-            "storage_decrypted_path": upload_results[1],  # decrypted file path
+            "storage_decrypted_path": decrypted_result,  # only decrypted file path
             "is_decrypted": True,
             "sync_timestamp": datetime.now(UTC).isoformat(),
             "sync_error": None,
-            "google_etag": google_etag,
+            "encrypted_etag": encrypted_etag,
             "last_etag_check": datetime.now(UTC).isoformat(),
         }
         await db_tracker.update_sync_data(barcode, sync_data)
 
         # Clean up staging files after successful uploads
         freed_bytes = staging_manager.cleanup_files(barcode)
-        logger.info(f"[{barcode}] ✅ Upload completed: encrypted=True, decrypted=True")
+        logger.info(f"[{barcode}] ✅ Upload completed: decrypted=True")
         if freed_bytes > 0:
             logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB disk space from staging directory")
 
         return {
             "barcode": barcode,
             "status": "completed",
-            "encrypted_success": True,
             "decrypted_success": True,
         }
 
@@ -326,7 +305,7 @@ async def sync_book_to_local_storage(
     library_directory: str,
     storage_config: dict[str, Any],
     db_tracker,
-    google_etag: str | None = None,
+    encrypted_etag: str | None = None,
     gpg_key_file: str | None = None,
     secrets_dir: str | None = None,
 ) -> dict[str, Any]:
@@ -338,7 +317,7 @@ async def sync_book_to_local_storage(
         library_directory: Library directory name
         storage_config: Storage configuration
         db_tracker: Database tracker instance
-        google_etag: Google ETag for the file
+        encrypted_etag: Encrypted ETag for the file
         gpg_key_file: GPG key file path
         secrets_dir: Secrets directory path
 
@@ -388,25 +367,32 @@ async def sync_book_to_local_storage(
         logger.info(f"[{barcode}] Decrypting to {final_decrypted_path}")
         try:
             await decrypt_gpg_file(str(final_encrypted_path), str(final_decrypted_path), gpg_key_file, secrets_dir)
+            # For local storage, delete encrypted file after successful decryption (new behavior)
+            logger.info(f"[{barcode}] Deleting encrypted file after successful decryption")
+            final_encrypted_path.unlink(missing_ok=True)
         except Exception as e:
             logger.error(f"[{barcode}] Decryption failed: {e}")
             # Clean up encrypted file on decryption failure
             final_encrypted_path.unlink(missing_ok=True)
             raise
 
-        # Update status tracking
-        await db_tracker.add_status_change(barcode, "sync", "stored")
-        await db_tracker.add_status_change(barcode, "sync", "decrypted")
-        await db_tracker.add_status_change(barcode, "sync", "completed")
+        # Update status tracking with ETag
+        metadata = {
+            "encrypted_etag": encrypted_etag,
+            "etag_stored_at": datetime.now(UTC).isoformat(),
+            "storage_type": "local",
+            "decrypted_success": True,
+        }
+        await db_tracker.add_status_change(barcode, "sync", "decrypted", metadata=metadata)
+        await db_tracker.add_status_change(barcode, "sync", "completed", metadata=metadata)
 
         # Update book record with sync data
         sync_data: dict[str, Any] = {
             "storage_type": "local",
-            "storage_path": str(encrypted_path),
             "storage_decrypted_path": str(decrypted_path),
             "is_decrypted": True,
             "sync_timestamp": datetime.now(UTC).isoformat(),
-            "google_etag": google_etag,
+            "encrypted_etag": encrypted_etag,
             "last_etag_check": datetime.now(UTC).isoformat(),
         }
         await db_tracker.update_sync_data(barcode, sync_data)
@@ -416,7 +402,6 @@ async def sync_book_to_local_storage(
         return {
             "barcode": barcode,
             "status": "completed",
-            "encrypted_success": True,
             "decrypted_success": True,
         }
 

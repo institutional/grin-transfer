@@ -107,11 +107,11 @@ class TestLocalStorageDirectWrite:
             barcode = "TEST456"
             test_data = b"Test archive data"
 
-            # Save archive
-            await book_storage.save_archive(barcode, test_data)
+            # Save decrypted archive (new approach)
+            await book_storage.save_decrypted_archive(barcode, test_data)
 
             # Verify file exists
-            expected_file = Path(temp_dir) / barcode / f"{barcode}.tar.gz.gpg"
+            expected_file = Path(temp_dir) / barcode / f"{barcode}.tar.gz"
             assert expected_file.exists()
             assert expected_file.read_bytes() == test_data
 

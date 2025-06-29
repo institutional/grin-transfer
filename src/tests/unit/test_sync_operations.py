@@ -23,11 +23,11 @@ class TestETagSkipHandling:
     ):
         """Test ETag check when file should not be skipped."""
         with (
-            patch("grin_to_s3.sync.operations.check_google_etag") as mock_check_etag,
+            patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check_etag,
             patch("grin_to_s3.sync.operations.should_skip_download") as mock_should_skip,
         ):
             mock_check_etag.return_value = ("abc123", 1024)
-            mock_should_skip.return_value = False
+            mock_should_skip.return_value = (False, "no_skip_reason")
 
             result, etag, file_size = await check_and_handle_etag_skip(
                 "TEST123", mock_grin_client, "Harvard", "minio", mock_storage_config, mock_progress_tracker
@@ -43,11 +43,11 @@ class TestETagSkipHandling:
     ):
         """Test ETag check when file should be skipped."""
         with (
-            patch("grin_to_s3.sync.operations.check_google_etag") as mock_check_etag,
+            patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check_etag,
             patch("grin_to_s3.sync.operations.should_skip_download") as mock_should_skip,
         ):
             mock_check_etag.return_value = ("abc123", 1024)
-            mock_should_skip.return_value = True
+            mock_should_skip.return_value = (True, "etag_match")
 
             result, etag, file_size = await check_and_handle_etag_skip(
                 "TEST123", mock_grin_client, "Harvard", "minio", mock_storage_config, mock_progress_tracker
@@ -57,7 +57,7 @@ class TestETagSkipHandling:
             assert result["barcode"] == "TEST123"
             assert result["status"] == "completed"
             assert result["skipped"] is True
-            assert result["google_etag"] == "abc123"
+            assert result["encrypted_etag"] == "abc123"
             assert result["file_size"] == 1024
             assert etag == "abc123"
             assert file_size == 1024
