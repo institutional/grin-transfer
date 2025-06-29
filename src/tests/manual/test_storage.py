@@ -11,8 +11,7 @@ import tempfile
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from grin_to_s3.common import create_storage_from_config
-from grin_to_s3.storage import BookStorage, StorageConfig, StorageNotFoundError
+from grin_to_s3.storage import BookStorage, StorageConfig, StorageNotFoundError, create_storage_from_config
 
 
 async def test_local_storage():

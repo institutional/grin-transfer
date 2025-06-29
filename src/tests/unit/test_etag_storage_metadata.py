@@ -36,7 +36,7 @@ class TestStorageMetadataETagTracking:
         }
 
         with (
-            patch("grin_to_s3.common.create_storage_from_config") as mock_storage_factory,
+            patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
             patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
         ):
             # Mock storage and book storage
@@ -75,7 +75,7 @@ class TestStorageMetadataETagTracking:
         }
 
         with (
-            patch("grin_to_s3.common.create_storage_from_config") as mock_storage_factory,
+            patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
             patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
         ):
             # Mock storage and book storage
@@ -110,7 +110,7 @@ class TestStorageMetadataETagTracking:
         }
 
         with (
-            patch("grin_to_s3.common.create_storage_from_config") as mock_storage_factory,
+            patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
             patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
         ):
             # Mock storage and book storage
@@ -148,7 +148,7 @@ class TestStorageMetadataETagTracking:
         }
 
         with (
-            patch("grin_to_s3.common.create_storage_from_config") as mock_storage_factory,
+            patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
             patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
         ):
             # Mock storage and book storage
@@ -180,7 +180,7 @@ class TestStorageMetadataETagTracking:
         storage_config = {"bucket_raw": "test-bucket"}
 
         with (
-            patch("grin_to_s3.common.create_storage_from_config") as mock_storage_factory,
+            patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
             patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
         ):
             # Mock storage and book storage
@@ -263,7 +263,7 @@ class TestHybridETagApproach:
         storage_config = {"bucket_raw": "test-bucket"}
 
         with (
-            patch("grin_to_s3.common.create_storage_from_config") as mock_storage_factory,
+            patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
             patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
         ):
             # Mock storage and book storage

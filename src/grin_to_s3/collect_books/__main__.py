@@ -17,10 +17,10 @@ from .exporter import BookCollector
 sys.path.append("..")
 from grin_to_s3.common import (
     create_storage_buckets_or_directories,
-    get_storage_protocol,
     setup_logging,
     setup_storage_with_checks,
 )
+from grin_to_s3.storage import get_storage_protocol
 
 # Check Python version requirement
 

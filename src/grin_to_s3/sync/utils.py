@@ -169,15 +169,13 @@ async def should_skip_download(
         return False, "force_flag" if force else "no_etag"
 
     # Determine storage protocol for logic decisions
-    from grin_to_s3.common import get_storage_protocol
+    from grin_to_s3.storage import get_storage_protocol
     storage_protocol = get_storage_protocol(storage_type)
 
     # For S3-compatible storage, check metadata on decrypted file
     if storage_protocol == "s3":
         try:
-            # Import here to avoid circular imports
-            from grin_to_s3.common import create_storage_from_config
-            from grin_to_s3.storage import BookStorage
+            from grin_to_s3.storage import BookStorage, create_storage_from_config
 
             # Create storage
             storage = create_storage_from_config(storage_type, storage_config or {})

@@ -16,10 +16,9 @@ import aiofiles
 from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
     create_http_session,
-    create_storage_from_config,
     decrypt_gpg_file,
 )
-from grin_to_s3.storage import BookStorage
+from grin_to_s3.storage import BookStorage, create_storage_from_config
 
 from .models import BookSyncResult, create_book_sync_result
 from .utils import check_encrypted_etag, should_skip_download
@@ -217,7 +216,7 @@ async def upload_book_from_staging(
         bucket_name = storage_config.get("bucket_raw") if storage_config else None
 
         # For S3-compatible storage, handle bucket configuration
-        from grin_to_s3.common import get_storage_protocol
+        from grin_to_s3.storage import get_storage_protocol
         storage_protocol = get_storage_protocol(storage_type)
         if storage_protocol == "s3" and bucket_name:
             # Include bucket name in path prefix for fsspec S3

@@ -5,8 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from grin_to_s3.common import create_storage_from_config
-from grin_to_s3.storage import StorageConfig, create_local_storage
+from grin_to_s3.storage import StorageConfig, create_local_storage, create_storage_from_config
 
 
 class TestLocalStorageValidation:

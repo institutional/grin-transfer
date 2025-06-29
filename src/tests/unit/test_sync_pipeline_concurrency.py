@@ -17,7 +17,7 @@ class TestSyncPipelineConcurrency:
         with patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker, \
              patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter, \
              patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client, \
-             patch("grin_to_s3.staging.StagingDirectoryManager") as mock_staging:
+             patch("grin_to_s3.storage.StagingDirectoryManager") as mock_staging:
 
             # Configure mocks
             mock_tracker.return_value = MagicMock()
