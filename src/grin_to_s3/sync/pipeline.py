@@ -385,7 +385,7 @@ class SyncPipeline:
             # Create iterator for books
             book_iter = iter(available_to_sync[:books_to_process])
 
-            # Fill initial download queue
+            # Fill initial download queue - only create up to concurrent_downloads tasks
             for _ in range(self.concurrent_downloads):
                 try:
                     barcode = next(book_iter)
@@ -506,6 +506,7 @@ class SyncPipeline:
                 print(f"  Average rate: {avg_rate:.1f} books/second")
 
             logger.info("Sync completed")
+
 
 
     async def _process_book_with_staging(self, barcode: str) -> dict[str, Any]:

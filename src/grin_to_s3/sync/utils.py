@@ -196,12 +196,8 @@ async def should_skip_download(
             book_storage = BookStorage(storage, base_prefix=base_prefix)
 
             # Check if decrypted archive exists and matches encrypted ETag
-            archive_exists = await book_storage.decrypted_archive_exists(barcode)
-            logger.debug(f"[{barcode}] Archive exists check: {archive_exists} (base_prefix='{base_prefix}')")
-
-            if archive_exists:
-                etag_matches = await book_storage.archive_matches_encrypted_etag(barcode, encrypted_etag)
-                if etag_matches:
+            if await book_storage.decrypted_archive_exists(barcode):
+                if await book_storage.archive_matches_encrypted_etag(barcode, encrypted_etag):
                     logger.info(f"[{barcode}] File unchanged (ETag match in storage metadata), skipping download")
                     return True, "storage_etag_match"
                 else:
