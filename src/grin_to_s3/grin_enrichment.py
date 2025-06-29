@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import aiosqlite
+
 # Check Python version requirement
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
@@ -26,6 +28,7 @@ from grin_to_s3.common import (
     pluralize,
     setup_logging,
 )
+from grin_to_s3.database_utils import validate_database_file
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
 
 logger = logging.getLogger(__name__)
@@ -343,8 +346,6 @@ class GRINEnrichmentPipeline:
 
     async def reset_enrichment_data(self) -> int:
         """Reset enrichment data for all books in the database."""
-        import aiosqlite
-
         async with aiosqlite.connect(self.db_path) as conn:
             # Reset enrichment fields to NULL
             cursor = await conn.execute(
@@ -568,65 +569,6 @@ async def export_enriched_csv(db_path: str, output_file: str) -> None:
             pass
 
 
-def validate_database_file(db_path: str) -> None:
-    """
-    Validate that the database file exists and is a valid SQLite database.
-
-    Args:
-        db_path: Path to the SQLite database file
-
-    Raises:
-        SystemExit: If the database file is invalid or inaccessible
-    """
-    import sqlite3
-
-    db_file = Path(db_path)
-
-    # Check if file exists
-    if not db_file.exists():
-        print(f"❌ Error: Database file does not exist: {db_path}")
-        print("\nMake sure you've run a book collection first:")
-        print("python grin.py collect --run-name <your_run_name>")
-        print("\nOr check available databases:")
-
-        # Try to show available databases
-        output_dir = Path("output")
-        if output_dir.exists():
-            print("\nAvailable run directories:")
-            for run_dir in output_dir.iterdir():
-                if run_dir.is_dir():
-                    db_file_path = run_dir / "books.db"
-                    if db_file_path.exists():
-                        print(f"  {db_file_path}")
-
-        sys.exit(1)
-
-    # Check if it's a valid SQLite database
-    try:
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-            tables = cursor.fetchall()
-
-            # Check for expected tables
-            table_names = [table[0] for table in tables]
-            required_tables = ["books", "processed", "failed"]
-            missing_tables = [table for table in required_tables if table not in table_names]
-
-            if missing_tables:
-                print(f"❌ Error: Database is missing required tables: {missing_tables}")
-                print(f"Database file: {db_path}")
-                print("This doesn't appear to be a valid book collection database.")
-                sys.exit(1)
-
-    except sqlite3.Error as e:
-        print(f"❌ Error: Cannot read SQLite database: {e}")
-        print(f"Database file: {db_path}")
-        print("The file may be corrupted or not a valid SQLite database.")
-        sys.exit(1)
-
-    # If we get here, the database is valid
-    logger.debug(f"Using database: {db_path}")
 
 
 async def main() -> None:
@@ -693,7 +635,7 @@ Examples:
     setup_run_database_path(args, args.run_name)
 
     # Validate database file exists and is accessible
-    validate_database_file(args.db_path)
+    validate_database_file(args.db_path, check_tables=True)
 
     # Apply run configuration defaults for the command
     if args.command in ["enrich"]:

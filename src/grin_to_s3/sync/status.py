@@ -6,6 +6,8 @@ Functions for checking and reporting sync status and statistics.
 """
 
 import logging
+import sqlite3
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -160,9 +162,6 @@ def validate_database_file(db_path: str) -> None:
     Raises:
         SystemExit: If database is invalid
     """
-    import sqlite3
-    import sys
-
     db_file = Path(db_path)
 
     if not db_file.exists():
