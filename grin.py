@@ -10,6 +10,7 @@ Commands:
   process        Request book processing and monitor conversion status
   sync           Sync converted books from GRIN to storage (pipeline, status, catchup)
   storage        Manage storage buckets (ls, rm)
+  extract        Extract OCR text from decrypted book archives
   enrich         Enrich books with GRIN metadata
   export-csv     Export enriched data to CSV
   status         Show enrichment status
@@ -55,6 +56,9 @@ Examples:
   # Catchup sync for already-converted books
   python grin.py sync catchup --run-name harvard_2024
 
+  # Extract OCR text from decrypted archives
+  python grin.py extract /path/to/book.tar.gz --output book.json
+
   # Enrich with detailed metadata
   python grin.py enrich --run-name harvard_2024
 
@@ -76,6 +80,7 @@ For more help on each command, use: python grin.py <command> --help
     process_parser = subparsers.add_parser("process", help="Request and monitor book processing")
     sync_parser = subparsers.add_parser("sync", help="Sync converted books from GRIN to storage")
     storage_parser = subparsers.add_parser("storage", help="Manage storage buckets and data (ls, rm)")
+    extract_parser = subparsers.add_parser("extract", help="Extract OCR text from decrypted book archives")
     enrich_parser = subparsers.add_parser("enrich", help="Enrich books with GRIN metadata")
     export_parser = subparsers.add_parser("export-csv", help="Export enriched data to CSV")
     status_parser = subparsers.add_parser("status", help="Show enrichment status")
@@ -86,6 +91,7 @@ For more help on each command, use: python grin.py <command> --help
         "process": process_parser,
         "sync": sync_parser,
         "storage": storage_parser,
+        "extract": extract_parser,
         "enrich": enrich_parser,
         "export-csv": export_parser,
         "status": status_parser,
@@ -139,6 +145,13 @@ async def main():
         # Remove 'storage' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await storage_main()
+
+    elif command == "extract":
+        from grin_to_s3.extract import main as extract_main
+
+        # Remove 'extract' from args and pass the rest
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+        return extract_main()
 
     elif command == "enrich":
         from grin_to_s3.grin_enrichment import enrich_main

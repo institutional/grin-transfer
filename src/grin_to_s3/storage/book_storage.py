@@ -94,12 +94,14 @@ class BookStorage:
             await self.storage.write_file(path, archive_file_path)
         return path
 
-    async def save_text_json(self, barcode: str, pages: list[str]) -> str:
-        """Save page text as JSON array."""
-        filename = f"{barcode}.json"
+    async def save_text_jsonl(self, barcode: str, pages: list[str]) -> str:
+        """Save page text as JSONL file (one JSON string per line)."""
+        filename = f"{barcode}.jsonl"
         path = self._book_path(barcode, filename)
-        json_data = json.dumps(pages, ensure_ascii=False, indent=2)
-        await self.storage.write_text(path, json_data)
+        # Build JSONL content
+        jsonl_lines = [json.dumps(page, ensure_ascii=False) for page in pages]
+        jsonl_data = "\n".join(jsonl_lines) + "\n" if jsonl_lines else ""
+        await self.storage.write_text(path, jsonl_data)
         return path
 
     async def save_timestamp(self, barcode: str, suffix: str = "retrieval") -> str:

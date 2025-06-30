@@ -88,7 +88,7 @@ async def test_book_storage():
 
         # Test JSON text storage
         pages = ["Page 1 text", "Page 2 text", "Page 3 text"]
-        json_path = await book_storage.save_text_json(barcode, pages)
+        json_path = await book_storage.save_text_jsonl(barcode, pages)
         print(f"✅ Saved JSON: {json_path}")
 
         # Verify JSON content
