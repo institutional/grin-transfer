@@ -124,7 +124,38 @@ python grin.py storage rm full --run-name harvard_2024 --dry-run
 - `ls`: List contents of all storage buckets with file counts and sizes
 - `rm`: Remove all contents from specified bucket (raw, meta, or full)
 
-### 5. GRIN Enrichment: `grin.py enrich/export-csv/status`
+### 5. Text Extraction: `grin.py extract`
+
+Extract OCR text from decrypted book archives and output as JSON arrays.
+
+```bash
+# Extract text and print to stdout (formatted JSON)
+python grin.py extract /path/to/book.tar.gz
+
+# Extract text and save to JSON file
+python grin.py extract /path/to/book.tar.gz --output /path/to/output.json
+
+# Extract text and save to JSON file (compact format)
+python grin.py extract /path/to/book.tar.gz --output /path/to/output.json --compact
+
+# Extract multiple archives to directory
+python grin.py extract /path/to/books/*.tar.gz --output-dir /path/to/json_files/
+
+# Use disk-based extraction for better parallel processing
+python grin.py extract /path/to/book.tar.gz --use-disk --extraction-dir /tmp/grin_work --keep-extracted
+```
+
+**Extraction options:**
+- `--output`: Save to specific JSON file path (default: print to stdout)
+- `--output-dir`: Save multiple files to directory (creates BARCODE.json for each archive)
+- `--compact`: Use compact JSON format (single line, no indentation)
+- `--use-disk`: Extract to disk instead of memory (better for parallel processing)
+- `--extraction-dir`: Directory for disk extraction (creates BARCODE/ subdirectories, only with --use-disk)
+- `--keep-extracted`: Keep extracted files after processing (only with --use-disk)
+- `--verbose`: Enable detailed progress output
+- `--summary`: Show extraction statistics
+
+### 6. GRIN Enrichment: `grin.py enrich/export-csv/status`
 
 Add detailed GRIN metadata to collected books and export to CSV.
 
@@ -213,7 +244,12 @@ Configuration is stored in `output/{run_name}/run_config.json` and includes stor
    python grin.py sync pipeline --run-name collection_2024
    ```
 
-5. **Enrich with metadata** and export:
+5. **Extract OCR text** from downloaded archives (optional):
+   ```bash
+   python grin.py extract output/collection_2024/staging/*.tar.gz --output-dir output/collection_2024/text/
+   ```
+
+6. **Enrich with metadata** and export:
    ```bash
    python grin.py enrich --run-name collection_2024
    python grin.py export-csv --run-name collection_2024 --output final.csv
@@ -267,7 +303,7 @@ source ~/.zshrc
 
 **Examples:**
 ```bash
-python grin.py <TAB>                    # Shows: auth, collect, process, sync, enrich, export-csv, status
+python grin.py <TAB>                    # Shows: auth, collect, process, sync, extract, enrich, export-csv, status
 python grin.py sync <TAB>               # Shows: pipeline, status, catchup
 python grin.py process --run-name <TAB> # Shows available run names
 ```
