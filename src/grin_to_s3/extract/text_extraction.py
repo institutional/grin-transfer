@@ -11,6 +11,7 @@ import logging
 import re
 import tarfile
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -125,7 +126,7 @@ def _extract_text_from_memory(archive_path: str) -> dict[int, str]:
             try:
                 # Read file content and decode as UTF-8
                 content = file_obj.read().decode("utf-8", errors="replace")
-                page_data[page_number] = content.strip()
+                page_data[page_number] = content
                 logger.debug(f"Extracted page {page_number}: {len(content):,} characters")
             except UnicodeDecodeError:
                 logger.warning(f"Unicode decode error in {filename}, using empty string")
@@ -198,7 +199,7 @@ def _extract_text_from_disk(
 
             try:
                 with open(txt_file, encoding="utf-8", errors="replace") as f:
-                    content = f.read().strip()
+                    content = f.read()
                 page_data[page_number] = content
                 logger.debug(f"Read page {page_number}: {len(content):,} characters")
             except Exception as e:
@@ -285,29 +286,107 @@ def _build_page_array(page_data: dict[int, str]) -> list[str]:
     return result
 
 
-def extract_text_to_json_file(archive_path: str, output_path: str) -> None:
+def extract_text_to_jsonl_file(archive_path: str, output_path: str, streaming: bool = False) -> None:
     """
-    Extract text from archive and save directly to JSON file.
+    Extract text from archive and save directly to JSONL file.
 
-    Convenience function for extracting text and writing to file
-    in single-line JSON format with UTF-8 encoding.
+    Writes one JSON-encoded string per line, where each line represents
+    a page from the book. Format: "page 1 text"\n"page 2 text"\n...
 
     Args:
         archive_path: Path to decrypted tar.gz archive
-        output_path: Path where JSON file should be written
+        output_path: Path where JSONL file should be written
+        streaming: If True, use memory-efficient streaming (default: False)
 
     Raises:
         TextExtractionError: When extraction fails
     """
-    pages = extract_text_from_archive(archive_path)
-
-    # Write as single-line JSON with embedded newlines
-    json_content = json.dumps(pages, ensure_ascii=False, separators=(",", ":"))
-
     output_path_obj = Path(output_path)
     output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_path_obj, "w", encoding="utf-8") as f:
-        f.write(json_content)
+    if streaming:
+        _extract_text_to_jsonl_file_streaming(archive_path, output_path_obj)
+    else:
+        pages = extract_text_from_archive(archive_path)
+        # Write as JSONL - one JSON-encoded string per line
+        with open(output_path_obj, "w", encoding="utf-8") as f:
+            for page in pages:
+                f.write(json.dumps(page, ensure_ascii=False) + "\n")
 
-    logger.debug(f"OCR text saved to JSON file: {output_path} ({len(json_content):,} bytes)")
+        logger.debug(f"OCR text saved to JSONL file: {output_path} ({len(pages)} pages)")
+
+
+def _page_content_generator(archive_path: str) -> Iterator[tuple[int, str]]:
+    """
+    Generator that yields (page_number, content) tuples from archive.
+
+    Memory-efficient extraction that processes one page at a time.
+    """
+    with tarfile.open(archive_path, "r:gz") as tar:
+        # First pass: get all txt files and their page numbers
+        txt_members = []
+        for member in tar.getmembers():
+            if not member.isfile() or not Path(member.name).name.endswith(".txt"):
+                continue
+
+            page_num = _parse_page_number(Path(member.name).name)
+            if page_num is not None:
+                txt_members.append((member, page_num))
+
+        if not txt_members:
+            raise TextExtractionError(f"No .txt files found in archive: {archive_path}")
+
+        # Sort by page number
+        txt_members.sort(key=lambda x: x[1])
+
+        # Yield pages with gap handling
+        expected_page = 1
+
+        for member, page_num in txt_members:
+            # Yield empty strings for gaps
+            while expected_page < page_num:
+                yield (expected_page, "")
+                expected_page += 1
+
+            # Extract and yield current page
+            file_obj = tar.extractfile(member)
+            if file_obj is None:
+                content = ""
+            else:
+                try:
+                    content = file_obj.read().decode("utf-8", errors="replace")
+                except Exception as e:
+                    logger.warning(f"Error reading {member.name}: {e}")
+                    content = ""
+                finally:
+                    file_obj.close()
+
+            yield (page_num, content)
+            expected_page = page_num + 1
+
+
+def _extract_text_to_jsonl_file_streaming(archive_path: str, output_path: Path) -> None:
+    """
+    Extract text to JSONL file using streaming to minimize memory usage.
+
+    Writes one JSON-encoded string per line, processing one page at a time.
+    """
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            page_count = 0
+
+            for _page_num, content in _page_content_generator(archive_path):
+                # Write the JSON-encoded content as a single line
+                f.write(json.dumps(content, ensure_ascii=False) + "\n")
+                page_count += 1
+
+                if page_count % 100 == 0:
+                    logger.debug(f"Streaming extraction progress: {page_count} pages written")
+
+        logger.debug(f"OCR text saved to JSONL file (streaming): {output_path} ({page_count} pages)")
+
+    except Exception:
+        # Clean up partial file on error
+        if output_path.exists():
+            output_path.unlink()
+        raise

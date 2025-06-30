@@ -121,7 +121,7 @@ async def test_minio_book_storage():
     # Test JSON text storage
     pages = ["This is page 1 of the test book", "Page 2 contains more sample text", "Final page 3 with unicode: 📚📖✨"]
 
-    json_path = await book_storage.save_text_json(barcode, pages)
+    json_path = await book_storage.save_text_jsonl(barcode, pages)
     print(f"✅ JSON text saved: {json_path}")
 
     # Test timestamp

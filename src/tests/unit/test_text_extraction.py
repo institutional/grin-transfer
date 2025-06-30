@@ -17,7 +17,7 @@ from grin_to_s3.extract.text_extraction import (
     _build_page_array,
     _parse_page_number,
     extract_text_from_archive,
-    extract_text_to_json_file,
+    extract_text_to_jsonl_file,
     get_barcode_from_path,
 )
 from tests.utils import create_test_archive
@@ -144,13 +144,13 @@ class TestTextExtraction:
             pages = {
                 "00000001.txt": "Page 1 content",
                 "00000002.txt": "",  # Empty page
-                "00000003.txt": "   ",  # Whitespace only (will be stripped to empty)
+                "00000003.txt": "   ",  # Whitespace only
                 "00000004.txt": "Page 4 content"
             }
             archive_path = create_test_archive(pages, temp_path)
 
             result = extract_text_from_archive(str(archive_path))
-            assert result == ["Page 1 content", "", "", "Page 4 content"]
+            assert result == ["Page 1 content", "", "   ", "Page 4 content"]
 
     def test_extract_unicode_content(self):
         """Test extraction with Unicode characters."""
@@ -181,7 +181,7 @@ class TestTextExtraction:
             result = extract_text_from_archive(str(archive_path))
             assert result[0] == "Line 1\nLine 2\nLine 3"
             assert result[1] == "Single line"
-            assert result[2] == "Multiple newlines"  # Stripped
+            assert result[2] == "\n\nMultiple newlines\n\n"  # Whitespace preserved
 
     def test_extract_nonexistent_file(self):
         """Test extraction with nonexistent archive file."""
@@ -256,10 +256,10 @@ class TestTextExtraction:
 
 
 class TestTextExtractionToFile:
-    """Test text extraction to JSON file functionality."""
+    """Test text extraction to JSONL file functionality."""
 
-    def test_extract_to_json_file(self):
-        """Test extracting text and saving to JSON file."""
+    def test_extract_to_jsonl_file(self):
+        """Test extracting text and saving to JSONL file."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             pages = {
@@ -267,24 +267,23 @@ class TestTextExtractionToFile:
                 "00000002.txt": "Page 2 content"
             }
             archive_path = create_test_archive(pages, temp_path)
-            json_path = temp_path / "output.json"
+            jsonl_path = temp_path / "output.jsonl"
 
-            extract_text_to_json_file(str(archive_path), str(json_path))
+            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path))
 
             # Verify file was created and contains correct content
-            assert json_path.exists()
+            assert jsonl_path.exists()
 
-            with open(json_path, encoding="utf-8") as f:
-                content = f.read()
+            with open(jsonl_path, encoding="utf-8") as f:
+                lines = f.readlines()
 
-            # Should be single-line JSON
-            assert "\n" not in content
+            # Should be one JSON string per line
+            assert len(lines) == 2
+            assert json.loads(lines[0]) == "Page 1 content"
+            assert json.loads(lines[1]) == "Page 2 content"
 
-            parsed = json.loads(content)
-            assert parsed == ["Page 1 content", "Page 2 content"]
-
-    def test_extract_to_json_with_unicode(self):
-        """Test extracting Unicode text to JSON file."""
+    def test_extract_to_jsonl_with_unicode(self):
+        """Test extracting Unicode text to JSONL file."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             pages = {
@@ -293,16 +292,19 @@ class TestTextExtractionToFile:
                 "00000003.txt": "中文"
             }
             archive_path = create_test_archive(pages, temp_path)
-            json_path = temp_path / "unicode.json"
+            jsonl_path = temp_path / "unicode.jsonl"
 
-            extract_text_to_json_file(str(archive_path), str(json_path))
+            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path))
 
-            with open(json_path, encoding="utf-8") as f:
-                parsed = json.load(f)
+            with open(jsonl_path, encoding="utf-8") as f:
+                lines = f.readlines()
 
-            assert parsed == ["English", "Français", "中文"]
+            assert len(lines) == 3
+            assert json.loads(lines[0]) == "English"
+            assert json.loads(lines[1]) == "Français"
+            assert json.loads(lines[2]) == "中文"
 
-    def test_extract_to_json_creates_directories(self):
+    def test_extract_to_jsonl_creates_directories(self):
         """Test that extraction creates parent directories."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -310,14 +312,177 @@ class TestTextExtractionToFile:
             archive_path = create_test_archive(pages, temp_path)
 
             # Create nested path that doesn't exist
-            json_path = temp_path / "nested" / "deep" / "output.json"
+            jsonl_path = temp_path / "nested" / "deep" / "output.jsonl"
 
-            extract_text_to_json_file(str(archive_path), str(json_path))
+            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path))
 
-            assert json_path.exists()
-            with open(json_path, encoding="utf-8") as f:
-                parsed = json.load(f)
-            assert parsed == ["Test content"]
+            assert jsonl_path.exists()
+            with open(jsonl_path, encoding="utf-8") as f:
+                lines = f.readlines()
+            assert len(lines) == 1
+            assert json.loads(lines[0]) == "Test content"
+
+    def test_extract_to_jsonl_streaming(self):
+        """Test streaming extraction mode."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pages = {
+                "00000001.txt": "Page 1",
+                "00000002.txt": "Page 2",
+                "00000003.txt": "Page 3"
+            }
+            archive_path = create_test_archive(pages, temp_path)
+            jsonl_path = temp_path / "output_streaming.jsonl"
+
+            # Use streaming mode
+            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), streaming=True)
+
+            assert jsonl_path.exists()
+            with open(jsonl_path, encoding="utf-8") as f:
+                lines = f.readlines()
+            assert len(lines) == 3
+            assert json.loads(lines[0]) == "Page 1"
+            assert json.loads(lines[1]) == "Page 2"
+            assert json.loads(lines[2]) == "Page 3"
+
+    def test_extract_to_jsonl_streaming_with_gaps(self):
+        """Test streaming extraction with missing pages."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pages = {
+                "00000001.txt": "Page 1",
+                "00000003.txt": "Page 3",
+                "00000005.txt": "Page 5"
+            }
+            archive_path = create_test_archive(pages, temp_path)
+            jsonl_path = temp_path / "output_gaps.jsonl"
+
+            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), streaming=True)
+
+            with open(jsonl_path, encoding="utf-8") as f:
+                lines = f.readlines()
+            assert len(lines) == 5
+            assert json.loads(lines[0]) == "Page 1"
+            assert json.loads(lines[1]) == ""
+            assert json.loads(lines[2]) == "Page 3"
+            assert json.loads(lines[3]) == ""
+            assert json.loads(lines[4]) == "Page 5"
+
+    def test_extract_to_jsonl_with_newlines_and_quotes(self):
+        """Test that newlines and quotes are properly JSON-escaped in JSONL."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pages = {
+                "00000001.txt": "This has\na newline",
+                "00000002.txt": 'This has "quotes" in it',
+                "00000003.txt": 'Both\nnewline and "quotes"'
+            }
+            archive_path = create_test_archive(pages, temp_path)
+            jsonl_path = temp_path / "special_chars.jsonl"
+
+            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path))
+
+            with open(jsonl_path, encoding="utf-8") as f:
+                lines = f.readlines()
+
+            assert len(lines) == 3
+            # JSON escaping should handle newlines and quotes properly
+            assert json.loads(lines[0]) == "This has\na newline"
+            assert json.loads(lines[1]) == 'This has "quotes" in it'
+            assert json.loads(lines[2]) == 'Both\nnewline and "quotes"'
+
+    def test_jsonl_format_line_by_line_parsing(self):
+        """Test that JSONL output can be parsed line-by-line as a stream."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pages = {
+                "00000001.txt": "Simple text",
+                "00000002.txt": "Text with\nmultiple\nnewlines",
+                "00000003.txt": 'Text with "quotes" and \'single quotes\'',
+                "00000004.txt": "Text with \\backslashes\\ and /forward/slashes/",
+                "00000005.txt": "Text with\ttabs\tand\rcarriage\rreturns",
+                "00000006.txt": "Text with unicode: \u2022 bullet • and emoji 🎉",
+                "00000007.txt": "Text with\x00null\x00bytes",  # null bytes should be handled
+                "00000008.txt": "",  # empty page
+                "00000009.txt": "   \n\t  ",  # whitespace only
+                "00000010.txt": "Very long line " + "x" * 10000,  # long content
+                "00000011.txt": "Text with    multiple    spaces    between    words",
+                "00000012.txt": "Text\nwith\n\nblank\n\n\nlines",
+                "00000013.txt": "  Leading whitespace",
+                "00000014.txt": "Trailing whitespace  ",
+                "00000015.txt": "  Both leading and trailing  ",
+            }
+            archive_path = create_test_archive(pages, temp_path)
+            jsonl_path = temp_path / "comprehensive.jsonl"
+
+            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path))
+
+            # Parse line by line as a stream would
+            parsed_pages = []
+            with open(jsonl_path, encoding="utf-8") as f:
+                for line_num, line in enumerate(f, 1):
+                    try:
+                        # Each line should be valid JSON
+                        parsed = json.loads(line.rstrip("\n"))
+                        parsed_pages.append(parsed)
+                    except json.JSONDecodeError as e:
+                        pytest.fail(f"Line {line_num} is not valid JSON: {e}")
+
+            # Verify all content was preserved correctly
+            assert len(parsed_pages) == 15
+            assert parsed_pages[0] == "Simple text"
+            assert parsed_pages[1] == "Text with\nmultiple\nnewlines"
+            assert parsed_pages[2] == 'Text with "quotes" and \'single quotes\''
+            assert parsed_pages[3] == "Text with \\backslashes\\ and /forward/slashes/"
+            assert parsed_pages[4] == "Text with\ttabs\tand\rcarriage\rreturns"
+            assert parsed_pages[5] == "Text with unicode: • bullet • and emoji 🎉"
+            assert parsed_pages[6] == "Text with\x00null\x00bytes"
+            assert parsed_pages[7] == ""
+            assert parsed_pages[8] == "   \n\t  "  # whitespace is preserved
+            assert parsed_pages[9].startswith("Very long line ")
+            assert len(parsed_pages[9]) > 10000
+            assert parsed_pages[10] == "Text with    multiple    spaces    between    words"
+            assert parsed_pages[11] == "Text\nwith\n\nblank\n\n\nlines"
+            assert parsed_pages[12] == "  Leading whitespace"
+            assert parsed_pages[13] == "Trailing whitespace  "
+            assert parsed_pages[14] == "  Both leading and trailing  "
+
+    def test_jsonl_format_edge_cases_streaming(self):
+        """Test JSONL edge cases with streaming mode."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            # Test edge cases that might break JSON encoding
+            pages = {
+                "00000001.txt": '{"}\': [],',  # JSON-like content
+                "00000002.txt": "Line 1\nLine 2\nLine 3\nLine 4\nLine 5",  # Multiple lines
+                "00000003.txt": '"\\n\\r\\t\\b\\f\\"',  # Escaped special chars
+                "00000004.txt": "\u0000\u0001\u0002\u0003\u0004",  # Control characters
+                "00000005.txt": "🎨🎭🎪🎯🎲🎰🎮🎸🎺🎻",  # Only emojis
+            }
+            archive_path = create_test_archive(pages, temp_path)
+            jsonl_path = temp_path / "edge_cases.jsonl"
+
+            # Test with streaming mode too
+            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), streaming=True)
+
+            # Verify each line is independently parseable
+            with open(jsonl_path, encoding="utf-8") as f:
+                lines = f.readlines()
+
+            assert len(lines) == 5
+
+            # Each line should parse correctly
+            assert json.loads(lines[0]) == '{"}\': [],'
+            assert json.loads(lines[1]) == "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"
+            assert json.loads(lines[2]) == '"\\n\\r\\t\\b\\f\\"'
+            assert json.loads(lines[3]) == "\u0000\u0001\u0002\u0003\u0004"
+            assert json.loads(lines[4]) == "🎨🎭🎪🎯🎲🎰🎮🎸🎺🎻"
+
+            # Also verify the file can be read as a JSONL stream
+            with open(jsonl_path, encoding="utf-8") as f:
+                for i, line in enumerate(f):
+                    parsed = json.loads(line)
+                    assert isinstance(parsed, str), f"Line {i+1} should parse to a string"
 
 
 class TestErrorHandling:

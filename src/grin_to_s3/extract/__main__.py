@@ -17,6 +17,7 @@ from .text_extraction import (
     InvalidPageFormatError,
     TextExtractionError,
     extract_text_from_archive,
+    extract_text_to_jsonl_file,
     get_barcode_from_path,
 )
 
@@ -30,17 +31,14 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Extract text and print to stdout (formatted JSON)
+  # Extract text and print to stdout (JSONL format)
   python grin.py extract /path/to/book.tar.gz
 
-  # Extract text and save to JSON file
-  python grin.py extract /path/to/book.tar.gz --output /path/to/output.json
-
-  # Extract text and save to JSON file (compact format)
-  python grin.py extract /path/to/book.tar.gz --output /path/to/output.json --compact
+  # Extract text and save to JSONL file
+  python grin.py extract /path/to/book.tar.gz --output /path/to/output.jsonl
 
   # Extract multiple archives
-  python grin.py extract /path/to/books/*.tar.gz --output-dir /path/to/json_files/
+  python grin.py extract /path/to/books/*.tar.gz --output-dir /path/to/jsonl_files/
         """,
     )
 
@@ -53,20 +51,15 @@ Examples:
     parser.add_argument(
         "-o", "--output",
         type=str,
-        help="Output JSON file path (default: print to stdout)",
+        help="Output JSONL file path (default: print to stdout)",
     )
 
     parser.add_argument(
         "--output-dir",
         type=str,
-        help="Output directory for multiple files (creates BARCODE.json for each archive)",
+        help="Output directory for multiple files (creates BARCODE.jsonl for each archive)",
     )
 
-    parser.add_argument(
-        "--compact",
-        action="store_true",
-        help="Use compact JSON format (single line, no indentation)",
-    )
 
     parser.add_argument(
         "--verbose", "-v",
@@ -98,17 +91,23 @@ Examples:
         help="Extract to disk instead of memory (better for parallel processing)",
     )
 
+    parser.add_argument(
+        "--no-streaming",
+        action="store_true",
+        help="Disable streaming mode for JSONL output (loads all pages into memory)",
+    )
+
     return parser
 
 
 def extract_single_archive(
     archive_path: str,
     output_path: str | None = None,
-    compact: bool = False,
     verbose: bool = False,
     extraction_dir: str | None = None,
     keep_extracted: bool = False,
-    use_memory: bool = True
+    use_memory: bool = True,
+    streaming: bool = False
 ) -> dict:
     """Extract text from single archive and return stats."""
     if verbose:
@@ -116,24 +115,32 @@ def extract_single_archive(
 
     try:
         if output_path:
-            # Extract text first
-            pages = extract_text_from_archive(
-                archive_path,
-                extraction_dir=extraction_dir,
-                keep_extracted=keep_extracted,
-                use_memory=use_memory
-            )
+            if streaming:
+                # Use memory-efficient streaming mode
+                extract_text_to_jsonl_file(archive_path, output_path, streaming=True)
+                if verbose:
+                    print(f"  ✓ Saved to: {output_path} (streaming mode)")
+                # For stats, we need to count pages (streaming doesn't return them)
+                pages = []  # Empty for stats calculation
+            else:
+                # Extract text first
+                pages = extract_text_from_archive(
+                    archive_path,
+                    extraction_dir=extraction_dir,
+                    keep_extracted=keep_extracted,
+                    use_memory=use_memory
+                )
 
-            # Save to JSON file
-            json_content = json.dumps(pages, ensure_ascii=False, separators=(",", ":"))
-            output_path_obj = Path(output_path)
-            output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+                # Save to JSONL file
+                output_path_obj = Path(output_path)
+                output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(output_path_obj, "w", encoding="utf-8") as f:
-                f.write(json_content)
+                with open(output_path_obj, "w", encoding="utf-8") as f:
+                    for page in pages:
+                        f.write(json.dumps(page, ensure_ascii=False) + "\n")
 
-            if verbose:
-                print(f"  ✓ Saved to: {output_path}")
+                if verbose:
+                    print(f"  ✓ Saved to: {output_path}")
 
         else:
             # Extract text (memory or disk based)
@@ -144,12 +151,9 @@ def extract_single_archive(
                 use_memory=use_memory
             )
 
-            # Print to stdout
-            if compact:
-                json_output = json.dumps(pages, ensure_ascii=False, separators=(",", ":"))
-            else:
-                json_output = json.dumps(pages, ensure_ascii=False, indent=2)
-            print(json_output)
+            # Print to stdout in JSONL format
+            for page in pages:
+                print(json.dumps(page, ensure_ascii=False))
 
         # Calculate stats
         total_chars = sum(len(page) for page in pages)
@@ -227,17 +231,17 @@ def main() -> int:
             output_dir = Path(args.output_dir)
             output_dir.mkdir(parents=True, exist_ok=True)
             barcode = get_barcode_from_path(archive_path)
-            output_path = str(output_dir / f"{barcode}.json")
+            output_path = str(output_dir / f"{barcode}.jsonl")
 
         # Extract from archive
         result = extract_single_archive(
             archive_path=archive_path,
             output_path=output_path,
-            compact=args.compact,
             verbose=args.verbose,
             extraction_dir=args.extraction_dir,
             keep_extracted=args.keep_extracted,
-            use_memory=not args.use_disk
+            use_memory=not args.use_disk,
+            streaming=not args.no_streaming  # Default to streaming
         )
         results.append(result)
 
