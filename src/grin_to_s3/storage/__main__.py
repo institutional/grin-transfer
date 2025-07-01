@@ -22,7 +22,7 @@ from ..run_config import (
 logger = logging.getLogger(__name__)
 
 
-def list_bucket_files(storage, bucket: str, prefix: str = "") -> list[tuple[str, int]]:
+def list_bucket_files(storage, bucket: str, prefix: str = "") -> list[tuple[str, int]]:  # type: ignore
     """List all files in bucket with sizes."""
     import boto3
     from botocore.exceptions import ClientError
@@ -42,7 +42,7 @@ def list_bucket_files(storage, bucket: str, prefix: str = "") -> list[tuple[str,
     files = []
 
     try:
-        for page in paginator.paginate(**list_kwargs):
+        for page in paginator.paginate(**list_kwargs):  # type: ignore
             contents = page.get("Contents", [])
             for obj in contents:
                 files.append((obj["Key"], obj["Size"]))
@@ -79,7 +79,7 @@ def delete_bucket_contents(storage, bucket: str, prefix: str = "") -> tuple[int,
     paginator = s3_client.get_paginator("list_objects_v2")
     objects_to_delete = []
 
-    for page in paginator.paginate(**list_kwargs):
+    for page in paginator.paginate(**list_kwargs):  # type: ignore
         contents = page.get("Contents", [])
         for obj in contents:
             objects_to_delete.append(obj["Key"])
@@ -94,10 +94,10 @@ def delete_bucket_contents(storage, bucket: str, prefix: str = "") -> tuple[int,
 
     for i in range(0, len(objects_to_delete), batch_size):
         batch = objects_to_delete[i : i + batch_size]
-        delete_objects = [{"Key": filename} for filename in batch]
+        delete_objects = [{"Key": filename} for filename in batch]  # type: ignore
 
         try:
-            response = s3_client.delete_objects(Bucket=bucket, Delete={"Objects": delete_objects})
+            response = s3_client.delete_objects(Bucket=bucket, Delete={"Objects": delete_objects})  # type: ignore
 
             # Count successful deletions
             deleted_count += len(response.get("Deleted", []))

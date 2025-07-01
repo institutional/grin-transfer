@@ -16,71 +16,85 @@ from grin_to_s3.storage.factories import (
 )
 
 
+def create_test_bucket_config():
+    """Helper to create test bucket configuration."""
+    return {
+        "bucket_raw": "test-raw",
+        "bucket_meta": "test-meta",
+        "bucket_full": "test-full"
+    }
+
+
 class TestBookStorageFullText:
     """Test BookStorage with full-text storage functionality."""
 
-    def test_init_with_full_text_storage(self):
-        """Test BookStorage initialization with full-text storage."""
+    def test_init_with_bucket_config(self):
+        """Test BookStorage initialization with bucket configuration."""
         mock_storage = MagicMock()
-        mock_full_text_storage = MagicMock()
+        bucket_config = create_test_bucket_config()
 
         book_storage = BookStorage(
             storage=mock_storage,
-            base_prefix="test-prefix",
-            full_text_storage=mock_full_text_storage
+            bucket_config=bucket_config,
+            base_prefix="test-prefix"
         )
 
         assert book_storage.storage == mock_storage
-        assert book_storage.full_text_storage == mock_full_text_storage
+        assert book_storage.bucket_raw == "test-raw"
+        assert book_storage.bucket_meta == "test-meta"
+        assert book_storage.bucket_full == "test-full"
         assert book_storage.base_prefix == "test-prefix"
 
-    def test_init_without_full_text_storage(self):
-        """Test BookStorage initialization without full-text storage."""
+    def test_init_minimal_config(self):
+        """Test BookStorage initialization with minimal configuration."""
         mock_storage = MagicMock()
+        bucket_config = create_test_bucket_config()
 
-        book_storage = BookStorage(storage=mock_storage)
+        book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config)
 
         assert book_storage.storage == mock_storage
-        assert book_storage.full_text_storage is None
+        assert book_storage.bucket_raw == "test-raw"
+        assert book_storage.bucket_meta == "test-meta"
+        assert book_storage.bucket_full == "test-full"
         assert book_storage.base_prefix == ""
 
     def test_full_text_path_with_prefix(self):
         """Test _full_text_path method with base prefix."""
         mock_storage = MagicMock()
-        mock_full_text_storage = MagicMock()
+        bucket_config = create_test_bucket_config()
 
         book_storage = BookStorage(
             storage=mock_storage,
-            base_prefix="test-prefix",
-            full_text_storage=mock_full_text_storage
+            bucket_config=bucket_config,
+            base_prefix="test-prefix"
         )
 
         path = book_storage._full_text_path("12345", "test.jsonl")
-        assert path == "test-prefix/test.jsonl"
+        assert path == "test-full/test-prefix/test.jsonl"
 
     def test_full_text_path_without_prefix(self):
         """Test _full_text_path method without base prefix."""
         mock_storage = MagicMock()
-        mock_full_text_storage = MagicMock()
+        bucket_config = create_test_bucket_config()
 
         book_storage = BookStorage(
             storage=mock_storage,
-            full_text_storage=mock_full_text_storage
+            bucket_config=bucket_config
         )
 
         path = book_storage._full_text_path("12345", "test.jsonl")
-        assert path == "test.jsonl"
+        assert path == "test-full/test.jsonl"
 
     @pytest.mark.asyncio
     async def test_save_ocr_text_jsonl_from_file_success(self):
         """Test successful OCR text JSONL file upload."""
         mock_storage = MagicMock()
-        mock_full_text_storage = AsyncMock()
-        mock_full_text_storage.is_s3_compatible = MagicMock(return_value=False)
+        mock_storage = AsyncMock()
+        mock_storage.is_s3_compatible = MagicMock(return_value=False)
 
         book_storage = BookStorage(
             storage=mock_storage,
-            full_text_storage=mock_full_text_storage
+            bucket_config=create_test_bucket_config()
         )
 
         jsonl_file_path = "/path/to/12345.jsonl"
@@ -88,23 +102,23 @@ class TestBookStorageFullText:
         result = await book_storage.save_ocr_text_jsonl_from_file("12345", jsonl_file_path)
 
         # Verify correct path generated
-        assert result == "12345.jsonl"
+        assert result == "test-full/12345.jsonl"
 
         # Verify write_file called with correct file path
-        mock_full_text_storage.write_file.assert_called_once_with(
-            "12345.jsonl", jsonl_file_path
+        mock_storage.write_file.assert_called_once_with(
+            "test-full/12345.jsonl", jsonl_file_path
         )
 
     @pytest.mark.asyncio
     async def test_save_ocr_text_jsonl_from_file_with_metadata(self):
         """Test OCR text JSONL file upload with metadata on S3-compatible storage."""
         mock_storage = MagicMock()
-        mock_full_text_storage = AsyncMock()
-        mock_full_text_storage.is_s3_compatible = MagicMock(return_value=True)
+        mock_storage = AsyncMock()
+        mock_storage.is_s3_compatible = MagicMock(return_value=True)
 
         book_storage = BookStorage(
             storage=mock_storage,
-            full_text_storage=mock_full_text_storage
+            bucket_config=create_test_bucket_config()
         )
 
         jsonl_file_path = "/path/to/12345.jsonl"
@@ -119,12 +133,12 @@ class TestBookStorageFullText:
             result = await book_storage.save_ocr_text_jsonl_from_file("12345", jsonl_file_path, metadata)
 
         # Verify correct path generated
-        assert result == "12345.jsonl"
+        assert result == "test-full/12345.jsonl"
 
         # Verify write_bytes_with_metadata called
         expected_bytes = b'"Page 1 content"\n"Page 2 content"\n'
-        mock_full_text_storage.write_bytes_with_metadata.assert_called_once_with(
-            "12345.jsonl", expected_bytes, metadata
+        mock_storage.write_bytes_with_metadata.assert_called_once_with(
+            "test-full/12345.jsonl", expected_bytes, metadata
         )
 
     @pytest.mark.asyncio
@@ -132,12 +146,9 @@ class TestBookStorageFullText:
         """Test OCR text JSONL upload fails when full-text storage not configured."""
         mock_storage = MagicMock()
 
-        book_storage = BookStorage(storage=mock_storage)  # No full_text_storage
-
-        jsonl_file_path = "/path/to/12345.jsonl"
-
-        with pytest.raises(ValueError, match="Full-text storage not configured"):
-            await book_storage.save_ocr_text_jsonl_from_file("12345", jsonl_file_path)
+        # This should fail because BookStorage requires bucket_config
+        with pytest.raises(TypeError):
+            BookStorage(storage=mock_storage)  # Missing bucket_config
 
 
 class TestStorageFactories:

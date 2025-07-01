@@ -83,15 +83,16 @@ class TestLocalStorageDirectWrite:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = create_storage_from_config("local", {"base_path": temp_dir})
-            book_storage = BookStorage(storage, base_prefix="")
+            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+            book_storage = BookStorage(storage, bucket_config, base_prefix="")
 
             # Test path generation
             barcode = "TEST123"
-            encrypted_path = book_storage._book_path(barcode, f"{barcode}.tar.gz.gpg")
-            decrypted_path = book_storage._book_path(barcode, f"{barcode}.tar.gz")
+            encrypted_path = book_storage._raw_archive_path(barcode, f"{barcode}.tar.gz.gpg")
+            decrypted_path = book_storage._raw_archive_path(barcode, f"{barcode}.tar.gz")
 
-            assert encrypted_path == f"{barcode}/{barcode}.tar.gz.gpg"
-            assert decrypted_path == f"{barcode}/{barcode}.tar.gz"
+            assert encrypted_path == f"raw/{barcode}/{barcode}.tar.gz.gpg"
+            assert decrypted_path == f"raw/{barcode}/{barcode}.tar.gz"
 
     @pytest.mark.asyncio
     async def test_local_storage_file_operations(self):
@@ -100,7 +101,8 @@ class TestLocalStorageDirectWrite:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = create_storage_from_config("local", {"base_path": temp_dir})
-            book_storage = BookStorage(storage, base_prefix="")
+            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+            book_storage = BookStorage(storage, bucket_config, base_prefix="")
 
             # Test saving archive
             barcode = "TEST456"
@@ -193,7 +195,8 @@ class TestLocalStorageErrorHandling:
 
             try:
                 storage = create_storage_from_config("local", {"base_path": str(readonly_dir)})
-                book_storage = BookStorage(storage, base_prefix="")
+                bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+                book_storage = BookStorage(storage, bucket_config, base_prefix="")
 
                 # Should fail with permission error
                 with pytest.raises((PermissionError, OSError)):
