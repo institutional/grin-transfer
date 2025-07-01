@@ -80,8 +80,8 @@ class TestExtractionWithTracking:
         # Run extraction with tracking
         result = extract_text_from_archive(
             test_archive_with_content,
-            db_path=temp_db_tracker.db_path,
-            session_id=session_id,
+            temp_db_tracker.db_path,
+            session_id,
         )
 
         # Verify extraction results
@@ -142,8 +142,8 @@ class TestExtractionWithTracking:
             page_count = extract_text_to_jsonl_file(
                 test_archive_with_content,
                 output_path,
-                db_path=temp_db_tracker.db_path,
-                session_id=session_id,
+                temp_db_tracker.db_path,
+                session_id,
             )
 
             # Verify extraction results
@@ -206,8 +206,8 @@ class TestExtractionWithTracking:
         with pytest.raises(TextExtractionError):
             extract_text_from_archive(
                 nonexistent_path,
-                db_path=temp_db_tracker.db_path,
-                session_id=session_id,
+                temp_db_tracker.db_path,
+                session_id,
             )
 
         # Allow time for async tasks
@@ -231,19 +231,6 @@ class TestExtractionWithTracking:
         assert metadata["partial_page_count"] == 0
         assert metadata["extraction_method"] in ["memory", "disk"]
 
-    @pytest.mark.asyncio
-    async def test_tracking_resilience_to_db_failures(self, test_archive_with_content):
-        """Test that extraction continues even when database tracking fails."""
-        # Extraction should still work despite tracking failures
-        result = extract_text_from_archive(
-            test_archive_with_content,
-            db_path="/invalid/path/that/cannot/be/created.db",
-            session_id="test_session",
-        )
-
-        # Verify extraction succeeded despite tracking failure
-        assert len(result) == 6
-        assert result[0] == "Chapter 1: Introduction\n\nThis is the first page of the book."
 
 
 class TestQueryFunctionsIntegration:
@@ -399,8 +386,8 @@ class TestSessionTracking:
         # Extract with different session IDs
         extract_text_from_archive(
             test_archive_with_content,
-            db_path=temp_db_tracker.db_path,
-            session_id=session1,
+            temp_db_tracker.db_path,
+            session1,
         )
 
         # Add another book manually for session2
