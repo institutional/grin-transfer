@@ -21,7 +21,7 @@ from .text_extraction import (
     CorruptedArchiveError,
     InvalidPageFormatError,
     TextExtractionError,
-    extract_text_to_jsonl_file,
+    extract_ocr_pages,
     get_barcode_from_path,
 )
 
@@ -140,7 +140,7 @@ async def extract_single_archive(
     try:
         if output_path:
             # File output: write directly to specified path
-            page_count = extract_text_to_jsonl_file(archive_path, output_path, db_path, session_id)
+            page_count = extract_ocr_pages(archive_path, db_path, session_id, output_file=output_path)
             print(f"  ✓ Saved to: {output_path}")
         else:
             # Bucket output: write to staging file, upload, then cleanup
@@ -155,7 +155,7 @@ async def extract_single_archive(
                 temp_path = temp_file.name
 
             try:
-                page_count = extract_text_to_jsonl_file(archive_path, temp_path, db_path, session_id)
+                page_count = extract_ocr_pages(archive_path, db_path, session_id, output_file=temp_path)
                 await write_to_bucket(book_storage, barcode, temp_path, verbose)
             finally:
                 # Clean up temp file

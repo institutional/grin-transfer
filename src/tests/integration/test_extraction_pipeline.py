@@ -16,8 +16,7 @@ import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.extract.text_extraction import (
-    extract_text_from_archive,
-    extract_text_to_jsonl_file,
+    extract_ocr_pages,
 )
 from grin_to_s3.extract.tracking import (
     TEXT_EXTRACTION_STATUS_TYPE,
@@ -78,7 +77,7 @@ class TestExtractionWithTracking:
         session_id = "test_session_123"
 
         # Run extraction with tracking
-        result = extract_text_from_archive(
+        result = extract_ocr_pages(
             test_archive_with_content,
             temp_db_tracker.db_path,
             session_id,
@@ -139,11 +138,11 @@ class TestExtractionWithTracking:
 
         try:
             # Run JSONL extraction with tracking
-            page_count = extract_text_to_jsonl_file(
+            page_count = extract_ocr_pages(
                 test_archive_with_content,
-                output_path,
                 temp_db_tracker.db_path,
                 session_id,
+                output_file=output_path,
             )
 
             # Verify extraction results
@@ -204,7 +203,7 @@ class TestExtractionWithTracking:
         # Try to extract from nonexistent file
         from grin_to_s3.extract.text_extraction import TextExtractionError
         with pytest.raises(TextExtractionError):
-            extract_text_from_archive(
+            extract_ocr_pages(
                 nonexistent_path,
                 temp_db_tracker.db_path,
                 session_id,
@@ -242,10 +241,10 @@ class TestQueryFunctionsIntegration:
         # Perform several extractions with different outcomes
 
         # Successful extraction
-        extract_text_from_archive(
+        extract_ocr_pages(
             test_archive_with_content,
-            db_path=temp_db_tracker.db_path,
-            session_id="session1",
+            temp_db_tracker.db_path,
+            "session1",
         )
 
         # Another successful extraction (different barcode)
@@ -384,7 +383,7 @@ class TestSessionTracking:
         session2 = "batch_session_2"
 
         # Extract with different session IDs
-        extract_text_from_archive(
+        extract_ocr_pages(
             test_archive_with_content,
             temp_db_tracker.db_path,
             session1,

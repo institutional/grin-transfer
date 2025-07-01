@@ -40,16 +40,17 @@ class InvalidPageFormatError(TextExtractionError):
     pass
 
 
-def extract_text_from_archive(
+def extract_ocr_pages(
     archive_path: str,
     db_path: str,
     session_id: str,
+    output_file: str | None = None,
     extraction_dir: str | None = None,
     keep_extracted: bool = False,
     extract_to_disk: bool = True,
-) -> list[str]:
+) -> list[str] | int:
     """
-    Extract OCR text from decrypted tar.gz archive and return as JSON array.
+    Extract OCR page texts from decrypted tar.gz archive.
 
     Processes sequential page files (00000001.txt, 00000002.txt, etc.) from
     Google Books archives, sorts by page number, and handles missing pages
@@ -59,6 +60,8 @@ def extract_text_from_archive(
         archive_path: Path to decrypted tar.gz archive
         db_path: Path to SQLite database for tracking extraction status
         session_id: Session ID for grouping related operations
+        output_file: If provided, writes pages to JSONL file and returns page count.
+                    If None, returns list of page texts in memory.
         extraction_dir: Directory to extract archive to. If None and extract_to_disk=True,
                        uses temporary directory. Ignored if extract_to_disk=False.
         keep_extracted: Whether to keep extracted files after processing.
@@ -67,7 +70,8 @@ def extract_text_from_archive(
                         If False, extract files directly in memory.
 
     Returns:
-        List of strings where index corresponds to page number (0-indexed)
+        If output_file is None: List of strings where index corresponds to page number (0-indexed)
+        If output_file is provided: Number of pages written to JSONL file
         Missing pages are represented as empty strings
 
     Raises:
@@ -100,25 +104,48 @@ def extract_text_from_archive(
     logger.debug(f"Starting OCR text extraction from {archive_path} (extract_to_disk={extract_to_disk})")
 
     try:
-        if extract_to_disk:
-            page_data = _extract_text_from_disk(archive_path, extraction_dir, keep_extracted)
+        if output_file is not None:
+            # Stream to JSONL file
+            output_path_obj = Path(output_file)
+            output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+            page_count = _extract_text_to_jsonl_file_streaming(archive_path, output_path_obj)
+            
+            # Track completion
+            extraction_time_ms = int((time.time() - start_time) * 1000)
+            file_size = Path(output_file).stat().st_size
+            track_completion(
+                db_path,
+                barcode,
+                page_count,
+                extraction_time_ms,
+                ExtractionMethod.STREAMING,
+                session_id,
+                file_size,
+                str(output_file),
+            )
+            
+            return page_count
         else:
-            page_data = _extract_text_from_memory(archive_path)
+            # Return in-memory list
+            if extract_to_disk:
+                page_data = _extract_text_from_disk(archive_path, extraction_dir, keep_extracted)
+            else:
+                page_data = _extract_text_from_memory(archive_path)
 
-        # Build final page array with proper indexing
-        result = _build_page_array(page_data)
+            # Build final page array with proper indexing
+            result = _build_page_array(page_data)
 
-        # Track completion
-        extraction_time_ms = int((time.time() - start_time) * 1000)
-        track_completion(db_path, barcode, len(result), extraction_time_ms, method, session_id)
+            # Track completion
+            extraction_time_ms = int((time.time() - start_time) * 1000)
+            track_completion(db_path, barcode, len(result), extraction_time_ms, method, session_id)
 
-        return result
+            return result
 
     except tarfile.TarError as e:
         track_failure(db_path, barcode, e, method, session_id)
         raise CorruptedArchiveError(f"Failed to open tar.gz archive: {e}") from e
     except Exception as e:
-        track_failure(db_path, barcode, e, method, session_id)
+        track_failure(db_path, barcode, e, method if output_file is None else ExtractionMethod.STREAMING, session_id)
         if isinstance(e, TextExtractionError):
             raise
         raise TextExtractionError(f"Unexpected error during extraction: {e}") from e
@@ -313,61 +340,6 @@ def _build_page_array(page_data: dict[int, str]) -> list[str]:
     return result
 
 
-def extract_text_to_jsonl_file(
-    archive_path: str, output_path: str, db_path: str, session_id: str
-) -> int:
-    """
-    Extract text from archive and save directly to JSONL file.
-
-    Uses memory-efficient generator approach, reading one page at a time
-    and writing each page as a JSON-encoded string per line.
-    Format: "page 1 text"\n"page 2 text"\n...
-
-    Args:
-        archive_path: Path to decrypted tar.gz archive
-        output_path: Path where JSONL file should be written
-        db_path: Path to SQLite database for tracking extraction status
-        session_id: Session ID for grouping related operations
-
-    Returns:
-        Number of pages processed
-
-    Raises:
-        TextExtractionError: When extraction fails
-    """
-    output_path_obj = Path(output_path)
-    output_path_obj.parent.mkdir(parents=True, exist_ok=True)
-
-    # Set up tracking variables for database operations
-    from .tracking import ExtractionMethod, track_completion, track_failure, track_start
-    
-    barcode = get_barcode_from_path(archive_path)
-    
-    # Track extraction start
-    track_start(db_path, barcode, session_id)
-    start_time = time.time()
-
-    try:
-        page_count = _extract_text_to_jsonl_file_streaming(archive_path, output_path_obj)
-
-        # Track completion
-        extraction_time_ms = int((time.time() - start_time) * 1000)
-        file_size = output_path_obj.stat().st_size
-        track_completion(
-            db_path,
-            barcode,
-            page_count,
-            extraction_time_ms,
-            ExtractionMethod.STREAMING,
-            session_id,
-            file_size,
-            str(output_path),
-        )
-
-        return page_count
-    except Exception as e:
-        track_failure(db_path, barcode, e, ExtractionMethod.STREAMING, session_id)
-        raise
 
 
 def _page_content_generator(archive_path: str) -> Iterator[tuple[int, str]]:

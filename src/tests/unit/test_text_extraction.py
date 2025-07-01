@@ -17,8 +17,7 @@ from grin_to_s3.extract.text_extraction import (
     TextExtractionError,
     _build_page_array,
     _parse_page_number,
-    extract_text_from_archive,
-    extract_text_to_jsonl_file,
+    extract_ocr_pages,
     get_barcode_from_path,
 )
 from tests.utils import create_test_archive
@@ -133,7 +132,7 @@ class TestTextExtraction:
             }
             archive_path = create_test_archive(pages, temp_path)
 
-            result = extract_text_from_archive(str(archive_path), temp_db, "test_session")
+            result = extract_ocr_pages(str(archive_path), temp_db, "test_session")
             assert result == ["First page content", "Second page content", "Third page content"]
 
     def test_extract_with_gaps(self, temp_db):
@@ -147,7 +146,7 @@ class TestTextExtraction:
             }
             archive_path = create_test_archive(pages, temp_path)
 
-            result = extract_text_from_archive(str(archive_path), temp_db, "test_session")
+            result = extract_ocr_pages(str(archive_path), temp_db, "test_session")
             assert result == ["Page 1", "", "Page 3", "", "Page 5"]
 
     def test_extract_with_mixed_files(self, temp_db):
@@ -163,7 +162,7 @@ class TestTextExtraction:
             }
             archive_path = create_test_archive(pages, temp_path)
 
-            result = extract_text_from_archive(str(archive_path), temp_db, "test_session")
+            result = extract_ocr_pages(str(archive_path), temp_db, "test_session")
             assert result == ["Text page 1", "Text page 2"]
 
     def test_extract_empty_pages(self, temp_db):
@@ -178,7 +177,7 @@ class TestTextExtraction:
             }
             archive_path = create_test_archive(pages, temp_path)
 
-            result = extract_text_from_archive(str(archive_path), temp_db, "test_session")
+            result = extract_ocr_pages(str(archive_path), temp_db, "test_session")
             assert result == ["Page 1 content", "", "   ", "Page 4 content"]
 
     def test_extract_unicode_content(self, temp_db):
@@ -193,7 +192,7 @@ class TestTextExtraction:
             }
             archive_path = create_test_archive(pages, temp_path)
 
-            result = extract_text_from_archive(str(archive_path), temp_db, "test_session")
+            result = extract_ocr_pages(str(archive_path), temp_db, "test_session")
             assert result == ["English text", "Français avec accents", "Русский текст", "中文内容"]
 
     def test_extract_with_newlines(self, temp_db):
@@ -207,7 +206,7 @@ class TestTextExtraction:
             }
             archive_path = create_test_archive(pages, temp_path)
 
-            result = extract_text_from_archive(str(archive_path), temp_db, "test_session")
+            result = extract_ocr_pages(str(archive_path), temp_db, "test_session")
             assert result[0] == "Line 1\nLine 2\nLine 3"
             assert result[1] == "Single line"
             assert result[2] == "\n\nMultiple newlines\n\n"  # Whitespace preserved
@@ -215,13 +214,13 @@ class TestTextExtraction:
     def test_extract_nonexistent_file(self, temp_db):
         """Test extraction with nonexistent archive file."""
         with pytest.raises(TextExtractionError, match="Archive file not found"):
-            extract_text_from_archive("/nonexistent/path/archive.tar.gz", temp_db, "test_session")
+            extract_ocr_pages("/nonexistent/path/archive.tar.gz", temp_db, "test_session")
 
     def test_extract_wrong_file_type(self, temp_db):
         """Test extraction with wrong file type."""
         with tempfile.NamedTemporaryFile(suffix=".txt") as temp_file:
             with pytest.raises(TextExtractionError, match="Expected .tar.gz archive"):
-                extract_text_from_archive(temp_file.name, temp_db, "test_session")
+                extract_ocr_pages(temp_file.name, temp_db, "test_session")
 
     def test_extract_corrupted_archive(self, temp_db):
         """Test extraction with corrupted archive."""
@@ -232,7 +231,7 @@ class TestTextExtraction:
 
             try:
                 with pytest.raises(CorruptedArchiveError, match="Failed to open tar.gz archive"):
-                    extract_text_from_archive(temp_file.name, temp_db, "test_session")
+                    extract_ocr_pages(temp_file.name, temp_db, "test_session")
             finally:
                 Path(temp_file.name).unlink()
 
@@ -248,7 +247,7 @@ class TestTextExtraction:
             archive_path = create_test_archive(pages, temp_path)
 
             with pytest.raises(TextExtractionError, match="No .txt files found"):
-                extract_text_from_archive(str(archive_path), temp_db, "test_session")
+                extract_ocr_pages(str(archive_path), temp_db, "test_session")
 
     def test_extract_no_valid_pages(self, temp_db):
         """Test extraction with txt files but no valid page format."""
@@ -262,7 +261,7 @@ class TestTextExtraction:
             archive_path = create_test_archive(pages, temp_path)
 
             with pytest.raises(InvalidPageFormatError, match="No valid page files found"):
-                extract_text_from_archive(str(archive_path), temp_db, "test_session")
+                extract_ocr_pages(str(archive_path), temp_db, "test_session")
 
     @patch("grin_to_s3.extract.text_extraction.logger")
     def test_extract_logs_warnings(self, mock_logger, temp_db):
@@ -277,7 +276,7 @@ class TestTextExtraction:
             }
             archive_path = create_test_archive(pages, temp_path)
 
-            extract_text_from_archive(str(archive_path), temp_db, "test_session")
+            extract_ocr_pages(str(archive_path), temp_db, "test_session")
 
             # Should log warnings for missing pages and invalid filename
             mock_logger.warning.assert_any_call("Missing pages detected: [2, 4]")
@@ -298,7 +297,7 @@ class TestTextExtractionToFile:
             archive_path = create_test_archive(pages, temp_path)
             jsonl_path = temp_path / "output.jsonl"
 
-            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), temp_db, "test_session")
+            extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
 
             # Verify file was created and contains correct content
             assert jsonl_path.exists()
@@ -323,7 +322,7 @@ class TestTextExtractionToFile:
             archive_path = create_test_archive(pages, temp_path)
             jsonl_path = temp_path / "unicode.jsonl"
 
-            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), temp_db, "test_session")
+            extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
 
             with open(jsonl_path, encoding="utf-8") as f:
                 lines = f.readlines()
@@ -343,7 +342,7 @@ class TestTextExtractionToFile:
             # Create nested path that doesn't exist
             jsonl_path = temp_path / "nested" / "deep" / "output.jsonl"
 
-            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), temp_db, "test_session")
+            extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
 
             assert jsonl_path.exists()
             with open(jsonl_path, encoding="utf-8") as f:
@@ -364,7 +363,7 @@ class TestTextExtractionToFile:
             jsonl_path = temp_path / "output_streaming.jsonl"
 
             # Use streaming mode
-            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), temp_db, "test_session")
+            extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
 
             assert jsonl_path.exists()
             with open(jsonl_path, encoding="utf-8") as f:
@@ -386,7 +385,7 @@ class TestTextExtractionToFile:
             archive_path = create_test_archive(pages, temp_path)
             jsonl_path = temp_path / "output_gaps.jsonl"
 
-            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), temp_db, "test_session")
+            extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
 
             with open(jsonl_path, encoding="utf-8") as f:
                 lines = f.readlines()
@@ -409,7 +408,7 @@ class TestTextExtractionToFile:
             archive_path = create_test_archive(pages, temp_path)
             jsonl_path = temp_path / "special_chars.jsonl"
 
-            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), temp_db, "test_session")
+            extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
 
             with open(jsonl_path, encoding="utf-8") as f:
                 lines = f.readlines()
@@ -444,7 +443,7 @@ class TestTextExtractionToFile:
             archive_path = create_test_archive(pages, temp_path)
             jsonl_path = temp_path / "comprehensive.jsonl"
 
-            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), temp_db, "test_session")
+            extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
 
             # Parse line by line as a stream would
             parsed_pages = []
@@ -492,7 +491,7 @@ class TestTextExtractionToFile:
             jsonl_path = temp_path / "edge_cases.jsonl"
 
             # Test with streaming mode too
-            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), temp_db, "test_session")
+            extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
 
             # Verify each line is independently parseable
             with open(jsonl_path, encoding="utf-8") as f:
@@ -530,7 +529,7 @@ class TestErrorHandling:
 
             try:
                 with pytest.raises(CorruptedArchiveError) as exc_info:
-                    extract_text_from_archive(temp_file.name, temp_db, "test_session")
+                    extract_ocr_pages(temp_file.name, temp_db, "test_session")
 
                 assert "Failed to open tar.gz archive" in str(exc_info.value)
             finally:
@@ -543,7 +542,7 @@ class TestErrorHandling:
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz") as temp_file:
             with pytest.raises(TextExtractionError, match="Unexpected error during extraction"):
-                extract_text_from_archive(temp_file.name, temp_db, "test_session")
+                extract_ocr_pages(temp_file.name, temp_db, "test_session")
 
 
 class TestPerformanceConsiderations:
@@ -562,7 +561,7 @@ class TestPerformanceConsiderations:
 
             archive_path = create_test_archive(pages, temp_path)
 
-            result = extract_text_from_archive(str(archive_path), temp_db, "test_session")
+            result = extract_ocr_pages(str(archive_path), temp_db, "test_session")
 
             assert len(result) == 100
             assert result[0].startswith("Content for page 1")
@@ -579,7 +578,7 @@ class TestPerformanceConsiderations:
             }
             archive_path = create_test_archive(pages, temp_path)
 
-            result = extract_text_from_archive(
+            result = extract_ocr_pages(
                 str(archive_path),
                 temp_db,
                 "test_session",
@@ -599,7 +598,7 @@ class TestPerformanceConsiderations:
             }
             archive_path = create_test_archive(pages, temp_path)
 
-            result = extract_text_from_archive(
+            result = extract_ocr_pages(
                 str(archive_path),
                 temp_db,
                 "test_session",
