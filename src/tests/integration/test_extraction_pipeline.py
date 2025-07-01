@@ -17,8 +17,7 @@ import pytest
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.extract.text_extraction import (
     extract_text_from_archive,
-    extract_text_to_jsonl_with_tracking,
-    extract_text_with_tracking,
+    extract_text_to_jsonl_file,
 )
 from grin_to_s3.extract.tracking import (
     TEXT_EXTRACTION_STATUS_TYPE,
@@ -79,9 +78,9 @@ class TestExtractionWithTracking:
         session_id = "test_session_123"
 
         # Run extraction with tracking
-        result = extract_text_with_tracking(
+        result = extract_text_from_archive(
             test_archive_with_content,
-            temp_db_tracker.db_path,
+            db_path=temp_db_tracker.db_path,
             session_id=session_id,
         )
 
@@ -140,10 +139,10 @@ class TestExtractionWithTracking:
 
         try:
             # Run JSONL extraction with tracking
-            page_count = extract_text_to_jsonl_with_tracking(
+            page_count = extract_text_to_jsonl_file(
                 test_archive_with_content,
                 output_path,
-                temp_db_tracker.db_path,
+                db_path=temp_db_tracker.db_path,
                 session_id=session_id,
             )
 
@@ -205,9 +204,9 @@ class TestExtractionWithTracking:
         # Try to extract from nonexistent file
         from grin_to_s3.extract.text_extraction import TextExtractionError
         with pytest.raises(TextExtractionError):
-            extract_text_with_tracking(
+            extract_text_from_archive(
                 nonexistent_path,
-                temp_db_tracker.db_path,
+                db_path=temp_db_tracker.db_path,
                 session_id=session_id,
             )
 
@@ -229,13 +228,17 @@ class TestExtractionWithTracking:
         metadata = json.loads(record[1])
         assert "error_type" in metadata
         assert "error_message" in metadata
+        assert metadata["partial_page_count"] == 0
         assert metadata["extraction_method"] in ["memory", "disk"]
 
-    def test_tracking_resilience_to_db_failures(self, test_archive_with_content):
+    @pytest.mark.asyncio
+    async def test_tracking_resilience_to_db_failures(self, test_archive_with_content):
         """Test that extraction continues even when database tracking fails."""
-        # Extraction should still work without tracking
+        # Extraction should still work despite tracking failures
         result = extract_text_from_archive(
             test_archive_with_content,
+            db_path="/invalid/path/that/cannot/be/created.db",
+            session_id="test_session",
         )
 
         # Verify extraction succeeded despite tracking failure
@@ -252,9 +255,9 @@ class TestQueryFunctionsIntegration:
         # Perform several extractions with different outcomes
 
         # Successful extraction
-        extract_text_with_tracking(
+        extract_text_from_archive(
             test_archive_with_content,
-            temp_db_tracker.db_path,
+            db_path=temp_db_tracker.db_path,
             session_id="session1",
         )
 
@@ -394,9 +397,9 @@ class TestSessionTracking:
         session2 = "batch_session_2"
 
         # Extract with different session IDs
-        extract_text_with_tracking(
+        extract_text_from_archive(
             test_archive_with_content,
-            temp_db_tracker.db_path,
+            db_path=temp_db_tracker.db_path,
             session_id=session1,
         )
 

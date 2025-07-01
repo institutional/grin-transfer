@@ -42,6 +42,8 @@ class InvalidPageFormatError(TextExtractionError):
 
 def extract_text_from_archive(
     archive_path: str,
+    db_path: str | None = None,
+    session_id: str | None = None,
     extraction_dir: str | None = None,
     keep_extracted: bool = False,
     extract_to_disk: bool = True,
@@ -55,6 +57,8 @@ def extract_text_from_archive(
 
     Args:
         archive_path: Path to decrypted tar.gz archive
+        db_path: Optional path to SQLite database for tracking extraction status
+        session_id: Optional session ID for grouping related operations
         extraction_dir: Directory to extract archive to. If None and extract_to_disk=True,
                        uses temporary directory. Ignored if extract_to_disk=False.
         keep_extracted: Whether to keep extracted files after processing.
@@ -73,13 +77,49 @@ def extract_text_from_archive(
     """
     archive_path_obj = Path(archive_path)
 
+    # Set up tracking variables early so they're available in error handlers
+    barcode = get_barcode_from_path(archive_path) if db_path else None
+    if db_path:
+        try:
+            from .tracking import ExtractionMethod
+            method = ExtractionMethod.DISK if extract_to_disk else ExtractionMethod.MEMORY
+        except ImportError:
+            db_path = None
+            method = None
+    else:
+        method = None
+    start_time = time.time() if db_path else None
+
     if not archive_path_obj.exists():
-        raise TextExtractionError(f"Archive file not found: {archive_path}")
+        error = TextExtractionError(f"Archive file not found: {archive_path}")
+        if db_path and barcode and method:
+            try:
+                from .tracking import track_failure
+                track_failure(db_path, barcode, error, method, session_id)
+            except Exception:
+                pass
+        raise error
 
     if not archive_path_obj.suffix.endswith(".gz"):
-        raise TextExtractionError(f"Expected .tar.gz archive, got: {archive_path}")
+        error = TextExtractionError(f"Expected .tar.gz archive, got: {archive_path}")
+        if db_path and barcode and method:
+            try:
+                from .tracking import track_failure
+                track_failure(db_path, barcode, error, method, session_id)
+            except Exception:
+                pass
+        raise error
 
     logger.debug(f"Starting OCR text extraction from {archive_path} (extract_to_disk={extract_to_disk})")
+
+    # Optional tracking
+    if db_path and barcode:
+        try:
+            from .tracking import track_completion, track_failure, track_start
+            track_start(db_path, barcode, session_id)
+        except Exception:
+            # Ignore tracking errors
+            db_path = None
 
     try:
         if extract_to_disk:
@@ -89,13 +129,32 @@ def extract_text_from_archive(
 
         # Build final page array with proper indexing
         result = _build_page_array(page_data)
+
+        # Track completion if tracking is enabled
+        if db_path and barcode and start_time is not None and method is not None:
+            try:
+                extraction_time_ms = int((time.time() - start_time) * 1000)
+                track_completion(db_path, barcode, len(result), extraction_time_ms, method, session_id)
+            except Exception:
+                pass  # Ignore tracking errors
+
         return result
 
     except tarfile.TarError as e:
+        if db_path and barcode and method is not None:
+            try:
+                track_failure(db_path, barcode, e, method, session_id)
+            except Exception:
+                pass  # Ignore tracking errors
         raise CorruptedArchiveError(f"Failed to open tar.gz archive: {e}") from e
-    except TextExtractionError:
-        raise
     except Exception as e:
+        if db_path and barcode and method is not None:
+            try:
+                track_failure(db_path, barcode, e, method, session_id)
+            except Exception:
+                pass  # Ignore tracking errors
+        if isinstance(e, TextExtractionError):
+            raise
         raise TextExtractionError(f"Unexpected error during extraction: {e}") from e
 
 
@@ -288,7 +347,9 @@ def _build_page_array(page_data: dict[int, str]) -> list[str]:
     return result
 
 
-def extract_text_to_jsonl_file(archive_path: str, output_path: str) -> int:
+def extract_text_to_jsonl_file(
+    archive_path: str, output_path: str, db_path: str | None = None, session_id: str | None = None
+) -> int:
     """
     Extract text from archive and save directly to JSONL file.
 
@@ -299,6 +360,8 @@ def extract_text_to_jsonl_file(archive_path: str, output_path: str) -> int:
     Args:
         archive_path: Path to decrypted tar.gz archive
         output_path: Path where JSONL file should be written
+        db_path: Optional path to SQLite database for tracking extraction status
+        session_id: Optional session ID for grouping related operations
 
     Returns:
         Number of pages processed
@@ -309,8 +372,50 @@ def extract_text_to_jsonl_file(archive_path: str, output_path: str) -> int:
     output_path_obj = Path(output_path)
     output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-    page_count = _extract_text_to_jsonl_file_streaming(archive_path, output_path_obj)
-    return page_count
+    # Set up tracking variables early
+    barcode = get_barcode_from_path(archive_path) if db_path else None
+    start_time = time.time() if db_path else None
+
+    # Optional tracking
+    if db_path and barcode:
+        try:
+            from .tracking import track_completion, track_failure, track_start
+            track_start(db_path, barcode, session_id)
+        except Exception:
+            # Ignore tracking errors
+            db_path = None
+
+    try:
+        page_count = _extract_text_to_jsonl_file_streaming(archive_path, output_path_obj)
+
+        # Track completion if tracking is enabled
+        if db_path and barcode and start_time is not None:
+            try:
+                from .tracking import ExtractionMethod
+                extraction_time_ms = int((time.time() - start_time) * 1000)
+                file_size = output_path_obj.stat().st_size
+                track_completion(
+                    db_path,
+                    barcode,
+                    page_count,
+                    extraction_time_ms,
+                    ExtractionMethod.STREAMING,
+                    session_id,
+                    file_size,
+                    str(output_path),
+                )
+            except Exception:
+                pass  # Ignore tracking errors
+
+        return page_count
+    except Exception as e:
+        if db_path and barcode:
+            try:
+                from .tracking import ExtractionMethod
+                track_failure(db_path, barcode, e, ExtractionMethod.STREAMING, session_id)
+            except Exception:
+                pass  # Ignore tracking errors
+        raise
 
 
 def _page_content_generator(archive_path: str) -> Iterator[tuple[int, str]]:
@@ -392,65 +497,4 @@ def _extract_text_to_jsonl_file_streaming(archive_path: str, output_path: Path) 
             output_path.unlink()
         raise
 
-
-# Tracking functions for when database tracking is needed
-def extract_text_with_tracking(
-    archive_path: str,
-    db_path: str,
-    session_id: str | None = None,
-    extraction_dir: str | None = None,
-    keep_extracted: bool = False,
-    extract_to_disk: bool = True,
-) -> list[str]:
-    """Extract text with database tracking."""
-    from .tracking import ExtractionMethod, track_completion, track_failure, track_start
-
-    barcode = get_barcode_from_path(archive_path)
-    method = ExtractionMethod.DISK if extract_to_disk else ExtractionMethod.MEMORY
-
-    track_start(db_path, barcode, session_id)
-    start_time = time.time()
-
-    try:
-        result = extract_text_from_archive(archive_path, extraction_dir, keep_extracted, extract_to_disk)
-        extraction_time_ms = int((time.time() - start_time) * 1000)
-        track_completion(db_path, barcode, len(result), extraction_time_ms, method, session_id)
-        return result
-    except Exception as e:
-        track_failure(db_path, barcode, e, method, session_id)
-        raise
-
-
-def extract_text_to_jsonl_with_tracking(
-    archive_path: str,
-    output_path: str,
-    db_path: str,
-    session_id: str | None = None,
-) -> int:
-    """Extract text to JSONL with database tracking."""
-    from .tracking import ExtractionMethod, track_completion, track_failure, track_start
-
-    barcode = get_barcode_from_path(archive_path)
-
-    track_start(db_path, barcode, session_id)
-    start_time = time.time()
-
-    try:
-        page_count = extract_text_to_jsonl_file(archive_path, output_path)
-        extraction_time_ms = int((time.time() - start_time) * 1000)
-        file_size = Path(output_path).stat().st_size
-        track_completion(
-            db_path,
-            barcode,
-            page_count,
-            extraction_time_ms,
-            ExtractionMethod.STREAMING,
-            session_id,
-            file_size,
-            output_path,
-        )
-        return page_count
-    except Exception as e:
-        track_failure(db_path, barcode, e, ExtractionMethod.STREAMING, session_id)
-        raise
 

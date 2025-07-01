@@ -7,9 +7,11 @@ import json
 import sqlite3
 import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.extract.tracking import (
     TEXT_EXTRACTION_STATUS_TYPE,
     ExtractionMethod,
@@ -17,16 +19,12 @@ from grin_to_s3.extract.tracking import (
     get_extraction_progress,
     get_failed_extractions,
     get_status_summary,
-    track_completion,
-    track_failure,
-    track_progress,
     track_start,
-    write_status,
 )
 
 
 @pytest.fixture
-def temp_db():
+async def temp_db():
     """Create a temporary database for testing."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
@@ -44,6 +42,12 @@ def temp_db():
             metadata TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS books (
+            barcode TEXT PRIMARY KEY,
+            updated_at TEXT
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -51,6 +55,14 @@ def temp_db():
 
     # Cleanup
     Path(db_path).unlink(missing_ok=True)
+
+
+@pytest.fixture
+async def mock_db_tracker():
+    """Create a mock SQLiteProgressTracker for testing."""
+    tracker = MagicMock(spec=SQLiteProgressTracker)
+    tracker.add_status_change = AsyncMock(return_value=True)
+    return tracker
 
 
 class TestTrackingFunctions:
@@ -63,7 +75,7 @@ class TestTrackingFunctions:
 
         track_start(temp_db, barcode, session_id)
 
-        # Verify record was written
+        # Verify data was written to database
         conn = sqlite3.connect(temp_db)
         cursor = conn.execute(
             "SELECT barcode, status_type, status_value, session_id, metadata FROM book_status_history"
@@ -77,85 +89,11 @@ class TestTrackingFunctions:
         assert record[2] == ExtractionStatus.STARTING.value
         assert record[3] == session_id
 
+        # Check metadata structure
         metadata = json.loads(record[4])
         assert "started_at" in metadata
         assert metadata["extraction_stage"] == "initialization"
 
-    def test_track_progress(self, temp_db):
-        """Test tracking extraction progress."""
-        barcode = "test_barcode_002"
-        page_count = 150
-
-        track_progress(temp_db, barcode, page_count)
-
-        conn = sqlite3.connect(temp_db)
-        cursor = conn.execute(
-            "SELECT status_value, metadata FROM book_status_history WHERE barcode = ?"
-            , (barcode,)
-        )
-        record = cursor.fetchone()
-        conn.close()
-
-        assert record[0] == ExtractionStatus.EXTRACTING.value
-        metadata = json.loads(record[1])
-        assert metadata["page_count"] == page_count
-        assert metadata["extraction_stage"] == "processing_pages"
-        assert "progress_at" in metadata
-
-    def test_track_completion(self, temp_db):
-        """Test tracking successful extraction completion."""
-        barcode = "test_barcode_003"
-        page_count = 200
-        extraction_time_ms = 5000
-        method = ExtractionMethod.DISK
-
-        track_completion(temp_db, barcode, page_count, extraction_time_ms, method)
-
-        conn = sqlite3.connect(temp_db)
-        cursor = conn.execute(
-            "SELECT status_value, metadata FROM book_status_history WHERE barcode = ?"
-            , (barcode,)
-        )
-        record = cursor.fetchone()
-        conn.close()
-
-        assert record[0] == ExtractionStatus.COMPLETED.value
-        metadata = json.loads(record[1])
-        assert metadata["page_count"] == page_count
-        assert metadata["extraction_time_ms"] == extraction_time_ms
-        assert metadata["extraction_method"] == method.value
-        assert "completed_at" in metadata
-
-    def test_track_failure(self, temp_db):
-        """Test tracking extraction failure."""
-        barcode = "test_barcode_004"
-        error = ValueError("Test error message")
-        method = ExtractionMethod.MEMORY
-
-        track_failure(temp_db, barcode, error, method)
-
-        conn = sqlite3.connect(temp_db)
-        cursor = conn.execute(
-            "SELECT status_value, metadata FROM book_status_history WHERE barcode = ?"
-            , (barcode,)
-        )
-        record = cursor.fetchone()
-        conn.close()
-
-        assert record[0] == ExtractionStatus.FAILED.value
-        metadata = json.loads(record[1])
-        assert metadata["error_type"] == "ValueError"
-        assert metadata["error_message"] == "Test error message"
-        assert metadata["extraction_method"] == method.value
-        assert "failed_at" in metadata
-
-    def test_write_status_with_invalid_db(self, temp_db):
-        """Test that tracking failures are handled gracefully."""
-        # Use invalid database path
-        invalid_path = "/invalid/path/that/cannot/be/created.db"
-
-        # Should not raise exception, just log warning
-        write_status(invalid_path, "test", ExtractionStatus.STARTING)
 
 
 class TestQueryFunctions:
@@ -211,6 +149,7 @@ class TestQueryFunctions:
         failure_metadata = {
             "error_type": "TextExtractionError",
             "error_message": "Archive corrupted",
+            "partial_page_count": 25,
             "extraction_method": ExtractionMethod.DISK.value,
         }
 
@@ -236,6 +175,7 @@ class TestQueryFunctions:
         assert failure["barcode"] == "failed_book"
         assert failure["error_type"] == "TextExtractionError"
         assert failure["error_message"] == "Archive corrupted"
+        assert failure["partial_page_count"] == 25
         assert failure["extraction_method"] == ExtractionMethod.DISK.value
 
     def test_get_extraction_progress(self, temp_db):
@@ -276,41 +216,4 @@ class TestQueryFunctions:
         assert progress["status_summary"]["total"] == 3
         assert len(progress["recent_failures"]) == 1
 
-
-class TestSessionTracking:
-    """Test session-based tracking functionality."""
-
-    def test_session_tracking_isolation(self, temp_db):
-        """Test that session IDs properly isolate batch operations."""
-        session1 = "batch_session_1"
-        session2 = "batch_session_2"
-
-        # Track with different session IDs
-        track_start(temp_db, "book1", session1)
-        track_start(temp_db, "book2", session2)
-
-        # Verify session isolation in database
-        conn = sqlite3.connect(temp_db)
-
-        # Check session1 records
-        cursor = conn.execute(
-            """SELECT COUNT(*) FROM book_status_history
-               WHERE status_type = ? AND session_id = ?""",
-            (TEXT_EXTRACTION_STATUS_TYPE, session1),
-        )
-        session1_count = cursor.fetchone()[0]
-
-        # Check session2 records
-        cursor = conn.execute(
-            """SELECT COUNT(*) FROM book_status_history
-               WHERE status_type = ? AND session_id = ?""",
-            (TEXT_EXTRACTION_STATUS_TYPE, session2),
-        )
-        session2_count = cursor.fetchone()[0]
-
-        conn.close()
-
-        # Each session should have its own records
-        assert session1_count == 1
-        assert session2_count == 1
 

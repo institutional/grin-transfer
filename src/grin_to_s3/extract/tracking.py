@@ -113,9 +113,8 @@ def track_failure(
         "error_message": str(error),
         "extraction_method": method.value,
         "failed_at": datetime.now(UTC).isoformat(),
+        "partial_page_count": partial_page_count,
     }
-    if partial_page_count:
-        metadata["partial_page_count"] = partial_page_count
 
     write_status(db_path, barcode, ExtractionStatus.FAILED, metadata, session_id)
 
