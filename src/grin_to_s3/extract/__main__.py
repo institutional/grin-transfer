@@ -12,6 +12,7 @@ import logging
 import sys
 from pathlib import Path
 
+from ..storage.book_storage import BookStorage
 from .text_extraction import (
     CorruptedArchiveError,
     InvalidPageFormatError,
@@ -19,7 +20,6 @@ from .text_extraction import (
     extract_text_to_jsonl_file,
     get_barcode_from_path,
 )
-from ..storage.book_storage import BookStorage
 
 logger = logging.getLogger(__name__)
 
@@ -238,20 +238,17 @@ async def extract_single_archive(
 
     try:
         if output_path:
-            # Write JSONL directly to file using generator approach
+            # File output: write directly to specified path
             page_count = extract_text_to_jsonl_file(archive_path, output_path)
             if verbose:
                 print(f"  ✓ Saved to: {output_path}")
-
-            # For bucket storage, also upload the file
-            if book_storage:
-                barcode = get_barcode_from_path(archive_path)
-                await write_to_bucket(book_storage, barcode, output_path, verbose)
-
-        elif book_storage:
-            # Bucket storage only: write to staging file then upload
+        else:
+            # Bucket output: write to staging file, upload, then cleanup
             import tempfile
             from pathlib import Path
+
+            if book_storage is None:
+                raise ValueError("Book storage is required for bucket output mode")
 
             barcode = get_barcode_from_path(archive_path)
             with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as temp_file:
@@ -264,10 +261,6 @@ async def extract_single_archive(
                 # Clean up temp file
                 Path(temp_path).unlink(missing_ok=True)
 
-        else:
-            # No output specified - this is an error
-            raise ValueError("Must specify either --output or bucket storage configuration")
-
         return {
             "success": True,
             "archive": archive_path,
@@ -275,35 +268,8 @@ async def extract_single_archive(
             "pages": page_count,
         }
 
-    except CorruptedArchiveError as e:
-        error_msg = f"Corrupted archive: {e}"
-        print(f"✗ {error_msg}", file=sys.stderr)
-        return {
-            "success": False,
-            "archive": archive_path,
-            "error": error_msg,
-        }
-
-    except InvalidPageFormatError as e:
-        error_msg = f"Invalid page format: {e}"
-        print(f"✗ {error_msg}", file=sys.stderr)
-        return {
-            "success": False,
-            "archive": archive_path,
-            "error": error_msg,
-        }
-
-    except TextExtractionError as e:
-        error_msg = f"Extraction failed: {e}"
-        print(f"✗ {error_msg}", file=sys.stderr)
-        return {
-            "success": False,
-            "archive": archive_path,
-            "error": error_msg,
-        }
-
-    except Exception as e:
-        error_msg = f"Unexpected error: {e}"
+    except (CorruptedArchiveError, InvalidPageFormatError, TextExtractionError, Exception) as e:
+        error_msg = str(e)
         print(f"✗ {error_msg}", file=sys.stderr)
         return {
             "success": False,
@@ -347,9 +313,19 @@ async def main() -> int:
             print(f"Error: Failed to configure storage: {e}", file=sys.stderr)
             return 1
 
-    # Validate that we have an output method
-    if not (args.output or args.output_dir or book_storage):
-        print("Error: Must specify --output, --output-dir, or bucket storage configuration", file=sys.stderr)
+    # Validate that we have exactly one output method
+    has_file_output = bool(args.output or args.output_dir)
+    has_bucket_output = bool(book_storage)
+
+    if not has_file_output and not has_bucket_output:
+        print(
+            "Error: Must specify either file output (--output/--output-dir) or bucket storage configuration",
+            file=sys.stderr
+        )
+        return 1
+
+    if has_file_output and has_bucket_output:
+        print("Error: Cannot specify both file output and bucket storage - choose one", file=sys.stderr)
         return 1
 
     # Process archives

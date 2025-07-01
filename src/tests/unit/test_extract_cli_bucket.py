@@ -193,27 +193,38 @@ class TestExtractCLIIntegration:
     @patch('grin_to_s3.extract.__main__.extract_text_to_jsonl_file')
     @pytest.mark.asyncio
     async def test_extract_single_archive_bucket_and_file(self, mock_extract_to_file):
-        """Test extract_single_archive with both bucket storage and file output."""
-        from grin_to_s3.extract.__main__ import extract_single_archive
+        """Test that file output and bucket storage are mutually exclusive."""
+        from grin_to_s3.extract.__main__ import main
+        from unittest.mock import MagicMock
         
-        mock_book_storage = AsyncMock()
-        mock_book_storage.save_ocr_text_jsonl_from_file.return_value = "test.jsonl"
-        
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_file = Path(temp_dir) / "output.jsonl"
+        # Mock arguments for both file and bucket output
+        with patch('argparse.ArgumentParser.parse_args') as mock_parse_args:
+            mock_args = MagicMock()
+            mock_args.storage = "r2"
+            mock_args.bucket_full = "test-full-bucket"
+            mock_args.bucket_raw = "test-raw-bucket"
+            mock_args.bucket_meta = "test-meta-bucket"
+            mock_args.storage_prefix = ""
+            mock_args.credentials_file = None
+            mock_args.output = "/path/to/output.jsonl"  # File output
+            mock_args.output_dir = None
+            mock_args.archives = ["/path/to/test.tar.gz"]
+            mock_args.verbose = False
+            mock_args.summary = False
             
-            result = await extract_single_archive(
-                archive_path="/path/to/test.tar.gz",
-                output_path=str(output_file),
-                book_storage=mock_book_storage,
-                verbose=True
-            )
+            mock_parse_args.return_value = mock_args
             
-            # Verify file extraction was called
-            mock_extract_to_file.assert_called_once_with("/path/to/test.tar.gz", str(output_file))
-            
-            # Verify bucket upload was called with the output file
-            mock_book_storage.save_ocr_text_jsonl_from_file.assert_called_once_with("test", str(output_file))
+            with patch('builtins.print') as mock_print:
+                result = await main()
+                
+                # Should exit with error code 1 due to conflicting options
+                assert result == 1
+                
+                # Should print error about conflicting options
+                mock_print.assert_called_with(
+                    "Error: Cannot specify both file output and bucket storage - choose one",
+                    file=sys.stderr
+                )
 
     @patch('grin_to_s3.extract.__main__.extract_text_to_jsonl_file')
     @pytest.mark.asyncio
@@ -311,8 +322,8 @@ class TestExtractCLIIntegration:
             result = await main()
             
             # Verify error message and exit code
-            mock_print.assert_called_with(
-                "Error: Must specify --output, --output-dir, or bucket storage configuration",
+            mock_print.assert_any_call(
+                "Error: Must specify either file output (--output/--output-dir) or bucket storage configuration",
                 file=sys.stderr
             )
             assert result == 1
