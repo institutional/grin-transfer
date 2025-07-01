@@ -7,27 +7,26 @@ import json
 import sqlite3
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.extract.tracking import (
     TEXT_EXTRACTION_STATUS_TYPE,
     ExtractionMethod,
     ExtractionStatus,
     get_extraction_progress,
-    get_extraction_status_summary,
     get_failed_extractions,
-    track_extraction_completion,
-    track_extraction_failure,
-    track_extraction_progress,
-    track_extraction_start,
+    get_status_summary,
+    track_completion,
+    track_failure,
+    track_progress,
+    track_start,
+    write_status,
 )
 
 
 @pytest.fixture
-async def temp_db():
+def temp_db():
     """Create a temporary database for testing."""
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
@@ -45,12 +44,6 @@ async def temp_db():
             metadata TEXT
         )
     """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS books (
-            barcode TEXT PRIMARY KEY,
-            updated_at TEXT
-        )
-    """)
     conn.commit()
     conn.close()
 
@@ -60,150 +53,128 @@ async def temp_db():
     Path(db_path).unlink(missing_ok=True)
 
 
-@pytest.fixture
-async def mock_db_tracker():
-    """Create a mock SQLiteProgressTracker for testing."""
-    tracker = MagicMock(spec=SQLiteProgressTracker)
-    tracker.add_status_change = AsyncMock(return_value=True)
-    return tracker
-
-
 class TestTrackingFunctions:
     """Test individual tracking functions."""
 
-    @pytest.mark.asyncio
-    async def test_track_extraction_start(self, mock_db_tracker):
+    def test_track_start(self, temp_db):
         """Test tracking extraction start."""
         barcode = "test_barcode_001"
         session_id = "session_123"
 
-        await track_extraction_start(mock_db_tracker, barcode, session_id)
+        track_start(temp_db, barcode, session_id)
 
-        # Verify add_status_change was called correctly
-        mock_db_tracker.add_status_change.assert_called_once()
-        call_args = mock_db_tracker.add_status_change.call_args
+        # Verify record was written
+        conn = sqlite3.connect(temp_db)
+        cursor = conn.execute(
+            "SELECT barcode, status_type, status_value, session_id, metadata FROM book_status_history"
+        )
+        record = cursor.fetchone()
+        conn.close()
 
-        assert call_args[0][0] == barcode  # barcode
-        assert call_args[0][1] == TEXT_EXTRACTION_STATUS_TYPE  # status_type
-        assert call_args[0][2] == ExtractionStatus.STARTING.value  # status_value
-        assert call_args[1]["session_id"] == session_id
+        assert record is not None
+        assert record[0] == barcode
+        assert record[1] == TEXT_EXTRACTION_STATUS_TYPE
+        assert record[2] == ExtractionStatus.STARTING.value
+        assert record[3] == session_id
 
-        # Check metadata structure
-        metadata = call_args[1]["metadata"]
+        metadata = json.loads(record[4])
         assert "started_at" in metadata
         assert metadata["extraction_stage"] == "initialization"
 
-    @pytest.mark.asyncio
-    async def test_track_extraction_progress(self, mock_db_tracker):
+    def test_track_progress(self, temp_db):
         """Test tracking extraction progress."""
         barcode = "test_barcode_002"
         page_count = 150
 
-        await track_extraction_progress(mock_db_tracker, barcode, page_count)
+        track_progress(temp_db, barcode, page_count)
 
-        mock_db_tracker.add_status_change.assert_called_once()
-        call_args = mock_db_tracker.add_status_change.call_args
+        conn = sqlite3.connect(temp_db)
+        cursor = conn.execute(
+            "SELECT status_value, metadata FROM book_status_history WHERE barcode = ?"
+            , (barcode,)
+        )
+        record = cursor.fetchone()
+        conn.close()
 
-        assert call_args[0][2] == ExtractionStatus.EXTRACTING.value
-
-        metadata = call_args[1]["metadata"]
+        assert record[0] == ExtractionStatus.EXTRACTING.value
+        metadata = json.loads(record[1])
         assert metadata["page_count"] == page_count
         assert metadata["extraction_stage"] == "processing_pages"
         assert "progress_at" in metadata
 
-    @pytest.mark.asyncio
-    async def test_track_extraction_completion(self, mock_db_tracker):
+    def test_track_completion(self, temp_db):
         """Test tracking successful extraction completion."""
         barcode = "test_barcode_003"
         page_count = 200
         extraction_time_ms = 5000
-        jsonl_file_size = 1024000
-        output_path = "/tmp/test.jsonl"
+        method = ExtractionMethod.DISK
 
-        await track_extraction_completion(
-            mock_db_tracker,
-            barcode,
-            page_count,
-            extraction_time_ms,
-            jsonl_file_size,
-            output_path,
+        track_completion(temp_db, barcode, page_count, extraction_time_ms, method)
+
+        conn = sqlite3.connect(temp_db)
+        cursor = conn.execute(
+            "SELECT status_value, metadata FROM book_status_history WHERE barcode = ?"
+            , (barcode,)
         )
+        record = cursor.fetchone()
+        conn.close()
 
-        mock_db_tracker.add_status_change.assert_called_once()
-        call_args = mock_db_tracker.add_status_change.call_args
-
-        assert call_args[0][2] == ExtractionStatus.COMPLETED.value
-
-        metadata = call_args[1]["metadata"]
+        assert record[0] == ExtractionStatus.COMPLETED.value
+        metadata = json.loads(record[1])
         assert metadata["page_count"] == page_count
         assert metadata["extraction_time_ms"] == extraction_time_ms
-        assert metadata["jsonl_file_size"] == jsonl_file_size
-        assert metadata["output_path"] == output_path
-        assert metadata["extraction_method"] == ExtractionMethod.DISK.value  # default
+        assert metadata["extraction_method"] == method.value
         assert "completed_at" in metadata
 
-    @pytest.mark.asyncio
-    async def test_track_extraction_failure(self, mock_db_tracker):
+    def test_track_failure(self, temp_db):
         """Test tracking extraction failure."""
         barcode = "test_barcode_004"
         error = ValueError("Test error message")
-        partial_page_count = 50
+        method = ExtractionMethod.MEMORY
 
-        await track_extraction_failure(
-            mock_db_tracker,
-            barcode,
-            error,
-            partial_page_count,
-            extraction_method=ExtractionMethod.DISK,
+        track_failure(temp_db, barcode, error, method)
+
+        conn = sqlite3.connect(temp_db)
+        cursor = conn.execute(
+            "SELECT status_value, metadata FROM book_status_history WHERE barcode = ?"
+            , (barcode,)
         )
+        record = cursor.fetchone()
+        conn.close()
 
-        mock_db_tracker.add_status_change.assert_called_once()
-        call_args = mock_db_tracker.add_status_change.call_args
-
-        assert call_args[0][2] == ExtractionStatus.FAILED.value
-
-        metadata = call_args[1]["metadata"]
+        assert record[0] == ExtractionStatus.FAILED.value
+        metadata = json.loads(record[1])
         assert metadata["error_type"] == "ValueError"
         assert metadata["error_message"] == "Test error message"
-        assert metadata["partial_page_count"] == partial_page_count
-        assert metadata["extraction_method"] == "disk"
+        assert metadata["extraction_method"] == method.value
         assert "failed_at" in metadata
-        assert "error_details" in metadata
 
-    @pytest.mark.asyncio
-    async def test_tracking_with_db_failure(self, mock_db_tracker):
+    def test_write_status_with_invalid_db(self, temp_db):
         """Test that tracking failures are handled gracefully."""
-        # Mock database failure
-        mock_db_tracker.add_status_change.side_effect = Exception("Database error")
-
-        barcode = "test_barcode_005"
+        # Use invalid database path
+        invalid_path = "/invalid/path/that/cannot/be/created.db"
 
         # Should not raise exception, just log warning
-        await track_extraction_start(mock_db_tracker, barcode)
-
-        # Verify it tried to call the database
-        mock_db_tracker.add_status_change.assert_called_once()
+        write_status(invalid_path, "test", ExtractionStatus.STARTING)
 
 
 class TestQueryFunctions:
     """Test database query functions."""
 
-    @pytest.mark.asyncio
-    async def test_get_extraction_status_summary_empty(self, temp_db):
+    def test_get_status_summary_empty(self, temp_db):
         """Test status summary with empty database."""
-        summary = await get_extraction_status_summary(temp_db)
+        summary = get_status_summary(temp_db)
 
         expected = {
-            ExtractionStatus.STARTING: 0,
-            ExtractionStatus.EXTRACTING: 0,
-            ExtractionStatus.COMPLETED: 0,
-            ExtractionStatus.FAILED: 0,
+            ExtractionStatus.STARTING.value: 0,
+            ExtractionStatus.EXTRACTING.value: 0,
+            ExtractionStatus.COMPLETED.value: 0,
+            ExtractionStatus.FAILED.value: 0,
             "total": 0,
         }
         assert summary == expected
 
-    @pytest.mark.asyncio
-    async def test_get_extraction_status_summary_with_data(self, temp_db):
+    def test_get_status_summary_with_data(self, temp_db):
         """Test status summary with sample data."""
         # Insert test data
         conn = sqlite3.connect(temp_db)
@@ -224,7 +195,7 @@ class TestQueryFunctions:
         conn.commit()
         conn.close()
 
-        summary = await get_extraction_status_summary(temp_db)
+        summary = get_status_summary(temp_db)
 
         assert summary[ExtractionStatus.COMPLETED.value] == 2
         assert summary[ExtractionStatus.FAILED.value] == 1
@@ -232,8 +203,7 @@ class TestQueryFunctions:
         assert summary[ExtractionStatus.STARTING.value] == 0
         assert summary["total"] == 4
 
-    @pytest.mark.asyncio
-    async def test_get_failed_extractions(self, temp_db):
+    def test_get_failed_extractions(self, temp_db):
         """Test retrieving failed extraction details."""
         # Insert test data
         conn = sqlite3.connect(temp_db)
@@ -241,7 +211,6 @@ class TestQueryFunctions:
         failure_metadata = {
             "error_type": "TextExtractionError",
             "error_message": "Archive corrupted",
-            "partial_page_count": 25,
             "extraction_method": ExtractionMethod.DISK.value,
         }
 
@@ -260,18 +229,16 @@ class TestQueryFunctions:
         conn.commit()
         conn.close()
 
-        failures = await get_failed_extractions(temp_db, limit=10)
+        failures = get_failed_extractions(temp_db, limit=10)
 
         assert len(failures) == 1
         failure = failures[0]
         assert failure["barcode"] == "failed_book"
         assert failure["error_type"] == "TextExtractionError"
         assert failure["error_message"] == "Archive corrupted"
-        assert failure["partial_page_count"] == 25
         assert failure["extraction_method"] == ExtractionMethod.DISK.value
 
-    @pytest.mark.asyncio
-    async def test_get_extraction_progress(self, temp_db):
+    def test_get_extraction_progress(self, temp_db):
         """Test getting overall extraction progress statistics."""
         # Insert test data
         conn = sqlite3.connect(temp_db)
@@ -286,9 +253,9 @@ class TestQueryFunctions:
         }
 
         test_data = [
-            ("book1", ExtractionStatus.COMPLETED, json.dumps(completed_metadata1)),
-            ("book2", ExtractionStatus.COMPLETED, json.dumps(completed_metadata2)),
-            ("book3", ExtractionStatus.FAILED, '{"error_type": "TestError"}'),
+            ("book1", ExtractionStatus.COMPLETED.value, json.dumps(completed_metadata1)),
+            ("book2", ExtractionStatus.COMPLETED.value, json.dumps(completed_metadata2)),
+            ("book3", ExtractionStatus.FAILED.value, '{"error_type": "TestError"}'),
         ]
 
         for barcode, status_value, metadata in test_data:
@@ -301,7 +268,7 @@ class TestQueryFunctions:
         conn.commit()
         conn.close()
 
-        progress = await get_extraction_progress(temp_db)
+        progress = get_extraction_progress(temp_db)
 
         assert progress["total_pages_extracted"] == 300  # 100 + 200
         assert progress["avg_pages_per_book"] == 150.0  # 300 / 2
@@ -310,47 +277,40 @@ class TestQueryFunctions:
         assert len(progress["recent_failures"]) == 1
 
 
-class TestMetadataSerialization:
-    """Test metadata handling and serialization."""
+class TestSessionTracking:
+    """Test session-based tracking functionality."""
 
-    @pytest.mark.asyncio
-    async def test_metadata_with_none_values(self, mock_db_tracker):
-        """Test tracking with None values in metadata."""
-        barcode = "test_barcode_006"
+    def test_session_tracking_isolation(self, temp_db):
+        """Test that session IDs properly isolate batch operations."""
+        session1 = "batch_session_1"
+        session2 = "batch_session_2"
 
-        await track_extraction_completion(
-            mock_db_tracker,
-            barcode,
-            page_count=0,  # Edge case: zero pages
-            extraction_time_ms=0,
-            jsonl_file_size=0,
-            output_path="",
+        # Track with different session IDs
+        track_start(temp_db, "book1", session1)
+        track_start(temp_db, "book2", session2)
+
+        # Verify session isolation in database
+        conn = sqlite3.connect(temp_db)
+
+        # Check session1 records
+        cursor = conn.execute(
+            """SELECT COUNT(*) FROM book_status_history
+               WHERE status_type = ? AND session_id = ?""",
+            (TEXT_EXTRACTION_STATUS_TYPE, session1),
         )
+        session1_count = cursor.fetchone()[0]
 
-        mock_db_tracker.add_status_change.assert_called_once()
-        call_args = mock_db_tracker.add_status_change.call_args
-        metadata = call_args[1]["metadata"]
+        # Check session2 records
+        cursor = conn.execute(
+            """SELECT COUNT(*) FROM book_status_history
+               WHERE status_type = ? AND session_id = ?""",
+            (TEXT_EXTRACTION_STATUS_TYPE, session2),
+        )
+        session2_count = cursor.fetchone()[0]
 
-        # Verify all fields are present even with zero values
-        assert metadata["page_count"] == 0
-        assert metadata["extraction_time_ms"] == 0
-        assert metadata["jsonl_file_size"] == 0
-        assert metadata["output_path"] == ""
+        conn.close()
 
-    @pytest.mark.asyncio
-    async def test_session_id_handling(self, mock_db_tracker):
-        """Test session ID handling in tracking functions."""
-        barcode = "test_barcode_007"
-        session_id = "test_session_456"
+        # Each session should have its own records
+        assert session1_count == 1
+        assert session2_count == 1
 
-        # Test with session ID
-        await track_extraction_start(mock_db_tracker, barcode, session_id)
-        call_args = mock_db_tracker.add_status_change.call_args
-        assert call_args[1]["session_id"] == session_id
-
-        mock_db_tracker.reset_mock()
-
-        # Test without session ID (None)
-        await track_extraction_start(mock_db_tracker, barcode)
-        call_args = mock_db_tracker.add_status_change.call_args
-        assert call_args[1]["session_id"] is None

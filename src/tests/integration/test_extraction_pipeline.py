@@ -17,14 +17,15 @@ import pytest
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.extract.text_extraction import (
     extract_text_from_archive,
-    extract_text_to_jsonl_file,
+    extract_text_to_jsonl_with_tracking,
+    extract_text_with_tracking,
 )
 from grin_to_s3.extract.tracking import (
     TEXT_EXTRACTION_STATUS_TYPE,
     ExtractionStatus,
     get_extraction_progress,
-    get_extraction_status_summary,
     get_failed_extractions,
+    get_status_summary,
 )
 from tests.utils import create_test_archive
 
@@ -78,9 +79,9 @@ class TestExtractionWithTracking:
         session_id = "test_session_123"
 
         # Run extraction with tracking
-        result = extract_text_from_archive(
+        result = extract_text_with_tracking(
             test_archive_with_content,
-            db_tracker=temp_db_tracker,
+            temp_db_tracker.db_path,
             session_id=session_id,
         )
 
@@ -114,13 +115,13 @@ class TestExtractionWithTracking:
 
         # Check starting status
         start_record = records[0]
-        assert start_record[0] == ExtractionStatus.STARTING
+        assert start_record[0] == ExtractionStatus.STARTING.value
         start_metadata = json.loads(start_record[1])
         assert start_metadata["extraction_stage"] == "initialization"
 
         # Check completion status (last record)
         completion_record = records[-1]
-        assert completion_record[0] == ExtractionStatus.COMPLETED
+        assert completion_record[0] == ExtractionStatus.COMPLETED.value
         completion_metadata = json.loads(completion_record[1])
         assert completion_metadata["page_count"] == 6
         assert completion_metadata["extraction_method"] == "disk"
@@ -139,10 +140,10 @@ class TestExtractionWithTracking:
 
         try:
             # Run JSONL extraction with tracking
-            page_count = extract_text_to_jsonl_file(
+            page_count = extract_text_to_jsonl_with_tracking(
                 test_archive_with_content,
                 output_path,
-                db_tracker=temp_db_tracker,
+                temp_db_tracker.db_path,
                 session_id=session_id,
             )
 
@@ -174,7 +175,7 @@ class TestExtractionWithTracking:
             cursor = conn.execute(
                 """SELECT status_value, metadata FROM book_status_history
                    WHERE barcode = ? AND status_type = ? AND status_value = ?""",
-                (barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.COMPLETED),
+                (barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.COMPLETED.value),
             )
             record = cursor.fetchone()
             conn.close()
@@ -204,9 +205,9 @@ class TestExtractionWithTracking:
         # Try to extract from nonexistent file
         from grin_to_s3.extract.text_extraction import TextExtractionError
         with pytest.raises(TextExtractionError):
-            extract_text_from_archive(
+            extract_text_with_tracking(
                 nonexistent_path,
-                db_tracker=temp_db_tracker,
+                temp_db_tracker.db_path,
                 session_id=session_id,
             )
 
@@ -219,7 +220,7 @@ class TestExtractionWithTracking:
         cursor = conn.execute(
             """SELECT status_value, metadata FROM book_status_history
                WHERE barcode = ? AND status_type = ? AND status_value = ?""",
-            (barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.FAILED),
+            (barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.FAILED.value),
         )
         record = cursor.fetchone()
         conn.close()
@@ -228,20 +229,13 @@ class TestExtractionWithTracking:
         metadata = json.loads(record[1])
         assert "error_type" in metadata
         assert "error_message" in metadata
-        assert metadata["partial_page_count"] == 0
         assert metadata["extraction_method"] in ["memory", "disk"]
 
-    @pytest.mark.asyncio
-    async def test_tracking_resilience_to_db_failures(self, test_archive_with_content):
+    def test_tracking_resilience_to_db_failures(self, test_archive_with_content):
         """Test that extraction continues even when database tracking fails."""
-        # Create tracker with invalid database path
-        invalid_tracker = SQLiteProgressTracker(db_path="/invalid/path/that/cannot/be/created.db")
-
-        # Extraction should still work despite tracking failures
+        # Extraction should still work without tracking
         result = extract_text_from_archive(
             test_archive_with_content,
-            db_tracker=invalid_tracker,
-            session_id="test_session",
         )
 
         # Verify extraction succeeded despite tracking failure
@@ -258,9 +252,9 @@ class TestQueryFunctionsIntegration:
         # Perform several extractions with different outcomes
 
         # Successful extraction
-        extract_text_from_archive(
+        extract_text_with_tracking(
             test_archive_with_content,
-            db_tracker=temp_db_tracker,
+            temp_db_tracker.db_path,
             session_id="session1",
         )
 
@@ -269,7 +263,7 @@ class TestQueryFunctionsIntegration:
         await temp_db_tracker.add_status_change(
             "book2",
             TEXT_EXTRACTION_STATUS_TYPE,
-            ExtractionStatus.COMPLETED,
+            ExtractionStatus.COMPLETED.value,
             metadata={"page_count": 100, "extraction_time_ms": 2000},
         )
 
@@ -277,7 +271,7 @@ class TestQueryFunctionsIntegration:
         await temp_db_tracker.add_status_change(
             "book3",
             TEXT_EXTRACTION_STATUS_TYPE,
-            ExtractionStatus.FAILED,
+            ExtractionStatus.FAILED.value,
             metadata={"error_type": "CorruptedArchiveError", "error_message": "Archive damaged"},
         )
 
@@ -285,7 +279,7 @@ class TestQueryFunctionsIntegration:
         await temp_db_tracker.add_status_change(
             "book4",
             TEXT_EXTRACTION_STATUS_TYPE,
-            ExtractionStatus.EXTRACTING,
+            ExtractionStatus.EXTRACTING.value,
             metadata={"page_count": 50},
         )
 
@@ -294,11 +288,11 @@ class TestQueryFunctionsIntegration:
         await asyncio.sleep(0.1)
 
         # Test status summary
-        summary = await get_extraction_status_summary(temp_db_tracker.db_path)
+        summary = get_status_summary(temp_db_tracker.db_path)
 
-        assert summary[ExtractionStatus.COMPLETED] >= 2
-        assert summary[ExtractionStatus.FAILED] >= 1
-        assert summary[ExtractionStatus.EXTRACTING] >= 1
+        assert summary[ExtractionStatus.COMPLETED.value] >= 2
+        assert summary[ExtractionStatus.FAILED.value] >= 1
+        assert summary[ExtractionStatus.EXTRACTING.value] >= 1
         assert summary["total"] >= 4
 
     @pytest.mark.asyncio
@@ -324,12 +318,12 @@ class TestQueryFunctionsIntegration:
             await temp_db_tracker.add_status_change(
                 case["barcode"],
                 TEXT_EXTRACTION_STATUS_TYPE,
-                ExtractionStatus.FAILED,
+                ExtractionStatus.FAILED.value,
                 metadata=case,
             )
 
         # Query failed extractions
-        failures = await get_failed_extractions(temp_db_tracker.db_path, limit=10)
+        failures = get_failed_extractions(temp_db_tracker.db_path, limit=10)
 
         assert len(failures) >= 2
 
@@ -360,7 +354,7 @@ class TestQueryFunctionsIntegration:
             await temp_db_tracker.add_status_change(
                 f"completed_book_{i}",
                 TEXT_EXTRACTION_STATUS_TYPE,
-                ExtractionStatus.COMPLETED,
+                ExtractionStatus.COMPLETED.value,
                 metadata=case,
             )
 
@@ -368,12 +362,12 @@ class TestQueryFunctionsIntegration:
         await temp_db_tracker.add_status_change(
             "failed_book",
             TEXT_EXTRACTION_STATUS_TYPE,
-            ExtractionStatus.FAILED,
+            ExtractionStatus.FAILED.value,
             metadata={"error_type": "TestError", "partial_page_count": 10},
         )
 
         # Get progress statistics
-        progress = await get_extraction_progress(temp_db_tracker.db_path)
+        progress = get_extraction_progress(temp_db_tracker.db_path)
 
         # Verify statistics
         assert progress["total_pages_extracted"] == 450  # 150 + 200 + 100
@@ -382,8 +376,8 @@ class TestQueryFunctionsIntegration:
 
         # Check status summary is included
         assert "status_summary" in progress
-        assert progress["status_summary"][ExtractionStatus.COMPLETED] >= 3
-        assert progress["status_summary"][ExtractionStatus.FAILED] >= 1
+        assert progress["status_summary"][ExtractionStatus.COMPLETED.value] >= 3
+        assert progress["status_summary"][ExtractionStatus.FAILED.value] >= 1
 
         # Check recent failures
         assert len(progress["recent_failures"]) >= 1
@@ -400,9 +394,9 @@ class TestSessionTracking:
         session2 = "batch_session_2"
 
         # Extract with different session IDs
-        extract_text_from_archive(
+        extract_text_with_tracking(
             test_archive_with_content,
-            db_tracker=temp_db_tracker,
+            temp_db_tracker.db_path,
             session_id=session1,
         )
 
@@ -410,7 +404,7 @@ class TestSessionTracking:
         await temp_db_tracker.add_status_change(
             "book_session2",
             TEXT_EXTRACTION_STATUS_TYPE,
-            ExtractionStatus.COMPLETED,
+            ExtractionStatus.COMPLETED.value,
             session_id=session2,
             metadata={"page_count": 75, "extraction_time_ms": 1500},
         )

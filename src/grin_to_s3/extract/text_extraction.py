@@ -93,6 +93,10 @@ def extract_text_from_archive(
 
     except tarfile.TarError as e:
         raise CorruptedArchiveError(f"Failed to open tar.gz archive: {e}") from e
+    except TextExtractionError:
+        raise
+    except Exception as e:
+        raise TextExtractionError(f"Unexpected error during extraction: {e}") from e
 
 
 def _extract_text_from_memory(archive_path: str) -> dict[int, str]:
@@ -393,20 +397,20 @@ def _extract_text_to_jsonl_file_streaming(archive_path: str, output_path: Path) 
 def extract_text_with_tracking(
     archive_path: str,
     db_path: str,
-    session_id: str = None,
+    session_id: str | None = None,
     extraction_dir: str | None = None,
     keep_extracted: bool = False,
     extract_to_disk: bool = True,
 ) -> list[str]:
     """Extract text with database tracking."""
-    from .tracking import track_start, track_completion, track_failure, ExtractionMethod
+    from .tracking import ExtractionMethod, track_completion, track_failure, track_start
 
     barcode = get_barcode_from_path(archive_path)
     method = ExtractionMethod.DISK if extract_to_disk else ExtractionMethod.MEMORY
-    
+
     track_start(db_path, barcode, session_id)
     start_time = time.time()
-    
+
     try:
         result = extract_text_from_archive(archive_path, extraction_dir, keep_extracted, extract_to_disk)
         extraction_time_ms = int((time.time() - start_time) * 1000)
@@ -421,22 +425,32 @@ def extract_text_to_jsonl_with_tracking(
     archive_path: str,
     output_path: str,
     db_path: str,
-    session_id: str = None,
+    session_id: str | None = None,
 ) -> int:
     """Extract text to JSONL with database tracking."""
-    from .tracking import track_start, track_completion, track_failure, ExtractionMethod
+    from .tracking import ExtractionMethod, track_completion, track_failure, track_start
 
     barcode = get_barcode_from_path(archive_path)
-    
+
     track_start(db_path, barcode, session_id)
     start_time = time.time()
-    
+
     try:
         page_count = extract_text_to_jsonl_file(archive_path, output_path)
         extraction_time_ms = int((time.time() - start_time) * 1000)
         file_size = Path(output_path).stat().st_size
-        track_completion(db_path, barcode, page_count, extraction_time_ms, ExtractionMethod.STREAMING, session_id, file_size, output_path)
+        track_completion(
+            db_path,
+            barcode,
+            page_count,
+            extraction_time_ms,
+            ExtractionMethod.STREAMING,
+            session_id,
+            file_size,
+            output_path,
+        )
         return page_count
     except Exception as e:
         track_failure(db_path, barcode, e, ExtractionMethod.STREAMING, session_id)
         raise
+

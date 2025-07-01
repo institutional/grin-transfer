@@ -31,12 +31,14 @@ class ExtractionMethod(Enum):
     STREAMING = "streaming"
 
 
-def write_status(db_path: str, barcode: str, status: ExtractionStatus, metadata: dict = None, session_id: str = None) -> None:
+def write_status(
+    db_path: str, barcode: str, status: ExtractionStatus, metadata: dict | None = None, session_id: str | None = None
+) -> None:
     """Write a status row to the database."""
     try:
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                """INSERT INTO book_status_history 
+                """INSERT INTO book_status_history
                    (barcode, status_type, status_value, timestamp, session_id, metadata)
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (
@@ -53,18 +55,18 @@ def write_status(db_path: str, barcode: str, status: ExtractionStatus, metadata:
         logger.warning(f"Failed to write extraction status for {barcode}: {e}")
 
 
-def track_start(db_path: str, barcode: str, session_id: str = None) -> None:
+def track_start(db_path: str, barcode: str, session_id: str | None = None) -> None:
     """Track extraction start."""
-    metadata = {
+    metadata: dict[str, str] = {
         "started_at": datetime.now(UTC).isoformat(),
         "extraction_stage": "initialization",
     }
     write_status(db_path, barcode, ExtractionStatus.STARTING, metadata, session_id)
 
 
-def track_progress(db_path: str, barcode: str, page_count: int, session_id: str = None) -> None:
+def track_progress(db_path: str, barcode: str, page_count: int, session_id: str | None = None) -> None:
     """Track extraction progress."""
-    metadata = {
+    metadata: dict[str, str | int] = {
         "page_count": page_count,
         "extraction_stage": "processing_pages",
         "progress_at": datetime.now(UTC).isoformat(),
@@ -78,19 +80,19 @@ def track_completion(
     page_count: int,
     extraction_time_ms: int,
     method: ExtractionMethod,
-    session_id: str = None,
+    session_id: str | None = None,
     file_size: int = 0,
     output_path: str = "",
 ) -> None:
     """Track successful extraction completion."""
-    metadata = {
+    metadata: dict[str, str | int] = {
         "page_count": page_count,
         "extraction_time_ms": extraction_time_ms,
         "extraction_method": method.value,
         "completed_at": datetime.now(UTC).isoformat(),
     }
     if file_size:
-        metadata["file_size"] = file_size
+        metadata["jsonl_file_size"] = file_size
     if output_path:
         metadata["output_path"] = output_path
 
@@ -102,11 +104,11 @@ def track_failure(
     barcode: str,
     error: Exception,
     method: ExtractionMethod,
-    session_id: str = None,
+    session_id: str | None = None,
     partial_page_count: int = 0,
 ) -> None:
     """Track extraction failure."""
-    metadata = {
+    metadata: dict[str, str | int] = {
         "error_type": type(error).__name__,
         "error_message": str(error),
         "extraction_method": method.value,
@@ -173,8 +175,53 @@ def get_failed_extractions(db_path: str, limit: int = 100) -> list[dict]:
                     "error_type": metadata.get("error_type"),
                     "error_message": metadata.get("error_message"),
                     "extraction_method": metadata.get("extraction_method"),
+                    "partial_page_count": metadata.get("partial_page_count", 0),
                 })
             return failures
     except Exception as e:
         logger.error(f"Failed to get failed extractions: {e}")
         return []
+
+
+def get_extraction_progress(db_path: str) -> dict:
+    """Get overall extraction progress statistics."""
+    try:
+        status_summary = get_status_summary(db_path)
+        recent_failures = get_failed_extractions(db_path, limit=10)
+
+        # Get aggregated statistics for completed extractions
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.execute(
+                """SELECT metadata
+                   FROM book_status_history
+                   WHERE status_type = ? AND status_value = ?""",
+                (TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.COMPLETED.value),
+            )
+            results = cursor.fetchall()
+
+            total_pages = 0
+            total_time_ms = 0
+            completed_count = 0
+
+            for (metadata_json,) in results:
+                if metadata_json:
+                    metadata = json.loads(metadata_json)
+                    total_pages += metadata.get("page_count", 0)
+                    total_time_ms += metadata.get("extraction_time_ms", 0)
+                    completed_count += 1
+
+            # Calculate averages
+            avg_pages = total_pages / completed_count if completed_count > 0 else 0
+            avg_time_ms = total_time_ms / completed_count if completed_count > 0 else 0
+
+            return {
+                "status_summary": status_summary,
+                "total_pages_extracted": total_pages,
+                "avg_pages_per_book": round(avg_pages, 1),
+                "avg_extraction_time_ms": round(avg_time_ms, 1),
+                "recent_failures": recent_failures,
+            }
+    except Exception as e:
+        logger.error(f"Failed to get extraction progress: {e}")
+        return {"status_summary": {"total": 0}, "total_pages_extracted": 0, "recent_failures": []}
+
