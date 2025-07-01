@@ -21,7 +21,7 @@ from .text_extraction import (
     CorruptedArchiveError,
     InvalidPageFormatError,
     TextExtractionError,
-    extract_text_to_jsonl_file,
+    extract_ocr_pages,
     get_barcode_from_path,
 )
 
@@ -101,19 +101,19 @@ Examples:
     parser.add_argument(
         "--extraction-dir",
         type=str,
-        help="Directory to extract archives to (creates BARCODE/ subdirectories, only used with --use-disk)",
+        help="Directory to extract archives to (creates BARCODE/ subdirectories)",
     )
 
     parser.add_argument(
         "--keep-extracted",
         action="store_true",
-        help="Keep extracted files after processing (only used with --use-disk)",
+        help="Keep extracted files after processing",
     )
 
     parser.add_argument(
-        "--use-disk",
+        "--use-memory",
         action="store_true",
-        help="Extract to disk instead of memory (better for parallel processing)",
+        help="Extract in memory instead of to disk (memory efficient for smaller archives)",
     )
 
     # Run configuration
@@ -128,12 +128,11 @@ Examples:
 
 async def extract_single_archive(
     archive_path: str,
+    db_path: str,
+    session_id: str,
     output_path: str | None = None,
     book_storage: BookStorage | None = None,
     verbose: bool = False,
-    extraction_dir: str | None = None,
-    keep_extracted: bool = False,
-    use_memory: bool = True,
 ) -> dict:
     """Extract text from single archive and return stats."""
     print(f"Processing: {archive_path}")
@@ -141,7 +140,7 @@ async def extract_single_archive(
     try:
         if output_path:
             # File output: write directly to specified path
-            page_count = extract_text_to_jsonl_file(archive_path, output_path)
+            page_count = extract_ocr_pages(archive_path, db_path, session_id, output_file=output_path)
             print(f"  ✓ Saved to: {output_path}")
         else:
             # Bucket output: write to staging file, upload, then cleanup
@@ -156,7 +155,7 @@ async def extract_single_archive(
                 temp_path = temp_file.name
 
             try:
-                page_count = extract_text_to_jsonl_file(archive_path, temp_path)
+                page_count = extract_ocr_pages(archive_path, db_path, session_id, output_file=temp_path)
                 await write_to_bucket(book_storage, barcode, temp_path, verbose)
             finally:
                 # Clean up temp file
@@ -193,28 +192,27 @@ async def main() -> int:
         print("Error: Cannot use --output with multiple archives. Use --output-dir instead.", file=sys.stderr)
         return 1
 
-    # Validate that we have exactly one output method
-    has_file_output = bool(args.output or args.output_dir)
-    has_run_config = bool(args.run_name)
-
-    if not has_file_output and not has_run_config:
-        print(
-            "Error: Must specify either file output (--output/--output-dir) or run configuration (--run-name)",
-            file=sys.stderr
-        )
+    # --run-name is now required for database tracking
+    if not args.run_name:
+        print("Error: --run-name is required for database tracking", file=sys.stderr)
         return 1
 
-    if has_file_output and has_run_config:
-        print("Error: Cannot specify both file output and run configuration - choose one", file=sys.stderr)
+    # Set up database path and session ID - required for tracking
+    try:
+        # Set up database path and apply run configuration
+        db_path = setup_run_database_path(args, args.run_name)
+        apply_run_config_to_args(args, db_path)
+    except Exception as e:
+        print(f"Error: Failed to set up run configuration: {e}", file=sys.stderr)
         return 1
 
-    # Create book storage from run configuration if provided
+    # Generate session ID for this extraction run
+    import uuid
+    session_id = f"extract_{uuid.uuid4().hex[:8]}"
+    # Create book storage from run configuration if bucket output is needed
     book_storage = None
-    if args.run_name:
+    if not (args.output or args.output_dir):
         try:
-            # Set up database path and apply run configuration
-            db_path = setup_run_database_path(args, args.run_name)
-            apply_run_config_to_args(args, db_path)
 
             # Build storage configuration from run config
             config_path = Path(db_path).parent / "run_config.json"
@@ -277,12 +275,11 @@ async def main() -> int:
         # Extract from archive
         result = await extract_single_archive(
             archive_path=archive_path,
+            db_path=db_path,
+            session_id=session_id,
             output_path=output_path,
             book_storage=book_storage,
             verbose=args.verbose,
-            extraction_dir=args.extraction_dir,
-            keep_extracted=args.keep_extracted,
-            use_memory=not args.use_disk,
         )
         results.append(result)
 

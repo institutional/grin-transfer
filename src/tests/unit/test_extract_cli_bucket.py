@@ -47,7 +47,7 @@ class TestExtractCLIIntegration:
     """Test CLI integration with bucket functionality."""
 
     @patch("grin_to_s3.storage.factories.create_book_storage_with_full_text")
-    @patch("grin_to_s3.extract.__main__.extract_text_to_jsonl_file")
+    @patch("grin_to_s3.extract.__main__.extract_ocr_pages")
     @pytest.mark.asyncio
     async def test_extract_single_archive_with_bucket(self, mock_extract_to_file, mock_create_storage):
         """Test extract_single_archive with bucket storage only."""
@@ -59,6 +59,8 @@ class TestExtractCLIIntegration:
         # Test extraction with bucket storage only (no file output)
         result = await extract_single_archive(
             archive_path="/path/to/book12345.tar.gz",
+            db_path="/tmp/test.db",
+            session_id="test_session",
             book_storage=mock_book_storage,
             verbose=True
         )
@@ -67,8 +69,10 @@ class TestExtractCLIIntegration:
         assert mock_extract_to_file.call_count == 1
         call_args = mock_extract_to_file.call_args
         assert call_args[0][0] == "/path/to/book12345.tar.gz"
-        # Second arg should be a temp file path
-        assert call_args[0][1].endswith(".jsonl")
+        assert call_args[0][1] == "/tmp/test.db"
+        assert call_args[0][2] == "test_session"
+        # output_file keyword arg should be a temp file path
+        assert call_args[1]["output_file"].endswith(".jsonl")
 
         # Verify bucket upload was called
         mock_book_storage.save_ocr_text_jsonl_from_file.assert_called_once()
@@ -80,10 +84,10 @@ class TestExtractCLIIntegration:
         assert result["success"] is True
         assert result["archive"] == "/path/to/book12345.tar.gz"
 
-    @patch("grin_to_s3.extract.__main__.extract_text_to_jsonl_file")
+    @patch("grin_to_s3.extract.__main__.extract_ocr_pages")
     @pytest.mark.asyncio
     async def test_extract_single_archive_bucket_and_file(self, mock_extract_to_file):
-        """Test that file output and bucket storage are mutually exclusive."""
+        """Test that file output takes priority when both file and run config are specified."""
         from unittest.mock import MagicMock
 
         from grin_to_s3.extract.__main__ import main
@@ -106,7 +110,7 @@ class TestExtractCLIIntegration:
                  patch("pathlib.Path.exists") as mock_path_exists, \
                  patch("json.load") as mock_json_load, \
                  patch("grin_to_s3.storage.factories.create_book_storage_with_full_text") as mock_create_storage, \
-                 patch("builtins.print") as mock_print:
+                 patch("builtins.print"):
 
                 mock_setup_db.return_value = "/path/to/db"
                 mock_path_exists.return_value = True
@@ -121,16 +125,16 @@ class TestExtractCLIIntegration:
 
                 result = await main()
 
-                # Should exit with error code 1 due to conflicting options
-                assert result == 1
+                # Should succeed with file output taking priority
+                assert result == 0
 
-                # Should print error about conflicting options
-                mock_print.assert_called_with(
-                    "Error: Cannot specify both file output and run configuration - choose one",
-                    file=sys.stderr
-                )
+                # Verify extraction was called with file output (not bucket)
+                mock_extract_to_file.assert_called_once()
+                call_args = mock_extract_to_file.call_args
+                assert call_args[0][0] == "/path/to/test.tar.gz"  # archive path
+                assert call_args[1]["output_file"] == "/path/to/output.jsonl"  # file output used
 
-    @patch("grin_to_s3.extract.__main__.extract_text_to_jsonl_file")
+    @patch("grin_to_s3.extract.__main__.extract_ocr_pages")
     @pytest.mark.asyncio
     async def test_extract_single_archive_bucket_only_no_stdout(self, mock_extract_to_file):
         """Test that stdout output is suppressed when using bucket storage."""
@@ -142,6 +146,8 @@ class TestExtractCLIIntegration:
         with patch("builtins.print") as mock_print:
             await extract_single_archive(
                 archive_path="/path/to/test.tar.gz",
+                db_path="/tmp/test.db",
+                session_id="test_session",
                 book_storage=mock_book_storage
             )
 
@@ -239,7 +245,7 @@ class TestExtractCLIIntegration:
 
             # Verify error message and exit code
             mock_print.assert_any_call(
-                "Error: Must specify either file output (--output/--output-dir) or run configuration (--run-name)",
+                "Error: --run-name is required for database tracking",
                 file=sys.stderr
             )
             assert result == 1

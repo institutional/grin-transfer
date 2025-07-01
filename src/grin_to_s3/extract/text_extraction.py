@@ -11,6 +11,7 @@ import logging
 import re
 import tarfile
 import tempfile
+import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -39,14 +40,17 @@ class InvalidPageFormatError(TextExtractionError):
     pass
 
 
-def extract_text_from_archive(
+def extract_ocr_pages(
     archive_path: str,
+    db_path: str,
+    session_id: str,
+    output_file: str | None = None,
     extraction_dir: str | None = None,
     keep_extracted: bool = False,
-    use_memory: bool = True
-) -> list[str]:
+    extract_to_disk: bool = True,
+) -> list[str] | int:
     """
-    Extract OCR text from decrypted tar.gz archive and return as JSON array.
+    Extract OCR page texts from decrypted tar.gz archive.
 
     Processes sequential page files (00000001.txt, 00000002.txt, etc.) from
     Google Books archives, sorts by page number, and handles missing pages
@@ -54,15 +58,20 @@ def extract_text_from_archive(
 
     Args:
         archive_path: Path to decrypted tar.gz archive
-        extraction_dir: Directory to extract archive to. If None and use_memory=False,
-                       uses temporary directory. Ignored if use_memory=True.
+        db_path: Path to SQLite database for tracking extraction status
+        session_id: Session ID for grouping related operations
+        output_file: If provided, writes pages to JSONL file and returns page count.
+                    If None, returns list of page texts in memory.
+        extraction_dir: Directory to extract archive to. If None and extract_to_disk=True,
+                       uses temporary directory. Ignored if extract_to_disk=False.
         keep_extracted: Whether to keep extracted files after processing.
-                       Only applies when use_memory=False. Default False (cleanup).
-        use_memory: If True (default), extract files directly in memory without
-                   writing to disk. If False, extract to disk first.
+                       Only applies when extract_to_disk=True. Default False (cleanup).
+        extract_to_disk: If True (default), extract to disk first for better performance.
+                        If False, extract files directly in memory.
 
     Returns:
-        List of strings where index corresponds to page number (0-indexed)
+        If output_file is None: List of strings where index corresponds to page number (0-indexed)
+        If output_file is provided: Number of pages written to JSONL file
         Missing pages are represented as empty strings
 
     Raises:
@@ -72,26 +81,71 @@ def extract_text_from_archive(
     """
     archive_path_obj = Path(archive_path)
 
+    # Set up tracking variables for database operations
+    from .tracking import ExtractionMethod, track_completion, track_failure, track_start
+
+    barcode = get_barcode_from_path(archive_path)
+    method = ExtractionMethod.DISK if extract_to_disk else ExtractionMethod.MEMORY
+
+    # Track extraction start
+    track_start(db_path, barcode, session_id)
+    start_time = time.time()
+
     if not archive_path_obj.exists():
-        raise TextExtractionError(f"Archive file not found: {archive_path}")
+        error = TextExtractionError(f"Archive file not found: {archive_path}")
+        track_failure(db_path, barcode, error, method, session_id)
+        raise error
 
     if not archive_path_obj.suffix.endswith(".gz"):
-        raise TextExtractionError(f"Expected .tar.gz archive, got: {archive_path}")
+        error = TextExtractionError(f"Expected .tar.gz archive, got: {archive_path}")
+        track_failure(db_path, barcode, error, method, session_id)
+        raise error
 
-    logger.debug(f"Starting OCR text extraction from {archive_path} (memory={use_memory})")
+    logger.debug(f"Starting OCR text extraction from {archive_path} (extract_to_disk={extract_to_disk})")
 
     try:
-        if use_memory:
-            page_data = _extract_text_from_memory(archive_path)
-        else:
-            page_data = _extract_text_from_disk(archive_path, extraction_dir, keep_extracted)
+        if output_file is not None:
+            # Stream to JSONL file
+            output_path_obj = Path(output_file)
+            output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+            page_count = _extract_text_to_jsonl_file_streaming(archive_path, output_path_obj)
 
-        # Build final page array with proper indexing
-        return _build_page_array(page_data)
+            # Track completion
+            extraction_time_ms = int((time.time() - start_time) * 1000)
+            file_size = Path(output_file).stat().st_size
+            track_completion(
+                db_path,
+                barcode,
+                page_count,
+                extraction_time_ms,
+                ExtractionMethod.STREAMING,
+                session_id,
+                file_size,
+                str(output_file),
+            )
+
+            return page_count
+        else:
+            # Return in-memory list
+            if extract_to_disk:
+                page_data = _extract_text_from_disk(archive_path, extraction_dir, keep_extracted)
+            else:
+                page_data = _extract_text_from_memory(archive_path)
+
+            # Build final page array with proper indexing
+            result = _build_page_array(page_data)
+
+            # Track completion
+            extraction_time_ms = int((time.time() - start_time) * 1000)
+            track_completion(db_path, barcode, len(result), extraction_time_ms, method, session_id)
+
+            return result
 
     except tarfile.TarError as e:
+        track_failure(db_path, barcode, e, method, session_id)
         raise CorruptedArchiveError(f"Failed to open tar.gz archive: {e}") from e
     except Exception as e:
+        track_failure(db_path, barcode, e, method if output_file is None else ExtractionMethod.STREAMING, session_id)
         if isinstance(e, TextExtractionError):
             raise
         raise TextExtractionError(f"Unexpected error during extraction: {e}") from e
@@ -286,28 +340,6 @@ def _build_page_array(page_data: dict[int, str]) -> list[str]:
     return result
 
 
-def extract_text_to_jsonl_file(archive_path: str, output_path: str) -> int:
-    """
-    Extract text from archive and save directly to JSONL file.
-
-    Uses memory-efficient generator approach, reading one page at a time
-    and writing each page as a JSON-encoded string per line.
-    Format: "page 1 text"\n"page 2 text"\n...
-
-    Args:
-        archive_path: Path to decrypted tar.gz archive
-        output_path: Path where JSONL file should be written
-
-    Returns:
-        Number of pages processed
-
-    Raises:
-        TextExtractionError: When extraction fails
-    """
-    output_path_obj = Path(output_path)
-    output_path_obj.parent.mkdir(parents=True, exist_ok=True)
-
-    return _extract_text_to_jsonl_file_streaming(archive_path, output_path_obj)
 
 
 def _page_content_generator(archive_path: str) -> Iterator[tuple[int, str]]:
@@ -388,3 +420,5 @@ def _extract_text_to_jsonl_file_streaming(archive_path: str, output_path: Path) 
         if output_path.exists():
             output_path.unlink()
         raise
+
+
