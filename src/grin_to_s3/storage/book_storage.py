@@ -21,27 +21,35 @@ class BookStorage:
     Implements storage patterns for book data organization.
     """
 
-    def __init__(self, storage: Storage, base_prefix: str = "", full_text_storage: Storage | None = None):
+    def __init__(self, storage: Storage, bucket_config: dict, base_prefix: str = ""):
         self.storage = storage
-        self.full_text_storage = full_text_storage
+        self.bucket_raw = bucket_config["bucket_raw"]
+        self.bucket_meta = bucket_config["bucket_meta"]
+        self.bucket_full = bucket_config["bucket_full"]
         self.base_prefix = base_prefix.rstrip("/")
 
-    def _book_path(self, barcode: str, filename: str) -> str:
-        """Generate path for book file."""
+    def _raw_archive_path(self, barcode: str, filename: str) -> str:
+        """Generate path for raw archive file."""
         if self.base_prefix:
-            return f"{self.base_prefix}/{barcode}/{filename}"
-        return f"{barcode}/{filename}"
+            return f"{self.bucket_raw}/{self.base_prefix}/{barcode}/{filename}"
+        return f"{self.bucket_raw}/{barcode}/{filename}"
 
     def _full_text_path(self, barcode: str, filename: str) -> str:
         """Generate path for full-text bucket file."""
         if self.base_prefix:
-            return f"{self.base_prefix}/{filename}"
-        return filename
+            return f"{self.bucket_full}/{self.base_prefix}/{filename}"
+        return f"{self.bucket_full}/{filename}"
+
+    def _meta_path(self, filename: str) -> str:
+        """Generate path for metadata bucket file."""
+        if self.base_prefix:
+            return f"{self.bucket_meta}/{self.base_prefix}/{filename}"
+        return f"{self.bucket_meta}/{filename}"
 
     async def save_archive(self, barcode: str, archive_data: bytes, encrypted_etag: str | None = None) -> str:
         """Save encrypted archive (.tar.gz.gpg) with optional encrypted ETag metadata."""
         filename = f"{barcode}.tar.gz.gpg"
-        path = self._book_path(barcode, filename)
+        path = self._raw_archive_path(barcode, filename)
 
         if self.storage.config.protocol == "s3" and encrypted_etag:
             # Store encrypted file's ETag as metadata for future comparison
@@ -55,7 +63,7 @@ class BookStorage:
     ) -> str:
         """Save encrypted archive (.tar.gz.gpg) from file with optional encrypted ETag metadata."""
         filename = f"{barcode}.tar.gz.gpg"
-        path = self._book_path(barcode, filename)
+        path = self._raw_archive_path(barcode, filename)
 
         if self.storage.config.protocol == "s3" and encrypted_etag:
             # For S3 with metadata, we need to read the file and use write_bytes_with_metadata
@@ -72,7 +80,7 @@ class BookStorage:
     async def save_decrypted_archive(self, barcode: str, archive_data: bytes, encrypted_etag: str | None = None) -> str:
         """Save decrypted archive (.tar.gz) with optional encrypted ETag metadata."""
         filename = f"{barcode}.tar.gz"
-        path = self._book_path(barcode, filename)
+        path = self._raw_archive_path(barcode, filename)
 
         if self.storage.is_s3_compatible() and encrypted_etag:
             # Store encrypted file's ETag as metadata for future comparison
@@ -86,7 +94,7 @@ class BookStorage:
     ) -> str:
         """Save decrypted archive (.tar.gz) from file with optional encrypted ETag metadata."""
         filename = f"{barcode}.tar.gz"
-        path = self._book_path(barcode, filename)
+        path = self._raw_archive_path(barcode, filename)
 
         if self.storage.is_s3_compatible() and encrypted_etag:
             # For S3-compatible storage with metadata, read file and use write_bytes_with_metadata
@@ -105,7 +113,7 @@ class BookStorage:
         import json
 
         filename = f"{barcode}.jsonl"
-        path = self._book_path(barcode, filename)
+        path = self._raw_archive_path(barcode, filename)
 
         # Build JSONL content inline
         if not pages:
@@ -121,29 +129,26 @@ class BookStorage:
         self, barcode: str, jsonl_file_path: str, metadata: dict | None = None
     ) -> str:
         """Upload JSONL file from local path to full-text bucket."""
-        if self.full_text_storage is None:
-            raise ValueError("Full-text storage not configured")
-
         filename = f"{barcode}.jsonl"
         path = self._full_text_path(barcode, filename)
 
-        if self.full_text_storage.is_s3_compatible() and metadata:
+        if self.storage.is_s3_compatible() and metadata:
             # For S3-compatible storage with metadata, read file and use write_bytes_with_metadata
             import aiofiles
 
             async with aiofiles.open(jsonl_file_path, "rb") as f:
                 file_data = await f.read()
-            await self.full_text_storage.write_bytes_with_metadata(path, file_data, metadata)
+            await self.storage.write_bytes_with_metadata(path, file_data, metadata)
         else:
             # Stream upload directly from file
-            await self.full_text_storage.write_file(path, jsonl_file_path)
+            await self.storage.write_file(path, jsonl_file_path)
 
         return path
 
     async def save_timestamp(self, barcode: str, suffix: str = "retrieval") -> str:
         """Save retrieval timestamp."""
         filename = f"{barcode}.tar.gz.gpg.{suffix}"
-        path = self._book_path(barcode, filename)
+        path = self._raw_archive_path(barcode, filename)
         timestamp = datetime.now(tz=UTC).isoformat()
         await self.storage.write_text(path, timestamp)
         return path
@@ -151,7 +156,7 @@ class BookStorage:
     async def archive_exists(self, barcode: str) -> bool:
         """Check if decrypted archive exists."""
         filename = f"{barcode}.tar.gz"
-        path = self._book_path(barcode, filename)
+        path = self._raw_archive_path(barcode, filename)
         return await self.storage.exists(path)
 
     async def decrypted_archive_exists(self, barcode: str) -> bool:
@@ -166,7 +171,7 @@ class BookStorage:
 
         try:
             filename = f"{barcode}.tar.gz"
-            path = self._book_path(barcode, filename)
+            path = self._raw_archive_path(barcode, filename)
 
             # Get object metadata using aioboto3 directly
             import aioboto3
@@ -215,12 +220,12 @@ class BookStorage:
     async def get_archive(self, barcode: str) -> bytes:
         """Get decrypted archive data."""
         filename = f"{barcode}.tar.gz"
-        path = self._book_path(barcode, filename)
+        path = self._raw_archive_path(barcode, filename)
         return await self.storage.read_bytes(path)
 
     async def stream_archive_download(self, barcode: str) -> AsyncGenerator[bytes, None]:
         """Stream download decrypted archive."""
         filename = f"{barcode}.tar.gz"
-        path = self._book_path(barcode, filename)
+        path = self._raw_archive_path(barcode, filename)
         async for chunk in self.storage.stream_download(path):
             yield chunk

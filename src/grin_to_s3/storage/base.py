@@ -204,21 +204,23 @@ class Storage:
                 async with session.client("s3", **session_kwargs) as s3_client:
                     # Parse bucket and key from path
                     path_parts = normalized_path.split("/", 1)
-                    if len(path_parts) == 2:
-                        bucket, key = path_parts
+                    if len(path_parts) != 2:
+                        raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
+                    
+                    bucket, key = path_parts
 
-                        # Get file size for multipart decision
-                        file_size = os.path.getsize(file_path)
+                    # Get file size for multipart decision
+                    file_size = os.path.getsize(file_path)
 
-                        if file_size > 50 * 1024 * 1024:
-                            # Use multipart upload for files >50MB
-                            await self._multipart_upload_from_file(s3_client, bucket, key, file_path)
-                        else:
-                            # Single-part upload for files ≤50MB - much faster, single API call
-                            async with aiofiles.open(file_path, "rb") as f:
-                                file_data = await f.read()
-                                await s3_client.put_object(Bucket=bucket, Key=key, Body=file_data)
-                        return
+                    if file_size > 50 * 1024 * 1024:
+                        # Use multipart upload for files >50MB
+                        await self._multipart_upload_from_file(s3_client, bucket, key, file_path)
+                    else:
+                        # Single-part upload for files ≤50MB - much faster, single API call
+                        async with aiofiles.open(file_path, "rb") as f:
+                            file_data = await f.read()
+                            await s3_client.put_object(Bucket=bucket, Key=key, Body=file_data)
+                    return
             except Exception as e:
                 raise RuntimeError(f"Failed to stream upload file: {e}") from e
         else:

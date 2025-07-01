@@ -11,117 +11,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.extract.__main__ import validate_storage_config, write_to_bucket
+from grin_to_s3.extract.__main__ import write_to_bucket
 
 
-class TestStorageConfigValidation:
-    """Test storage configuration validation."""
-
-    def test_validate_storage_config_no_storage(self):
-        """Test validation when no storage is configured."""
-        args = MagicMock(storage=None)
-        result = validate_storage_config(args)
-        assert result is None
-
-    def test_validate_storage_config_missing_bucket_full(self):
-        """Test validation fails when storage is specified but bucket_full is missing."""
-        args = MagicMock(storage="r2", bucket_full=None)
-        
-        with pytest.raises(ValueError, match="--bucket-full is required when using storage"):
-            validate_storage_config(args)
-
-    def test_validate_storage_config_missing_bucket_raw(self):
-        """Test validation fails when bucket_raw is missing."""
-        args = MagicMock(
-            storage="r2",
-            bucket_full="my-full-bucket",
-            bucket_raw=None,
-            bucket_meta="my-meta-bucket",
-            credentials_file=None
-        )
-        
-        with pytest.raises(ValueError, match="--bucket-raw is required when using storage"):
-            validate_storage_config(args)
-
-    def test_validate_storage_config_missing_bucket_meta(self):
-        """Test validation fails when bucket_meta is missing."""
-        args = MagicMock(
-            storage="r2",
-            bucket_full="my-full-bucket",
-            bucket_raw="my-raw-bucket",
-            bucket_meta=None,
-            credentials_file=None
-        )
-        
-        with pytest.raises(ValueError, match="--bucket-meta is required when using storage"):
-            validate_storage_config(args)
-
-    def test_validate_storage_config_three_bucket(self):
-        """Test validation with three-bucket configuration."""
-        args = MagicMock(
-            storage="r2",
-            bucket_full="full-bucket",
-            bucket_raw="raw-bucket", 
-            bucket_meta="meta-bucket",
-            credentials_file="/path/to/creds.json"
-        )
-        
-        result = validate_storage_config(args)
-        
-        expected = {
-            "bucket_full": "full-bucket",
-            "bucket_raw": "raw-bucket",
-            "bucket_meta": "meta-bucket",
-            "credentials_file": "/path/to/creds.json"
-        }
-        assert result == expected
-
-    def test_validate_storage_config_all_buckets_required(self):
-        """Test that all three buckets are always required."""
-        # This test is now covered by the individual missing bucket tests above
-        pass
-
-    def test_validate_storage_config_minio_with_endpoint(self):
-        """Test validation with MinIO configuration."""
-        args = MagicMock(
-            storage="minio",
-            bucket_full="minio-full-bucket",
-            bucket_raw="minio-raw-bucket",
-            bucket_meta="minio-meta-bucket",
-            endpoint_url="http://localhost:9000",
-            access_key="minioadmin",
-            secret_key="minioadmin123"
-        )
-        
-        result = validate_storage_config(args)
-        
-        expected = {
-            "bucket_full": "minio-full-bucket",
-            "bucket_raw": "minio-raw-bucket",
-            "bucket_meta": "minio-meta-bucket",
-            "endpoint_url": "http://localhost:9000",
-            "access_key": "minioadmin",
-            "secret_key": "minioadmin123"
-        }
-        assert result == expected
-
-    def test_validate_storage_config_s3_basic(self):
-        """Test validation with basic S3 configuration."""
-        args = MagicMock(
-            storage="s3",
-            bucket_full="s3-full-bucket",
-            bucket_raw="s3-raw-bucket",
-            bucket_meta="s3-meta-bucket"
-        )
-        
-        result = validate_storage_config(args)
-        
-        expected = {
-            "bucket_full": "s3-full-bucket",
-            "bucket_raw": "s3-raw-bucket",
-            "bucket_meta": "s3-meta-bucket"
-        }
-        assert result == expected
+# Storage configuration validation is now handled by run_config utilities
 
 
 class TestWriteToBucket:
@@ -197,15 +90,10 @@ class TestExtractCLIIntegration:
         from grin_to_s3.extract.__main__ import main
         from unittest.mock import MagicMock
         
-        # Mock arguments for both file and bucket output
+        # Mock arguments for both file and run configuration output
         with patch('argparse.ArgumentParser.parse_args') as mock_parse_args:
             mock_args = MagicMock()
-            mock_args.storage = "r2"
-            mock_args.bucket_full = "test-full-bucket"
-            mock_args.bucket_raw = "test-raw-bucket"
-            mock_args.bucket_meta = "test-meta-bucket"
-            mock_args.storage_prefix = ""
-            mock_args.credentials_file = None
+            mock_args.run_name = "test_run"  # Run configuration
             mock_args.output = "/path/to/output.jsonl"  # File output
             mock_args.output_dir = None
             mock_args.archives = ["/path/to/test.tar.gz"]
@@ -214,7 +102,25 @@ class TestExtractCLIIntegration:
             
             mock_parse_args.return_value = mock_args
             
-            with patch('builtins.print') as mock_print:
+            # Mock the run config functions to simulate successful config loading
+            with patch('grin_to_s3.extract.__main__.setup_run_database_path') as mock_setup_db, \
+                 patch('grin_to_s3.extract.__main__.apply_run_config_to_args') as mock_apply_config, \
+                 patch('pathlib.Path.exists') as mock_path_exists, \
+                 patch('json.load') as mock_json_load, \
+                 patch('grin_to_s3.storage.factories.create_book_storage_with_full_text') as mock_create_storage, \
+                 patch('builtins.print') as mock_print:
+                
+                mock_setup_db.return_value = "/path/to/db"
+                mock_path_exists.return_value = True
+                mock_json_load.return_value = {
+                    "storage_config": {
+                        "type": "r2", 
+                        "config": {"bucket_full": "test-bucket"}, 
+                        "prefix": ""
+                    }
+                }
+                mock_create_storage.return_value = MagicMock()
+                
                 result = await main()
                 
                 # Should exit with error code 1 due to conflicting options
@@ -222,7 +128,7 @@ class TestExtractCLIIntegration:
                 
                 # Should print error about conflicting options
                 mock_print.assert_called_with(
-                    "Error: Cannot specify both file output and bucket storage - choose one",
+                    "Error: Cannot specify both file output and run configuration - choose one",
                     file=sys.stderr
                 )
 
@@ -248,21 +154,22 @@ class TestExtractCLIIntegration:
             assert len(print_calls) == 0
 
     @patch('argparse.ArgumentParser.parse_args')
+    @patch('grin_to_s3.extract.__main__.setup_run_database_path')
+    @patch('grin_to_s3.extract.__main__.apply_run_config_to_args')
+    @patch('pathlib.Path.exists')
+    @patch('builtins.open', create=True)
+    @patch('json.load')
     @patch('grin_to_s3.storage.factories.create_book_storage_with_full_text')
     @patch('grin_to_s3.extract.__main__.extract_single_archive')
     @pytest.mark.asyncio
-    async def test_main_with_bucket_config(self, mock_extract_single, mock_create_storage, mock_parse_args):
-        """Test main function with bucket configuration."""
+    async def test_main_with_run_config(self, mock_extract_single, mock_create_storage, mock_json_load, 
+                                       mock_open, mock_path_exists, mock_apply_config, mock_setup_db, mock_parse_args):
+        """Test main function with run configuration."""
         from grin_to_s3.extract.__main__ import main
         
         # Mock arguments
         mock_args = MagicMock()
-        mock_args.storage = "r2"
-        mock_args.bucket_full = "test-full-bucket"
-        mock_args.bucket_raw = "test-raw-bucket"
-        mock_args.bucket_meta = "test-meta-bucket"
-        mock_args.storage_prefix = ""
-        mock_args.credentials_file = None
+        mock_args.run_name = "test_run"
         mock_args.output = None
         mock_args.output_dir = None
         mock_args.verbose = True
@@ -271,9 +178,19 @@ class TestExtractCLIIntegration:
         mock_args.extraction_dir = None
         mock_args.keep_extracted = False
         mock_args.use_disk = False
-        mock_args.no_streaming = False
         
         mock_parse_args.return_value = mock_args
+        
+        # Mock run config functions
+        mock_setup_db.return_value = "/path/to/test_run/books.db"
+        mock_path_exists.return_value = True
+        mock_json_load.return_value = {
+            "storage_config": {
+                "type": "r2", 
+                "config": {"bucket_full": "test-full-bucket"}, 
+                "prefix": ""
+            }
+        }
         
         # Mock storage creation
         mock_book_storage = AsyncMock()
@@ -288,13 +205,14 @@ class TestExtractCLIIntegration:
         
         result = await main()
         
-        # Verify storage was created with correct config
-        expected_config = {
-            "bucket_full": "test-full-bucket",
-            "bucket_raw": "test-raw-bucket",
-            "bucket_meta": "test-meta-bucket"
-        }
-        mock_create_storage.assert_called_once_with("r2", expected_config, "")
+        # Verify run config functions were called
+        mock_setup_db.assert_called_once_with(mock_args, "test_run")
+        mock_apply_config.assert_called_once()
+        mock_path_exists.assert_called()
+        mock_json_load.assert_called()
+        
+        # Verify storage was created
+        mock_create_storage.assert_called_once_with("r2", {"bucket_full": "test-full-bucket"}, "")
         
         # Verify extraction was called with bucket storage
         mock_extract_single.assert_called_once()
@@ -311,7 +229,7 @@ class TestExtractCLIIntegration:
         from grin_to_s3.extract.__main__ import main
         
         mock_args = MagicMock()
-        mock_args.storage = None
+        mock_args.run_name = None
         mock_args.output = None
         mock_args.output_dir = None
         mock_args.archives = ["/path/to/test.tar.gz"]
@@ -323,7 +241,7 @@ class TestExtractCLIIntegration:
             
             # Verify error message and exit code
             mock_print.assert_any_call(
-                "Error: Must specify either file output (--output/--output-dir) or bucket storage configuration",
+                "Error: Must specify either file output (--output/--output-dir) or run configuration (--run-name)",
                 file=sys.stderr
             )
             assert result == 1

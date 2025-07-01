@@ -12,6 +12,10 @@ import logging
 import sys
 from pathlib import Path
 
+from ..run_config import (
+    apply_run_config_to_args,
+    setup_run_database_path,
+)
 from ..storage.book_storage import BookStorage
 from .text_extraction import (
     CorruptedArchiveError,
@@ -24,46 +28,6 @@ from .text_extraction import (
 logger = logging.getLogger(__name__)
 
 
-def validate_storage_config(args: argparse.Namespace) -> dict | None:
-    """
-    Validate and build storage configuration from CLI arguments.
-
-    Returns:
-        Storage config dict if storage is configured, None otherwise
-
-    Raises:
-        ValueError: If storage configuration is invalid
-    """
-    if not args.storage:
-        return None
-
-    if not args.bucket_full:
-        raise ValueError("--bucket-full is required when using storage")
-    if not args.bucket_raw:
-        raise ValueError("--bucket-raw is required when using storage")
-    if not args.bucket_meta:
-        raise ValueError("--bucket-meta is required when using storage")
-
-    # Build config with all three buckets
-    config = {
-        "bucket_full": args.bucket_full,
-        "bucket_raw": args.bucket_raw,
-        "bucket_meta": args.bucket_meta
-    }
-
-    # Add storage-specific configuration
-    if args.storage == "r2":
-        if args.credentials_file:
-            config["credentials_file"] = args.credentials_file
-    elif args.storage == "minio":
-        if args.endpoint_url:
-            config["endpoint_url"] = args.endpoint_url
-        if args.access_key:
-            config["access_key"] = args.access_key
-        if args.secret_key:
-            config["secret_key"] = args.secret_key
-
-    return config
 
 
 async def write_to_bucket(
@@ -75,10 +39,11 @@ async def write_to_bucket(
     """Upload JSONL file to full-text bucket."""
     try:
         path = await book_storage.save_ocr_text_jsonl_from_file(barcode, jsonl_file_path)
-        if verbose:
-            print(f"  ✓ Uploaded to bucket: {path}")
+        print(f"  ✓ Uploaded to bucket: {path}")
+        
     except Exception as e:
-        raise RuntimeError(f"Failed to upload to bucket: {e}") from e
+        print(f"  ✗ Upload failed: {e}", file=sys.stderr)
+        raise
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -88,27 +53,17 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Extract text and print to stdout (JSONL format)
-  python grin.py extract /path/to/book.tar.gz
-
   # Extract text and save to JSONL file
   python grin.py extract /path/to/book.tar.gz --output /path/to/output.jsonl
 
   # Extract multiple archives to directory
   python grin.py extract /path/to/books/*.tar.gz --output-dir /path/to/jsonl_files/
 
-  # Extract and save to R2 buckets
-  python grin.py extract /path/to/book.tar.gz --storage r2 \\
-    --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
+  # Extract and upload to buckets using run configuration
+  python grin.py extract /path/to/book.tar.gz --run-name harvard_2024
 
-  # Extract multiple files to R2 buckets
-  python grin.py extract /path/to/books/*.tar.gz --storage r2 \\
-    --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
-
-  # Extract to MinIO with custom endpoint
-  python grin.py extract /path/to/book.tar.gz --storage minio \\
-    --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full \\
-    --endpoint-url http://localhost:9000
+  # Extract multiple files using run configuration
+  python grin.py extract /path/to/books/*.tar.gz --run-name harvard_2024
         """,
     )
 
@@ -161,63 +116,11 @@ Examples:
         help="Extract to disk instead of memory (better for parallel processing)",
     )
 
-
-    # Bucket storage options
-    storage_group = parser.add_argument_group("bucket storage options")
-
-    storage_group.add_argument(
-        "--storage",
-        choices=["s3", "r2", "minio"],
-        help="Storage backend type",
-    )
-
-    storage_group.add_argument(
-        "--bucket-full",
+    # Run configuration
+    parser.add_argument(
+        "--run-name",
         type=str,
-        help="Full-text bucket name for storage",
-    )
-
-    storage_group.add_argument(
-        "--bucket-raw",
-        type=str,
-        help="Raw data bucket name (required when using storage)",
-    )
-
-    storage_group.add_argument(
-        "--bucket-meta",
-        type=str,
-        help="Metadata bucket name (required when using storage)",
-    )
-
-    storage_group.add_argument(
-        "--storage-prefix",
-        type=str,
-        default="",
-        help="Storage path prefix (default: none)",
-    )
-
-    storage_group.add_argument(
-        "--credentials-file",
-        type=str,
-        help="Path to credentials file (for R2 storage)",
-    )
-
-    storage_group.add_argument(
-        "--endpoint-url",
-        type=str,
-        help="Custom endpoint URL (for MinIO storage)",
-    )
-
-    storage_group.add_argument(
-        "--access-key",
-        type=str,
-        help="Access key for storage backend",
-    )
-
-    storage_group.add_argument(
-        "--secret-key",
-        type=str,
-        help="Secret key for storage backend",
+        help="Name of the collection run (uses run configuration for bucket storage)",
     )
 
     return parser
@@ -233,15 +136,13 @@ async def extract_single_archive(
     use_memory: bool = True,
 ) -> dict:
     """Extract text from single archive and return stats."""
-    if verbose:
-        print(f"Processing: {archive_path}")
+    print(f"Processing: {archive_path}")
 
     try:
         if output_path:
             # File output: write directly to specified path
             page_count = extract_text_to_jsonl_file(archive_path, output_path)
-            if verbose:
-                print(f"  ✓ Saved to: {output_path}")
+            print(f"  ✓ Saved to: {output_path}")
         else:
             # Bucket output: write to staging file, upload, then cleanup
             import tempfile
@@ -292,41 +193,71 @@ async def main() -> int:
         print("Error: Cannot use --output with multiple archives. Use --output-dir instead.", file=sys.stderr)
         return 1
 
-    # Validate and set up storage configuration
-    try:
-        storage_config = validate_storage_config(args)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    # Create book storage if bucket configuration provided
-    book_storage = None
-    if storage_config:
-        try:
-            from ..storage.factories import create_book_storage_with_full_text
-            book_storage = create_book_storage_with_full_text(
-                args.storage, storage_config, args.storage_prefix
-            )
-            if args.verbose:
-                print(f"Configured {args.storage} storage with bucket: {args.bucket_full}")
-        except Exception as e:
-            print(f"Error: Failed to configure storage: {e}", file=sys.stderr)
-            return 1
-
     # Validate that we have exactly one output method
     has_file_output = bool(args.output or args.output_dir)
-    has_bucket_output = bool(book_storage)
+    has_run_config = bool(args.run_name)
 
-    if not has_file_output and not has_bucket_output:
+    if not has_file_output and not has_run_config:
         print(
-            "Error: Must specify either file output (--output/--output-dir) or bucket storage configuration",
+            "Error: Must specify either file output (--output/--output-dir) or run configuration (--run-name)",
             file=sys.stderr
         )
         return 1
 
-    if has_file_output and has_bucket_output:
-        print("Error: Cannot specify both file output and bucket storage - choose one", file=sys.stderr)
+    if has_file_output and has_run_config:
+        print("Error: Cannot specify both file output and run configuration - choose one", file=sys.stderr)
         return 1
+
+    # Create book storage from run configuration if provided
+    book_storage = None
+    if args.run_name:
+        try:
+            # Set up database path and apply run configuration
+            db_path = setup_run_database_path(args, args.run_name)
+            apply_run_config_to_args(args, db_path)
+
+            # Build storage configuration from run config
+            config_path = Path(db_path).parent / "run_config.json"
+
+            if config_path.exists():
+                import json
+                with open(config_path) as f:
+                    run_config = json.load(f)
+
+                # Get storage config from run config
+                existing_storage_config = run_config.get("storage_config", {})
+                storage_type = existing_storage_config.get("type")
+                storage_prefix = existing_storage_config.get("prefix", "")
+
+                # Build full storage config with credentials (e.g., from R2 file)
+                from argparse import Namespace
+                from ..run_config import build_storage_config_dict
+
+                temp_args = Namespace(
+                    storage=storage_type,
+                    secrets_dir=run_config.get("secrets_dir"),
+                    bucket_raw=None,
+                    bucket_meta=None,
+                    bucket_full=None,
+                    storage_config=None,
+                )
+
+                # Get credentials and merge with run config
+                credentials_config = build_storage_config_dict(temp_args)
+                storage_config = credentials_config.copy()
+                storage_config.update(existing_storage_config.get("config", {}))
+
+                from ..storage.factories import create_book_storage_with_full_text
+                book_storage = create_book_storage_with_full_text(
+                    storage_type, storage_config, storage_prefix
+                )
+            else:
+                raise FileNotFoundError(f"Run configuration not found: {config_path}")
+            if args.verbose:
+                print(f"Using run configuration: {args.run_name}")
+        except Exception as e:
+            print(f"Error: Failed to load run configuration: {e}", file=sys.stderr)
+            return 1
 
     # Process archives
     results = []

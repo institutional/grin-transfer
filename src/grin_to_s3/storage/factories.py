@@ -185,11 +185,10 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
                 endpoint_url=config.get("endpoint_url", "http://localhost:9000"),
                 access_key=config.get("access_key", "minioadmin"),
                 secret_key=config.get("secret_key", "minioadmin123"),
-                bucket=bucket_name,
             )
 
         case "r2":
-            # Get R2 credentials
+            # Get R2 credentials from file
             credentials_file = config.get("credentials_file")
             if not credentials_file:
                 home = Path.home()
@@ -202,7 +201,6 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
                     account_id=creds["account_id"],
                     access_key=creds["access_key"],
                     secret_key=creds["secret_key"],
-                    bucket=bucket_name,
                 )
             except FileNotFoundError as e:
                 if config.get("credentials_file"):
@@ -258,7 +256,7 @@ def create_book_storage_with_full_text(storage_type: str, config: dict, base_pre
 
     Args:
         storage_type: Storage backend type (minio, r2, s3)
-        config: Configuration dictionary containing bucket names
+        config: Configuration dictionary containing bucket names and credentials
         base_prefix: Optional prefix for storage paths
 
     Returns:
@@ -267,5 +265,14 @@ def create_book_storage_with_full_text(storage_type: str, config: dict, base_pre
     Raises:
         ValueError: If required buckets are not configured
     """
-    raw_storage, meta_storage, full_storage = create_three_bucket_storage(storage_type, config, base_prefix)
-    return BookStorage(storage=raw_storage, base_prefix=base_prefix, full_text_storage=full_storage)
+    # Create single storage instance 
+    storage = create_storage_from_config(storage_type, config)
+    
+    # Extract bucket configuration
+    bucket_config = {
+        "bucket_raw": config["bucket_raw"],
+        "bucket_meta": config["bucket_meta"], 
+        "bucket_full": config["bucket_full"]
+    }
+    
+    return BookStorage(storage=storage, bucket_config=bucket_config, base_prefix=base_prefix)
