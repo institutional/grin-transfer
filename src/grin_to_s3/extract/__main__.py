@@ -19,6 +19,7 @@ from .text_extraction import (
     extract_text_to_jsonl_file,
     get_barcode_from_path,
 )
+from ..storage.book_storage import BookStorage
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +39,6 @@ def validate_storage_config(args: argparse.Namespace) -> dict | None:
 
     if not args.bucket_full:
         raise ValueError("--bucket-full is required when using storage")
-
-    # Three buckets are always required
     if not args.bucket_raw:
         raise ValueError("--bucket-raw is required when using storage")
     if not args.bucket_meta:
@@ -68,7 +67,7 @@ def validate_storage_config(args: argparse.Namespace) -> dict | None:
 
 
 async def write_to_bucket(
-    book_storage,  # BookStorage type - imported locally to avoid circular import
+    book_storage: BookStorage,
     barcode: str,
     jsonl_file_path: str,
     verbose: bool = False
@@ -227,7 +226,7 @@ Examples:
 async def extract_single_archive(
     archive_path: str,
     output_path: str | None = None,
-    book_storage=None,  # BookStorage | None - avoiding import at module level
+    book_storage: BookStorage | None = None,
     verbose: bool = False,
     extraction_dir: str | None = None,
     keep_extracted: bool = False,
@@ -338,7 +337,6 @@ async def main() -> int:
     book_storage = None
     if storage_config:
         try:
-            # Local import to avoid circular dependency
             from ..storage.factories import create_book_storage_with_full_text
             book_storage = create_book_storage_with_full_text(
                 args.storage, storage_config, args.storage_prefix
