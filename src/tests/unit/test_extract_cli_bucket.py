@@ -110,7 +110,7 @@ class TestExtractCLIIntegration:
                  patch("pathlib.Path.exists") as mock_path_exists, \
                  patch("json.load") as mock_json_load, \
                  patch("grin_to_s3.storage.factories.create_book_storage_with_full_text") as mock_create_storage, \
-                 patch("builtins.print") as mock_print:
+                 patch("builtins.print"):
 
                 mock_setup_db.return_value = "/path/to/db"
                 mock_path_exists.return_value = True

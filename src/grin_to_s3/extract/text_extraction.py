@@ -83,10 +83,10 @@ def extract_ocr_pages(
 
     # Set up tracking variables for database operations
     from .tracking import ExtractionMethod, track_completion, track_failure, track_start
-    
+
     barcode = get_barcode_from_path(archive_path)
     method = ExtractionMethod.DISK if extract_to_disk else ExtractionMethod.MEMORY
-    
+
     # Track extraction start
     track_start(db_path, barcode, session_id)
     start_time = time.time()
@@ -109,7 +109,7 @@ def extract_ocr_pages(
             output_path_obj = Path(output_file)
             output_path_obj.parent.mkdir(parents=True, exist_ok=True)
             page_count = _extract_text_to_jsonl_file_streaming(archive_path, output_path_obj)
-            
+
             # Track completion
             extraction_time_ms = int((time.time() - start_time) * 1000)
             file_size = Path(output_file).stat().st_size
@@ -123,7 +123,7 @@ def extract_ocr_pages(
                 file_size,
                 str(output_file),
             )
-            
+
             return page_count
         else:
             # Return in-memory list
