@@ -286,17 +286,20 @@ def _build_page_array(page_data: dict[int, str]) -> list[str]:
     return result
 
 
-def extract_text_to_jsonl_file(archive_path: str, output_path: str, streaming: bool = False) -> None:
+def extract_text_to_jsonl_file(archive_path: str, output_path: str) -> int:
     """
     Extract text from archive and save directly to JSONL file.
 
-    Writes one JSON-encoded string per line, where each line represents
-    a page from the book. Format: "page 1 text"\n"page 2 text"\n...
+    Uses memory-efficient generator approach, reading one page at a time
+    and writing each page as a JSON-encoded string per line.
+    Format: "page 1 text"\n"page 2 text"\n...
 
     Args:
         archive_path: Path to decrypted tar.gz archive
         output_path: Path where JSONL file should be written
-        streaming: If True, use memory-efficient streaming (default: False)
+
+    Returns:
+        Number of pages processed
 
     Raises:
         TextExtractionError: When extraction fails
@@ -304,16 +307,7 @@ def extract_text_to_jsonl_file(archive_path: str, output_path: str, streaming: b
     output_path_obj = Path(output_path)
     output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-    if streaming:
-        _extract_text_to_jsonl_file_streaming(archive_path, output_path_obj)
-    else:
-        pages = extract_text_from_archive(archive_path)
-        # Write as JSONL - one JSON-encoded string per line
-        with open(output_path_obj, "w", encoding="utf-8") as f:
-            for page in pages:
-                f.write(json.dumps(page, ensure_ascii=False) + "\n")
-
-        logger.debug(f"OCR text saved to JSONL file: {output_path} ({len(pages)} pages)")
+    return _extract_text_to_jsonl_file_streaming(archive_path, output_path_obj)
 
 
 def _page_content_generator(archive_path: str) -> Iterator[tuple[int, str]]:
@@ -365,11 +359,14 @@ def _page_content_generator(archive_path: str) -> Iterator[tuple[int, str]]:
             expected_page = page_num + 1
 
 
-def _extract_text_to_jsonl_file_streaming(archive_path: str, output_path: Path) -> None:
+def _extract_text_to_jsonl_file_streaming(archive_path: str, output_path: Path) -> int:
     """
     Extract text to JSONL file using streaming to minimize memory usage.
 
     Writes one JSON-encoded string per line, processing one page at a time.
+
+    Returns:
+        Number of pages processed
     """
     try:
         with open(output_path, "w", encoding="utf-8") as f:
@@ -384,6 +381,7 @@ def _extract_text_to_jsonl_file_streaming(archive_path: str, output_path: Path) 
                     logger.debug(f"Streaming extraction progress: {page_count} pages written")
 
         logger.debug(f"OCR text saved to JSONL file (streaming): {output_path} ({page_count} pages)")
+        return page_count
 
     except Exception:
         # Clean up partial file on error

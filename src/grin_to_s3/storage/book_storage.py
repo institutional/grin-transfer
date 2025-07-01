@@ -5,7 +5,6 @@ Storage abstraction specifically for book archive operations.
 Implements storage patterns for book data organization.
 """
 
-import json
 import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -22,8 +21,9 @@ class BookStorage:
     Implements storage patterns for book data organization.
     """
 
-    def __init__(self, storage: Storage, base_prefix: str = ""):
+    def __init__(self, storage: Storage, base_prefix: str = "", full_text_storage: Storage | None = None):
         self.storage = storage
+        self.full_text_storage = full_text_storage
         self.base_prefix = base_prefix.rstrip("/")
 
     def _book_path(self, barcode: str, filename: str) -> str:
@@ -31,6 +31,12 @@ class BookStorage:
         if self.base_prefix:
             return f"{self.base_prefix}/{barcode}/{filename}"
         return f"{barcode}/{filename}"
+
+    def _full_text_path(self, barcode: str, filename: str) -> str:
+        """Generate path for full-text bucket file."""
+        if self.base_prefix:
+            return f"{self.base_prefix}/{filename}"
+        return filename
 
     async def save_archive(self, barcode: str, archive_data: bytes, encrypted_etag: str | None = None) -> str:
         """Save encrypted archive (.tar.gz.gpg) with optional encrypted ETag metadata."""
@@ -96,12 +102,42 @@ class BookStorage:
 
     async def save_text_jsonl(self, barcode: str, pages: list[str]) -> str:
         """Save page text as JSONL file (one JSON string per line)."""
+        import json
+
         filename = f"{barcode}.jsonl"
         path = self._book_path(barcode, filename)
-        # Build JSONL content
-        jsonl_lines = [json.dumps(page, ensure_ascii=False) for page in pages]
-        jsonl_data = "\n".join(jsonl_lines) + "\n" if jsonl_lines else ""
+
+        # Build JSONL content inline
+        if not pages:
+            jsonl_data = ""
+        else:
+            jsonl_lines = [json.dumps(page, ensure_ascii=False) for page in pages]
+            jsonl_data = "\n".join(jsonl_lines) + "\n"
+
         await self.storage.write_text(path, jsonl_data)
+        return path
+
+    async def save_ocr_text_jsonl_from_file(
+        self, barcode: str, jsonl_file_path: str, metadata: dict | None = None
+    ) -> str:
+        """Upload JSONL file from local path to full-text bucket."""
+        if self.full_text_storage is None:
+            raise ValueError("Full-text storage not configured")
+
+        filename = f"{barcode}.jsonl"
+        path = self._full_text_path(barcode, filename)
+
+        if self.full_text_storage.is_s3_compatible() and metadata:
+            # For S3-compatible storage with metadata, read file and use write_bytes_with_metadata
+            import aiofiles
+
+            async with aiofiles.open(jsonl_file_path, "rb") as f:
+                file_data = await f.read()
+            await self.full_text_storage.write_bytes_with_metadata(path, file_data, metadata)
+        else:
+            # Stream upload directly from file
+            await self.full_text_storage.write_file(path, jsonl_file_path)
+
         return path
 
     async def save_timestamp(self, barcode: str, suffix: str = "retrieval") -> str:

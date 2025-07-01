@@ -7,7 +7,7 @@ Run with: python grin.py extract
 """
 
 import argparse
-import json
+import asyncio
 import logging
 import sys
 from pathlib import Path
@@ -16,12 +16,70 @@ from .text_extraction import (
     CorruptedArchiveError,
     InvalidPageFormatError,
     TextExtractionError,
-    extract_text_from_archive,
     extract_text_to_jsonl_file,
     get_barcode_from_path,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def validate_storage_config(args: argparse.Namespace) -> dict | None:
+    """
+    Validate and build storage configuration from CLI arguments.
+
+    Returns:
+        Storage config dict if storage is configured, None otherwise
+
+    Raises:
+        ValueError: If storage configuration is invalid
+    """
+    if not args.storage:
+        return None
+
+    if not args.bucket_full:
+        raise ValueError("--bucket-full is required when using storage")
+
+    # Three buckets are always required
+    if not args.bucket_raw:
+        raise ValueError("--bucket-raw is required when using storage")
+    if not args.bucket_meta:
+        raise ValueError("--bucket-meta is required when using storage")
+
+    # Build config with all three buckets
+    config = {
+        "bucket_full": args.bucket_full,
+        "bucket_raw": args.bucket_raw,
+        "bucket_meta": args.bucket_meta
+    }
+
+    # Add storage-specific configuration
+    if args.storage == "r2":
+        if args.credentials_file:
+            config["credentials_file"] = args.credentials_file
+    elif args.storage == "minio":
+        if args.endpoint_url:
+            config["endpoint_url"] = args.endpoint_url
+        if args.access_key:
+            config["access_key"] = args.access_key
+        if args.secret_key:
+            config["secret_key"] = args.secret_key
+
+    return config
+
+
+async def write_to_bucket(
+    book_storage,  # BookStorage type - imported locally to avoid circular import
+    barcode: str,
+    jsonl_file_path: str,
+    verbose: bool = False
+) -> None:
+    """Upload JSONL file to full-text bucket."""
+    try:
+        path = await book_storage.save_ocr_text_jsonl_from_file(barcode, jsonl_file_path)
+        if verbose:
+            print(f"  ✓ Uploaded to bucket: {path}")
+    except Exception as e:
+        raise RuntimeError(f"Failed to upload to bucket: {e}") from e
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -37,8 +95,21 @@ Examples:
   # Extract text and save to JSONL file
   python grin.py extract /path/to/book.tar.gz --output /path/to/output.jsonl
 
-  # Extract multiple archives
+  # Extract multiple archives to directory
   python grin.py extract /path/to/books/*.tar.gz --output-dir /path/to/jsonl_files/
+
+  # Extract and save to R2 buckets
+  python grin.py extract /path/to/book.tar.gz --storage r2 \\
+    --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
+
+  # Extract multiple files to R2 buckets
+  python grin.py extract /path/to/books/*.tar.gz --storage r2 \\
+    --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
+
+  # Extract to MinIO with custom endpoint
+  python grin.py extract /path/to/book.tar.gz --storage minio \\
+    --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full \\
+    --endpoint-url http://localhost:9000
         """,
     )
 
@@ -91,23 +162,76 @@ Examples:
         help="Extract to disk instead of memory (better for parallel processing)",
     )
 
-    parser.add_argument(
-        "--no-streaming",
-        action="store_true",
-        help="Disable streaming mode for JSONL output (loads all pages into memory)",
+
+    # Bucket storage options
+    storage_group = parser.add_argument_group("bucket storage options")
+
+    storage_group.add_argument(
+        "--storage",
+        choices=["s3", "r2", "minio"],
+        help="Storage backend type",
+    )
+
+    storage_group.add_argument(
+        "--bucket-full",
+        type=str,
+        help="Full-text bucket name for storage",
+    )
+
+    storage_group.add_argument(
+        "--bucket-raw",
+        type=str,
+        help="Raw data bucket name (required when using storage)",
+    )
+
+    storage_group.add_argument(
+        "--bucket-meta",
+        type=str,
+        help="Metadata bucket name (required when using storage)",
+    )
+
+    storage_group.add_argument(
+        "--storage-prefix",
+        type=str,
+        default="",
+        help="Storage path prefix (default: none)",
+    )
+
+    storage_group.add_argument(
+        "--credentials-file",
+        type=str,
+        help="Path to credentials file (for R2 storage)",
+    )
+
+    storage_group.add_argument(
+        "--endpoint-url",
+        type=str,
+        help="Custom endpoint URL (for MinIO storage)",
+    )
+
+    storage_group.add_argument(
+        "--access-key",
+        type=str,
+        help="Access key for storage backend",
+    )
+
+    storage_group.add_argument(
+        "--secret-key",
+        type=str,
+        help="Secret key for storage backend",
     )
 
     return parser
 
 
-def extract_single_archive(
+async def extract_single_archive(
     archive_path: str,
     output_path: str | None = None,
+    book_storage=None,  # BookStorage | None - avoiding import at module level
     verbose: bool = False,
     extraction_dir: str | None = None,
     keep_extracted: bool = False,
     use_memory: bool = True,
-    streaming: bool = False
 ) -> dict:
     """Extract text from single archive and return stats."""
     if verbose:
@@ -115,57 +239,41 @@ def extract_single_archive(
 
     try:
         if output_path:
-            if streaming:
-                # Use memory-efficient streaming mode
-                extract_text_to_jsonl_file(archive_path, output_path, streaming=True)
-                if verbose:
-                    print(f"  ✓ Saved to: {output_path} (streaming mode)")
-                # For stats, we need to count pages (streaming doesn't return them)
-                pages = []  # Empty for stats calculation
-            else:
-                # Extract text first
-                pages = extract_text_from_archive(
-                    archive_path,
-                    extraction_dir=extraction_dir,
-                    keep_extracted=keep_extracted,
-                    use_memory=use_memory
-                )
+            # Write JSONL directly to file using generator approach
+            page_count = extract_text_to_jsonl_file(archive_path, output_path)
+            if verbose:
+                print(f"  ✓ Saved to: {output_path}")
 
-                # Save to JSONL file
-                output_path_obj = Path(output_path)
-                output_path_obj.parent.mkdir(parents=True, exist_ok=True)
+            # For bucket storage, also upload the file
+            if book_storage:
+                barcode = get_barcode_from_path(archive_path)
+                await write_to_bucket(book_storage, barcode, output_path, verbose)
 
-                with open(output_path_obj, "w", encoding="utf-8") as f:
-                    for page in pages:
-                        f.write(json.dumps(page, ensure_ascii=False) + "\n")
+        elif book_storage:
+            # Bucket storage only: write to staging file then upload
+            import tempfile
+            from pathlib import Path
 
-                if verbose:
-                    print(f"  ✓ Saved to: {output_path}")
+            barcode = get_barcode_from_path(archive_path)
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as temp_file:
+                temp_path = temp_file.name
+
+            try:
+                page_count = extract_text_to_jsonl_file(archive_path, temp_path)
+                await write_to_bucket(book_storage, barcode, temp_path, verbose)
+            finally:
+                # Clean up temp file
+                Path(temp_path).unlink(missing_ok=True)
 
         else:
-            # Extract text (memory or disk based)
-            pages = extract_text_from_archive(
-                archive_path,
-                extraction_dir=extraction_dir,
-                keep_extracted=keep_extracted,
-                use_memory=use_memory
-            )
-
-            # Print to stdout in JSONL format
-            for page in pages:
-                print(json.dumps(page, ensure_ascii=False))
-
-        # Calculate stats
-        total_chars = sum(len(page) for page in pages)
-        non_empty_pages = sum(1 for page in pages if page.strip())
+            # No output specified - this is an error
+            raise ValueError("Must specify either --output or bucket storage configuration")
 
         return {
             "success": True,
             "archive": archive_path,
             "output": output_path,
-            "pages": len(pages),
-            "non_empty_pages": non_empty_pages,
-            "total_chars": total_chars,
+            "pages": page_count,
         }
 
     except CorruptedArchiveError as e:
@@ -205,7 +313,7 @@ def extract_single_archive(
         }
 
 
-def main() -> int:
+async def main() -> int:
     """Main entry point for text extraction CLI."""
     parser = create_parser()
     args = parser.parse_args()
@@ -217,6 +325,33 @@ def main() -> int:
 
     if len(args.archives) > 1 and args.output:
         print("Error: Cannot use --output with multiple archives. Use --output-dir instead.", file=sys.stderr)
+        return 1
+
+    # Validate and set up storage configuration
+    try:
+        storage_config = validate_storage_config(args)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    # Create book storage if bucket configuration provided
+    book_storage = None
+    if storage_config:
+        try:
+            # Local import to avoid circular dependency
+            from ..storage.factories import create_book_storage_with_full_text
+            book_storage = create_book_storage_with_full_text(
+                args.storage, storage_config, args.storage_prefix
+            )
+            if args.verbose:
+                print(f"Configured {args.storage} storage with bucket: {args.bucket_full}")
+        except Exception as e:
+            print(f"Error: Failed to configure storage: {e}", file=sys.stderr)
+            return 1
+
+    # Validate that we have an output method
+    if not (args.output or args.output_dir or book_storage):
+        print("Error: Must specify --output, --output-dir, or bucket storage configuration", file=sys.stderr)
         return 1
 
     # Process archives
@@ -234,14 +369,14 @@ def main() -> int:
             output_path = str(output_dir / f"{barcode}.jsonl")
 
         # Extract from archive
-        result = extract_single_archive(
+        result = await extract_single_archive(
             archive_path=archive_path,
             output_path=output_path,
+            book_storage=book_storage,
             verbose=args.verbose,
             extraction_dir=args.extraction_dir,
             keep_extracted=args.keep_extracted,
             use_memory=not args.use_disk,
-            streaming=not args.no_streaming  # Default to streaming
         )
         results.append(result)
 
@@ -257,9 +392,7 @@ def main() -> int:
 
         if successful:
             total_pages = sum(r["pages"] for r in successful)
-            total_chars = sum(r["total_chars"] for r in successful)
             print(f"  Total pages extracted: {total_pages}", file=sys.stderr)
-            print(f"  Total characters: {total_chars:,}", file=sys.stderr)
 
         if failed and args.verbose:
             print("\nFailed extractions:", file=sys.stderr)
@@ -272,4 +405,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(asyncio.run(main()))

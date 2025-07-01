@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import Storage, StorageConfig
+from .book_storage import BookStorage
 
 logger = logging.getLogger(__name__)
 
@@ -161,3 +162,110 @@ def create_azure_storage(account_name: str, **kwargs: Any) -> Storage:
     """Create Azure Blob Storage instance."""
     config = StorageConfig(protocol="abfs", account_name=account_name, **kwargs)
     return Storage(config)
+
+
+def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str) -> Storage:
+    """
+    Create storage instance for a specific bucket.
+
+    Args:
+        storage_type: Storage backend type (minio, r2, s3)
+        config: Configuration dictionary for the storage type
+        bucket_name: Name of the bucket to create storage for
+
+    Returns:
+        Storage: Configured storage instance for the specified bucket
+
+    Raises:
+        ValueError: If storage type doesn't support buckets or configuration is invalid
+    """
+    match storage_type:
+        case "minio":
+            return create_minio_storage(
+                endpoint_url=config.get("endpoint_url", "http://localhost:9000"),
+                access_key=config.get("access_key", "minioadmin"),
+                secret_key=config.get("secret_key", "minioadmin123"),
+                bucket=bucket_name,
+            )
+
+        case "r2":
+            # Get R2 credentials
+            credentials_file = config.get("credentials_file")
+            if not credentials_file:
+                home = Path.home()
+                credentials_file = home / ".config" / "grin-to-s3" / "r2_credentials.json"
+
+            try:
+                creds = load_json_credentials(str(credentials_file))
+                validate_required_keys(creds, ["account_id", "access_key", "secret_key"], "R2 credentials")
+                return create_r2_storage(
+                    account_id=creds["account_id"],
+                    access_key=creds["access_key"],
+                    secret_key=creds["secret_key"],
+                    bucket=bucket_name,
+                )
+            except FileNotFoundError as e:
+                if config.get("credentials_file"):
+                    raise ValueError(f"R2 credentials file not found: {credentials_file}") from e
+                else:
+                    raise ValueError(
+                        f"R2 credentials file not found at {credentials_file}. "
+                        f"Create this file with your R2 credentials or specify a custom path with --credentials-file"
+                    ) from e
+            except (ValueError, KeyError) as e:
+                raise ValueError(f"Invalid R2 credentials file {credentials_file}: {e}") from e
+
+        case "s3":
+            return create_s3_storage(bucket=bucket_name)
+
+        case _:
+            raise ValueError(f"Storage type {storage_type} does not support bucket-based storage")
+
+
+def create_three_bucket_storage(
+    storage_type: str, config: dict, base_prefix: str = ""
+) -> tuple[Storage, Storage, Storage]:
+    """
+    Create three storage instances for raw, meta, and full buckets.
+
+    Args:
+        storage_type: Storage backend type (minio, r2, s3)
+        config: Configuration dictionary containing bucket names
+        base_prefix: Optional prefix for storage paths
+
+    Returns:
+        Tuple of (raw_storage, meta_storage, full_storage)
+
+    Raises:
+        ValueError: If required buckets are not configured
+    """
+    required_buckets = ["bucket_raw", "bucket_meta", "bucket_full"]
+    missing_buckets = [bucket for bucket in required_buckets if not config.get(bucket)]
+
+    if missing_buckets:
+        raise ValueError(f"Missing required bucket configuration: {missing_buckets}")
+
+    raw_storage = create_storage_for_bucket(storage_type, config, config["bucket_raw"])
+    meta_storage = create_storage_for_bucket(storage_type, config, config["bucket_meta"])
+    full_storage = create_storage_for_bucket(storage_type, config, config["bucket_full"])
+
+    return raw_storage, meta_storage, full_storage
+
+
+def create_book_storage_with_full_text(storage_type: str, config: dict, base_prefix: str = "") -> BookStorage:
+    """
+    Create BookStorage instance with full-text bucket support.
+
+    Args:
+        storage_type: Storage backend type (minio, r2, s3)
+        config: Configuration dictionary containing bucket names
+        base_prefix: Optional prefix for storage paths
+
+    Returns:
+        BookStorage: Configured BookStorage instance with full-text support
+
+    Raises:
+        ValueError: If required buckets are not configured
+    """
+    raw_storage, meta_storage, full_storage = create_three_bucket_storage(storage_type, config, base_prefix)
+    return BookStorage(storage=raw_storage, base_prefix=base_prefix, full_text_storage=full_storage)
