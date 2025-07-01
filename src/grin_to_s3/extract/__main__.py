@@ -40,7 +40,7 @@ async def write_to_bucket(
     try:
         path = await book_storage.save_ocr_text_jsonl_from_file(barcode, jsonl_file_path)
         print(f"  ✓ Uploaded to bucket: {path}")
-        
+
     except Exception as e:
         print(f"  ✗ Upload failed: {e}", file=sys.stderr)
         raise
@@ -231,6 +231,7 @@ async def main() -> int:
 
                 # Build full storage config with credentials (e.g., from R2 file)
                 from argparse import Namespace
+
                 from ..run_config import build_storage_config_dict
 
                 temp_args = Namespace(

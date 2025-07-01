@@ -206,7 +206,7 @@ class Storage:
                     path_parts = normalized_path.split("/", 1)
                     if len(path_parts) != 2:
                         raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
-                    
+
                     bucket, key = path_parts
 
                     # Get file size for multipart decision

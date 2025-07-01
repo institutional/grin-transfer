@@ -265,14 +265,14 @@ def create_book_storage_with_full_text(storage_type: str, config: dict, base_pre
     Raises:
         ValueError: If required buckets are not configured
     """
-    # Create single storage instance 
+    # Create single storage instance
     storage = create_storage_from_config(storage_type, config)
-    
+
     # Extract bucket configuration
     bucket_config = {
         "bucket_raw": config["bucket_raw"],
-        "bucket_meta": config["bucket_meta"], 
+        "bucket_meta": config["bucket_meta"],
         "bucket_full": config["bucket_full"]
     }
-    
+
     return BookStorage(storage=storage, bucket_config=bucket_config, base_prefix=base_prefix)
