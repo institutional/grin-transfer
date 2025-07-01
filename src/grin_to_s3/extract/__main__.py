@@ -7,21 +7,43 @@ Run with: python grin.py extract
 """
 
 import argparse
-import json
+import asyncio
 import logging
 import sys
 from pathlib import Path
 
+from ..run_config import (
+    apply_run_config_to_args,
+    setup_run_database_path,
+)
+from ..storage.book_storage import BookStorage
 from .text_extraction import (
     CorruptedArchiveError,
     InvalidPageFormatError,
     TextExtractionError,
-    extract_text_from_archive,
     extract_text_to_jsonl_file,
     get_barcode_from_path,
 )
 
 logger = logging.getLogger(__name__)
+
+
+
+
+async def write_to_bucket(
+    book_storage: BookStorage,
+    barcode: str,
+    jsonl_file_path: str,
+    verbose: bool = False
+) -> None:
+    """Upload JSONL file to full-text bucket."""
+    try:
+        path = await book_storage.save_ocr_text_jsonl_from_file(barcode, jsonl_file_path)
+        print(f"  ✓ Uploaded to bucket: {path}")
+
+    except Exception as e:
+        print(f"  ✗ Upload failed: {e}", file=sys.stderr)
+        raise
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -31,14 +53,17 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Extract text and print to stdout (JSONL format)
-  python grin.py extract /path/to/book.tar.gz
-
   # Extract text and save to JSONL file
   python grin.py extract /path/to/book.tar.gz --output /path/to/output.jsonl
 
-  # Extract multiple archives
+  # Extract multiple archives to directory
   python grin.py extract /path/to/books/*.tar.gz --output-dir /path/to/jsonl_files/
+
+  # Extract and upload to buckets using run configuration
+  python grin.py extract /path/to/book.tar.gz --run-name harvard_2024
+
+  # Extract multiple files using run configuration
+  python grin.py extract /path/to/books/*.tar.gz --run-name harvard_2024
         """,
     )
 
@@ -91,112 +116,61 @@ Examples:
         help="Extract to disk instead of memory (better for parallel processing)",
     )
 
+    # Run configuration
     parser.add_argument(
-        "--no-streaming",
-        action="store_true",
-        help="Disable streaming mode for JSONL output (loads all pages into memory)",
+        "--run-name",
+        type=str,
+        help="Name of the collection run (uses run configuration for bucket storage)",
     )
 
     return parser
 
 
-def extract_single_archive(
+async def extract_single_archive(
     archive_path: str,
     output_path: str | None = None,
+    book_storage: BookStorage | None = None,
     verbose: bool = False,
     extraction_dir: str | None = None,
     keep_extracted: bool = False,
     use_memory: bool = True,
-    streaming: bool = False
 ) -> dict:
     """Extract text from single archive and return stats."""
-    if verbose:
-        print(f"Processing: {archive_path}")
+    print(f"Processing: {archive_path}")
 
     try:
         if output_path:
-            if streaming:
-                # Use memory-efficient streaming mode
-                extract_text_to_jsonl_file(archive_path, output_path, streaming=True)
-                if verbose:
-                    print(f"  ✓ Saved to: {output_path} (streaming mode)")
-                # For stats, we need to count pages (streaming doesn't return them)
-                pages = []  # Empty for stats calculation
-            else:
-                # Extract text first
-                pages = extract_text_from_archive(
-                    archive_path,
-                    extraction_dir=extraction_dir,
-                    keep_extracted=keep_extracted,
-                    use_memory=use_memory
-                )
-
-                # Save to JSONL file
-                output_path_obj = Path(output_path)
-                output_path_obj.parent.mkdir(parents=True, exist_ok=True)
-
-                with open(output_path_obj, "w", encoding="utf-8") as f:
-                    for page in pages:
-                        f.write(json.dumps(page, ensure_ascii=False) + "\n")
-
-                if verbose:
-                    print(f"  ✓ Saved to: {output_path}")
-
+            # File output: write directly to specified path
+            page_count = extract_text_to_jsonl_file(archive_path, output_path)
+            print(f"  ✓ Saved to: {output_path}")
         else:
-            # Extract text (memory or disk based)
-            pages = extract_text_from_archive(
-                archive_path,
-                extraction_dir=extraction_dir,
-                keep_extracted=keep_extracted,
-                use_memory=use_memory
-            )
+            # Bucket output: write to staging file, upload, then cleanup
+            import tempfile
+            from pathlib import Path
 
-            # Print to stdout in JSONL format
-            for page in pages:
-                print(json.dumps(page, ensure_ascii=False))
+            if book_storage is None:
+                raise ValueError("Book storage is required for bucket output mode")
 
-        # Calculate stats
-        total_chars = sum(len(page) for page in pages)
-        non_empty_pages = sum(1 for page in pages if page.strip())
+            barcode = get_barcode_from_path(archive_path)
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as temp_file:
+                temp_path = temp_file.name
+
+            try:
+                page_count = extract_text_to_jsonl_file(archive_path, temp_path)
+                await write_to_bucket(book_storage, barcode, temp_path, verbose)
+            finally:
+                # Clean up temp file
+                Path(temp_path).unlink(missing_ok=True)
 
         return {
             "success": True,
             "archive": archive_path,
             "output": output_path,
-            "pages": len(pages),
-            "non_empty_pages": non_empty_pages,
-            "total_chars": total_chars,
+            "pages": page_count,
         }
 
-    except CorruptedArchiveError as e:
-        error_msg = f"Corrupted archive: {e}"
-        print(f"✗ {error_msg}", file=sys.stderr)
-        return {
-            "success": False,
-            "archive": archive_path,
-            "error": error_msg,
-        }
-
-    except InvalidPageFormatError as e:
-        error_msg = f"Invalid page format: {e}"
-        print(f"✗ {error_msg}", file=sys.stderr)
-        return {
-            "success": False,
-            "archive": archive_path,
-            "error": error_msg,
-        }
-
-    except TextExtractionError as e:
-        error_msg = f"Extraction failed: {e}"
-        print(f"✗ {error_msg}", file=sys.stderr)
-        return {
-            "success": False,
-            "archive": archive_path,
-            "error": error_msg,
-        }
-
-    except Exception as e:
-        error_msg = f"Unexpected error: {e}"
+    except (CorruptedArchiveError, InvalidPageFormatError, TextExtractionError, Exception) as e:
+        error_msg = str(e)
         print(f"✗ {error_msg}", file=sys.stderr)
         return {
             "success": False,
@@ -205,7 +179,7 @@ def extract_single_archive(
         }
 
 
-def main() -> int:
+async def main() -> int:
     """Main entry point for text extraction CLI."""
     parser = create_parser()
     args = parser.parse_args()
@@ -218,6 +192,73 @@ def main() -> int:
     if len(args.archives) > 1 and args.output:
         print("Error: Cannot use --output with multiple archives. Use --output-dir instead.", file=sys.stderr)
         return 1
+
+    # Validate that we have exactly one output method
+    has_file_output = bool(args.output or args.output_dir)
+    has_run_config = bool(args.run_name)
+
+    if not has_file_output and not has_run_config:
+        print(
+            "Error: Must specify either file output (--output/--output-dir) or run configuration (--run-name)",
+            file=sys.stderr
+        )
+        return 1
+
+    if has_file_output and has_run_config:
+        print("Error: Cannot specify both file output and run configuration - choose one", file=sys.stderr)
+        return 1
+
+    # Create book storage from run configuration if provided
+    book_storage = None
+    if args.run_name:
+        try:
+            # Set up database path and apply run configuration
+            db_path = setup_run_database_path(args, args.run_name)
+            apply_run_config_to_args(args, db_path)
+
+            # Build storage configuration from run config
+            config_path = Path(db_path).parent / "run_config.json"
+
+            if config_path.exists():
+                import json
+                with open(config_path) as f:
+                    run_config = json.load(f)
+
+                # Get storage config from run config
+                existing_storage_config = run_config.get("storage_config", {})
+                storage_type = existing_storage_config.get("type")
+                storage_prefix = existing_storage_config.get("prefix", "")
+
+                # Build full storage config with credentials (e.g., from R2 file)
+                from argparse import Namespace
+
+                from ..run_config import build_storage_config_dict
+
+                temp_args = Namespace(
+                    storage=storage_type,
+                    secrets_dir=run_config.get("secrets_dir"),
+                    bucket_raw=None,
+                    bucket_meta=None,
+                    bucket_full=None,
+                    storage_config=None,
+                )
+
+                # Get credentials and merge with run config
+                credentials_config = build_storage_config_dict(temp_args)
+                storage_config = credentials_config.copy()
+                storage_config.update(existing_storage_config.get("config", {}))
+
+                from ..storage.factories import create_book_storage_with_full_text
+                book_storage = create_book_storage_with_full_text(
+                    storage_type, storage_config, storage_prefix
+                )
+            else:
+                raise FileNotFoundError(f"Run configuration not found: {config_path}")
+            if args.verbose:
+                print(f"Using run configuration: {args.run_name}")
+        except Exception as e:
+            print(f"Error: Failed to load run configuration: {e}", file=sys.stderr)
+            return 1
 
     # Process archives
     results = []
@@ -234,14 +275,14 @@ def main() -> int:
             output_path = str(output_dir / f"{barcode}.jsonl")
 
         # Extract from archive
-        result = extract_single_archive(
+        result = await extract_single_archive(
             archive_path=archive_path,
             output_path=output_path,
+            book_storage=book_storage,
             verbose=args.verbose,
             extraction_dir=args.extraction_dir,
             keep_extracted=args.keep_extracted,
             use_memory=not args.use_disk,
-            streaming=not args.no_streaming  # Default to streaming
         )
         results.append(result)
 
@@ -257,9 +298,7 @@ def main() -> int:
 
         if successful:
             total_pages = sum(r["pages"] for r in successful)
-            total_chars = sum(r["total_chars"] for r in successful)
             print(f"  Total pages extracted: {total_pages}", file=sys.stderr)
-            print(f"  Total characters: {total_chars:,}", file=sys.stderr)
 
         if failed and args.verbose:
             print("\nFailed extractions:", file=sys.stderr)
@@ -272,4 +311,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(asyncio.run(main()))

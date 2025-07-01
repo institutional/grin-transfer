@@ -42,3 +42,9 @@ __all__ = [
     # Staging
     "StagingDirectoryManager",
 ]
+
+
+def main():
+    """Import and run storage CLI main function."""
+    from .__main__ import main as _main
+    return _main()

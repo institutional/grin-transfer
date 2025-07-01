@@ -335,7 +335,7 @@ class TestTextExtractionToFile:
             jsonl_path = temp_path / "output_streaming.jsonl"
 
             # Use streaming mode
-            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), streaming=True)
+            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path))
 
             assert jsonl_path.exists()
             with open(jsonl_path, encoding="utf-8") as f:
@@ -357,7 +357,7 @@ class TestTextExtractionToFile:
             archive_path = create_test_archive(pages, temp_path)
             jsonl_path = temp_path / "output_gaps.jsonl"
 
-            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), streaming=True)
+            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path))
 
             with open(jsonl_path, encoding="utf-8") as f:
                 lines = f.readlines()
@@ -463,7 +463,7 @@ class TestTextExtractionToFile:
             jsonl_path = temp_path / "edge_cases.jsonl"
 
             # Test with streaming mode too
-            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path), streaming=True)
+            extract_text_to_jsonl_file(str(archive_path), str(jsonl_path))
 
             # Verify each line is independently parseable
             with open(jsonl_path, encoding="utf-8") as f:
