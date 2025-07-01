@@ -171,8 +171,7 @@ class TestStorageFactories:
         mock_create_minio.assert_called_once_with(
             endpoint_url="http://localhost:9000",
             access_key="testuser",
-            secret_key="testpass",
-            bucket="test-bucket"
+            secret_key="testpass"
         )
         assert result == mock_storage
 
@@ -209,8 +208,7 @@ class TestStorageFactories:
         mock_create_r2.assert_called_once_with(
             account_id="test-account",
             access_key="test-key",
-            secret_key="test-secret",
-            bucket="test-bucket"
+            secret_key="test-secret"
         )
         assert result == mock_storage
 
@@ -258,14 +256,11 @@ class TestStorageFactories:
         with pytest.raises(ValueError, match="Missing required bucket configuration"):
             create_three_bucket_storage("s3", config)
 
-    @patch("grin_to_s3.storage.factories.create_three_bucket_storage")
-    def test_create_book_storage_with_full_text(self, mock_create_three_bucket):
+    @patch("grin_to_s3.storage.factories.create_storage_from_config")
+    def test_create_book_storage_with_full_text(self, mock_create_storage):
         """Test creating BookStorage with full-text support."""
-        mock_raw_storage = MagicMock()
-        mock_meta_storage = MagicMock()
-        mock_full_storage = MagicMock()
-
-        mock_create_three_bucket.return_value = (mock_raw_storage, mock_meta_storage, mock_full_storage)
+        mock_storage = MagicMock()
+        mock_create_storage.return_value = mock_storage
 
         config = {
             "bucket_raw": "raw-bucket",
@@ -275,9 +270,11 @@ class TestStorageFactories:
 
         book_storage = create_book_storage_with_full_text("s3", config, "test-prefix")
 
-        mock_create_three_bucket.assert_called_once_with("s3", config, "test-prefix")
+        mock_create_storage.assert_called_once_with("s3", config)
 
         assert isinstance(book_storage, BookStorage)
-        assert book_storage.storage == mock_raw_storage
-        assert book_storage.full_text_storage == mock_full_storage
+        assert book_storage.storage == mock_storage
+        assert book_storage.bucket_raw == "raw-bucket"
+        assert book_storage.bucket_meta == "meta-bucket"
+        assert book_storage.bucket_full == "full-bucket"
         assert book_storage.base_prefix == "test-prefix"

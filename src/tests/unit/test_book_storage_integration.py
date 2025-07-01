@@ -29,11 +29,15 @@ class TestBookStorageIntegration:
 
             # Create storage instances for raw and full buckets
             raw_storage = Storage(StorageConfig.local(str(raw_dir)))
-            full_storage = Storage(StorageConfig.local(str(full_dir)))
 
+            bucket_config = {
+                "bucket_raw": "raw",
+                "bucket_meta": "meta",
+                "bucket_full": "full"
+            }
             book_storage = BookStorage(
                 storage=raw_storage,
-                full_text_storage=full_storage
+                bucket_config=bucket_config
             )
 
             text_pages = ["First page content", "Second page content", "Third page content"]
@@ -54,12 +58,12 @@ class TestBookStorageIntegration:
             # Run the async test
             result_path = asyncio.run(test_save())
 
-            # Verify file was written to full bucket (not raw bucket)
-            expected_path = full_dir / f"{barcode}.jsonl"
+            # Verify file was written to the full bucket path within raw storage
+            expected_path = raw_dir / "full" / f"{barcode}.jsonl"
             assert expected_path.exists()
 
-            # Verify file was NOT written to raw bucket
-            raw_path = raw_dir / f"{barcode}.jsonl"
+            # Verify file was NOT written to raw bucket path
+            raw_path = raw_dir / "raw" / f"{barcode}.jsonl"
             assert not raw_path.exists()
 
             # Verify JSONL content is correct
@@ -72,8 +76,8 @@ class TestBookStorageIntegration:
             assert json.loads(lines[1]) == "Second page content"
             assert json.loads(lines[2]) == "Third page content"
 
-            # Verify returned path matches expectation
-            assert result_path == f"{barcode}.jsonl"
+            # Verify returned path matches expectation (now includes bucket prefix)
+            assert result_path == f"full/{barcode}.jsonl"
 
     def test_save_ocr_text_jsonl_with_prefix_local_integration(self):
         """Test OCR text JSONL saving with base prefix using local storage."""
@@ -86,13 +90,17 @@ class TestBookStorageIntegration:
 
             # Create storage instances
             raw_storage = Storage(StorageConfig.local(str(raw_dir)))
-            full_storage = Storage(StorageConfig.local(str(full_dir)))
 
             base_prefix = "test-collection"
+            bucket_config = {
+                "bucket_raw": "raw",
+                "bucket_meta": "meta",
+                "bucket_full": "full"
+            }
             book_storage = BookStorage(
                 storage=raw_storage,
-                base_prefix=base_prefix,
-                full_text_storage=full_storage
+                bucket_config=bucket_config,
+                base_prefix=base_prefix
             )
 
             text_pages = ["Page with prefix content"]
@@ -112,7 +120,7 @@ class TestBookStorageIntegration:
             result_path = asyncio.run(test_save())
 
             # Verify file was written to correct path with prefix
-            expected_path = full_dir / base_prefix / f"{barcode}.jsonl"
+            expected_path = raw_dir / "full" / base_prefix / f"{barcode}.jsonl"
             assert expected_path.exists()
 
             # Verify JSONL content
@@ -122,7 +130,7 @@ class TestBookStorageIntegration:
             assert content.strip() == '"Page with prefix content"'
 
             # Verify returned path includes prefix
-            assert result_path == f"{base_prefix}/{barcode}.jsonl"
+            assert result_path == f"full/{base_prefix}/{barcode}.jsonl"
 
     def test_save_ocr_text_jsonl_unicode_integration(self):
         """Test OCR text JSONL saving with Unicode content using local storage."""
@@ -131,11 +139,15 @@ class TestBookStorageIntegration:
             full_dir.mkdir()
 
             raw_storage = Storage(StorageConfig.local(temp_dir))
-            full_storage = Storage(StorageConfig.local(str(full_dir)))
 
+            bucket_config = {
+                "bucket_raw": "raw",
+                "bucket_meta": "meta",
+                "bucket_full": "full"
+            }
             book_storage = BookStorage(
                 storage=raw_storage,
-                full_text_storage=full_storage
+                bucket_config=bucket_config
             )
 
             text_pages = [
@@ -158,10 +170,10 @@ class TestBookStorageIntegration:
             async def test_save():
                 return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
-            result_path = asyncio.run(test_save())
+            asyncio.run(test_save())
 
             # Verify file was written
-            expected_path = full_dir / f"{barcode}.jsonl"
+            expected_path = Path(temp_dir) / "full" / f"{barcode}.jsonl"
             assert expected_path.exists()
 
             # Verify Unicode content is preserved
@@ -182,11 +194,15 @@ class TestBookStorageIntegration:
             full_dir.mkdir()
 
             raw_storage = Storage(StorageConfig.local(temp_dir))
-            full_storage = Storage(StorageConfig.local(str(full_dir)))
 
+            bucket_config = {
+                "bucket_raw": "raw",
+                "bucket_meta": "meta",
+                "bucket_full": "full"
+            }
             book_storage = BookStorage(
                 storage=raw_storage,
-                full_text_storage=full_storage
+                bucket_config=bucket_config
             )
 
             text_pages = []
@@ -203,10 +219,10 @@ class TestBookStorageIntegration:
             async def test_save():
                 return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
-            result_path = asyncio.run(test_save())
+            asyncio.run(test_save())
 
             # Verify file was written
-            expected_path = full_dir / f"{barcode}.jsonl"
+            expected_path = Path(temp_dir) / "full" / f"{barcode}.jsonl"
             assert expected_path.exists()
 
             # Verify file is empty
@@ -226,11 +242,15 @@ class TestBookStorageIntegration:
 
             # Create storage instances
             raw_storage = Storage(StorageConfig.local(str(raw_dir)))
-            full_storage = Storage(StorageConfig.local(str(full_dir)))
 
+            bucket_config = {
+                "bucket_raw": "raw",
+                "bucket_meta": "meta",
+                "bucket_full": "full"
+            }
             book_storage = BookStorage(
                 storage=raw_storage,
-                full_text_storage=full_storage
+                bucket_config=bucket_config
             )
 
             barcode = "multi12345"
@@ -258,16 +278,16 @@ class TestBookStorageIntegration:
 
             ocr_path, regular_path, timestamp_path = asyncio.run(test_multiple_saves())
 
-            # Verify OCR text went to full bucket
-            full_jsonl_path = full_dir / f"{barcode}.jsonl"
+            # Verify OCR text went to full bucket path within raw storage
+            full_jsonl_path = raw_dir / "full" / f"{barcode}.jsonl"
             assert full_jsonl_path.exists()
 
-            # Verify regular text went to raw bucket
-            raw_jsonl_path = raw_dir / barcode / f"{barcode}.jsonl"
+            # Verify regular text went to raw bucket path within raw storage
+            raw_jsonl_path = raw_dir / "raw" / barcode / f"{barcode}.jsonl"
             assert raw_jsonl_path.exists()
 
-            # Verify timestamp went to raw bucket
-            timestamp_file_path = raw_dir / barcode / f"{barcode}.tar.gz.gpg.retrieval"
+            # Verify timestamp went to raw bucket path within raw storage
+            timestamp_file_path = raw_dir / "raw" / barcode / f"{barcode}.tar.gz.gpg.retrieval"
             assert timestamp_file_path.exists()
 
             # Verify contents are the same for both JSONL files
@@ -295,22 +315,19 @@ class TestBookStorageIntegration:
         # This test validates the factory function works but uses mocks for CI compatibility
         from unittest.mock import MagicMock, patch
 
-        with patch("grin_to_s3.storage.factories.create_storage_for_bucket") as mock_create:
-            mock_raw = MagicMock()
-            mock_meta = MagicMock()
-            mock_full = MagicMock()
-            mock_create.side_effect = [mock_raw, mock_meta, mock_full]
+        with patch("grin_to_s3.storage.factories.create_storage_from_config") as mock_create:
+            mock_storage = MagicMock()
+            mock_create.return_value = mock_storage
 
             book_storage = create_book_storage_with_full_text(storage_type, config, "test-prefix")
 
-            # Verify factory was called correctly
-            assert mock_create.call_count == 3
-            mock_create.assert_any_call(storage_type, config, "test-raw-bucket")
-            mock_create.assert_any_call(storage_type, config, "test-meta-bucket")
-            mock_create.assert_any_call(storage_type, config, "test-full-bucket")
+            # Verify factory was called correctly (now uses single storage)
+            mock_create.assert_called_once_with(storage_type, config)
 
             # Verify BookStorage was configured correctly
             assert isinstance(book_storage, BookStorage)
-            assert book_storage.storage == mock_raw
-            assert book_storage.full_text_storage == mock_full
+            assert book_storage.storage == mock_storage
+            assert book_storage.bucket_raw == "test-raw-bucket"
+            assert book_storage.bucket_meta == "test-meta-bucket"
+            assert book_storage.bucket_full == "test-full-bucket"
             assert book_storage.base_prefix == "test-prefix"

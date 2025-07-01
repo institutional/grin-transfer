@@ -102,7 +102,7 @@ class TestExtractCLIIntegration:
 
             # Mock the run config functions to simulate successful config loading
             with patch("grin_to_s3.extract.__main__.setup_run_database_path") as mock_setup_db, \
-                 patch("grin_to_s3.extract.__main__.apply_run_config_to_args") as mock_apply_config, \
+                 patch("grin_to_s3.extract.__main__.apply_run_config_to_args"), \
                  patch("pathlib.Path.exists") as mock_path_exists, \
                  patch("json.load") as mock_json_load, \
                  patch("grin_to_s3.storage.factories.create_book_storage_with_full_text") as mock_create_storage, \
@@ -140,7 +140,7 @@ class TestExtractCLIIntegration:
         mock_book_storage = AsyncMock()
 
         with patch("builtins.print") as mock_print:
-            result = await extract_single_archive(
+            await extract_single_archive(
                 archive_path="/path/to/test.tar.gz",
                 book_storage=mock_book_storage
             )

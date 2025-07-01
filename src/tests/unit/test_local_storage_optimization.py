@@ -111,8 +111,8 @@ class TestLocalStorageDirectWrite:
             # Save decrypted archive (new approach)
             await book_storage.save_decrypted_archive(barcode, test_data)
 
-            # Verify file exists
-            expected_file = Path(temp_dir) / barcode / f"{barcode}.tar.gz"
+            # Verify file exists (now includes bucket path)
+            expected_file = Path(temp_dir) / "raw" / barcode / f"{barcode}.tar.gz"
             assert expected_file.exists()
             assert expected_file.read_bytes() == test_data
 
