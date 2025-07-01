@@ -12,7 +12,6 @@ from grin_to_s3.storage.book_storage import BookStorage
 from grin_to_s3.storage.factories import (
     create_book_storage_with_full_text,
     create_storage_for_bucket,
-    create_three_bucket_storage,
 )
 
 
@@ -219,42 +218,6 @@ class TestStorageFactories:
         with pytest.raises(ValueError, match="does not support bucket-based storage"):
             create_storage_for_bucket("local", config, "test-bucket")
 
-    @patch("grin_to_s3.storage.factories.create_storage_for_bucket")
-    def test_create_three_bucket_storage_success(self, mock_create_storage):
-        """Test creating three-bucket storage configuration."""
-        mock_raw_storage = MagicMock()
-        mock_meta_storage = MagicMock()
-        mock_full_storage = MagicMock()
-
-        mock_create_storage.side_effect = [mock_raw_storage, mock_meta_storage, mock_full_storage]
-
-        config = {
-            "bucket_raw": "raw-bucket",
-            "bucket_meta": "meta-bucket",
-            "bucket_full": "full-bucket"
-        }
-
-        raw, meta, full = create_three_bucket_storage("s3", config)
-
-        assert raw == mock_raw_storage
-        assert meta == mock_meta_storage
-        assert full == mock_full_storage
-
-        # Verify all three buckets were created
-        assert mock_create_storage.call_count == 3
-        mock_create_storage.assert_any_call("s3", config, "raw-bucket")
-        mock_create_storage.assert_any_call("s3", config, "meta-bucket")
-        mock_create_storage.assert_any_call("s3", config, "full-bucket")
-
-    def test_create_three_bucket_storage_missing_buckets(self):
-        """Test three-bucket storage creation fails with missing bucket configuration."""
-        config = {
-            "bucket_raw": "raw-bucket",
-            # Missing bucket_meta and bucket_full
-        }
-
-        with pytest.raises(ValueError, match="Missing required bucket configuration"):
-            create_three_bucket_storage("s3", config)
 
     @patch("grin_to_s3.storage.factories.create_storage_from_config")
     def test_create_book_storage_with_full_text(self, mock_create_storage):
