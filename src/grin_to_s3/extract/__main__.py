@@ -101,19 +101,19 @@ Examples:
     parser.add_argument(
         "--extraction-dir",
         type=str,
-        help="Directory to extract archives to (creates BARCODE/ subdirectories, only used with --use-disk)",
+        help="Directory to extract archives to (creates BARCODE/ subdirectories)",
     )
 
     parser.add_argument(
         "--keep-extracted",
         action="store_true",
-        help="Keep extracted files after processing (only used with --use-disk)",
+        help="Keep extracted files after processing",
     )
 
     parser.add_argument(
-        "--use-disk",
+        "--use-memory",
         action="store_true",
-        help="Extract to disk instead of memory (better for parallel processing)",
+        help="Extract in memory instead of to disk (memory efficient for smaller archives)",
     )
 
     # Run configuration
@@ -131,9 +131,6 @@ async def extract_single_archive(
     output_path: str | None = None,
     book_storage: BookStorage | None = None,
     verbose: bool = False,
-    extraction_dir: str | None = None,
-    keep_extracted: bool = False,
-    use_memory: bool = True,
 ) -> dict:
     """Extract text from single archive and return stats."""
     print(f"Processing: {archive_path}")
@@ -280,9 +277,6 @@ async def main() -> int:
             output_path=output_path,
             book_storage=book_storage,
             verbose=args.verbose,
-            extraction_dir=args.extraction_dir,
-            keep_extracted=args.keep_extracted,
-            use_memory=not args.use_disk,
         )
         results.append(result)
 

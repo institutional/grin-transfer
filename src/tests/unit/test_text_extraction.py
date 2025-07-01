@@ -552,7 +552,7 @@ class TestPerformanceConsiderations:
 
             result = extract_text_from_archive(
                 str(archive_path),
-                use_memory=False,
+                extract_to_disk=True,
                 extraction_dir=str(temp_path / "extracted")
             )
             assert result == ["First page content", "Second page content", "Third page content"]
@@ -570,7 +570,7 @@ class TestPerformanceConsiderations:
 
             result = extract_text_from_archive(
                 str(archive_path),
-                use_memory=False,
+                extract_to_disk=True,
                 extraction_dir=str(extraction_dir),
                 keep_extracted=True
             )
