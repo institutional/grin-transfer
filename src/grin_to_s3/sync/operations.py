@@ -180,6 +180,7 @@ async def upload_book_from_staging(
     encrypted_etag: str | None = None,
     gpg_key_file: str | None = None,
     secrets_dir: str | None = None,
+    skip_extract_ocr: bool = False,
 ) -> dict[str, Any]:
     """Upload book from staging directory to storage.
 
@@ -307,6 +308,7 @@ async def sync_book_to_local_storage(
     encrypted_etag: str | None = None,
     gpg_key_file: str | None = None,
     secrets_dir: str | None = None,
+    skip_extract_ocr: bool = False,
 ) -> dict[str, Any]:
     """Sync a book directly to local storage without staging.
 

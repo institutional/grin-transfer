@@ -54,6 +54,7 @@ class SyncPipeline:
         force: bool = False,
         staging_dir: str | None = None,
         disk_space_threshold: float = 0.9,
+        skip_extract_ocr: bool = False,
     ):
         self.db_path = db_path
         # Keep original storage type for storage creation
@@ -77,6 +78,7 @@ class SyncPipeline:
         else:
             self.staging_dir = Path(staging_dir)
         self.disk_space_threshold = disk_space_threshold
+        self.skip_extract_ocr = skip_extract_ocr
 
         # Initialize components
         self.db_tracker = SQLiteProgressTracker(db_path)
@@ -255,6 +257,7 @@ class SyncPipeline:
                             None,  # No ETag for initial call
                             self.gpg_key_file,
                             self.secrets_dir,
+                            self.skip_extract_ocr,
                         )
                     )
                     active_tasks[barcode] = task
@@ -324,6 +327,7 @@ class SyncPipeline:
                                     None,
                                     self.gpg_key_file,
                                     self.secrets_dir,
+                                    self.skip_extract_ocr,
                                 )
                             )
                             active_tasks[next_barcode] = task
@@ -592,6 +596,7 @@ class SyncPipeline:
                     download_result.get("encrypted_etag"),
                     self.gpg_key_file,
                     self.secrets_dir,
+                    self.skip_extract_ocr,
                 )
 
                 return {
@@ -705,6 +710,7 @@ class SyncPipeline:
                                 encrypted_etag,
                                 self.gpg_key_file,
                                 self.secrets_dir,
+                                self.skip_extract_ocr,
                             )
 
                             if upload_result["status"] == "completed":
