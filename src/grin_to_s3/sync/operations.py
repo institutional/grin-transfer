@@ -348,19 +348,10 @@ async def upload_book_from_staging(
         # Create storage
         storage = create_storage_from_config(storage_type, storage_config or {})
 
-        # Get bucket and prefix information (use raw bucket for decrypted files)
+        # Get prefix information
         base_prefix = storage_config.get("prefix", "")
-        bucket_name = storage_config.get("bucket_raw") if storage_config else None
 
-        # For S3-compatible storage, handle bucket configuration
-        from grin_to_s3.storage import get_storage_protocol
-        storage_protocol = get_storage_protocol(storage_type)
-        if storage_protocol == "s3" and bucket_name:
-            # Include bucket name in path prefix for fsspec S3
-            if base_prefix:
-                base_prefix = f"{bucket_name}/{base_prefix}"
-            else:
-                base_prefix = bucket_name
+        # BookStorage handles bucket names as directory paths for all storage types
 
         # Create bucket configuration
         bucket_config: BucketConfig = {
