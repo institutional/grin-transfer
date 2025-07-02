@@ -130,32 +130,35 @@ python grin.py storage rm full --run-name harvard_2024 --dry-run
 
 ### 5. Text Extraction: `grin.py extract`
 
-Extract OCR text from decrypted book archives and output as JSON arrays.
+Extract OCR text from decrypted book archives and output as JSONL files.
 
 ```bash
-# Extract text and print to stdout (formatted JSON)
+# Extract text and print to stdout
 python grin.py extract /path/to/book.tar.gz
 
-# Extract text and save to JSON file
-python grin.py extract /path/to/book.tar.gz --output /path/to/output.json
-
-# Extract text and save to JSON file (compact format)
-python grin.py extract /path/to/book.tar.gz --output /path/to/output.json --compact
+# Extract text and save to JSONL file
+python grin.py extract /path/to/book.tar.gz --output /path/to/output.jsonl
 
 # Extract multiple archives to directory
-python grin.py extract /path/to/books/*.tar.gz --output-dir /path/to/json_files/
+python grin.py extract /path/to/books/*.tar.gz --output-dir /path/to/jsonl_files/
 
-# Use disk-based extraction for better parallel processing
-python grin.py extract /path/to/book.tar.gz --use-disk --extraction-dir /tmp/grin_work --keep-extracted
+# Extract and upload to buckets using run configuration
+python grin.py extract /path/to/book.tar.gz --run-name harvard_2024
+
+# Extract multiple files using run configuration
+python grin.py extract /path/to/books/*.tar.gz --run-name harvard_2024
+
+# Use disk extraction with custom directory
+python grin.py extract /path/to/book.tar.gz --extraction-dir /tmp/grin_work --keep-extracted
 ```
 
 **Extraction options:**
-- `--output`: Save to specific JSON file path (default: print to stdout)
-- `--output-dir`: Save multiple files to directory (creates BARCODE.json for each archive)
-- `--compact`: Use compact JSON format (single line, no indentation)
-- `--use-disk`: Extract to disk instead of memory (better for parallel processing)
-- `--extraction-dir`: Directory for disk extraction (creates BARCODE/ subdirectories, only with --use-disk)
-- `--keep-extracted`: Keep extracted files after processing (only with --use-disk)
+- `--output`: Save to specific JSONL file path (default: print to stdout)
+- `--output-dir`: Save multiple files to directory (creates BARCODE.jsonl for each archive)
+- `--run-name`: Use run configuration to upload extracted text to full-text bucket
+- `--extraction-dir`: Directory to extract archives to (creates BARCODE/ subdirectories)
+- `--keep-extracted`: Keep extracted files after processing
+- `--use-memory`: Extract in memory instead of to disk (memory efficient for smaller archives)
 - `--verbose`: Enable detailed progress output
 - `--summary`: Show extraction statistics
 
