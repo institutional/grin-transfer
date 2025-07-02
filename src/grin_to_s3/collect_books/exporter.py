@@ -100,7 +100,13 @@ class BookCollector:
         self.book_storage: BookStorage | None = None
         if storage_config:
             storage = create_storage_from_config(storage_config["type"], storage_config.get("config", {}))
-            self.book_storage = BookStorage(storage, base_prefix=storage_config.get("prefix", ""))
+            # Create bucket config for BookStorage constructor
+            bucket_config = {
+                "bucket_raw": storage_config.get("bucket_raw", ""),
+                "bucket_meta": storage_config.get("bucket_meta", ""),
+                "bucket_full": storage_config.get("bucket_full", ""),
+            }
+            self.book_storage = BookStorage(storage, bucket_config, base_prefix=storage_config.get("prefix", ""))
 
     def _setup_test_mode(self):
         """Set up test mode with mock data and clients"""
