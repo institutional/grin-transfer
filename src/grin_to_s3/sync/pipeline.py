@@ -160,7 +160,7 @@ class SyncPipeline:
                 )
             else:  # Block storage
                 downloads_running = self._active_download_count
-                uploads_running = self._active_upload_count
+                uploads_running = min(len(active_uploads or {}), self.concurrent_uploads)
                 uploads_queued = len(active_uploads or {}) - uploads_running
                 print(
                     f"Sync in progress: {processed_count:,}/{books_to_process:,} "
@@ -451,6 +451,10 @@ class SyncPipeline:
                                     upload_task = asyncio.create_task(self._upload_book_from_staging(barcode, result))
                                     active_uploads[barcode] = upload_task
                                     logger.debug(f"[{barcode}] Started upload task")
+                                elif result.get("skipped"):
+                                    # Download skipped due to ETag match, count as completed
+                                    self.stats["skipped"] += 1
+                                    logger.info(f"[{barcode}] Download skipped (already up to date)")
                                 else:
                                     # Download failed, update stats
                                     self.stats["failed"] += 1
