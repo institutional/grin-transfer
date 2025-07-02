@@ -6,9 +6,10 @@ Just writes status rows to book_status_history table when extraction events occu
 
 import json
 import logging
-import sqlite3
 from datetime import UTC, datetime
 from enum import Enum
+
+from ..database import connect_sync
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def write_status(
 ) -> None:
     """Write a status row to the database."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_sync(db_path) as conn:
             conn.execute(
                 """INSERT INTO book_status_history
                    (barcode, status_type, status_value, timestamp, session_id, metadata)
@@ -123,7 +124,7 @@ def track_failure(
 def get_status_summary(db_path: str) -> dict[str, int]:
     """Get summary of extraction statuses."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_sync(db_path) as conn:
             cursor = conn.execute(
                 """SELECT status_value, COUNT(*) as count
                    FROM book_status_history
@@ -154,7 +155,7 @@ def get_status_summary(db_path: str) -> dict[str, int]:
 def get_failed_extractions(db_path: str, limit: int = 100) -> list[dict]:
     """Get details of recent extraction failures."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_sync(db_path) as conn:
             cursor = conn.execute(
                 """SELECT barcode, timestamp, metadata
                    FROM book_status_history
@@ -189,7 +190,7 @@ def get_extraction_progress(db_path: str) -> dict:
         recent_failures = get_failed_extractions(db_path, limit=10)
 
         # Get aggregated statistics for completed extractions
-        with sqlite3.connect(db_path) as conn:
+        with connect_sync(db_path) as conn:
             cursor = conn.execute(
                 """SELECT metadata
                    FROM book_status_history

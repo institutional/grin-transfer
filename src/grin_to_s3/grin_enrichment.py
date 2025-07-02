@@ -17,6 +17,8 @@ from typing import Any
 
 import aiosqlite
 
+from .database import connect_async
+
 # Check Python version requirement
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
@@ -346,7 +348,7 @@ class GRINEnrichmentPipeline:
 
     async def reset_enrichment_data(self) -> int:
         """Reset enrichment data for all books in the database."""
-        async with aiosqlite.connect(self.db_path) as conn:
+        async with connect_async(self.db_path) as conn:
             # Reset enrichment fields to NULL
             cursor = await conn.execute(
                 """

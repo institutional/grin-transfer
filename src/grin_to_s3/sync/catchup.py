@@ -11,6 +11,7 @@ from typing import Any
 
 import aiosqlite
 
+from ..database import connect_async
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.sync.utils import get_converted_books
@@ -50,7 +51,7 @@ async def find_catchup_books(
     await db_tracker.init_db()
 
     # Get all books in our database
-    async with aiosqlite.connect(db_path) as db:
+    async with connect_async(db_path) as db:
         cursor = await db.execute("SELECT barcode FROM books")
         all_books = {row[0] for row in await cursor.fetchall()}
 

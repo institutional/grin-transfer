@@ -11,6 +11,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from .database import connect_sync
+
 logger = logging.getLogger(__name__)
 
 
@@ -49,7 +51,7 @@ def validate_database_file(db_path: str, check_tables: bool = False, check_books
 
     # Check if it's a valid SQLite database
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_sync(db_path) as conn:
             cursor = conn.cursor()
 
             # Always do a basic check to ensure it's a valid SQLite database

@@ -17,6 +17,7 @@ from pathlib import Path
 
 import aiosqlite
 
+from .database import connect_async, connect_sync
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import RateLimiter, format_duration, pluralize, setup_logging
@@ -327,7 +328,7 @@ class ProcessingPipeline:
 
             while len(candidate_barcodes) < books_to_request and fetch_offset < total_books:
                 # Fetch next batch of books from database that haven't been requested
-                async with aiosqlite.connect(self.db_path) as db:
+                async with connect_async(self.db_path) as db:
                     cursor = await db.execute(
                         """
                         SELECT barcode FROM books
@@ -680,7 +681,7 @@ class ProcessingMonitor:
 
         try:
             # Use a shorter timeout to avoid hanging in CI
-            with sqlite3.connect(self.db_path, timeout=5.0) as conn:
+            with connect_sync(self.db_path) as conn:
                 cursor = conn.cursor()
                 # Check if the table exists first
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='books'")
@@ -1012,7 +1013,7 @@ async def cmd_request(args) -> None:
             print(f"  Total books: {total_books:,}")
 
             # Count books by processing request status
-            async with aiosqlite.connect(pipeline.db_path) as db:
+            async with connect_async(pipeline.db_path) as db:
                 cursor = await db.execute(
                     """
                     SELECT COALESCE(h1.status_value, 'no_status') as status, COUNT(*) as count
