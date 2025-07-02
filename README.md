@@ -87,6 +87,9 @@ python grin.py sync catchup --run-name harvard_2024
 
 # Retry failed syncs only
 python grin.py sync pipeline --run-name harvard_2024 --status failed
+
+# Sync without OCR text extraction (faster)
+python grin.py sync pipeline --run-name harvard_2024 --skip-extract-ocr
 ```
 
 **Pipeline options:**
@@ -98,6 +101,7 @@ python grin.py sync pipeline --run-name harvard_2024 --status failed
 - `--force`: Overwrite existing files
 - `--staging-dir`: Custom staging directory path (default: output/run-name/staging)
 - `--disk-space-threshold`: Disk usage threshold to pause downloads (0.0-1.0, default: 0.9)
+- `--skip-extract-ocr`: Skip OCR text extraction during sync (default: extract OCR)
 
 ### 4. Storage Management: `grin.py storage`
 
@@ -174,9 +178,11 @@ python grin.py export-csv --run-name harvard_2024 --output books.csv
 
 The system uses a three-bucket architecture for different data types:
 
-- **Raw Bucket** (`--bucket-raw`): Encrypted archives from GRIN sync
+- **Raw Bucket** (`--bucket-raw`): Decrypted book archives from GRIN sync
 - **Metadata Bucket** (`--bucket-meta`): CSV files and database exports  
-- **Full-text Bucket** (`--bucket-full`): OCR text extraction outputs
+- **Full-text Bucket** (`--bucket-full`): OCR text extraction outputs (JSONL format)
+
+During sync, OCR text is automatically extracted from book archives and uploaded to the full-text bucket. Use `--skip-extract-ocr` to disable this behavior for faster sync operations.
 
 ### Storage Backends
 
@@ -239,12 +245,12 @@ Configuration is stored in `output/{run_name}/run_config.json` and includes stor
    python grin.py process monitor --run-name collection_2024
    ```
 
-4. **Sync converted books** to storage:
+4. **Sync converted books** to storage (with automatic OCR extraction):
    ```bash
    python grin.py sync pipeline --run-name collection_2024
    ```
 
-5. **Extract OCR text** from downloaded archives (optional):
+5. **Extract OCR text** separately if needed (alternative to automatic extraction):
    ```bash
    python grin.py extract output/collection_2024/staging/*.tar.gz --output-dir output/collection_2024/text/
    ```
