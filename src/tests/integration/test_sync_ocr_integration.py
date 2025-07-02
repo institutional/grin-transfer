@@ -279,9 +279,8 @@ class TestSyncOCRPipelineIntegration:
 
             # Verify error metadata is recorded
             failed_metadata = json.loads(failed_statuses[0][1])
-            # The error might be in different fields depending on extraction implementation
-            assert ("error" in failed_metadata or "error_message" in failed_metadata or
-                   "error_type" in failed_metadata), f"Error info not found in metadata: {failed_metadata}"
+            assert "error_type" in failed_metadata, f"error_type not found in metadata: {failed_metadata}"
+            assert "error_message" in failed_metadata, f"error_message not found in metadata: {failed_metadata}"
 
     @pytest.mark.asyncio
     async def test_sync_pipeline_upload_failure_cancels_extraction(

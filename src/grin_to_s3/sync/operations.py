@@ -291,7 +291,10 @@ async def extract_and_upload_ocr_text(
                     db_tracker.db_path,
                     barcode,
                     ExtractionStatus.FAILED,
-                    metadata={"error": str(e)},
+                    metadata={
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                    },
                     session_id=session_id,
                 )
             except Exception as db_error:
