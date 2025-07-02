@@ -11,10 +11,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import aiosqlite
+from grin_to_s3.collect_books.models import SQLiteProgressTracker
 
 from ..database import connect_async, connect_sync
-from grin_to_s3.collect_books.models import SQLiteProgressTracker
 
 logger = logging.getLogger(__name__)
 

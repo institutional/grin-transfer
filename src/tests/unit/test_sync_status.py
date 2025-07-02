@@ -141,7 +141,7 @@ class TestShowSyncStatus:
         """Test successful sync status display."""
         with (
             patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class,
-            patch("aiosqlite.connect") as mock_connect,
+            patch("grin_to_s3.sync.status.connect_async") as mock_connect,
         ):
             mock_tracker = MagicMock()
             mock_tracker_class.return_value = mock_tracker

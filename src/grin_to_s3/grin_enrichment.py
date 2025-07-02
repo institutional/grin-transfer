@@ -15,10 +15,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-import aiosqlite
-
-from .database import connect_async
-
 # Check Python version requirement
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
@@ -32,6 +28,8 @@ from grin_to_s3.common import (
 )
 from grin_to_s3.database_utils import validate_database_file
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
+
+from .database import connect_async
 
 logger = logging.getLogger(__name__)
 

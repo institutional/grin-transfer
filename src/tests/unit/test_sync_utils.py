@@ -167,7 +167,7 @@ class TestETagOperations:
         mock_tracker = AsyncMock()
         mock_tracker.db_path = "/fake/path"
 
-        with patch("grin_to_s3.sync.utils.aiosqlite.connect") as mock_connect:
+        with patch("grin_to_s3.sync.utils.connect_async") as mock_connect:
             mock_connect.side_effect = Exception("Database error")
             should_skip, reason = await should_skip_download("TEST123", "abc123", "local", {}, mock_tracker, force=False)
             assert should_skip is False

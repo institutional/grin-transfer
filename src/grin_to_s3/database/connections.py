@@ -3,10 +3,11 @@ Centralized database connection utilities with consistent WAL mode configuration
 """
 
 import sqlite3
-import aiosqlite
+from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
-from typing import AsyncGenerator, Generator
+
+import aiosqlite
 
 
 def _configure_connection(conn) -> None:

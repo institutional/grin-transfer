@@ -9,12 +9,11 @@ import logging
 import sys
 from typing import Any
 
-import aiosqlite
-
-from ..database import connect_async
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.sync.utils import get_converted_books
+
+from ..database import connect_async
 
 logger = logging.getLogger(__name__)
 
