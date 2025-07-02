@@ -8,10 +8,18 @@ Implements storage patterns for book data organization.
 import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from typing import TypedDict
 
 from .base import Storage
 
 logger = logging.getLogger(__name__)
+
+
+class BucketConfig(TypedDict):
+    """Type-safe bucket configuration."""
+    bucket_raw: str
+    bucket_meta: str
+    bucket_full: str
 
 
 class BookStorage:
@@ -21,7 +29,14 @@ class BookStorage:
     Implements storage patterns for book data organization.
     """
 
-    def __init__(self, storage: Storage, bucket_config: dict, base_prefix: str = ""):
+    def __init__(self, storage: Storage, *, bucket_config: BucketConfig, base_prefix: str = ""):
+        """Initialize BookStorage with type-safe bucket configuration.
+
+        Args:
+            storage: Storage backend instance
+            bucket_config: Bucket names configuration (keyword-only for safety)
+            base_prefix: Optional prefix for all storage paths
+        """
         self.storage = storage
         self.bucket_raw = bucket_config["bucket_raw"]
         self.bucket_meta = bucket_config["bucket_meta"]

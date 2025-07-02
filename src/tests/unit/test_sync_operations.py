@@ -408,3 +408,72 @@ class TestOCRExtractionIntegration:
             # Verify upload failed
             assert result["status"] == "failed"
             assert "Upload failed" in result["error"]
+
+
+class TestBookStorageIntegrationInSync:
+    """Test real BookStorage initialization in sync operations."""
+
+    @pytest.mark.asyncio
+    async def test_upload_book_from_staging_real_book_storage_initialization(self):
+        """Test that upload_book_from_staging correctly initializes BookStorage."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create proper storage config with bucket information
+            storage_config = {
+                "type": "local",
+                "bucket_raw": "test-raw",
+                "bucket_meta": "test-meta",
+                "bucket_full": "test-full",
+                "config": {"base_path": temp_dir},
+                "prefix": ""
+            }
+
+            # Mock other dependencies but let BookStorage initialize normally
+            mock_staging_manager = MagicMock()
+            mock_staging_manager.get_decrypted_file_path.return_value = Path(temp_dir) / "TEST123.tar.gz"
+            mock_staging_manager.cleanup_files.return_value = 1024
+
+            mock_progress_tracker = MagicMock()
+            mock_progress_tracker.add_status_change = AsyncMock()
+            mock_progress_tracker.update_sync_data = AsyncMock()
+
+            # Create dummy files for encryption and decryption
+            encrypted_file = Path(temp_dir) / "TEST123.tar.gz.gpg"
+            encrypted_file.write_text("dummy encrypted content")
+
+            decrypted_file = Path(temp_dir) / "TEST123.tar.gz"
+            decrypted_file.write_text("dummy decrypted content")
+
+            with (
+                patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
+                patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
+                patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
+            ):
+                # Mock successful decryption
+                mock_decrypt.return_value = None
+
+                # Mock storage creation to return a mock storage
+                mock_storage = MagicMock()
+                mock_create_storage.return_value = mock_storage
+
+                # Mock BookStorage instance
+                mock_book_storage = MagicMock()
+                mock_book_storage.save_decrypted_archive_from_file = AsyncMock(return_value="bucket_raw/TEST123/TEST123.tar.gz")
+                mock_book_storage_class.return_value = mock_book_storage
+
+                # This should NOT raise "missing bucket_config argument" error
+                result = await upload_book_from_staging(
+                    "TEST123",
+                    str(encrypted_file),
+                    "local",
+                    storage_config,
+                    mock_staging_manager,
+                    mock_progress_tracker,
+                    "encrypted_etag_123",
+                    None,  # gpg_key_file
+                    None,  # secrets_dir
+                    skip_extract_ocr=True,  # Skip OCR to focus on BookStorage init
+                )
+
+                # Verify successful completion
+                assert result["status"] == "completed"
+                assert result["barcode"] == "TEST123"

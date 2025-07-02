@@ -445,10 +445,10 @@ class TestBookCollectionIntegration:
                 "bucket_full": "test-full",
                 "prefix": "test-prefix"
             }
-            
+
             # This should not raise an exception
             collector = BookCollector("TestDirectory", storage_config=storage_config)
-            
+
             # Verify storage was initialized correctly
             assert collector.book_storage is not None
             assert collector.book_storage.bucket_raw == "test-raw"

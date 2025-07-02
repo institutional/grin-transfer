@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import Storage, StorageConfig
-from .book_storage import BookStorage
+from .book_storage import BookStorage, BucketConfig
 
 logger = logging.getLogger(__name__)
 
@@ -240,7 +240,7 @@ def create_book_storage_with_full_text(storage_type: str, config: dict, base_pre
     storage = create_storage_from_config(storage_type, config)
 
     # Extract bucket configuration
-    bucket_config = {
+    bucket_config: BucketConfig = {
         "bucket_raw": config["bucket_raw"],
         "bucket_meta": config["bucket_meta"],
         "bucket_full": config["bucket_full"]

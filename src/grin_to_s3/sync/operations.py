@@ -22,6 +22,8 @@ from grin_to_s3.common import (
 from grin_to_s3.extract.text_extraction import extract_ocr_pages
 from grin_to_s3.extract.tracking import ExtractionStatus, write_status
 from grin_to_s3.storage import BookStorage, create_storage_from_config
+from grin_to_s3.storage.book_storage import BucketConfig
+from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .models import BookSyncResult, create_book_sync_result
 from .utils import check_encrypted_etag, should_skip_download
@@ -178,7 +180,7 @@ async def extract_and_upload_ocr_text(
     decrypted_file: Path,
     book_storage: BookStorage,
     db_tracker,
-    staging_manager,
+    staging_manager: StagingDirectoryManager | None,
     logger: logging.Logger,
 ) -> None:
     """
@@ -211,7 +213,7 @@ async def extract_and_upload_ocr_text(
             )
 
         # Create temporary JSONL file in staging directory
-        staging_dir = staging_manager.staging_dir if staging_manager else Path(decrypted_file).parent
+        staging_dir = staging_manager.staging_path if staging_manager else Path(decrypted_file).parent
         jsonl_file = staging_dir / f"{barcode}_ocr_temp.jsonl"
 
         try:
@@ -245,8 +247,8 @@ async def extract_and_upload_ocr_text(
             # Upload JSONL to full-text bucket
             upload_metadata = {
                 "source": "sync_pipeline",
-                "extraction_time_ms": extraction_time_ms,
-                "page_count": page_count,
+                "extraction_time_ms": str(extraction_time_ms),
+                "page_count": str(page_count),
                 "session_id": session_id,
             }
 
@@ -360,7 +362,14 @@ async def upload_book_from_staging(
             else:
                 base_prefix = bucket_name
 
-        book_storage = BookStorage(storage, base_prefix=base_prefix)
+        # Create bucket configuration
+        bucket_config: BucketConfig = {
+            "bucket_raw": storage_config.get("bucket_raw", ""),
+            "bucket_meta": storage_config.get("bucket_meta", ""),
+            "bucket_full": storage_config.get("bucket_full", ""),
+        }
+
+        book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
         # Get staging file paths
         encrypted_file = Path(staging_file_path)
@@ -495,13 +504,19 @@ async def sync_book_to_local_storage(
         base_path = storage_config.get("base_path") if storage_config else None
         if not base_path:
             raise ValueError("Local storage requires base_path in configuration")
-        book_storage = BookStorage(storage, base_prefix="")
+        # Create bucket configuration
+        bucket_config: BucketConfig = {
+            "bucket_raw": "",  # Local storage doesn't use separate buckets
+            "bucket_meta": "",
+            "bucket_full": "",
+        }
+        book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix="")
 
         # Generate final file paths
         encrypted_filename = f"{barcode}.tar.gz.gpg"
         decrypted_filename = f"{barcode}.tar.gz"
-        encrypted_path = book_storage._book_path(barcode, encrypted_filename)
-        decrypted_path = book_storage._book_path(barcode, decrypted_filename)
+        encrypted_path = book_storage._raw_archive_path(barcode, encrypted_filename)
+        decrypted_path = book_storage._raw_archive_path(barcode, decrypted_filename)
 
         # Get absolute paths for local storage
         final_encrypted_path = Path(base_path) / encrypted_path
