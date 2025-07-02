@@ -1,6 +1,8 @@
 """Tests for sync pipeline concurrency control."""
 
 import asyncio
+import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,23 +16,31 @@ class TestSyncPipelineConcurrency:
     @pytest.fixture
     def mock_pipeline_dependencies(self):
         """Mock all pipeline dependencies."""
-        with patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker, \
-             patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter, \
-             patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client, \
-             patch("grin_to_s3.storage.StagingDirectoryManager") as mock_staging:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker, \
+                 patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter, \
+                 patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client, \
+                 patch("grin_to_s3.storage.StagingDirectoryManager") as mock_staging:
 
-            # Configure mocks
-            mock_tracker.return_value = MagicMock()
-            mock_reporter.return_value = MagicMock()
-            mock_client.return_value = MagicMock()
-            mock_staging.return_value = MagicMock()
+                # Configure mocks
+                mock_tracker.return_value = MagicMock()
+                mock_reporter.return_value = MagicMock()
+                mock_client.return_value = MagicMock()
 
-            yield {
-                "tracker": mock_tracker.return_value,
-                "reporter": mock_reporter.return_value,
-                "client": mock_client.return_value,
-                "staging": mock_staging.return_value,
-            }
+                # Configure staging manager mock with real temporary directory
+                staging_manager_mock = MagicMock()
+                staging_manager_mock.staging_path = Path(temp_dir)
+                staging_manager_mock.get_staging_path = MagicMock(return_value=Path(temp_dir) / "test_file")
+                staging_manager_mock.cleanup_file = AsyncMock()
+                staging_manager_mock.check_and_wait_for_space = AsyncMock()
+                mock_staging.return_value = staging_manager_mock
+
+                yield {
+                    "tracker": mock_tracker.return_value,
+                    "reporter": mock_reporter.return_value,
+                    "client": mock_client.return_value,
+                    "staging": staging_manager_mock,
+                }
 
     @pytest.fixture
     def pipeline(self, mock_pipeline_dependencies):

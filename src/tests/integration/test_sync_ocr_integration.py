@@ -46,6 +46,7 @@ def mock_staging_manager():
         manager = MagicMock()
         staging_dir = Path(temp_dir)
         manager.staging_dir = staging_dir
+        manager.staging_path = staging_dir  # Add staging_path attribute to prevent mock file creation
         manager.get_decrypted_file_path = lambda barcode: staging_dir / f"{barcode}.tar.gz"
         manager.cleanup_files = MagicMock(return_value=1024 * 1024)  # 1MB freed
         yield manager
