@@ -434,6 +434,28 @@ class TestBookCollectionIntegration:
             if hasattr(exporter, "_background_tasks") and exporter._background_tasks:
                 await asyncio.gather(*exporter._background_tasks, return_exceptions=True)
 
+    def test_book_collector_with_storage_initialization(self):
+        """Test BookCollector initialization with storage configuration."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_config = {
+                "type": "local",
+                "config": {"base_path": temp_dir},
+                "bucket_raw": "test-raw",
+                "bucket_meta": "test-meta",
+                "bucket_full": "test-full",
+                "prefix": "test-prefix"
+            }
+
+            # This should not raise an exception
+            collector = BookCollector("TestDirectory", storage_config=storage_config)
+
+            # Verify storage was initialized correctly
+            assert collector.book_storage is not None
+            assert collector.book_storage.bucket_raw == "test-raw"
+            assert collector.book_storage.bucket_meta == "test-meta"
+            assert collector.book_storage.bucket_full == "test-full"
+            assert collector.book_storage.base_prefix == "test-prefix"
+
 
 # Pytest configuration for async tests
 @pytest.fixture(scope="session")

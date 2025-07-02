@@ -150,6 +150,7 @@ async def cmd_pipeline(args) -> None:
             force=args.force,
             staging_dir=args.staging_dir,
             disk_space_threshold=args.disk_space_threshold,
+            skip_extract_ocr=args.skip_extract_ocr,
         )
 
         # Set up signal handlers for graceful shutdown
@@ -194,6 +195,7 @@ async def cmd_pipeline(args) -> None:
                 force=args.force,
                 staging_dir=args.staging_dir,
                 disk_space_threshold=args.disk_space_threshold,
+                skip_extract_ocr=args.skip_extract_ocr,
             )
             print("  - Concurrent downloads: 1")
             print("  - Concurrent uploads: 1")
@@ -425,6 +427,11 @@ Examples:
         type=float,
         default=0.9,
         help="Disk usage threshold to pause downloads (0.0-1.0, default: 0.9)",
+    )
+
+    # OCR extraction options
+    pipeline_parser.add_argument(
+        "--skip-extract-ocr", action="store_true", help="Skip OCR text extraction (default: extract OCR)"
     )
 
     # GRIN options

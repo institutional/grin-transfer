@@ -7,6 +7,7 @@ Core sync functions for downloading and uploading books, extracted from SyncPipe
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -18,7 +19,11 @@ from grin_to_s3.common import (
     create_http_session,
     decrypt_gpg_file,
 )
+from grin_to_s3.extract.text_extraction import extract_ocr_pages
+from grin_to_s3.extract.tracking import ExtractionStatus, write_status
 from grin_to_s3.storage import BookStorage, create_storage_from_config
+from grin_to_s3.storage.book_storage import BucketConfig
+from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .models import BookSyncResult, create_book_sync_result
 from .utils import check_encrypted_etag, should_skip_download
@@ -170,6 +175,134 @@ async def download_book_to_staging(
         )
 
 
+async def extract_and_upload_ocr_text(
+    barcode: str,
+    decrypted_file: Path,
+    book_storage: BookStorage,
+    db_tracker,
+    staging_manager: StagingDirectoryManager | None,
+    logger: logging.Logger,
+) -> None:
+    """
+    Extract OCR text from decrypted archive and upload to full-text bucket (non-blocking).
+
+    This function is designed to be non-blocking - any failures are logged but do not
+    raise exceptions that would interrupt the main sync workflow.
+
+    Args:
+        barcode: Book barcode
+        decrypted_file: Path to decrypted tar.gz archive
+        book_storage: BookStorage instance for uploading
+        db_tracker: Database tracker for status updates
+        staging_manager: Staging manager for temp file handling
+        logger: Logger instance for structured logging
+    """
+    session_id = f"sync_{int(time.time())}"
+
+    try:
+        logger.info(f"[{barcode}] Starting OCR text extraction from decrypted archive")
+
+        # Track extraction start
+        if db_tracker:
+            write_status(
+                db_tracker.db_path,
+                barcode,
+                ExtractionStatus.STARTING,
+                metadata={"session_id": session_id, "source": "sync_pipeline"},
+                session_id=session_id,
+            )
+
+        # Create temporary JSONL file in staging directory
+        staging_dir = staging_manager.staging_path if staging_manager else Path(decrypted_file).parent
+        jsonl_file = staging_dir / f"{barcode}_ocr_temp.jsonl"
+
+        try:
+            # Track extraction progress
+            if db_tracker:
+                write_status(
+                    db_tracker.db_path,
+                    barcode,
+                    ExtractionStatus.EXTRACTING,
+                    metadata={"jsonl_file": str(jsonl_file)},
+                    session_id=session_id,
+                )
+
+            # Extract OCR text to JSONL file
+            start_time = time.time()
+            page_count = extract_ocr_pages(
+                str(decrypted_file),
+                db_tracker.db_path if db_tracker else "",
+                session_id,
+                output_file=str(jsonl_file),
+                extract_to_disk=True,
+                keep_extracted=False,
+            )
+            extraction_time_ms = int((time.time() - start_time) * 1000)
+
+            # Get file size
+            jsonl_file_size = jsonl_file.stat().st_size if jsonl_file.exists() else 0
+
+            logger.info(f"[{barcode}] Extracted {page_count} pages from archive")
+
+            # Upload JSONL to full-text bucket
+            upload_metadata = {
+                "source": "sync_pipeline",
+                "extraction_time_ms": str(extraction_time_ms),
+                "page_count": str(page_count),
+                "session_id": session_id,
+            }
+
+            await book_storage.save_ocr_text_jsonl_from_file(
+                barcode, str(jsonl_file), metadata=upload_metadata
+            )
+
+            logger.info(
+                f"[{barcode}] OCR text JSON saved to bucket_full "
+                f"({jsonl_file_size / 1024:.1f} KB, {extraction_time_ms}ms)"
+            )
+
+            # Track successful completion
+            if db_tracker:
+                write_status(
+                    db_tracker.db_path,
+                    barcode,
+                    ExtractionStatus.COMPLETED,
+                    metadata={
+                        "page_count": page_count,
+                        "extraction_time_ms": extraction_time_ms,
+                        "jsonl_file_size": jsonl_file_size,
+                    },
+                    session_id=session_id,
+                )
+
+        finally:
+            # Clean up temporary JSONL file
+            if jsonl_file.exists():
+                try:
+                    jsonl_file.unlink()
+                except OSError as e:
+                    logger.warning(f"[{barcode}] Failed to clean up temporary JSONL file: {e}")
+
+    except Exception as e:
+        logger.error(f"[{barcode}] OCR extraction failed but sync continues: {e}")
+
+        # Track failure but don't raise - this is non-blocking
+        if db_tracker:
+            try:
+                write_status(
+                    db_tracker.db_path,
+                    barcode,
+                    ExtractionStatus.FAILED,
+                    metadata={
+                        "error_type": type(e).__name__,
+                        "error_message": str(e),
+                    },
+                    session_id=session_id,
+                )
+            except Exception as db_error:
+                logger.warning(f"[{barcode}] Failed to track extraction failure in database: {db_error}")
+
+
 async def upload_book_from_staging(
     barcode: str,
     staging_file_path: str,
@@ -180,6 +313,7 @@ async def upload_book_from_staging(
     encrypted_etag: str | None = None,
     gpg_key_file: str | None = None,
     secrets_dir: str | None = None,
+    skip_extract_ocr: bool = False,
 ) -> dict[str, Any]:
     """Upload book from staging directory to storage.
 
@@ -197,6 +331,9 @@ async def upload_book_from_staging(
     Returns:
         dict: Upload result
     """
+    # Initialize extraction task to None
+    extraction_task = None
+
     try:
         # Check if this is a skip download scenario
         if staging_file_path == "SKIP_DOWNLOAD":
@@ -225,7 +362,14 @@ async def upload_book_from_staging(
             else:
                 base_prefix = bucket_name
 
-        book_storage = BookStorage(storage, base_prefix=base_prefix)
+        # Create bucket configuration
+        bucket_config: BucketConfig = {
+            "bucket_raw": storage_config.get("bucket_raw", ""),
+            "bucket_meta": storage_config.get("bucket_meta", ""),
+            "bucket_full": storage_config.get("bucket_full", ""),
+        }
+
+        book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
         # Get staging file paths
         encrypted_file = Path(staging_file_path)
@@ -240,6 +384,17 @@ async def upload_book_from_staging(
             freed_bytes = staging_manager.cleanup_files(barcode)
             logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB from staging after failure")
             raise Exception(f"GPG decryption failed for {barcode}: {e}") from e
+
+        # Extract OCR text if enabled (non-blocking)
+        if not skip_extract_ocr:
+            # Run extraction concurrently with upload for better performance
+            extraction_task = asyncio.create_task(
+                extract_and_upload_ocr_text(
+                    barcode, decrypted_file, book_storage, db_tracker, staging_manager, logger
+                )
+            )
+        else:
+            extraction_task = None
 
         # Upload decrypted file
         logger.debug(f"[{barcode}] 🚀 Upload started")
@@ -276,6 +431,14 @@ async def upload_book_from_staging(
         }
         await db_tracker.update_sync_data(barcode, sync_data)
 
+        # Wait for OCR extraction to complete before cleanup
+        if extraction_task:
+            try:
+                await extraction_task
+            except Exception as e:
+                # Log extraction failure but don't fail the sync
+                logger.warning(f"[{barcode}] OCR extraction task failed: {e}")
+
         # Clean up staging files after successful uploads
         freed_bytes = staging_manager.cleanup_files(barcode)
         logger.info(f"[{barcode}] ✅ Upload completed: decrypted=True")
@@ -290,6 +453,17 @@ async def upload_book_from_staging(
 
     except Exception as e:
         logger.error(f"[{barcode}] Upload failed: {e}")
+
+        # Cancel extraction task if upload failed
+        if extraction_task:
+            extraction_task.cancel()
+            try:
+                await extraction_task
+            except asyncio.CancelledError:
+                logger.debug(f"[{barcode}] OCR extraction task cancelled due to upload failure")
+            except Exception as extraction_error:
+                logger.warning(f"[{barcode}] OCR extraction task failed during cleanup: {extraction_error}")
+
         # Don't clean up staging files on failure - they can be retried
         return {
             "barcode": barcode,
@@ -307,6 +481,7 @@ async def sync_book_to_local_storage(
     encrypted_etag: str | None = None,
     gpg_key_file: str | None = None,
     secrets_dir: str | None = None,
+    skip_extract_ocr: bool = False,
 ) -> dict[str, Any]:
     """Sync a book directly to local storage without staging.
 
@@ -329,13 +504,19 @@ async def sync_book_to_local_storage(
         base_path = storage_config.get("base_path") if storage_config else None
         if not base_path:
             raise ValueError("Local storage requires base_path in configuration")
-        book_storage = BookStorage(storage, base_prefix="")
+        # Create bucket configuration
+        bucket_config: BucketConfig = {
+            "bucket_raw": "",  # Local storage doesn't use separate buckets
+            "bucket_meta": "",
+            "bucket_full": "",
+        }
+        book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix="")
 
         # Generate final file paths
         encrypted_filename = f"{barcode}.tar.gz.gpg"
         decrypted_filename = f"{barcode}.tar.gz"
-        encrypted_path = book_storage._book_path(barcode, encrypted_filename)
-        decrypted_path = book_storage._book_path(barcode, decrypted_filename)
+        encrypted_path = book_storage._raw_archive_path(barcode, encrypted_filename)
+        decrypted_path = book_storage._raw_archive_path(barcode, decrypted_filename)
 
         # Get absolute paths for local storage
         final_encrypted_path = Path(base_path) / encrypted_path

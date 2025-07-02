@@ -87,6 +87,9 @@ python grin.py sync catchup --run-name harvard_2024
 
 # Retry failed syncs only
 python grin.py sync pipeline --run-name harvard_2024 --status failed
+
+# Sync without OCR text extraction (faster)
+python grin.py sync pipeline --run-name harvard_2024 --skip-extract-ocr
 ```
 
 **Pipeline options:**
@@ -98,6 +101,7 @@ python grin.py sync pipeline --run-name harvard_2024 --status failed
 - `--force`: Overwrite existing files
 - `--staging-dir`: Custom staging directory path (default: output/run-name/staging)
 - `--disk-space-threshold`: Disk usage threshold to pause downloads (0.0-1.0, default: 0.9)
+- `--skip-extract-ocr`: Skip OCR text extraction during sync (default: extract OCR)
 
 ### 4. Storage Management: `grin.py storage`
 
@@ -126,32 +130,35 @@ python grin.py storage rm full --run-name harvard_2024 --dry-run
 
 ### 5. Text Extraction: `grin.py extract`
 
-Extract OCR text from decrypted book archives and output as JSON arrays.
+Extract OCR text from decrypted book archives and output as JSONL files.
 
 ```bash
-# Extract text and print to stdout (formatted JSON)
+# Extract text and print to stdout
 python grin.py extract /path/to/book.tar.gz
 
-# Extract text and save to JSON file
-python grin.py extract /path/to/book.tar.gz --output /path/to/output.json
-
-# Extract text and save to JSON file (compact format)
-python grin.py extract /path/to/book.tar.gz --output /path/to/output.json --compact
+# Extract text and save to JSONL file
+python grin.py extract /path/to/book.tar.gz --output /path/to/output.jsonl
 
 # Extract multiple archives to directory
-python grin.py extract /path/to/books/*.tar.gz --output-dir /path/to/json_files/
+python grin.py extract /path/to/books/*.tar.gz --output-dir /path/to/jsonl_files/
 
-# Use disk-based extraction for better parallel processing
-python grin.py extract /path/to/book.tar.gz --use-disk --extraction-dir /tmp/grin_work --keep-extracted
+# Extract and upload to buckets using run configuration
+python grin.py extract /path/to/book.tar.gz --run-name harvard_2024
+
+# Extract multiple files using run configuration
+python grin.py extract /path/to/books/*.tar.gz --run-name harvard_2024
+
+# Use disk extraction with custom directory
+python grin.py extract /path/to/book.tar.gz --extraction-dir /tmp/grin_work --keep-extracted
 ```
 
 **Extraction options:**
-- `--output`: Save to specific JSON file path (default: print to stdout)
-- `--output-dir`: Save multiple files to directory (creates BARCODE.json for each archive)
-- `--compact`: Use compact JSON format (single line, no indentation)
-- `--use-disk`: Extract to disk instead of memory (better for parallel processing)
-- `--extraction-dir`: Directory for disk extraction (creates BARCODE/ subdirectories, only with --use-disk)
-- `--keep-extracted`: Keep extracted files after processing (only with --use-disk)
+- `--output`: Save to specific JSONL file path (default: print to stdout)
+- `--output-dir`: Save multiple files to directory (creates BARCODE.jsonl for each archive)
+- `--run-name`: Use run configuration to upload extracted text to full-text bucket
+- `--extraction-dir`: Directory to extract archives to (creates BARCODE/ subdirectories)
+- `--keep-extracted`: Keep extracted files after processing
+- `--use-memory`: Extract in memory instead of to disk (memory efficient for smaller archives)
 - `--verbose`: Enable detailed progress output
 - `--summary`: Show extraction statistics
 
@@ -174,9 +181,11 @@ python grin.py export-csv --run-name harvard_2024 --output books.csv
 
 The system uses a three-bucket architecture for different data types:
 
-- **Raw Bucket** (`--bucket-raw`): Encrypted archives from GRIN sync
+- **Raw Bucket** (`--bucket-raw`): Decrypted book archives from GRIN sync
 - **Metadata Bucket** (`--bucket-meta`): CSV files and database exports  
-- **Full-text Bucket** (`--bucket-full`): OCR text extraction outputs
+- **Full-text Bucket** (`--bucket-full`): OCR text extraction outputs (JSONL format)
+
+During sync, OCR text is automatically extracted from book archives and uploaded to the full-text bucket. Use `--skip-extract-ocr` to disable this behavior for faster sync operations.
 
 ### Storage Backends
 
@@ -239,12 +248,12 @@ Configuration is stored in `output/{run_name}/run_config.json` and includes stor
    python grin.py process monitor --run-name collection_2024
    ```
 
-4. **Sync converted books** to storage:
+4. **Sync converted books** to storage (with automatic OCR extraction):
    ```bash
    python grin.py sync pipeline --run-name collection_2024
    ```
 
-5. **Extract OCR text** from downloaded archives (optional):
+5. **Extract OCR text** separately if needed (alternative to automatic extraction):
    ```bash
    python grin.py extract output/collection_2024/staging/*.tar.gz --output-dir output/collection_2024/text/
    ```

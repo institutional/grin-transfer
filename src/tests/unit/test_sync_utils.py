@@ -221,3 +221,69 @@ class TestConvertedBooks:
         result = await get_converted_books(mock_grin_client, "Harvard")
 
         assert result == set()
+
+
+class TestBookStorageInitializationInUtils:
+    """Test that sync utils correctly initialize BookStorage with bucket_config."""
+
+    @pytest.mark.asyncio
+    async def test_should_skip_download_book_storage_initialization(self):
+        """Test that should_skip_download correctly initializes BookStorage."""
+        import tempfile
+        from unittest.mock import AsyncMock, MagicMock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create proper storage config with bucket information
+            storage_config = {
+                "bucket_raw": "test-raw",
+                "bucket_meta": "test-meta",
+                "bucket_full": "test-full",
+                "prefix": "",
+                "config": {"base_path": temp_dir}
+            }
+
+            # Mock database tracker
+            mock_db_tracker = MagicMock()
+
+            with (
+                patch("grin_to_s3.storage.create_storage_from_config") as mock_create_storage,
+                patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
+            ):
+                # Mock storage creation
+                mock_storage = MagicMock()
+                mock_create_storage.return_value = mock_storage
+
+                # Mock BookStorage instance
+                mock_book_storage = MagicMock()
+                mock_book_storage.decrypted_archive_exists = AsyncMock(return_value=False)
+                mock_book_storage_class.return_value = mock_book_storage
+
+                # This should NOT raise "missing bucket_config argument" error
+                should_skip, reason = await should_skip_download(
+                    "TEST123",
+                    "test_etag",
+                    "minio",  # S3-compatible storage to trigger the problematic code path
+                    storage_config,
+                    mock_db_tracker,
+                    force=False
+                )
+
+                # Verify the function completed without error
+                assert should_skip is False
+                assert reason == "no_decrypted_archive"
+
+                # Verify BookStorage was called with correct arguments
+                mock_book_storage_class.assert_called_once()
+                call_args = mock_book_storage_class.call_args
+
+                # Should be called with (storage, bucket_config=..., base_prefix=...)
+                assert len(call_args[0]) == 1  # One positional arg: storage
+                assert call_args[0][0] == mock_storage  # First arg is storage
+
+                # bucket_config should be keyword argument
+                assert "bucket_config" in call_args[1]
+                bucket_config = call_args[1]["bucket_config"]
+                assert isinstance(bucket_config, dict)
+                assert "bucket_raw" in bucket_config
+                assert "bucket_meta" in bucket_config
+                assert "bucket_full" in bucket_config
