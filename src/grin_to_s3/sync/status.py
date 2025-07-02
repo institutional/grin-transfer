@@ -11,9 +11,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-import aiosqlite
-
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
+
+from ..database import connect_async, connect_sync
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
             print("Storage Type Breakdown:")
 
             # Get books by storage type and extract bucket from storage_path
-            async with aiosqlite.connect(db_path) as db:
+            async with connect_async(db_path) as db:
                 cursor = await db.execute("""
                     SELECT storage_type, storage_path, COUNT(*) as count
                     FROM books
@@ -107,7 +107,7 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
 
         # Show recent sync activity
         print("Recent Sync Activity (last 10):")
-        async with aiosqlite.connect(db_path) as db:
+        async with connect_async(db_path) as db:
             query = """
                 SELECT b.barcode, h.status_value, b.sync_timestamp, b.sync_error, b.storage_type
                 FROM books b
@@ -171,7 +171,7 @@ def validate_database_file(db_path: str) -> None:
         sys.exit(1)
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_sync(db_path) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
             tables = cursor.fetchall()
@@ -241,7 +241,7 @@ async def export_sync_status_csv(db_path: str, output_path: str, storage_type: s
     """
     import csv
 
-    async with aiosqlite.connect(db_path) as db:
+    async with connect_async(db_path) as db:
         query = """
             SELECT
                 b.barcode,

@@ -10,7 +10,7 @@ import json
 import logging
 from typing import Any
 
-import aiosqlite
+from ..database import connect_async
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +220,7 @@ async def should_skip_download(
 
     # For local storage or fallback, use database check
     try:
-        async with aiosqlite.connect(db_tracker.db_path) as db:
+        async with connect_async(db_tracker.db_path) as db:
             async with db.execute("BEGIN IMMEDIATE"):
                 cursor = await db.execute(
                     """

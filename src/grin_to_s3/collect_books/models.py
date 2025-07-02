@@ -15,6 +15,8 @@ from typing import Any
 
 import aiosqlite
 
+from ..database import connect_async
+
 logger = logging.getLogger(__name__)
 
 
@@ -237,7 +239,7 @@ class SQLiteProgressTracker:
 
         schema_sql = schema_file.read_text(encoding="utf-8")
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             # Execute the complete schema
             # Split by semicolon and execute each statement separately
             statements = [stmt.strip() for stmt in schema_sql.split(";") if stmt.strip()]
@@ -254,7 +256,7 @@ class SQLiteProgressTracker:
         """Mark barcode as successfully processed."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             await db.execute(
                 "INSERT OR REPLACE INTO processed (barcode, timestamp, session_id) VALUES (?, ?, ?)",
                 (barcode, datetime.now(UTC).isoformat(), self.session_id),
@@ -265,7 +267,7 @@ class SQLiteProgressTracker:
         """Mark barcode as failed with optional error message."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             await db.execute(
                 "INSERT OR REPLACE INTO failed (barcode, timestamp, session_id, error_message) VALUES (?, ?, ?, ?)",
                 (barcode, datetime.now(UTC).isoformat(), self.session_id, error_message),
@@ -276,7 +278,7 @@ class SQLiteProgressTracker:
         """Check if barcode was successfully processed."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute("SELECT 1 FROM processed WHERE barcode = ?", (barcode,))
             return await cursor.fetchone() is not None
 
@@ -284,7 +286,7 @@ class SQLiteProgressTracker:
         """Check if barcode previously failed."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute("SELECT 1 FROM failed WHERE barcode = ?", (barcode,))
             return await cursor.fetchone() is not None
 
@@ -326,7 +328,7 @@ class SQLiteProgressTracker:
         # Convert to list for SQL query
         barcode_list = list(barcodes)
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             # Check processed barcodes in batch
             placeholders = ",".join("?" * len(barcode_list))
 
@@ -349,7 +351,7 @@ class SQLiteProgressTracker:
         await self.init_db()
         known_barcodes: set[str] = set()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             # Get all processed barcodes
             cursor = await db.execute("SELECT barcode FROM processed")
             processed_rows = await cursor.fetchall()
@@ -366,7 +368,7 @@ class SQLiteProgressTracker:
         """Get total number of successfully processed barcodes."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM processed")
             row = await cursor.fetchone()
             return row[0] if row else 0
@@ -375,7 +377,7 @@ class SQLiteProgressTracker:
         """Get total number of failed barcodes."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM failed")
             row = await cursor.fetchone()
             return row[0] if row else 0
@@ -384,7 +386,7 @@ class SQLiteProgressTracker:
         """Get statistics for current session."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             # Current session counts
             cursor = await db.execute("SELECT COUNT(*) FROM processed WHERE session_id = ?", (self.session_id,))
             session_processed_row = await cursor.fetchone()
@@ -410,7 +412,7 @@ class SQLiteProgressTracker:
         """Remove data from old sessions, keeping only the most recent N sessions."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             # Get session IDs to keep (most recent N)
             cursor = await db.execute(
                 """
@@ -456,7 +458,7 @@ class SQLiteProgressTracker:
 
         now = datetime.now(UTC).isoformat()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             await db.execute(
                 """
                 INSERT OR REPLACE INTO books (
@@ -521,7 +523,7 @@ class SQLiteProgressTracker:
         """Retrieve a book record from the database."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute(
                 """
                 SELECT barcode, title, scanned_date, converted_date, downloaded_date,
@@ -549,7 +551,7 @@ class SQLiteProgressTracker:
 
         now = datetime.now(UTC).isoformat()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             await db.execute(
                 """
                 UPDATE books SET
@@ -588,7 +590,7 @@ class SQLiteProgressTracker:
         """Get barcodes for books that need enrichment (no enrichment_timestamp)."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute(
                 """
                 SELECT barcode FROM books
@@ -606,7 +608,7 @@ class SQLiteProgressTracker:
         """Get all book records for CSV export."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute("""
                 SELECT barcode, title, scanned_date, converted_date, downloaded_date,
                        processed_date, analyzed_date, ocr_date, google_books_link,
@@ -627,7 +629,7 @@ class SQLiteProgressTracker:
         """Get total number of books in database."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute("SELECT COUNT(*) FROM books")
             row = await cursor.fetchone()
             return row[0] if row else 0
@@ -636,7 +638,7 @@ class SQLiteProgressTracker:
         """Get count of books with enrichment data."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute("""
                 SELECT COUNT(*) FROM books
                 WHERE enrichment_timestamp IS NOT NULL
@@ -650,7 +652,7 @@ class SQLiteProgressTracker:
 
         now = datetime.now(UTC).isoformat()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             await db.execute(
                 """
                 UPDATE books SET
@@ -777,7 +779,7 @@ class SQLiteProgressTracker:
         base_query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute(base_query, params)
             rows = await cursor.fetchall()
             return [row[0] for row in rows]
@@ -796,7 +798,7 @@ class SQLiteProgressTracker:
         """
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             # Base filters - check all books since availability is determined at download time
             where_clause = "WHERE 1=1"
             params = []
@@ -918,7 +920,7 @@ class SQLiteProgressTracker:
         """Get count of books in converted state (ready for sync)."""
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute("""
                 SELECT COUNT(*) FROM books
                 WHERE grin_state = 'converted'
@@ -951,7 +953,7 @@ class SQLiteProgressTracker:
         now = datetime.now(UTC).isoformat()
         metadata_json = json.dumps(metadata) if metadata else None
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             await db.execute(
                 """
                 INSERT INTO book_status_history
@@ -979,7 +981,7 @@ class SQLiteProgressTracker:
         """
         await self.init_db()
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute(
                 """
                 SELECT status_value FROM book_status_history
@@ -1003,7 +1005,7 @@ class SQLiteProgressTracker:
             tuple: (status_value, metadata_dict) or (None, None) if no status found
         """
         await self.init_db()
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute(
                 "SELECT status_value, metadata FROM book_status_history "
                 "WHERE barcode = ? AND status_type = ? ORDER BY timestamp DESC, id DESC LIMIT 1",
@@ -1056,7 +1058,7 @@ class SQLiteProgressTracker:
             base_query += " LIMIT ?"
             params.append(str(limit))
 
-        async with aiosqlite.connect(self.db_path) as db:
+        async with connect_async(self.db_path) as db:
             cursor = await db.execute(base_query, params)
             rows = await cursor.fetchall()
             return [(row[0], row[1]) for row in rows]
