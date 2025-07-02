@@ -6,7 +6,6 @@ Tests for core sync functions.
 import asyncio
 import tempfile
 from pathlib import Path
-from unittest import mock
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -175,7 +174,7 @@ class TestOCRExtractionIntegration:
             # Mock extraction success
             mock_extract.return_value = 342  # page count
             mock_time.return_value = 1672531200
-            
+
             # Create mock JSONL file
             jsonl_file = mock_staging_manager.staging_dir / "TEST123_ocr_temp.jsonl"
             jsonl_file.parent.mkdir(parents=True, exist_ok=True)
@@ -187,13 +186,13 @@ class TestOCRExtractionIntegration:
 
             # Verify extraction was called
             mock_extract.assert_called_once()
-            
+
             # Verify database status tracking
             assert mock_write_status.call_count == 3  # starting, extracting, completed
-            
+
             # Verify upload was called
             mock_book_storage.save_ocr_text_jsonl_from_file.assert_called_once()
-            
+
             # Verify success logging
             mock_logger.info.assert_any_call("[TEST123] Starting OCR text extraction from decrypted archive")
             mock_logger.info.assert_any_call("[TEST123] Extracted 342 pages from archive")
@@ -220,7 +219,7 @@ class TestOCRExtractionIntegration:
             calls = mock_write_status.call_args_list
             failed_calls = [call for call in calls if len(call[0]) >= 3 and "FAILED" in str(call[0][2]) or "failed" in str(call[0][2])]
             assert len(failed_calls) > 0, f"Expected FAILED status call, but got: {calls}"
-            
+
             # Verify error was logged but didn't raise
             mock_logger.error.assert_called_once()
             assert "OCR extraction failed but sync continues" in str(mock_logger.error.call_args)
@@ -232,12 +231,12 @@ class TestOCRExtractionIntegration:
         """Test OCR upload failure handling (non-blocking)."""
         with (
             patch("grin_to_s3.sync.operations.extract_ocr_pages") as mock_extract,
-            patch("grin_to_s3.sync.operations.write_status") as mock_write_status,
+            patch("grin_to_s3.sync.operations.write_status"),
         ):
             # Mock extraction success but upload failure
             mock_extract.return_value = 100
             mock_book_storage.save_ocr_text_jsonl_from_file.side_effect = Exception("Network timeout")
-            
+
             # Create mock JSONL file
             jsonl_file = mock_staging_manager.staging_dir / "TEST123_ocr_temp.jsonl"
             jsonl_file.parent.mkdir(parents=True, exist_ok=True)
@@ -259,7 +258,7 @@ class TestOCRExtractionIntegration:
         """Test OCR extraction without database tracker."""
         with patch("grin_to_s3.sync.operations.extract_ocr_pages") as mock_extract:
             mock_extract.return_value = 50
-            
+
             # Create mock JSONL file
             jsonl_file = mock_staging_manager.staging_dir / "TEST123_ocr_temp.jsonl"
             jsonl_file.parent.mkdir(parents=True, exist_ok=True)
@@ -280,7 +279,7 @@ class TestOCRExtractionIntegration:
     ):
         """Test upload_book_from_staging with OCR extraction enabled."""
         with (
-            patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
+            patch("grin_to_s3.sync.operations.decrypt_gpg_file"),
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
             patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract,
             patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
@@ -290,15 +289,15 @@ class TestOCRExtractionIntegration:
             mock_storage.save_decrypted_archive_from_file = AsyncMock(return_value="path/to/archive")
             mock_create_storage.return_value = mock_storage
             mock_book_storage_class.return_value = mock_storage
-            
+
             # Mock progress tracker methods
             mock_progress_tracker.add_status_change = AsyncMock()
             mock_progress_tracker.update_sync_data = AsyncMock()
-            
+
             # Mock staging manager
             mock_staging_manager.get_decrypted_file_path.return_value = Path("/staging/TEST123.tar.gz")
             mock_staging_manager.cleanup_files.return_value = 1024 * 1024  # 1MB
-            
+
             # Mock extract function as async
             mock_extract.return_value = None
 
@@ -317,7 +316,7 @@ class TestOCRExtractionIntegration:
 
             # Verify OCR extraction was called
             mock_extract.assert_called_once()
-            
+
             # Verify successful result
             assert result["status"] == "completed"
             assert result["barcode"] == "TEST123"
@@ -328,7 +327,7 @@ class TestOCRExtractionIntegration:
     ):
         """Test upload_book_from_staging with OCR extraction disabled."""
         with (
-            patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
+            patch("grin_to_s3.sync.operations.decrypt_gpg_file"),
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
             patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract,
             patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
@@ -338,11 +337,11 @@ class TestOCRExtractionIntegration:
             mock_storage.save_decrypted_archive_from_file = AsyncMock(return_value="path/to/archive")
             mock_create_storage.return_value = mock_storage
             mock_book_storage_class.return_value = mock_storage
-            
+
             # Mock progress tracker methods
             mock_progress_tracker.add_status_change = AsyncMock()
             mock_progress_tracker.update_sync_data = AsyncMock()
-            
+
             # Mock staging manager
             mock_staging_manager.get_decrypted_file_path.return_value = Path("/staging/TEST123.tar.gz")
             mock_staging_manager.cleanup_files.return_value = 1024 * 1024
@@ -362,7 +361,7 @@ class TestOCRExtractionIntegration:
 
             # Verify OCR extraction was NOT called
             mock_extract.assert_not_called()
-            
+
             # Verify successful result
             assert result["status"] == "completed"
             assert result["barcode"] == "TEST123"
@@ -373,7 +372,7 @@ class TestOCRExtractionIntegration:
     ):
         """Test that OCR extraction task is cancelled when upload fails."""
         with (
-            patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
+            patch("grin_to_s3.sync.operations.decrypt_gpg_file"),
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
             patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract,
             patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
@@ -383,14 +382,14 @@ class TestOCRExtractionIntegration:
             mock_storage.save_decrypted_archive_from_file = AsyncMock(side_effect=Exception("Upload failed"))
             mock_create_storage.return_value = mock_storage
             mock_book_storage_class.return_value = mock_storage
-            
+
             # Mock staging manager
             mock_staging_manager.get_decrypted_file_path.return_value = Path("/staging/TEST123.tar.gz")
-            
+
             # Mock extract function to simulate long-running task
             async def mock_extract_func(*args, **kwargs):
                 await asyncio.sleep(0.1)  # Simulate work
-                
+
             mock_extract.side_effect = mock_extract_func
 
             result = await upload_book_from_staging(

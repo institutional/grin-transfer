@@ -7,7 +7,6 @@ Core sync functions for downloading and uploading books, extracted from SyncPipe
 
 import asyncio
 import logging
-import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
