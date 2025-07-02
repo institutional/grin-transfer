@@ -261,6 +261,113 @@ async def cmd_ls(args) -> None:
         sys.exit(1)
 
 
+async def cmd_cp(args) -> None:
+    """Copy a file from raw storage bucket to local directory."""
+    from ..storage.factories import create_storage_from_config
+
+    # Set up database path and apply run configuration
+    db_path = setup_run_database_path(args, args.run_name)
+    logger.debug(f"Using run: {args.run_name}")
+    print(f"Database: {db_path}")
+
+    args.db_path = db_path
+    apply_run_config_to_args(args, args.db_path)
+
+    # Get run configuration
+    config_path = Path(args.db_path).parent / "run_config.json"
+    if not config_path.exists():
+        print("❌ Error: No run configuration found")
+        print("Run a collection first to create configuration")
+        sys.exit(1)
+
+    try:
+        with open(config_path) as f:
+            run_config = json.load(f)
+
+        storage_config_dict = run_config.get("storage_config")
+        if not storage_config_dict:
+            print("❌ Error: No storage configuration found in run config")
+            sys.exit(1)
+
+        storage_type = storage_config_dict["type"]
+
+        # Build full storage config with credentials
+        from argparse import Namespace
+
+        temp_args = Namespace(
+            storage=storage_type,
+            secrets_dir=run_config.get("secrets_dir"),
+            bucket_raw=None,
+            bucket_meta=None,
+            bucket_full=None,
+            storage_config=None,
+        )
+
+        credentials_config = build_storage_config_dict(temp_args)
+        storage_config = credentials_config.copy()
+        storage_config.update(storage_config_dict.get("config", {}))
+        if "prefix" in storage_config_dict:
+            storage_config["prefix"] = storage_config_dict["prefix"]
+
+        # Get raw bucket
+        raw_bucket = storage_config.get("bucket_raw")
+        if not raw_bucket:
+            print("❌ Error: Raw bucket is not configured")
+            sys.exit(1)
+
+        prefix = storage_config.get("prefix", "")
+
+        print(f"\nStorage Copy for {args.run_name}")
+        print("=" * 60)
+        print(f"Storage Type: {storage_type}")
+        print(f"Source Bucket: {raw_bucket} (raw)")
+        print(f"Source File: {args.filename}")
+        print(f"Destination: {args.local_dir}")
+        if prefix:
+            logger.debug(f"Using prefix: {prefix}")
+        print()
+
+        # Create storage instance
+        storage = create_storage_from_config(storage_type, storage_config)
+
+        # Construct full source path with prefix if needed
+        source_path = f"{prefix}/{args.filename}" if prefix else args.filename
+
+        # Ensure local directory exists
+        local_dir = Path(args.local_dir)
+        local_dir.mkdir(parents=True, exist_ok=True)
+
+        # Extract just the filename for local storage
+        filename_only = Path(args.filename).name
+        local_file_path = local_dir / filename_only
+
+        print(f"Downloading {source_path} from {raw_bucket}...")
+
+        try:
+            # Download the file - include bucket in path like BookStorage does
+            file_data = await storage.read_bytes(f"{raw_bucket}/{source_path}")
+
+            # Write to local file
+            with open(local_file_path, "wb") as f:
+                f.write(file_data)
+
+            file_size = len(file_data)
+            print(f"✅ Successfully downloaded {args.filename}")
+            print(f"   Size: {format_size(file_size)}")
+            print(f"   Saved to: {local_file_path}")
+
+        except Exception as e:
+            print(f"❌ Error downloading file: {e}")
+            sys.exit(1)
+
+    except Exception as e:
+        import traceback
+
+        print(f"❌ Error: {e}")
+        traceback.print_exc()
+        sys.exit(1)
+
+
 async def cmd_rm(args) -> None:
     """Remove all contents from a storage bucket."""
     from ..storage.factories import create_storage_from_config
@@ -426,6 +533,9 @@ Examples:
   # Long format listing with recursive file listing
   python grin.py storage ls --run-name harvard_2024 -l
 
+  # Copy a file from raw bucket to local directory
+  python grin.py storage cp BARCODE123/BARCODE123.tar.gz ./downloads --run-name harvard_2024
+
   # Remove all files from raw bucket
   python grin.py storage rm raw --run-name harvard_2024
 
@@ -446,6 +556,16 @@ Examples:
     ls_parser.add_argument(
         "-l", "--long", action="store_true", help="Use long listing format with recursive file listing"
     )
+
+    # Copy command
+    cp_parser = subparsers.add_parser(
+        "cp",
+        help="Copy a file from raw storage bucket to local directory",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    cp_parser.add_argument("filename", help="Name of file to download from raw bucket")
+    cp_parser.add_argument("local_dir", help="Local directory to save the file to")
+    cp_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
 
     # Remove command
     rm_parser = subparsers.add_parser(
@@ -468,6 +588,8 @@ Examples:
 
     if args.command == "ls":
         await cmd_ls(args)
+    elif args.command == "cp":
+        await cmd_cp(args)
     elif args.command == "rm":
         await cmd_rm(args)
 
