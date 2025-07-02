@@ -61,7 +61,7 @@ def get_bucket_stats(storage, bucket: str, prefix: str = "") -> tuple[int, int]:
     return len(files), total_size
 
 
-def delete_bucket_contents(storage, bucket: str, prefix: str = "") -> tuple[int, int]:
+def delete_bucket_contents(storage, bucket: str, prefix: str = "", files_to_delete: list = None) -> tuple[int, int]:
     """Delete all contents from bucket with prefix."""
     import boto3
 
@@ -72,17 +72,21 @@ def delete_bucket_contents(storage, bucket: str, prefix: str = "") -> tuple[int,
         endpoint_url=storage.config.endpoint_url,
     )
 
-    list_kwargs = {"Bucket": bucket}
-    if prefix:
-        list_kwargs["Prefix"] = prefix
+    # Use provided file list or fetch from bucket
+    if files_to_delete is not None:
+        objects_to_delete = [filename for filename, _ in files_to_delete]
+    else:
+        list_kwargs = {"Bucket": bucket}
+        if prefix:
+            list_kwargs["Prefix"] = prefix
 
-    paginator = s3_client.get_paginator("list_objects_v2")
-    objects_to_delete = []
+        paginator = s3_client.get_paginator("list_objects_v2")
+        objects_to_delete = []
 
-    for page in paginator.paginate(**list_kwargs):  # type: ignore
-        contents = page.get("Contents", [])
-        for obj in contents:
-            objects_to_delete.append(obj["Key"])
+        for page in paginator.paginate(**list_kwargs):  # type: ignore
+            contents = page.get("Contents", [])
+            for obj in contents:
+                objects_to_delete.append(obj["Key"])
 
     if not objects_to_delete:
         return 0, 0
@@ -391,7 +395,7 @@ async def cmd_rm(args) -> None:
         # Perform deletion
         print(f"\nDeleting {object_count:,} objects...")
         try:
-            deleted_count, failed_count = delete_bucket_contents(storage, bucket, prefix)
+            deleted_count, failed_count = delete_bucket_contents(storage, bucket, prefix, files)
 
             print("\nDeletion complete:")
             print(f"  Successfully deleted: {deleted_count:,}")
