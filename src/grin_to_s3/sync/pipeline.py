@@ -125,6 +125,9 @@ class SyncPipeline:
         # Statistics
         self.stats = create_sync_stats()
 
+        # Worker management
+        self._enrichment_workers: list[asyncio.Task] = []
+
     def _maybe_show_progress(
         self,
         processed_count: int,
@@ -202,6 +205,9 @@ class SyncPipeline:
         self._shutdown_requested = True
         logger.info("Shutting down sync pipeline...")
 
+        # Stop enrichment workers first
+        await self.stop_enrichment_workers()
+
         try:
             if hasattr(self.db_tracker, "_db") and self.db_tracker._db:
                 await self.db_tracker._db.close()
@@ -238,6 +244,142 @@ class SyncPipeline:
             **stats,
             "session_stats": self.stats,
         }
+
+    async def enrichment_worker(self, worker_id: int = 0) -> None:
+        """Background worker for enriching books from the enrichment queue."""
+        if self.enrichment_queue is None:
+            logger.warning(f"Enrichment worker {worker_id} started but enrichment is disabled")
+            return
+
+        worker_name = f"enrichment-worker-{worker_id}"
+        logger.info(f"Starting {worker_name}")
+
+        # Import enrichment components
+        from grin_to_s3.common import RateLimiter
+        from grin_to_s3.grin_enrichment import GRINEnrichmentPipeline
+
+        # Create shared rate limiter (5 QPS across all workers)
+        rate_limiter = RateLimiter(requests_per_second=5.0)
+
+        # Create enrichment pipeline for this worker
+        enrichment_pipeline = GRINEnrichmentPipeline(
+            directory=self.library_directory,
+            db_path=self.db_path,
+            rate_limit_delay=0.2,  # 5 QPS
+            batch_size=100,  # Smaller batches for background processing
+            max_concurrent_requests=1,  # Conservative for background work
+            secrets_dir=self.secrets_dir,
+        )
+
+        try:
+            while not self._shutdown_requested:
+                try:
+                    # Wait for a book to process (with timeout to check for shutdown)
+                    try:
+                        barcode = await asyncio.wait_for(self.enrichment_queue.get(), timeout=1.0)
+                    except TimeoutError:
+                        continue  # Check shutdown and continue waiting
+
+                    logger.debug(f"[{worker_name}] Processing {barcode}")
+
+                    # Update status to in_progress
+                    await self.db_tracker.add_status_change(
+                        barcode, "enrichment", "in_progress", metadata={"worker_id": worker_id}
+                    )
+
+                    # Apply rate limiting
+                    await rate_limiter.acquire()
+
+                    # Enrich the book
+                    try:
+                        enrichment_results = await enrichment_pipeline.enrich_books_batch([barcode])
+
+                        if enrichment_results > 0:
+                            # Successfully enriched
+                            await self.db_tracker.add_status_change(
+                                barcode, "enrichment", "completed", metadata={"worker_id": worker_id}
+                            )
+                            logger.info(f"[{worker_name}] ✅ Enriched {barcode}")
+                        else:
+                            # No enrichment data found, but mark as processed
+                            await self.db_tracker.add_status_change(
+                                barcode, "enrichment", "completed",
+                                metadata={"worker_id": worker_id, "result": "no_data"}
+                            )
+                            logger.debug(f"[{worker_name}] No enrichment data for {barcode}")
+
+                    except Exception as e:
+                        # Mark as failed with error details
+                        await self.db_tracker.add_status_change(
+                            barcode, "enrichment", "failed",
+                            metadata={"worker_id": worker_id, "error": str(e)}
+                        )
+                        logger.error(f"[{worker_name}] ❌ Failed to enrich {barcode}: {e}")
+
+                    # Mark queue task as done
+                    self.enrichment_queue.task_done()
+
+                except asyncio.CancelledError:
+                    logger.info(f"[{worker_name}] Cancelled")
+                    break
+                except Exception as e:
+                    logger.error(f"[{worker_name}] Unexpected error: {e}")
+                    await asyncio.sleep(1)  # Brief pause before continuing
+
+        except Exception as e:
+            logger.error(f"[{worker_name}] Fatal error: {e}")
+        finally:
+            # Clean up enrichment pipeline
+            try:
+                await enrichment_pipeline.cleanup()
+            except Exception as e:
+                logger.warning(f"[{worker_name}] Error during cleanup: {e}")
+
+            logger.info(f"[{worker_name}] Stopped")
+
+    async def start_enrichment_workers(self) -> None:
+        """Start background enrichment workers."""
+        if not self.enrichment_enabled or self.enrichment_queue is None:
+            logger.debug("Enrichment disabled, not starting workers")
+            return
+
+        logger.info(f"Starting {self.enrichment_workers} enrichment workers")
+
+        for worker_id in range(self.enrichment_workers):
+            worker_task = asyncio.create_task(self.enrichment_worker(worker_id))
+            self._enrichment_workers.append(worker_task)
+
+    async def stop_enrichment_workers(self) -> None:
+        """Stop background enrichment workers gracefully."""
+        if not self._enrichment_workers:
+            return
+
+        logger.info(f"Stopping {len(self._enrichment_workers)} enrichment workers")
+
+        # Cancel all workers
+        for worker_task in self._enrichment_workers:
+            worker_task.cancel()
+
+        # Wait for all workers to finish
+        if self._enrichment_workers:
+            await asyncio.gather(*self._enrichment_workers, return_exceptions=True)
+
+        self._enrichment_workers.clear()
+        logger.info("All enrichment workers stopped")
+
+    async def queue_book_for_enrichment(self, barcode: str) -> None:
+        """Add a book to the enrichment queue."""
+        if self.enrichment_queue is None:
+            logger.debug(f"Enrichment disabled, not queueing {barcode}")
+            return
+
+        # Add to queue and mark as pending
+        try:
+            await self.enrichment_queue.put(barcode)
+            await self.db_tracker.add_status_change(barcode, "enrichment", "pending")
+            logger.debug(f"Queued {barcode} for enrichment")
+        except Exception as e:
+            logger.error(f"Failed to queue {barcode} for enrichment: {e}")
 
     async def _run_local_storage_sync(
         self, available_to_sync: list[str], books_to_process: int, specific_barcodes: list[str] | None = None
@@ -309,6 +451,8 @@ class SyncPipeline:
                                 self.stats["uploaded"] += 1
                                 rate_calculator.add_batch(time.time(), processed_count)
                                 logger.info(f"[{completed_barcode}] ✅ Local storage sync completed")
+                                # Queue for enrichment after successful sync
+                                await self.queue_book_for_enrichment(completed_barcode)
                             else:
                                 self.stats["failed"] += 1
                                 error_msg = result.get("error")
@@ -507,6 +651,8 @@ class SyncPipeline:
                                 if result.get("upload_success"):
                                     self.stats["completed"] += 1
                                     logger.info(f"[{barcode}] Book sync fully completed")
+                                    # Queue for enrichment after successful sync
+                                    await self.queue_book_for_enrichment(barcode)
                                 else:
                                     self.stats["failed"] += 1
                                     logger.warning(f"[{barcode}] Upload failed")
@@ -742,6 +888,8 @@ class SyncPipeline:
                                 await self._mark_book_as_converted(barcode)
                                 rate_calculator.add_batch(time.time(), processed_count)
                                 logger.info(f"[{barcode}] ✅ Catchup sync completed")
+                                # Queue for enrichment after successful sync
+                                await self.queue_book_for_enrichment(barcode)
                             else:
                                 self.stats["failed"] += 1
                                 logger.error(f"[{barcode}] ❌ Catchup upload failed")
@@ -875,6 +1023,11 @@ class SyncPipeline:
                 f"Database sync status: {total_converted:,} total, {already_synced:,} synced, "
                 f"{failed_count:,} failed, {pending_count:,} pending"
             )
+
+            # Start enrichment workers if enabled
+            if self.enrichment_enabled:
+                print(f"Starting {self.enrichment_workers} enrichment workers for background processing")
+                await self.start_enrichment_workers()
 
             # Check how many requested books need syncing (only those actually converted by GRIN)
             available_to_sync = await self.db_tracker.get_books_for_sync(
