@@ -42,27 +42,44 @@ class BookRecord:
 
     # GRIN enrichment fields (populated by separate enrichment pipeline)
     grin_state: str | None = field(default=None, metadata={"csv": "GRIN State", "grin_tsv": "State"})
-    viewability: str | None = field(default=None, metadata={"csv": "Viewability", "grin_tsv": "Viewability"})
-    opted_out: str | None = field(default=None, metadata={"csv": "Opted Out", "grin_tsv": "Opted-Out (post-scan)"})
-    conditions: str | None = field(default=None, metadata={"csv": "Conditions", "grin_tsv": "Conditions"})
-    scannable: str | None = field(default=None, metadata={"csv": "Scannable", "grin_tsv": "Scannable"})
-    tagging: str | None = field(default=None, metadata={"csv": "Tagging", "grin_tsv": "Tagging"})
-    audit: str | None = field(default=None, metadata={"csv": "Audit", "grin_tsv": "Audit"})
-    material_error_percent: str | None = field(
-        default=None, metadata={"csv": "Material Error %", "grin_tsv": "Material Error%"}
+    grin_viewability: str | None = field(default=None, metadata={"csv": "GRIN Viewability", "grin_tsv": "Viewability"})
+    grin_opted_out: str | None = field(
+        default=None, metadata={"csv": "GRIN Opted Out", "grin_tsv": "Opted-Out (post-scan)"}
     )
-    overall_error_percent: str | None = field(
-        default=None, metadata={"csv": "Overall Error %", "grin_tsv": "Overall Error%"}
+    grin_conditions: str | None = field(default=None, metadata={"csv": "GRIN Conditions", "grin_tsv": "Conditions"})
+    grin_scannable: str | None = field(default=None, metadata={"csv": "GRIN Scannable", "grin_tsv": "Scannable"})
+    grin_tagging: str | None = field(default=None, metadata={"csv": "GRIN Tagging", "grin_tsv": "Tagging"})
+    grin_audit: str | None = field(default=None, metadata={"csv": "GRIN Audit", "grin_tsv": "Audit"})
+    grin_material_error_percent: str | None = field(
+        default=None, metadata={"csv": "GRIN Material Error %", "grin_tsv": "Material Error%"}
     )
-    claimed: str | None = field(default=None, metadata={"csv": "Claimed", "grin_tsv": "Claimed"})
-    ocr_analysis_score: str | None = field(
-        default=None, metadata={"csv": "OCR Analysis Score", "grin_tsv": "OCR Analysis Score"}
+    grin_overall_error_percent: str | None = field(
+        default=None, metadata={"csv": "GRIN Overall Error %", "grin_tsv": "Overall Error%"}
     )
-    ocr_gtd_score: str | None = field(
-        default=None, metadata={"csv": "OCR GTD Score", "grin_tsv": "OCR GTD Score"}
+    grin_claimed: str | None = field(default=None, metadata={"csv": "GRIN Claimed", "grin_tsv": "Claimed"})
+    grin_ocr_analysis_score: str | None = field(
+        default=None, metadata={"csv": "GRIN OCR Analysis Score", "grin_tsv": "OCR Analysis Score"}
     )
-    digitization_method: str | None = field(
-        default=None, metadata={"csv": "Digitization Method", "grin_tsv": "Digitization Method"}
+    grin_ocr_gtd_score: str | None = field(
+        default=None, metadata={"csv": "GRIN OCR GTD Score", "grin_tsv": "OCR GTD Score"}
+    )
+    grin_digitization_method: str | None = field(
+        default=None, metadata={"csv": "GRIN Digitization Method", "grin_tsv": "Digitization Method"}
+    )
+    grin_check_in_date: str | None = field(
+        default=None, metadata={"csv": "GRIN Check-In Date", "grin_tsv": "Check-In Date"}
+    )
+    grin_source_library_bibkey: str | None = field(
+        default=None, metadata={"csv": "GRIN Source Library Bibkey", "grin_tsv": "Source Library Bibkey"}
+    )
+    grin_rubbish: str | None = field(
+        default=None, metadata={"csv": "GRIN Rubbish", "grin_tsv": "Rubbish"}
+    )
+    grin_allow_download_updated_date: str | None = field(
+        default=None, metadata={"csv": "GRIN Allow Download Updated Date", "grin_tsv": "Allow Download Updated Date"}
+    )
+    grin_viewability_updated_date: str | None = field(
+        default=None, metadata={"csv": "GRIN Viewability Updated Date", "grin_tsv": "Viewability Updated Date"}
     )
     enrichment_timestamp: str | None = field(default=None, metadata={"csv": "Enrichment Timestamp"})
 
