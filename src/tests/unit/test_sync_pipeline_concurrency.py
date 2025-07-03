@@ -201,21 +201,20 @@ class TestSyncPipelineEnrichmentQueue:
     @pytest.fixture
     def mock_pipeline_dependencies(self):
         """Mock all pipeline dependencies."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker, \
-                 patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter, \
-                 patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client:
+        with patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker, \
+             patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter, \
+             patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client:
 
-                # Configure mocks
-                mock_tracker.return_value = MagicMock()
-                mock_reporter.return_value = MagicMock()
-                mock_client.return_value = MagicMock()
+            # Configure mocks
+            mock_tracker.return_value = MagicMock()
+            mock_reporter.return_value = MagicMock()
+            mock_client.return_value = MagicMock()
 
-                yield {
-                    "tracker": mock_tracker.return_value,
-                    "reporter": mock_reporter.return_value,
-                    "client": mock_client.return_value,
-                }
+            yield {
+                "tracker": mock_tracker.return_value,
+                "reporter": mock_reporter.return_value,
+                "client": mock_client.return_value,
+            }
 
     def test_enrichment_queue_enabled_by_default(self, mock_pipeline_dependencies):
         """Test that enrichment queue is enabled by default."""
@@ -230,7 +229,7 @@ class TestSyncPipelineEnrichmentQueue:
         assert pipeline.enrichment_enabled is True
         assert pipeline.enrichment_workers == 1
         assert pipeline.auto_update_csv is True
-        
+
         # Queue should be initialized
         assert pipeline.enrichment_queue is not None
         assert pipeline.enrichment_queue.qsize() == 0
@@ -247,7 +246,7 @@ class TestSyncPipelineEnrichmentQueue:
 
         # Enrichment should be disabled
         assert pipeline.enrichment_enabled is False
-        
+
         # Queue should be None when disabled
         assert pipeline.enrichment_queue is None
 
@@ -267,7 +266,7 @@ class TestSyncPipelineEnrichmentQueue:
         assert pipeline.enrichment_enabled is True
         assert pipeline.enrichment_workers == 3
         assert pipeline.auto_update_csv is False
-        
+
         # Queue should still be initialized
         assert pipeline.enrichment_queue is not None
 
