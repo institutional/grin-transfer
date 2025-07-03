@@ -842,6 +842,158 @@ class SQLiteProgressTracker:
                 "storage_type": storage_type,
             }
 
+    async def get_enrichment_stats(self) -> dict:
+        """Get enrichment statistics for books using atomic status history.
+
+        Returns:
+            Dictionary with enrichment statistics including:
+            - total_books: Total books in database
+            - enriched: Books successfully enriched
+            - failed: Books with enrichment failures
+            - pending: Books pending enrichment
+            - in_progress: Books currently being enriched
+            - no_enrichment_history: Books without any enrichment attempts
+        """
+        await self.init_db()
+
+        async with connect_async(self.db_path) as db:
+            # Total books in database
+            cursor = await db.execute("SELECT COUNT(*) FROM books")
+            row = await cursor.fetchone()
+            total_books = row[0] if row else 0
+
+            # Successfully enriched books (latest status is completed)
+            cursor = await db.execute(
+                """
+                SELECT COUNT(DISTINCT b.barcode)
+                FROM books b
+                JOIN book_status_history h ON b.barcode = h.barcode
+                WHERE h.status_type = 'enrichment' AND h.status_value = 'completed'
+                AND h.timestamp = (
+                    SELECT MAX(timestamp)
+                    FROM book_status_history h2
+                    WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
+                )
+                """
+            )
+            row = await cursor.fetchone()
+            enriched_count = row[0] if row else 0
+
+            # Failed enrichment books (latest status is failed)
+            cursor = await db.execute(
+                """
+                SELECT COUNT(DISTINCT b.barcode)
+                FROM books b
+                JOIN book_status_history h ON b.barcode = h.barcode
+                WHERE h.status_type = 'enrichment' AND h.status_value = 'failed'
+                AND h.timestamp = (
+                    SELECT MAX(timestamp)
+                    FROM book_status_history h2
+                    WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
+                )
+                """
+            )
+            row = await cursor.fetchone()
+            failed_count = row[0] if row else 0
+
+            # Currently being enriched (latest status is in_progress)
+            cursor = await db.execute(
+                """
+                SELECT COUNT(DISTINCT b.barcode)
+                FROM books b
+                JOIN book_status_history h ON b.barcode = h.barcode
+                WHERE h.status_type = 'enrichment' AND h.status_value = 'in_progress'
+                AND h.timestamp = (
+                    SELECT MAX(timestamp)
+                    FROM book_status_history h2
+                    WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
+                )
+                """
+            )
+            row = await cursor.fetchone()
+            in_progress_count = row[0] if row else 0
+
+            # Pending enrichment (latest status is pending)
+            cursor = await db.execute(
+                """
+                SELECT COUNT(DISTINCT b.barcode)
+                FROM books b
+                JOIN book_status_history h ON b.barcode = h.barcode
+                WHERE h.status_type = 'enrichment' AND h.status_value = 'pending'
+                AND h.timestamp = (
+                    SELECT MAX(timestamp)
+                    FROM book_status_history h2
+                    WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
+                )
+                """
+            )
+            row = await cursor.fetchone()
+            pending_count = row[0] if row else 0
+
+            # Books with no enrichment history
+            cursor = await db.execute(
+                """
+                SELECT COUNT(*) FROM books b
+                WHERE b.barcode NOT IN (
+                    SELECT DISTINCT barcode
+                    FROM book_status_history
+                    WHERE status_type = 'enrichment'
+                )
+                """
+            )
+            row = await cursor.fetchone()
+            no_enrichment_history = row[0] if row else 0
+
+            return {
+                "total_books": total_books,
+                "enriched": enriched_count,
+                "failed": failed_count,
+                "pending": pending_count,
+                "in_progress": in_progress_count,
+                "no_enrichment_history": no_enrichment_history,
+            }
+
+    async def get_enrichment_rate_stats(self, time_window_hours: int = 24) -> dict:
+        """Get enrichment rate statistics for estimating completion time.
+
+        Args:
+            time_window_hours: Time window in hours to calculate rate
+
+        Returns:
+            Dictionary with rate statistics
+        """
+        await self.init_db()
+
+        async with connect_async(self.db_path) as db:
+            # Get enrichments completed in the time window
+            from datetime import datetime, timedelta
+
+            cutoff_time = datetime.now(UTC) - timedelta(hours=time_window_hours)
+            cutoff_iso = cutoff_time.isoformat()
+
+            cursor = await db.execute(
+                """
+                SELECT COUNT(*)
+                FROM book_status_history
+                WHERE status_type = 'enrichment'
+                AND status_value = 'completed'
+                AND timestamp >= ?
+                """,
+                (cutoff_iso,)
+            )
+            row = await cursor.fetchone()
+            completed_in_window = row[0] if row else 0
+
+            # Calculate rate (enrichments per hour)
+            rate_per_hour = completed_in_window / time_window_hours if time_window_hours > 0 else 0
+
+            return {
+                "completed_in_window": completed_in_window,
+                "time_window_hours": time_window_hours,
+                "rate_per_hour": rate_per_hour,
+                "rate_per_day": rate_per_hour * 24,
+            }
+
     async def get_converted_books_count(self) -> int:
         """Get count of books in converted state (ready for sync)."""
         await self.init_db()

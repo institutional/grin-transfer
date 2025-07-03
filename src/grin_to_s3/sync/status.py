@@ -68,6 +68,43 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
 
         print()
 
+        # Get enrichment statistics
+        enrichment_stats = await tracker.get_enrichment_stats()
+
+        print("Enrichment Status:")
+        print(f"  Total books in database: {enrichment_stats['total_books']:,}")
+        print(f"  Successfully enriched: {enrichment_stats['enriched']:,}")
+        print(f"  Failed enrichment: {enrichment_stats['failed']:,}")
+        print(f"  Pending enrichment: {enrichment_stats['pending']:,}")
+        print(f"  Currently enriching: {enrichment_stats['in_progress']:,}")
+        print(f"  No enrichment attempted: {enrichment_stats['no_enrichment_history']:,}")
+
+        # Calculate enrichment completion percentage
+        books_needing_enrichment = (
+            enrichment_stats["enriched"] +
+            enrichment_stats["failed"] +
+            enrichment_stats["pending"] +
+            enrichment_stats["in_progress"]
+        )
+        if books_needing_enrichment > 0:
+            enrichment_percentage = (enrichment_stats["enriched"] / books_needing_enrichment) * 100
+            print(f"  Enrichment completion: {enrichment_percentage:.1f}%")
+
+        # Show enrichment rate and ETA if there are pending books
+        remaining_books = enrichment_stats["pending"] + enrichment_stats["no_enrichment_history"]
+        if remaining_books > 0:
+            rate_stats = await tracker.get_enrichment_rate_stats(time_window_hours=24)
+            if rate_stats["rate_per_hour"] > 0:
+                eta_hours = remaining_books / rate_stats["rate_per_hour"]
+                if eta_hours < 24:
+                    print(f"  Estimated completion: {eta_hours:.1f} hours")
+                else:
+                    eta_days = eta_hours / 24
+                    print(f"  Estimated completion: {eta_days:.1f} days")
+                print(f"  Current enrichment rate: {rate_stats["rate_per_hour"]:.1f} books/hour")
+
+        print()
+
         # Show breakdown by storage type if not filtered
         if not storage_type:
             print("Storage Type Breakdown:")
@@ -104,6 +141,49 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
                     print("  No books have been synced to any storage yet")
 
                 print()
+
+        # Show recent enrichment activity
+        print("Recent Enrichment Activity (last 10):")
+        async with connect_async(db_path) as db:
+            cursor = await db.execute("""
+                SELECT b.barcode, h.status_value, h.timestamp, h.metadata
+                FROM books b
+                JOIN book_status_history h ON b.barcode = h.barcode
+                WHERE h.status_type = 'enrichment'
+                  AND h.id = (
+                      SELECT MAX(h2.id)
+                      FROM book_status_history h2
+                      WHERE h2.barcode = b.barcode AND h2.status_type = 'enrichment'
+                  )
+                ORDER BY h.timestamp DESC
+                LIMIT 10
+            """)
+            recent_enrichments = await cursor.fetchall()
+
+            if recent_enrichments:
+                for barcode, status, timestamp, metadata in recent_enrichments:
+                    status_icon = {
+                        "completed": "✅",
+                        "failed": "❌",
+                        "in_progress": "🔄",
+                        "pending": "⏳"
+                    }.get(status, "❓")
+                    print(f"  {status_icon} {barcode} - {status} at {timestamp}")
+
+                    # Show error details for failed enrichments
+                    if status == "failed" and metadata:
+                        try:
+                            import json
+                            meta = json.loads(metadata)
+                            if "error_message" in meta:
+                                error_msg = meta["error_message"][:100]  # Truncate long errors
+                                print(f"      Error: {error_msg}")
+                        except (json.JSONDecodeError, KeyError):
+                            pass
+            else:
+                print("  No enrichment activity found")
+
+        print()
 
         # Show recent sync activity
         print("Recent Sync Activity (last 10):")

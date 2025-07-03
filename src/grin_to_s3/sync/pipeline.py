@@ -170,7 +170,9 @@ class SyncPipeline:
             enrichment_info = ""
             if self.enrichment_enabled and self.enrichment_queue is not None:
                 queue_size = self.enrichment_queue.qsize()
-                enrichment_info = f", {queue_size} enrichment queued"
+                active_workers = len([w for w in self._enrichment_workers if not w.done()])
+                total_workers = len(self._enrichment_workers)
+                enrichment_info = f", {queue_size} enrichment queued, {active_workers}/{total_workers} workers"
 
             # Format progress based on storage type
             if active_tasks is not None:  # Local storage

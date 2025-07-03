@@ -160,6 +160,24 @@ class TestShowSyncStatus:
                     "decrypted": 25,
                 }
             )
+            mock_tracker.get_enrichment_stats = AsyncMock(
+                return_value={
+                    "total_books": 100,
+                    "enriched": 60,
+                    "failed": 5,
+                    "pending": 20,
+                    "in_progress": 2,
+                    "no_enrichment_history": 13,
+                }
+            )
+            mock_tracker.get_enrichment_rate_stats = AsyncMock(
+                return_value={
+                    "completed_in_window": 24,
+                    "time_window_hours": 24,
+                    "rate_per_hour": 1.0,
+                    "rate_per_day": 24.0,
+                }
+            )
             mock_tracker._db = MagicMock()
             mock_tracker._db.close = AsyncMock()
 
@@ -176,16 +194,25 @@ class TestShowSyncStatus:
                 ]
             )
 
-            # Mock recent activity query
+            # Mock enrichment activity query
             mock_cursor2 = MagicMock()
             mock_cursor2.fetchall = AsyncMock(
+                return_value=[
+                    ("TEST789", "completed", "2024-01-01T11:00:00", None),
+                    ("TEST101", "failed", "2024-01-01T10:30:00", '{"error_message": "API timeout"}'),
+                ]
+            )
+
+            # Mock recent sync activity query
+            mock_cursor3 = MagicMock()
+            mock_cursor3.fetchall = AsyncMock(
                 return_value=[
                     ("TEST123", "completed", "2024-01-01T10:00:00", None, "minio"),
                     ("TEST456", "failed", "2024-01-01T09:00:00", "Network error", "r2"),
                 ]
             )
 
-            mock_db.execute = AsyncMock(side_effect=[mock_cursor1, mock_cursor2])
+            mock_db.execute = AsyncMock(side_effect=[mock_cursor1, mock_cursor2, mock_cursor3])
 
             await show_sync_status(temp_db_path)
 
@@ -193,6 +220,9 @@ class TestShowSyncStatus:
             assert "Sync Status Report" in captured.out
             assert "Total books in database: 100" in captured.out
             assert "Successfully synced: 30" in captured.out
+            assert "Enrichment Status:" in captured.out
+            assert "Successfully enriched: 60" in captured.out
+            assert "Recent Enrichment Activity" in captured.out
             assert "Storage Type Breakdown:" in captured.out
             assert "Recent Sync Activity" in captured.out
 
