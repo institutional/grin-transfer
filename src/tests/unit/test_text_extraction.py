@@ -128,7 +128,7 @@ class TestTextExtraction:
             pages = {
                 "00000001.txt": "First page content",
                 "00000002.txt": "Second page content",
-                "00000003.txt": "Third page content"
+                "00000003.txt": "Third page content",
             }
             archive_path = create_test_archive(pages, temp_path)
 
@@ -139,11 +139,7 @@ class TestTextExtraction:
         """Test extraction with missing pages."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            pages = {
-                "00000001.txt": "Page 1",
-                "00000003.txt": "Page 3",
-                "00000005.txt": "Page 5"
-            }
+            pages = {"00000001.txt": "Page 1", "00000003.txt": "Page 3", "00000005.txt": "Page 5"}
             archive_path = create_test_archive(pages, temp_path)
 
             result = extract_ocr_pages(str(archive_path), temp_db, "test_session")
@@ -158,7 +154,7 @@ class TestTextExtraction:
                 "00000001.jp2": "Binary image data",
                 "00000001.html": "<html>HTML content</html>",
                 "00000002.txt": "Text page 2",
-                "00000002.tif": "Binary TIFF data"
+                "00000002.tif": "Binary TIFF data",
             }
             archive_path = create_test_archive(pages, temp_path)
 
@@ -173,7 +169,7 @@ class TestTextExtraction:
                 "00000001.txt": "Page 1 content",
                 "00000002.txt": "",  # Empty page
                 "00000003.txt": "   ",  # Whitespace only
-                "00000004.txt": "Page 4 content"
+                "00000004.txt": "Page 4 content",
             }
             archive_path = create_test_archive(pages, temp_path)
 
@@ -188,7 +184,7 @@ class TestTextExtraction:
                 "00000001.txt": "English text",
                 "00000002.txt": "Français avec accents",
                 "00000003.txt": "Русский текст",
-                "00000004.txt": "中文内容"
+                "00000004.txt": "中文内容",
             }
             archive_path = create_test_archive(pages, temp_path)
 
@@ -202,7 +198,7 @@ class TestTextExtraction:
             pages = {
                 "00000001.txt": "Line 1\nLine 2\nLine 3",
                 "00000002.txt": "Single line",
-                "00000003.txt": "\n\nMultiple newlines\n\n"
+                "00000003.txt": "\n\nMultiple newlines\n\n",
             }
             archive_path = create_test_archive(pages, temp_path)
 
@@ -242,7 +238,7 @@ class TestTextExtraction:
             pages = {
                 "00000001.jp2": "Binary image data",
                 "00000001.html": "<html>HTML content</html>",
-                "data.xml": "XML content"
+                "data.xml": "XML content",
             }
             archive_path = create_test_archive(pages, temp_path)
 
@@ -256,7 +252,7 @@ class TestTextExtraction:
             pages = {
                 "page1.txt": "Invalid filename format",
                 "text.txt": "Another invalid format",
-                "1.txt": "Also invalid"
+                "1.txt": "Also invalid",
             }
             archive_path = create_test_archive(pages, temp_path)
 
@@ -272,7 +268,7 @@ class TestTextExtraction:
                 "00000001.txt": "Page 1",
                 "00000003.txt": "Page 3",  # Gap at page 2
                 "00000005.txt": "Page 5",  # Gap at page 4
-                "invalid.txt": "Invalid page format"
+                "invalid.txt": "Invalid page format",
             }
             archive_path = create_test_archive(pages, temp_path)
 
@@ -290,10 +286,7 @@ class TestTextExtractionToFile:
         """Test extracting text and saving to JSONL file."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            pages = {
-                "00000001.txt": "Page 1 content",
-                "00000002.txt": "Page 2 content"
-            }
+            pages = {"00000001.txt": "Page 1 content", "00000002.txt": "Page 2 content"}
             archive_path = create_test_archive(pages, temp_path)
             jsonl_path = temp_path / "output.jsonl"
 
@@ -314,11 +307,7 @@ class TestTextExtractionToFile:
         """Test extracting Unicode text to JSONL file."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            pages = {
-                "00000001.txt": "English",
-                "00000002.txt": "Français",
-                "00000003.txt": "中文"
-            }
+            pages = {"00000001.txt": "English", "00000002.txt": "Français", "00000003.txt": "中文"}
             archive_path = create_test_archive(pages, temp_path)
             jsonl_path = temp_path / "unicode.jsonl"
 
@@ -354,11 +343,7 @@ class TestTextExtractionToFile:
         """Test streaming extraction mode."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            pages = {
-                "00000001.txt": "Page 1",
-                "00000002.txt": "Page 2",
-                "00000003.txt": "Page 3"
-            }
+            pages = {"00000001.txt": "Page 1", "00000002.txt": "Page 2", "00000003.txt": "Page 3"}
             archive_path = create_test_archive(pages, temp_path)
             jsonl_path = temp_path / "output_streaming.jsonl"
 
@@ -377,11 +362,7 @@ class TestTextExtractionToFile:
         """Test streaming extraction with missing pages."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            pages = {
-                "00000001.txt": "Page 1",
-                "00000003.txt": "Page 3",
-                "00000005.txt": "Page 5"
-            }
+            pages = {"00000001.txt": "Page 1", "00000003.txt": "Page 3", "00000005.txt": "Page 5"}
             archive_path = create_test_archive(pages, temp_path)
             jsonl_path = temp_path / "output_gaps.jsonl"
 
@@ -403,7 +384,7 @@ class TestTextExtractionToFile:
             pages = {
                 "00000001.txt": "This has\na newline",
                 "00000002.txt": 'This has "quotes" in it',
-                "00000003.txt": 'Both\nnewline and "quotes"'
+                "00000003.txt": 'Both\nnewline and "quotes"',
             }
             archive_path = create_test_archive(pages, temp_path)
             jsonl_path = temp_path / "special_chars.jsonl"
@@ -426,7 +407,7 @@ class TestTextExtractionToFile:
             pages = {
                 "00000001.txt": "Simple text",
                 "00000002.txt": "Text with\nmultiple\nnewlines",
-                "00000003.txt": 'Text with "quotes" and \'single quotes\'',
+                "00000003.txt": "Text with \"quotes\" and 'single quotes'",
                 "00000004.txt": "Text with \\backslashes\\ and /forward/slashes/",
                 "00000005.txt": "Text with\ttabs\tand\rcarriage\rreturns",
                 "00000006.txt": "Text with unicode: \u2022 bullet • and emoji 🎉",
@@ -460,7 +441,7 @@ class TestTextExtractionToFile:
             assert len(parsed_pages) == 15
             assert parsed_pages[0] == "Simple text"
             assert parsed_pages[1] == "Text with\nmultiple\nnewlines"
-            assert parsed_pages[2] == 'Text with "quotes" and \'single quotes\''
+            assert parsed_pages[2] == "Text with \"quotes\" and 'single quotes'"
             assert parsed_pages[3] == "Text with \\backslashes\\ and /forward/slashes/"
             assert parsed_pages[4] == "Text with\ttabs\tand\rcarriage\rreturns"
             assert parsed_pages[5] == "Text with unicode: • bullet • and emoji 🎉"
@@ -481,7 +462,7 @@ class TestTextExtractionToFile:
             temp_path = Path(temp_dir)
             # Test edge cases that might break JSON encoding
             pages = {
-                "00000001.txt": '{"}\': [],',  # JSON-like content
+                "00000001.txt": "{\"}': [],",  # JSON-like content
                 "00000002.txt": "Line 1\nLine 2\nLine 3\nLine 4\nLine 5",  # Multiple lines
                 "00000003.txt": '"\\n\\r\\t\\b\\f\\"',  # Escaped special chars
                 "00000004.txt": "\u0000\u0001\u0002\u0003\u0004",  # Control characters
@@ -500,7 +481,7 @@ class TestTextExtractionToFile:
             assert len(lines) == 5
 
             # Each line should parse correctly
-            assert json.loads(lines[0]) == '{"}\': [],'
+            assert json.loads(lines[0]) == "{\"}': [],"
             assert json.loads(lines[1]) == "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"
             assert json.loads(lines[2]) == '"\\n\\r\\t\\b\\f\\"'
             assert json.loads(lines[3]) == "\u0000\u0001\u0002\u0003\u0004"
@@ -510,7 +491,7 @@ class TestTextExtractionToFile:
             with open(jsonl_path, encoding="utf-8") as f:
                 for i, line in enumerate(f):
                     parsed = json.loads(line)
-                    assert isinstance(parsed, str), f"Line {i+1} should parse to a string"
+                    assert isinstance(parsed, str), f"Line {i + 1} should parse to a string"
 
 
 class TestErrorHandling:
@@ -574,7 +555,7 @@ class TestPerformanceConsiderations:
             pages = {
                 "00000001.txt": "First page content",
                 "00000002.txt": "Second page content",
-                "00000003.txt": "Third page content"
+                "00000003.txt": "Third page content",
             }
             archive_path = create_test_archive(pages, temp_path)
 
@@ -583,7 +564,7 @@ class TestPerformanceConsiderations:
                 temp_db,
                 "test_session",
                 extract_to_disk=True,
-                extraction_dir=str(temp_path / "extracted")
+                extraction_dir=str(temp_path / "extracted"),
             )
             assert result == ["First page content", "Second page content", "Third page content"]
 
@@ -592,10 +573,7 @@ class TestPerformanceConsiderations:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             extraction_dir = temp_path / "extracted"
-            pages = {
-                "00000001.txt": "Page 1",
-                "00000002.txt": "Page 2"
-            }
+            pages = {"00000001.txt": "Page 1", "00000002.txt": "Page 2"}
             archive_path = create_test_archive(pages, temp_path)
 
             result = extract_ocr_pages(
@@ -604,7 +582,7 @@ class TestPerformanceConsiderations:
                 "test_session",
                 extract_to_disk=True,
                 extraction_dir=str(extraction_dir),
-                keep_extracted=True
+                keep_extracted=True,
             )
             assert result == ["Page 1", "Page 2"]
 
@@ -646,4 +624,3 @@ class TestBarcodeExtraction:
         """Test fallback for other file types."""
         assert get_barcode_from_path("TZ1JJG.txt") == "TZ1JJG"
         assert get_barcode_from_path("/path/to/ABCD1234.zip") == "ABCD1234"
-

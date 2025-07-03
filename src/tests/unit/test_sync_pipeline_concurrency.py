@@ -17,11 +17,12 @@ class TestSyncPipelineConcurrency:
     def mock_pipeline_dependencies(self):
         """Mock all pipeline dependencies."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            with patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker, \
-                 patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter, \
-                 patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client, \
-                 patch("grin_to_s3.storage.StagingDirectoryManager") as mock_staging:
-
+            with (
+                patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
+                patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter,
+                patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client,
+                patch("grin_to_s3.storage.StagingDirectoryManager") as mock_staging,
+            ):
                 # Configure mocks
                 mock_tracker.return_value = MagicMock()
                 mock_reporter.return_value = MagicMock()
@@ -77,13 +78,16 @@ class TestSyncPipelineConcurrency:
             return {"barcode": args[0], "download_success": True, "staging_file_path": "/tmp/test"}
 
         # Mock the actual download operation
-        with patch("grin_to_s3.sync.pipeline.download_book_to_staging", side_effect=mock_download_with_delay), \
-             patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000)), \
-             patch("grin_to_s3.sync.pipeline.upload_book_from_staging", return_value={"success": True}):
-
+        with (
+            patch("grin_to_s3.sync.pipeline.download_book_to_staging", side_effect=mock_download_with_delay),
+            patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000)),
+            patch("grin_to_s3.sync.pipeline.upload_book_from_staging", return_value={"success": True}),
+        ):
             # Mock get_converted_books to return test books
-            with patch("grin_to_s3.sync.pipeline.get_converted_books", return_value={"book1", "book2", "book3", "book4", "book5"}):
-
+            with patch(
+                "grin_to_s3.sync.pipeline.get_converted_books",
+                return_value={"book1", "book2", "book3", "book4", "book5"},
+            ):
                 # Mock database methods
                 mock_pipeline_dependencies["tracker"].get_books_for_sync = AsyncMock(
                     return_value=["book1", "book2", "book3", "book4", "book5"]
@@ -97,7 +101,9 @@ class TestSyncPipelineConcurrency:
                 await pipeline.run_sync(limit=5)
 
         # Verify concurrency was respected
-        assert max_concurrent <= pipeline.concurrent_downloads, f"Max concurrent downloads ({max_concurrent}) exceeded limit ({pipeline.concurrent_downloads})"
+        assert max_concurrent <= pipeline.concurrent_downloads, (
+            f"Max concurrent downloads ({max_concurrent}) exceeded limit ({pipeline.concurrent_downloads})"
+        )
         assert len(download_started) >= 5, f"Expected at least 5 downloads, got {len(download_started)}"
         assert len(download_completed) >= 5, f"Expected at least 5 completed downloads, got {len(download_completed)}"
 
@@ -113,28 +119,28 @@ class TestSyncPipelineConcurrency:
             if len(args) >= 15:  # Check we have enough args
                 active_downloads = kwargs.get("active_downloads", {})
                 active_uploads = kwargs.get("active_uploads", {})
-                progress_reports.append({
-                    "active_downloads": len(active_downloads) if active_downloads else 0,
-                    "active_uploads": len(active_uploads) if active_uploads else 0,
-                    "reported_download_count": pipeline._active_download_count,
-                    "reported_upload_count": pipeline._active_upload_count,
-                })
+                progress_reports.append(
+                    {
+                        "active_downloads": len(active_downloads) if active_downloads else 0,
+                        "active_uploads": len(active_uploads) if active_uploads else 0,
+                        "reported_download_count": pipeline._active_download_count,
+                        "reported_upload_count": pipeline._active_upload_count,
+                    }
+                )
             return original_maybe_show_progress(*args, **kwargs)
 
         pipeline._maybe_show_progress = mock_progress_reporter
 
         # Mock download/upload operations
-        with patch("grin_to_s3.sync.pipeline.download_book_to_staging", return_value=("book", "/tmp/test", {})), \
-             patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000)), \
-             patch("grin_to_s3.sync.pipeline.upload_book_from_staging", return_value={"success": True}):
-
+        with (
+            patch("grin_to_s3.sync.pipeline.download_book_to_staging", return_value=("book", "/tmp/test", {})),
+            patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000)),
+            patch("grin_to_s3.sync.pipeline.upload_book_from_staging", return_value={"success": True}),
+        ):
             # Mock get_converted_books
             with patch("grin_to_s3.sync.pipeline.get_converted_books", return_value={"book1", "book2"}):
-
                 # Mock database methods
-                mock_pipeline_dependencies["tracker"].get_books_for_sync = AsyncMock(
-                    return_value=["book1", "book2"]
-                )
+                mock_pipeline_dependencies["tracker"].get_books_for_sync = AsyncMock(return_value=["book1", "book2"])
                 mock_pipeline_dependencies["tracker"].get_sync_stats = AsyncMock(
                     return_value={"total_converted": 2, "synced": 0, "failed": 0, "pending": 2}
                 )
@@ -145,10 +151,12 @@ class TestSyncPipelineConcurrency:
 
         # Verify progress reports had consistent data
         for report in progress_reports:
-            assert report["reported_download_count"] <= pipeline.concurrent_downloads, \
+            assert report["reported_download_count"] <= pipeline.concurrent_downloads, (
                 f"Reported download count ({report['reported_download_count']}) exceeded limit"
-            assert report["reported_upload_count"] <= pipeline.concurrent_uploads, \
+            )
+            assert report["reported_upload_count"] <= pipeline.concurrent_uploads, (
                 f"Reported upload count ({report['reported_upload_count']}) exceeded limit"
+            )
 
     async def test_semaphore_acquisition_order(self, pipeline):
         """Test that semaphore is properly acquired and released."""
@@ -178,9 +186,10 @@ class TestSyncPipelineConcurrency:
             tasks.append(task)
 
         # Mock the actual operations to avoid real network calls
-        with patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag", 1000)), \
-             patch("grin_to_s3.sync.pipeline.download_book_to_staging", return_value=("book", "/tmp/test", {})):
-
+        with (
+            patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag", 1000)),
+            patch("grin_to_s3.sync.pipeline.download_book_to_staging", return_value=("book", "/tmp/test", {})),
+        ):
             # Wait for all tasks
             await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -190,9 +199,10 @@ class TestSyncPipelineConcurrency:
 
         # At any point, concurrent acquisitions should not exceed limit
         for i in range(len(acquisition_order)):
-            concurrent_at_point = len(list(acquisition_order[:i+1])) - len(list(release_order[:i]))
-            assert concurrent_at_point <= pipeline.concurrent_downloads, \
+            concurrent_at_point = len(list(acquisition_order[: i + 1])) - len(list(release_order[:i]))
+            assert concurrent_at_point <= pipeline.concurrent_downloads, (
                 f"Concurrent acquisitions ({concurrent_at_point}) exceeded limit at point {i}"
+            )
 
 
 class TestSyncPipelineEnrichmentQueue:
@@ -201,10 +211,11 @@ class TestSyncPipelineEnrichmentQueue:
     @pytest.fixture
     def mock_pipeline_dependencies(self):
         """Mock all pipeline dependencies."""
-        with patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker, \
-             patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter, \
-             patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client:
-
+        with (
+            patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
+            patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter,
+            patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client,
+        ):
             # Configure mocks
             mock_tracker.return_value = MagicMock()
             mock_reporter.return_value = MagicMock()

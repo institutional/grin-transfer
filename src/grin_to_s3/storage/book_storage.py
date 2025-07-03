@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class BucketConfig(TypedDict):
     """Type-safe bucket configuration."""
+
     bucket_raw: str
     bucket_meta: str
     bucket_full: str

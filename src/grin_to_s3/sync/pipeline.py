@@ -166,26 +166,32 @@ class SyncPipeline:
                 else f"{REGULAR_PROGRESS_INTERVAL // 60} min"
             )
 
+            # Get enrichment status
+            enrichment_info = ""
+            if self.enrichment_enabled and self.enrichment_queue is not None:
+                queue_size = self.enrichment_queue.qsize()
+                enrichment_info = f", {queue_size} enrichment queued"
+
             # Format progress based on storage type
             if active_tasks is not None:  # Local storage
                 active_count = len(active_tasks)
                 print(
-                    f"Sync in progress: {processed_count:,}/{books_to_process:,} "
+                    f"{processed_count:,}/{books_to_process:,} "
                     f"({percentage:.1f}%) - {rate:.1f} books/sec - "
                     f"elapsed: {format_duration(elapsed)}{eta_text} "
-                    f"[{active_count}/{self.concurrent_downloads} active] [{interval_desc} update]"
+                    f"[{active_count}/{self.concurrent_downloads} active{enrichment_info}] [{interval_desc} update]"
                 )
             else:  # Block storage
                 downloads_running = self._active_download_count
                 uploads_running = min(len(active_uploads or {}), self.concurrent_uploads)
                 uploads_queued = len(active_uploads or {}) - uploads_running
                 print(
-                    f"Sync in progress: {processed_count:,}/{books_to_process:,} "
+                    f"{processed_count:,}/{books_to_process:,} "
                     f"({percentage:.1f}%) - {rate:.1f} books/sec - "
                     f"elapsed: {format_duration(elapsed)}{eta_text} "
                     f"[{downloads_running}/{self.concurrent_downloads} downloads, "
                     f"{uploads_running}/{self.concurrent_uploads} uploads, "
-                    f"{uploads_queued} uploads queued] [{interval_desc} update]"
+                    f"{uploads_queued} uploads queued{enrichment_info}] [{interval_desc} update]"
                 )
 
             # Update tracking variables
@@ -303,16 +309,17 @@ class SyncPipeline:
                         else:
                             # No enrichment data found, but mark as processed
                             await self.db_tracker.add_status_change(
-                                barcode, "enrichment", "completed",
-                                metadata={"worker_id": worker_id, "result": "no_data"}
+                                barcode,
+                                "enrichment",
+                                "completed",
+                                metadata={"worker_id": worker_id, "result": "no_data"},
                             )
                             logger.debug(f"[{worker_name}] No enrichment data for {barcode}")
 
                     except Exception as e:
                         # Mark as failed with error details
                         await self.db_tracker.add_status_change(
-                            barcode, "enrichment", "failed",
-                            metadata={"worker_id": worker_id, "error": str(e)}
+                            barcode, "enrichment", "failed", metadata={"worker_id": worker_id, "error": str(e)}
                         )
                         logger.error(f"[{worker_name}] ❌ Failed to enrich {barcode}: {e}")
 
@@ -343,7 +350,9 @@ class SyncPipeline:
             logger.debug("Enrichment disabled, not starting workers")
             return
 
-        logger.info(f"Starting {self.enrichment_workers} enrichment workers")
+        from grin_to_s3.common import pluralize
+
+        logger.info(f"Starting {self.enrichment_workers} enrichment {pluralize(self.enrichment_workers, 'worker')}")
 
         for worker_id in range(self.enrichment_workers):
             worker_task = asyncio.create_task(self.enrichment_worker(worker_id))
@@ -690,8 +699,6 @@ class SyncPipeline:
 
             logger.info("Sync completed")
 
-
-
     async def _process_book_with_staging(self, barcode: str) -> dict[str, Any]:
         """Process a single book using staging directory."""
         async with self._download_semaphore:
@@ -751,8 +758,7 @@ class SyncPipeline:
             self._active_upload_count += 1
             try:
                 logger.debug(
-                    f"[{barcode}] Upload task started "
-                    f"(active: {self._active_upload_count}/{self.concurrent_uploads})"
+                    f"[{barcode}] Upload task started (active: {self._active_upload_count}/{self.concurrent_uploads})"
                 )
 
                 upload_result = await upload_book_from_staging(
@@ -780,8 +786,7 @@ class SyncPipeline:
             finally:
                 self._active_upload_count -= 1
                 logger.debug(
-                    f"[{barcode}] Upload task completed "
-                    f"(active: {self._active_upload_count}/{self.concurrent_uploads})"
+                    f"[{barcode}] Upload task completed (active: {self._active_upload_count}/{self.concurrent_uploads})"
                 )
 
     async def _run_catchup_sync(self, barcodes: list[str], limit: int | None = None) -> None:
@@ -1026,7 +1031,10 @@ class SyncPipeline:
 
             # Start enrichment workers if enabled
             if self.enrichment_enabled:
-                print(f"Starting {self.enrichment_workers} enrichment workers for background processing")
+                print(
+                    f"Starting {self.enrichment_workers} enrichment "
+                    f"{pluralize(self.enrichment_workers, 'worker')} for background processing"
+                )
                 await self.start_enrichment_workers()
 
             # Check how many requested books need syncing (only those actually converted by GRIN)

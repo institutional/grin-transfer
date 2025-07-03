@@ -251,7 +251,7 @@ class TestOCRPerformanceBenchmarks:
                 "00000007.txt": "Русский: тестовый контент. " * 20,
                 "00000008.txt": "Emoji test: 📚📖✨🎯🚀 " * 20,
                 "00000009.txt": "Math: ∑∏∫√∞≠≤≥±× " * 20,
-                "00000010.txt": "Special: «»""''‚„†‡• " * 20,
+                "00000010.txt": "Special: «»''‚„†‡• " * 20,
             }
 
             archive_path = create_test_archive(unicode_pages, temp_path)
@@ -342,4 +342,3 @@ class TestOCRPerformanceBenchmarks:
             # Assumes typical sync operations take ~1-2s per book without OCR
             ocr_overhead_percent = (baseline_time / 2.0) * 100  # Assuming 2s baseline sync time
             assert ocr_overhead_percent < 100, f"OCR overhead {ocr_overhead_percent:.1f}% too high (target <50%)"
-

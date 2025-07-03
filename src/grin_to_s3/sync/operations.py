@@ -204,7 +204,7 @@ async def extract_and_upload_ocr_text(
 
         # Track extraction start
         if db_tracker:
-            write_status(
+            await write_status(
                 db_tracker.db_path,
                 barcode,
                 ExtractionStatus.STARTING,
@@ -219,7 +219,7 @@ async def extract_and_upload_ocr_text(
         try:
             # Track extraction progress
             if db_tracker:
-                write_status(
+                await write_status(
                     db_tracker.db_path,
                     barcode,
                     ExtractionStatus.EXTRACTING,
@@ -229,7 +229,7 @@ async def extract_and_upload_ocr_text(
 
             # Extract OCR text to JSONL file
             start_time = time.time()
-            page_count = extract_ocr_pages(
+            page_count = await extract_ocr_pages(
                 str(decrypted_file),
                 db_tracker.db_path if db_tracker else "",
                 session_id,
@@ -252,9 +252,7 @@ async def extract_and_upload_ocr_text(
                 "session_id": session_id,
             }
 
-            await book_storage.save_ocr_text_jsonl_from_file(
-                barcode, str(jsonl_file), metadata=upload_metadata
-            )
+            await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file), metadata=upload_metadata)
 
             logger.info(
                 f"[{barcode}] OCR text JSON saved to bucket_full "
@@ -263,7 +261,7 @@ async def extract_and_upload_ocr_text(
 
             # Track successful completion
             if db_tracker:
-                write_status(
+                await write_status(
                     db_tracker.db_path,
                     barcode,
                     ExtractionStatus.COMPLETED,
@@ -289,7 +287,7 @@ async def extract_and_upload_ocr_text(
         # Track failure but don't raise - this is non-blocking
         if db_tracker:
             try:
-                write_status(
+                await write_status(
                     db_tracker.db_path,
                     barcode,
                     ExtractionStatus.FAILED,
@@ -300,7 +298,7 @@ async def extract_and_upload_ocr_text(
                     session_id=session_id,
                 )
             except Exception as db_error:
-                logger.warning(f"[{barcode}] Failed to track extraction failure in database: {db_error}")
+                logger.warning(f"⚠️ [{barcode}] Failed to track extraction failure in database: {db_error}")
 
 
 async def upload_book_from_staging(
@@ -380,9 +378,7 @@ async def upload_book_from_staging(
         if not skip_extract_ocr:
             # Run extraction concurrently with upload for better performance
             extraction_task = asyncio.create_task(
-                extract_and_upload_ocr_text(
-                    barcode, decrypted_file, book_storage, db_tracker, staging_manager, logger
-                )
+                extract_and_upload_ocr_text(barcode, decrypted_file, book_storage, db_tracker, staging_manager, logger)
             )
         else:
             extraction_task = None

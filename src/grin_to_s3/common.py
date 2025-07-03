@@ -54,7 +54,6 @@ def expand_path(path: str) -> str:
     return os.path.expanduser(path)
 
 
-
 def format_bytes(size_bytes: int) -> str:
     """
     Format byte count as human-readable string.

@@ -62,7 +62,7 @@ class TestExtractCLIIntegration:
             db_path="/tmp/test.db",
             session_id="test_session",
             book_storage=mock_book_storage,
-            verbose=True
+            verbose=True,
         )
 
         # Verify file extraction was called to temp file
@@ -105,21 +105,18 @@ class TestExtractCLIIntegration:
             mock_parse_args.return_value = mock_args
 
             # Mock the run config functions to simulate successful config loading
-            with patch("grin_to_s3.extract.__main__.setup_run_database_path") as mock_setup_db, \
-                 patch("grin_to_s3.extract.__main__.apply_run_config_to_args"), \
-                 patch("pathlib.Path.exists") as mock_path_exists, \
-                 patch("json.load") as mock_json_load, \
-                 patch("grin_to_s3.storage.factories.create_book_storage_with_full_text") as mock_create_storage, \
-                 patch("builtins.print"):
-
+            with (
+                patch("grin_to_s3.extract.__main__.setup_run_database_path") as mock_setup_db,
+                patch("grin_to_s3.extract.__main__.apply_run_config_to_args"),
+                patch("pathlib.Path.exists") as mock_path_exists,
+                patch("json.load") as mock_json_load,
+                patch("grin_to_s3.storage.factories.create_book_storage_with_full_text") as mock_create_storage,
+                patch("builtins.print"),
+            ):
                 mock_setup_db.return_value = "/path/to/db"
                 mock_path_exists.return_value = True
                 mock_json_load.return_value = {
-                    "storage_config": {
-                        "type": "r2",
-                        "config": {"bucket_full": "test-bucket"},
-                        "prefix": ""
-                    }
+                    "storage_config": {"type": "r2", "config": {"bucket_full": "test-bucket"}, "prefix": ""}
                 }
                 mock_create_storage.return_value = MagicMock()
 
@@ -148,13 +145,12 @@ class TestExtractCLIIntegration:
                 archive_path="/path/to/test.tar.gz",
                 db_path="/tmp/test.db",
                 session_id="test_session",
-                book_storage=mock_book_storage
+                book_storage=mock_book_storage,
             )
 
             # Verify no stdout printing of JSONL content when using bucket storage
             # Since we removed stdout support completely, there shouldn't be any JSON content printed
-            print_calls = [call for call in mock_print.call_args_list
-                          if '"Test content"' in str(call)]
+            print_calls = [call for call in mock_print.call_args_list if '"Test content"' in str(call)]
             assert len(print_calls) == 0
 
     @patch("argparse.ArgumentParser.parse_args")
@@ -166,8 +162,17 @@ class TestExtractCLIIntegration:
     @patch("grin_to_s3.storage.factories.create_book_storage_with_full_text")
     @patch("grin_to_s3.extract.__main__.extract_single_archive")
     @pytest.mark.asyncio
-    async def test_main_with_run_config(self, mock_extract_single, mock_create_storage, mock_json_load,
-                                       mock_open, mock_path_exists, mock_apply_config, mock_setup_db, mock_parse_args):
+    async def test_main_with_run_config(
+        self,
+        mock_extract_single,
+        mock_create_storage,
+        mock_json_load,
+        mock_open,
+        mock_path_exists,
+        mock_apply_config,
+        mock_setup_db,
+        mock_parse_args,
+    ):
         """Test main function with run configuration."""
         from grin_to_s3.extract.__main__ import main
 
@@ -189,11 +194,7 @@ class TestExtractCLIIntegration:
         mock_setup_db.return_value = "/path/to/test_run/books.db"
         mock_path_exists.return_value = True
         mock_json_load.return_value = {
-            "storage_config": {
-                "type": "r2",
-                "config": {"bucket_full": "test-full-bucket"},
-                "prefix": ""
-            }
+            "storage_config": {"type": "r2", "config": {"bucket_full": "test-full-bucket"}, "prefix": ""}
         }
 
         # Mock storage creation
@@ -201,11 +202,7 @@ class TestExtractCLIIntegration:
         mock_create_storage.return_value = mock_book_storage
 
         # Mock extraction result
-        mock_extract_single.return_value = {
-            "success": True,
-            "archive": "/path/to/test.tar.gz",
-            "pages": 1
-        }
+        mock_extract_single.return_value = {"success": True, "archive": "/path/to/test.tar.gz", "pages": 1}
 
         result = await main()
 
@@ -244,8 +241,5 @@ class TestExtractCLIIntegration:
             result = await main()
 
             # Verify error message and exit code
-            mock_print.assert_any_call(
-                "Error: --run-name is required for database tracking",
-                file=sys.stderr
-            )
+            mock_print.assert_any_call("Error: --run-name is required for database tracking", file=sys.stderr)
             assert result == 1

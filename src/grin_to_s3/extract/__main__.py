@@ -28,14 +28,7 @@ from .text_extraction import (
 logger = logging.getLogger(__name__)
 
 
-
-
-async def write_to_bucket(
-    book_storage: BookStorage,
-    barcode: str,
-    jsonl_file_path: str,
-    verbose: bool = False
-) -> None:
+async def write_to_bucket(book_storage: BookStorage, barcode: str, jsonl_file_path: str, verbose: bool = False) -> None:
     """Upload JSONL file to full-text bucket."""
     try:
         path = await book_storage.save_ocr_text_jsonl_from_file(barcode, jsonl_file_path)
@@ -74,7 +67,8 @@ Examples:
     )
 
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         type=str,
         help="Output JSONL file path (default: print to stdout)",
     )
@@ -85,9 +79,9 @@ Examples:
         help="Output directory for multiple files (creates BARCODE.jsonl for each archive)",
     )
 
-
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Enable verbose output",
     )
@@ -208,17 +202,18 @@ async def main() -> int:
 
     # Generate session ID for this extraction run
     import uuid
+
     session_id = f"extract_{uuid.uuid4().hex[:8]}"
     # Create book storage from run configuration if bucket output is needed
     book_storage = None
     if not (args.output or args.output_dir):
         try:
-
             # Build storage configuration from run config
             config_path = Path(db_path).parent / "run_config.json"
 
             if config_path.exists():
                 import json
+
                 with open(config_path) as f:
                     run_config = json.load(f)
 
@@ -247,9 +242,8 @@ async def main() -> int:
                 storage_config.update(existing_storage_config.get("config", {}))
 
                 from ..storage.factories import create_book_storage_with_full_text
-                book_storage = create_book_storage_with_full_text(
-                    storage_type, storage_config, storage_prefix
-                )
+
+                book_storage = create_book_storage_with_full_text(storage_type, storage_config, storage_prefix)
             else:
                 raise FileNotFoundError(f"Run configuration not found: {config_path}")
             if args.verbose:

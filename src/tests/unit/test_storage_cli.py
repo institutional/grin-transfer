@@ -41,11 +41,7 @@ def test_storage_cli_parser_creation():
         # Mock argparse.ArgumentParser.parse_args to prevent actual parsing
         with patch.object(argparse.ArgumentParser, "parse_args") as mock_parse:
             # Mock the parsed args
-            mock_args = argparse.Namespace(
-                command="ls",
-                run_name="test",
-                long=False
-            )
+            mock_args = argparse.Namespace(command="ls", run_name="test", long=False)
             mock_parse.return_value = mock_args
 
             # This should not raise an ImportError or other exception
@@ -53,6 +49,7 @@ def test_storage_cli_parser_creation():
             try:
                 # Import the functions to ensure they're available
                 from grin_to_s3.storage.__main__ import cmd_ls, cmd_rm, format_size
+
                 assert callable(cmd_ls)
                 assert callable(cmd_rm)
                 assert callable(format_size)

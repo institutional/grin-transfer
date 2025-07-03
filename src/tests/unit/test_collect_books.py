@@ -443,7 +443,7 @@ class TestBookCollectionIntegration:
                 "bucket_raw": "test-raw",
                 "bucket_meta": "test-meta",
                 "bucket_full": "test-full",
-                "prefix": "test-prefix"
+                "prefix": "test-prefix",
             }
 
             # This should not raise an exception

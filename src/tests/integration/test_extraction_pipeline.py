@@ -73,6 +73,7 @@ class TestExtractionWithTracking:
         """Test successful text extraction with complete status tracking."""
         # Get the actual barcode from the archive path
         from grin_to_s3.extract.text_extraction import get_barcode_from_path
+
         barcode = get_barcode_from_path(test_archive_with_content)
         session_id = "test_session_123"
 
@@ -95,6 +96,7 @@ class TestExtractionWithTracking:
         # Verify database tracking was recorded
         # Allow some time for async tasks to complete
         import asyncio
+
         await asyncio.sleep(0.1)
 
         # Check status history entries
@@ -130,6 +132,7 @@ class TestExtractionWithTracking:
         """Test JSONL extraction with database tracking."""
         # Get the actual barcode from the archive path
         from grin_to_s3.extract.text_extraction import get_barcode_from_path
+
         barcode = get_barcode_from_path(test_archive_with_content)
         session_id = "test_session_456"
 
@@ -166,6 +169,7 @@ class TestExtractionWithTracking:
 
             # Allow time for async tasks
             import asyncio
+
             await asyncio.sleep(0.1)
 
             # Verify tracking in database
@@ -202,6 +206,7 @@ class TestExtractionWithTracking:
 
         # Try to extract from nonexistent file
         from grin_to_s3.extract.text_extraction import TextExtractionError
+
         with pytest.raises(TextExtractionError):
             extract_ocr_pages(
                 nonexistent_path,
@@ -211,6 +216,7 @@ class TestExtractionWithTracking:
 
         # Allow time for async tasks
         import asyncio
+
         await asyncio.sleep(0.1)
 
         # Verify failure was tracked
@@ -229,7 +235,6 @@ class TestExtractionWithTracking:
         assert "error_message" in metadata
         assert metadata["partial_page_count"] == 0
         assert metadata["extraction_method"] in ["memory", "disk"]
-
 
 
 class TestQueryFunctionsIntegration:
@@ -274,6 +279,7 @@ class TestQueryFunctionsIntegration:
 
         # Allow time for async tasks
         import asyncio
+
         await asyncio.sleep(0.1)
 
         # Test status summary
@@ -400,6 +406,7 @@ class TestSessionTracking:
 
         # Allow time for async tasks
         import asyncio
+
         await asyncio.sleep(0.1)
 
         # Verify session isolation in database

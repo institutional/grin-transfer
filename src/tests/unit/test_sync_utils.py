@@ -146,6 +146,7 @@ class TestETagOperations:
     async def test_should_skip_download_force_flag(self, mock_storage_config):
         """Test that force flag prevents skipping."""
         from unittest.mock import AsyncMock
+
         mock_tracker = AsyncMock()
         should_skip, reason = await should_skip_download("TEST123", "abc123", "local", {}, mock_tracker, force=True)
         assert should_skip is False
@@ -155,6 +156,7 @@ class TestETagOperations:
     async def test_should_skip_download_no_etag(self, mock_storage_config):
         """Test that missing ETag prevents skipping."""
         from unittest.mock import AsyncMock
+
         mock_tracker = AsyncMock()
         should_skip, reason = await should_skip_download("TEST123", None, "local", {}, mock_tracker, force=False)
         assert should_skip is False
@@ -164,12 +166,15 @@ class TestETagOperations:
     async def test_should_skip_download_database_error(self, mock_storage_config):
         """Test that database errors are handled gracefully."""
         from unittest.mock import AsyncMock, patch
+
         mock_tracker = AsyncMock()
         mock_tracker.db_path = "/fake/path"
 
         with patch("grin_to_s3.sync.utils.connect_async") as mock_connect:
             mock_connect.side_effect = Exception("Database error")
-            should_skip, reason = await should_skip_download("TEST123", "abc123", "local", {}, mock_tracker, force=False)
+            should_skip, reason = await should_skip_download(
+                "TEST123", "abc123", "local", {}, mock_tracker, force=False
+            )
             assert should_skip is False
             assert "error" in reason
 
@@ -239,7 +244,7 @@ class TestBookStorageInitializationInUtils:
                 "bucket_meta": "test-meta",
                 "bucket_full": "test-full",
                 "prefix": "",
-                "config": {"base_path": temp_dir}
+                "config": {"base_path": temp_dir},
             }
 
             # Mock database tracker
@@ -265,7 +270,7 @@ class TestBookStorageInitializationInUtils:
                     "minio",  # S3-compatible storage to trigger the problematic code path
                     storage_config,
                     mock_db_tracker,
-                    force=False
+                    force=False,
                 )
 
                 # Verify the function completed without error

@@ -68,12 +68,12 @@ async def mock_db_tracker():
 class TestTrackingFunctions:
     """Test individual tracking functions."""
 
-    def test_track_start(self, temp_db):
+    async def test_track_start(self, temp_db):
         """Test tracking extraction start."""
         barcode = "test_barcode_001"
         session_id = "session_123"
 
-        track_start(temp_db, barcode, session_id)
+        await track_start(temp_db, barcode, session_id)
 
         # Verify data was written to database
         conn = sqlite3.connect(temp_db)
@@ -95,13 +95,12 @@ class TestTrackingFunctions:
         assert metadata["extraction_stage"] == "initialization"
 
 
-
 class TestQueryFunctions:
     """Test database query functions."""
 
-    def test_get_status_summary_empty(self, temp_db):
+    async def test_get_status_summary_empty(self, temp_db):
         """Test status summary with empty database."""
-        summary = get_status_summary(temp_db)
+        summary = await get_status_summary(temp_db)
 
         expected = {
             ExtractionStatus.STARTING.value: 0,
@@ -112,7 +111,7 @@ class TestQueryFunctions:
         }
         assert summary == expected
 
-    def test_get_status_summary_with_data(self, temp_db):
+    async def test_get_status_summary_with_data(self, temp_db):
         """Test status summary with sample data."""
         # Insert test data
         conn = sqlite3.connect(temp_db)
@@ -133,7 +132,7 @@ class TestQueryFunctions:
         conn.commit()
         conn.close()
 
-        summary = get_status_summary(temp_db)
+        summary = await get_status_summary(temp_db)
 
         assert summary[ExtractionStatus.COMPLETED.value] == 2
         assert summary[ExtractionStatus.FAILED.value] == 1
@@ -141,7 +140,7 @@ class TestQueryFunctions:
         assert summary[ExtractionStatus.STARTING.value] == 0
         assert summary["total"] == 4
 
-    def test_get_failed_extractions(self, temp_db):
+    async def test_get_failed_extractions(self, temp_db):
         """Test retrieving failed extraction details."""
         # Insert test data
         conn = sqlite3.connect(temp_db)
@@ -168,7 +167,7 @@ class TestQueryFunctions:
         conn.commit()
         conn.close()
 
-        failures = get_failed_extractions(temp_db, limit=10)
+        failures = await get_failed_extractions(temp_db, limit=10)
 
         assert len(failures) == 1
         failure = failures[0]
@@ -178,7 +177,7 @@ class TestQueryFunctions:
         assert failure["partial_page_count"] == 25
         assert failure["extraction_method"] == ExtractionMethod.DISK.value
 
-    def test_get_extraction_progress(self, temp_db):
+    async def test_get_extraction_progress(self, temp_db):
         """Test getting overall extraction progress statistics."""
         # Insert test data
         conn = sqlite3.connect(temp_db)
@@ -208,12 +207,10 @@ class TestQueryFunctions:
         conn.commit()
         conn.close()
 
-        progress = get_extraction_progress(temp_db)
+        progress = await get_extraction_progress(temp_db)
 
         assert progress["total_pages_extracted"] == 300  # 100 + 200
         assert progress["avg_pages_per_book"] == 150.0  # 300 / 2
         assert progress["avg_extraction_time_ms"] == 6000.0  # (5000 + 7000) / 2
         assert progress["status_summary"]["total"] == 3
         assert len(progress["recent_failures"]) == 1
-
-

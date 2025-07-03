@@ -170,6 +170,7 @@ async def should_skip_download(
 
     # Determine storage protocol for logic decisions
     from grin_to_s3.storage import get_storage_protocol
+
     storage_protocol = get_storage_protocol(storage_type)
 
     # For S3-compatible storage, check metadata on decrypted file

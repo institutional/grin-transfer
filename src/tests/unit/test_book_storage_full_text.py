@@ -17,11 +17,7 @@ from grin_to_s3.storage.factories import (
 
 def create_test_bucket_config():
     """Helper to create test bucket configuration."""
-    return {
-        "bucket_raw": "test-raw",
-        "bucket_meta": "test-meta",
-        "bucket_full": "test-full"
-    }
+    return {"bucket_raw": "test-raw", "bucket_meta": "test-meta", "bucket_full": "test-full"}
 
 
 class TestBookStorageFullText:
@@ -32,11 +28,7 @@ class TestBookStorageFullText:
         mock_storage = MagicMock()
         bucket_config = create_test_bucket_config()
 
-        book_storage = BookStorage(
-            storage=mock_storage,
-            bucket_config=bucket_config,
-            base_prefix="test-prefix"
-        )
+        book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config, base_prefix="test-prefix")
 
         assert book_storage.storage == mock_storage
         assert book_storage.bucket_raw == "test-raw"
@@ -62,11 +54,7 @@ class TestBookStorageFullText:
         mock_storage = MagicMock()
         bucket_config = create_test_bucket_config()
 
-        book_storage = BookStorage(
-            storage=mock_storage,
-            bucket_config=bucket_config,
-            base_prefix="test-prefix"
-        )
+        book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config, base_prefix="test-prefix")
 
         path = book_storage._full_text_path("12345", "test.jsonl")
         assert path == "test-full/test-prefix/test.jsonl"
@@ -76,10 +64,7 @@ class TestBookStorageFullText:
         mock_storage = MagicMock()
         bucket_config = create_test_bucket_config()
 
-        book_storage = BookStorage(
-            storage=mock_storage,
-            bucket_config=bucket_config
-        )
+        book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config)
 
         path = book_storage._full_text_path("12345", "test.jsonl")
         assert path == "test-full/test.jsonl"
@@ -91,10 +76,7 @@ class TestBookStorageFullText:
         mock_storage = AsyncMock()
         mock_storage.is_s3_compatible = MagicMock(return_value=False)
 
-        book_storage = BookStorage(
-            storage=mock_storage,
-            bucket_config=create_test_bucket_config()
-        )
+        book_storage = BookStorage(storage=mock_storage, bucket_config=create_test_bucket_config())
 
         jsonl_file_path = "/path/to/12345.jsonl"
 
@@ -104,9 +86,7 @@ class TestBookStorageFullText:
         assert result == "test-full/12345.jsonl"
 
         # Verify write_file called with correct file path
-        mock_storage.write_file.assert_called_once_with(
-            "test-full/12345.jsonl", jsonl_file_path
-        )
+        mock_storage.write_file.assert_called_once_with("test-full/12345.jsonl", jsonl_file_path)
 
     @pytest.mark.asyncio
     async def test_save_ocr_text_jsonl_from_file_with_metadata(self):
@@ -115,10 +95,7 @@ class TestBookStorageFullText:
         mock_storage = AsyncMock()
         mock_storage.is_s3_compatible = MagicMock(return_value=True)
 
-        book_storage = BookStorage(
-            storage=mock_storage,
-            bucket_config=create_test_bucket_config()
-        )
+        book_storage = BookStorage(storage=mock_storage, bucket_config=create_test_bucket_config())
 
         jsonl_file_path = "/path/to/12345.jsonl"
         metadata = {"page_count": 2, "extraction_time_ms": 1500}
@@ -159,18 +136,12 @@ class TestStorageFactories:
         mock_storage = MagicMock()
         mock_create_minio.return_value = mock_storage
 
-        config = {
-            "endpoint_url": "http://localhost:9000",
-            "access_key": "testuser",
-            "secret_key": "testpass"
-        }
+        config = {"endpoint_url": "http://localhost:9000", "access_key": "testuser", "secret_key": "testpass"}
 
         result = create_storage_for_bucket("minio", config, "test-bucket")
 
         mock_create_minio.assert_called_once_with(
-            endpoint_url="http://localhost:9000",
-            access_key="testuser",
-            secret_key="testpass"
+            endpoint_url="http://localhost:9000", access_key="testuser", secret_key="testpass"
         )
         assert result == mock_storage
 
@@ -196,7 +167,7 @@ class TestStorageFactories:
         mock_load_creds.return_value = {
             "account_id": "test-account",
             "access_key": "test-key",
-            "secret_key": "test-secret"
+            "secret_key": "test-secret",
         }
 
         config = {"credentials_file": "/path/to/creds.json"}
@@ -205,9 +176,7 @@ class TestStorageFactories:
 
         mock_load_creds.assert_called_once_with("/path/to/creds.json")
         mock_create_r2.assert_called_once_with(
-            account_id="test-account",
-            access_key="test-key",
-            secret_key="test-secret"
+            account_id="test-account", access_key="test-key", secret_key="test-secret"
         )
         assert result == mock_storage
 
@@ -218,18 +187,13 @@ class TestStorageFactories:
         with pytest.raises(ValueError, match="does not support bucket-based storage"):
             create_storage_for_bucket("local", config, "test-bucket")
 
-
     @patch("grin_to_s3.storage.factories.create_storage_from_config")
     def test_create_book_storage_with_full_text(self, mock_create_storage):
         """Test creating BookStorage with full-text support."""
         mock_storage = MagicMock()
         mock_create_storage.return_value = mock_storage
 
-        config = {
-            "bucket_raw": "raw-bucket",
-            "bucket_meta": "meta-bucket",
-            "bucket_full": "full-bucket"
-        }
+        config = {"bucket_raw": "raw-bucket", "bucket_meta": "meta-bucket", "bucket_full": "full-bucket"}
 
         book_storage = create_book_storage_with_full_text("s3", config, "test-prefix")
 
