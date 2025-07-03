@@ -55,6 +55,9 @@ class SyncPipeline:
         staging_dir: str | None = None,
         disk_space_threshold: float = 0.9,
         skip_extract_ocr: bool = False,
+        enrichment_enabled: bool = True,
+        enrichment_workers: int = 1,
+        auto_update_csv: bool = True,
     ):
         self.db_path = db_path
         # Keep original storage type for storage creation
@@ -79,6 +82,11 @@ class SyncPipeline:
             self.staging_dir = Path(staging_dir)
         self.disk_space_threshold = disk_space_threshold
         self.skip_extract_ocr = skip_extract_ocr
+
+        # Enrichment configuration
+        self.enrichment_enabled = enrichment_enabled
+        self.enrichment_workers = enrichment_workers
+        self.auto_update_csv = auto_update_csv
 
         # Initialize components
         self.db_tracker = SQLiteProgressTracker(db_path)
@@ -107,6 +115,12 @@ class SyncPipeline:
 
         # Simple gate to prevent race conditions in task creation
         self._task_creation_lock = asyncio.Lock()
+
+        # Enrichment queue infrastructure
+        if self.enrichment_enabled:
+            self.enrichment_queue: asyncio.Queue[str] | None = asyncio.Queue()
+        else:
+            self.enrichment_queue = None
 
         # Statistics
         self.stats = create_sync_stats()
@@ -215,6 +229,11 @@ class SyncPipeline:
     async def get_sync_status(self) -> dict:
         """Get current sync status and statistics."""
         stats = await self.db_tracker.get_sync_stats(self.storage_protocol)
+
+        # Update enrichment queue size in session stats
+        if self.enrichment_queue is not None:
+            self.stats["enrichment_queue_size"] = self.enrichment_queue.qsize()
+
         return {
             **stats,
             "session_stats": self.stats,
