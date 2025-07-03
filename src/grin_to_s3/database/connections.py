@@ -16,6 +16,7 @@ def _configure_connection(conn) -> None:
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA cache_size=1000")
     conn.execute("PRAGMA temp_store=memory")
+    conn.execute("PRAGMA busy_timeout=5000")  # Wait up to 5 seconds for locks
 
 
 @contextmanager
@@ -34,4 +35,5 @@ async def connect_async(db_path: str | Path, timeout: float = 30.0) -> AsyncGene
         await conn.execute("PRAGMA synchronous=NORMAL")
         await conn.execute("PRAGMA cache_size=1000")
         await conn.execute("PRAGMA temp_store=memory")
+        await conn.execute("PRAGMA busy_timeout=5000")  # Wait up to 5 seconds for locks
         yield conn
