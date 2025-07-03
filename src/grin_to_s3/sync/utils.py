@@ -221,30 +221,29 @@ async def should_skip_download(
     # For local storage or fallback, use database check
     try:
         async with connect_async(db_tracker.db_path) as db:
-            async with db.execute("BEGIN IMMEDIATE"):
-                cursor = await db.execute(
-                    """
-                    SELECT status_value, metadata FROM book_status_history
-                    WHERE barcode = ? AND status_type = 'sync'
-                    ORDER BY timestamp DESC, id DESC LIMIT 1
-                """,
-                    (barcode,),
-                )
+            cursor = await db.execute(
+                """
+                SELECT status_value, metadata FROM book_status_history
+                WHERE barcode = ? AND status_type = 'sync'
+                ORDER BY timestamp DESC, id DESC LIMIT 1
+            """,
+                (barcode,),
+            )
 
-                if not (row := await cursor.fetchone()):
-                    return False, "no_metadata"
+            if not (row := await cursor.fetchone()):
+                return False, "no_metadata"
 
-                if not (metadata := json.loads(row[1]) if row[1] else None):
-                    return False, "no_metadata"
+            if not (metadata := json.loads(row[1]) if row[1] else None):
+                return False, "no_metadata"
 
-                if not (stored_etag := metadata.get("encrypted_etag")):
-                    return False, "no_stored_etag"
+            if not (stored_etag := metadata.get("encrypted_etag")):
+                return False, "no_stored_etag"
 
-                match = stored_etag.strip('"') == encrypted_etag.strip('"')
-                action = "skipping" if match else "downloading"
-                status = "matches" if match else "differs"
-                logger.info(f"[{barcode}] ETag {status} in database, {action}")
-                return match, "database_etag_match" if match else "database_etag_mismatch"
+            match = stored_etag.strip('"') == encrypted_etag.strip('"')
+            action = "skipping" if match else "downloading"
+            status = "matches" if match else "differs"
+            logger.info(f"[{barcode}] ETag {status} in database, {action}")
+            return match, "database_etag_match" if match else "database_etag_mismatch"
 
     except Exception as e:
         logger.error(f"[{barcode}] Database ETag check failed: {type(e).__name__}")
