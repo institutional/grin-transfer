@@ -349,7 +349,7 @@ class TestOCRExtractionDatabaseTracking:
         session_id = "test_session_123"
 
         # Track the extraction lifecycle
-        write_status(
+        await write_status(
             temp_db_tracker.db_path,
             barcode,
             ExtractionStatus.STARTING,
@@ -357,7 +357,7 @@ class TestOCRExtractionDatabaseTracking:
             session_id,
         )
 
-        write_status(
+        await write_status(
             temp_db_tracker.db_path,
             barcode,
             ExtractionStatus.EXTRACTING,
@@ -365,7 +365,7 @@ class TestOCRExtractionDatabaseTracking:
             session_id,
         )
 
-        write_status(
+        await write_status(
             temp_db_tracker.db_path,
             barcode,
             ExtractionStatus.COMPLETED,
@@ -413,11 +413,11 @@ class TestOCRExtractionDatabaseTracking:
         session_id = "test_session_123"
 
         # Track failure
-        write_status(
+        await write_status(
             temp_db_tracker.db_path, barcode, ExtractionStatus.STARTING, {"session_id": session_id}, session_id
         )
 
-        write_status(
+        await write_status(
             temp_db_tracker.db_path,
             barcode,
             ExtractionStatus.FAILED,
