@@ -409,7 +409,7 @@ async def upload_book_from_staging(
         # Update book record with sync data including encrypted ETag
         sync_data: dict[str, Any] = {
             "storage_type": storage_type,
-            "storage_decrypted_path": decrypted_result,  # only decrypted file path
+            "storage_path": decrypted_result,
             "is_decrypted": True,
             "sync_timestamp": datetime.now(UTC).isoformat(),
             "sync_error": None,
@@ -556,7 +556,7 @@ async def sync_book_to_local_storage(
         # Update book record with sync data
         sync_data: dict[str, Any] = {
             "storage_type": "local",
-            "storage_decrypted_path": str(decrypted_path),
+            "storage_path": str(decrypted_path),
             "is_decrypted": True,
             "sync_timestamp": datetime.now(UTC).isoformat(),
             "encrypted_etag": encrypted_etag,
