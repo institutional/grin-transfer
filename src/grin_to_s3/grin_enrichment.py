@@ -338,28 +338,12 @@ class GRINEnrichmentPipeline:
 
     async def reset_enrichment_data(self) -> int:
         """Reset enrichment data for all books in the database."""
+        from .collect_books.models import BookRecord
+
         async with connect_async(self.db_path) as conn:
-            # Reset enrichment fields to NULL
+            # Reset enrichment fields to NULL using generated SQL
             cursor = await conn.execute(
-                """
-                UPDATE books SET
-                    grin_state = NULL,
-                    viewability = NULL,
-                    opted_out = NULL,
-                    conditions = NULL,
-                    scannable = NULL,
-                    tagging = NULL,
-                    audit = NULL,
-                    material_error_percent = NULL,
-                    overall_error_percent = NULL,
-                    claimed = NULL,
-                    ocr_analysis_score = NULL,
-                    ocr_gtd_score = NULL,
-                    digitization_method = NULL,
-                    enrichment_timestamp = NULL,
-                    updated_at = ?
-                WHERE enrichment_timestamp IS NOT NULL
-            """,
+                BookRecord.build_reset_enrichment_sql(),
                 (datetime.now(UTC).isoformat(),),
             )
 

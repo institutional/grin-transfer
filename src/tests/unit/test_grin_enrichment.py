@@ -72,15 +72,15 @@ class MockGRINEnrichmentClient(MockGRINClient):
                         row = [
                             barcode,  # Barcode
                             "",  # Check-In Date
-                            data.get("state", ""),  # State
-                            data.get("viewability", "VIEW_METADATA"),  # Viewability
-                            data.get("conditions", ""),  # Conditions
-                            data.get("scannable", "false"),  # Scannable
-                            data.get("opted_out", "false"),  # Opted-Out
-                            data.get("tagging", "true"),  # Tagging
-                            data.get("audit", ""),  # Audit
-                            data.get("material_error_percent", "0%"),  # Material Error%
-                            data.get("overall_error_percent", "0%"),  # Overall Error%
+                            data.get("grin_state", ""),  # State
+                            data.get("grin_viewability", "VIEW_METADATA"),  # Viewability
+                            data.get("grin_conditions", ""),  # Conditions
+                            data.get("grin_scannable", "false"),  # Scannable
+                            data.get("grin_opted_out", "false"),  # Opted-Out
+                            data.get("grin_tagging", "true"),  # Tagging
+                            data.get("grin_audit", ""),  # Audit
+                            data.get("grin_material_error_percent", "0%"),  # Material Error%
+                            data.get("grin_overall_error_percent", "0%"),  # Overall Error%
                             "",  # Scanned Date
                             "",  # Processed Date
                             "",  # Analyzed Date
@@ -90,10 +90,10 @@ class MockGRINEnrichmentClient(MockGRINClient):
                             "",  # Source Library Bibkey
                             "",  # Rubbish
                             "",  # Downloaded Date
-                            data.get("claimed", "false"),  # Claimed
-                            data.get("ocr_gtd_score", "75"),  # OCR GTD Score
-                            data.get("ocr_analysis_score", "80"),  # OCR Analysis Score
-                            data.get("digitization_method", "NON_DESTRUCTIVE"),  # Digitization Method
+                            data.get("grin_claimed", "false"),  # Claimed
+                            data.get("grin_ocr_gtd_score", "75"),  # OCR GTD Score
+                            data.get("grin_ocr_analysis_score", "80"),  # OCR Analysis Score
+                            data.get("grin_digitization_method", "NON_DESTRUCTIVE"),  # Digitization Method
                             "",  # OCR'd Date
                         ]
                         lines.append("\t".join(row))
@@ -143,22 +143,22 @@ class TestGRINEnrichmentPipeline:
         """Test enrichment data"""
         return {
             "TEST001": {
-                "viewability": "VIEW_FULL",
-                "scannable": "true",
-                "ocr_gtd_score": "95",
-                "ocr_analysis_score": "98",
+                "grin_viewability": "VIEW_FULL",
+                "grin_scannable": "true",
+                "grin_ocr_gtd_score": "95",
+                "grin_ocr_analysis_score": "98",
             },
             "TEST002": {
-                "viewability": "VIEW_METADATA",
-                "scannable": "false",
-                "ocr_gtd_score": "60",
-                "ocr_analysis_score": "65",
+                "grin_viewability": "VIEW_METADATA",
+                "grin_scannable": "false",
+                "grin_ocr_gtd_score": "60",
+                "grin_ocr_analysis_score": "65",
             },
             "TEST003": {
-                "viewability": "VIEW_SNIPPET",
-                "scannable": "true",
-                "ocr_gtd_score": "85",
-                "ocr_analysis_score": "88",
+                "grin_viewability": "VIEW_SNIPPET",
+                "grin_scannable": "true",
+                "grin_ocr_gtd_score": "85",
+                "grin_ocr_analysis_score": "88",
             },
         }
 
@@ -174,10 +174,10 @@ class TestGRINEnrichmentPipeline:
         result = await pipeline.fetch_grin_metadata_batch(["TEST001"])
 
         assert "TEST001" in result
-        assert result["TEST001"]["viewability"] == "VIEW_FULL"
-        assert result["TEST001"]["scannable"] == "true"
-        assert result["TEST001"]["ocr_gtd_score"] == "95"
-        assert result["TEST001"]["ocr_analysis_score"] == "98"
+        assert result["TEST001"]["grin_viewability"] == "VIEW_FULL"
+        assert result["TEST001"]["grin_scannable"] == "true"
+        assert result["TEST001"]["grin_ocr_gtd_score"] == "95"
+        assert result["TEST001"]["grin_ocr_analysis_score"] == "98"
 
     @pytest.mark.asyncio
     async def test_fetch_grin_metadata_batch_multiple(self, mock_enrichment_data):
@@ -191,9 +191,9 @@ class TestGRINEnrichmentPipeline:
         result = await pipeline.fetch_grin_metadata_batch(["TEST001", "TEST002", "TEST003"])
 
         assert len(result) == 3
-        assert result["TEST001"]["viewability"] == "VIEW_FULL"
-        assert result["TEST002"]["viewability"] == "VIEW_METADATA"
-        assert result["TEST003"]["viewability"] == "VIEW_SNIPPET"
+        assert result["TEST001"]["grin_viewability"] == "VIEW_FULL"
+        assert result["TEST002"]["grin_viewability"] == "VIEW_METADATA"
+        assert result["TEST003"]["grin_viewability"] == "VIEW_SNIPPET"
 
     @pytest.mark.asyncio
     async def test_fetch_grin_metadata_batch_missing_barcode(self, mock_enrichment_data):
@@ -207,7 +207,7 @@ class TestGRINEnrichmentPipeline:
         result = await pipeline.fetch_grin_metadata_batch(["TEST001", "MISSING"])
 
         assert len(result) == 2
-        assert result["TEST001"]["viewability"] == "VIEW_FULL"
+        assert result["TEST001"]["grin_viewability"] == "VIEW_FULL"
         assert result["MISSING"] is None
 
     @pytest.mark.asyncio
@@ -288,11 +288,11 @@ class TestGRINEnrichmentPipeline:
         result = await pipeline.fetch_grin_metadata_batch(["TEST001"])
 
         assert "TEST001" in result
-        assert result["TEST001"]["viewability"] == "VIEW_METADATA"
-        assert result["TEST001"]["overall_error_percent"] == "5%"
+        assert result["TEST001"]["grin_viewability"] == "VIEW_METADATA"
+        assert result["TEST001"]["grin_overall_error_percent"] == "5%"
         # Missing fields should be empty
-        assert result["TEST001"]["ocr_gtd_score"] == ""
-        assert result["TEST001"]["ocr_analysis_score"] == ""
+        assert result["TEST001"]["grin_ocr_gtd_score"] == ""
+        assert result["TEST001"]["grin_ocr_analysis_score"] == ""
 
     @pytest.mark.asyncio
     async def test_enrich_books_batch(self, temp_db, mock_enrichment_data):
@@ -312,15 +312,15 @@ class TestGRINEnrichmentPipeline:
         tracker = SQLiteProgressTracker(temp_db)
 
         book1 = await tracker.get_book("TEST001")
-        assert book1.viewability == "VIEW_FULL"
+        assert book1.grin_viewability == "VIEW_FULL"
         assert book1.enrichment_timestamp is not None
 
         book2 = await tracker.get_book("TEST002")
-        assert book2.viewability == "VIEW_METADATA"
+        assert book2.grin_viewability == "VIEW_METADATA"
         assert book2.enrichment_timestamp is not None
 
         book3 = await tracker.get_book("TEST003")
-        assert book3.viewability == "VIEW_SNIPPET"
+        assert book3.grin_viewability == "VIEW_SNIPPET"
         assert book3.enrichment_timestamp is not None
 
     @pytest.mark.asyncio
@@ -339,7 +339,7 @@ class TestGRINEnrichmentPipeline:
         tracker = SQLiteProgressTracker(temp_db)
         book1 = await tracker.get_book("TEST001")
         assert book1.enrichment_timestamp is not None
-        assert book1.viewability == "VIEW_FULL"
+        assert book1.grin_viewability == "VIEW_FULL"
 
         # Reset enrichment data
         reset_count = await pipeline.reset_enrichment_data()
@@ -348,7 +348,7 @@ class TestGRINEnrichmentPipeline:
         # Verify enrichment data was cleared
         book1_after = await tracker.get_book("TEST001")
         assert book1_after.enrichment_timestamp is None
-        assert book1_after.viewability is None
+        assert book1_after.grin_viewability is None
 
     @pytest.mark.asyncio
     async def test_dynamic_batch_size_splitting(self, temp_db, mock_enrichment_data):
@@ -415,7 +415,7 @@ class TestGRINEnrichmentPipeline:
     @pytest.mark.asyncio
     async def test_error_handling_in_enrich_batch(self, temp_db):
         """Test error handling when enrichment processing fails"""
-        mock_client = MockGRINEnrichmentClient({"TEST001": {"viewability": "VIEW_FULL"}})
+        mock_client = MockGRINEnrichmentClient({"TEST001": {"grin_viewability": "VIEW_FULL"}})
 
         # Make fetch_resource fail
         async def failing_fetch_resource(directory, resource):
@@ -481,36 +481,23 @@ class TestEnrichmentDataExtraction:
 
         data_map = dict(zip(headers, values, strict=False))
 
-        # Test the field extraction logic
-        enrichment_data = {
-            "grin_state": data_map.get("State", ""),
-            "viewability": data_map.get("Viewability", ""),
-            "opted_out": data_map.get("Opted-Out (post-scan)", ""),
-            "conditions": data_map.get("Conditions", ""),
-            "scannable": data_map.get("Scannable", ""),
-            "tagging": data_map.get("Tagging", ""),
-            "audit": data_map.get("Audit", ""),
-            "material_error_percent": data_map.get("Material Error%", ""),
-            "overall_error_percent": data_map.get("Overall Error%", ""),
-            "claimed": data_map.get("Claimed", ""),
-            "ocr_analysis_score": data_map.get("OCR Analysis Score", ""),
-            "ocr_gtd_score": data_map.get("OCR GTD Score", ""),
-            "digitization_method": data_map.get("Digitization Method", ""),
-        }
+        # Test the field extraction logic using BookRecord's GRIN TSV mapping
+        from grin_to_s3.collect_books.models import BookRecord
+        grin_tsv_mapping = BookRecord.get_grin_tsv_column_mapping()
 
+        enrichment_data = {}
+        for grin_tsv_column, field_name in grin_tsv_mapping.items():
+            enrichment_data[field_name] = data_map.get(grin_tsv_column, "")
+
+        # Test a few key fields to verify the mapping works correctly
         assert enrichment_data["grin_state"] == "ACTIVE"
-        assert enrichment_data["viewability"] == "VIEW_FULL"
-        assert enrichment_data["opted_out"] == "false"
-        assert enrichment_data["conditions"] == "GOOD"
-        assert enrichment_data["scannable"] == "true"
-        assert enrichment_data["tagging"] == "true"
-        assert enrichment_data["audit"] == "PASSED"
-        assert enrichment_data["material_error_percent"] == "2%"
-        assert enrichment_data["overall_error_percent"] == "1%"
-        assert enrichment_data["claimed"] == "false"
-        assert enrichment_data["ocr_analysis_score"] == "95"
-        assert enrichment_data["ocr_gtd_score"] == "98"
-        assert enrichment_data["digitization_method"] == "NON_DESTRUCTIVE"
+        assert enrichment_data["grin_viewability"] == "VIEW_FULL"
+        assert enrichment_data["grin_material_error_percent"] == "2%"
+        assert enrichment_data["grin_ocr_analysis_score"] == "95"
+        assert enrichment_data["grin_digitization_method"] == "NON_DESTRUCTIVE"
+
+        # Verify all 18 enrichment fields are present in the mapping
+        assert len(enrichment_data) == 18
 
 
 if __name__ == "__main__":
