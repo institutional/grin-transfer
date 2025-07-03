@@ -17,6 +17,7 @@ class SyncStats(TypedDict):
     skipped: int
     uploaded: int
     total_bytes: int
+    enrichment_queue_size: int
 
 
 class BookSyncResult(TypedDict):
@@ -78,6 +79,7 @@ def create_sync_stats() -> SyncStats:
         skipped=0,
         uploaded=0,
         total_bytes=0,
+        enrichment_queue_size=0,
     )
 
 

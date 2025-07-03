@@ -151,6 +151,9 @@ async def cmd_pipeline(args) -> None:
             staging_dir=args.staging_dir,
             disk_space_threshold=args.disk_space_threshold,
             skip_extract_ocr=args.skip_extract_ocr,
+            enrichment_enabled=not args.skip_enrichment,
+            enrichment_workers=args.enrichment_workers,
+            auto_update_csv=not args.skip_csv_update,
         )
 
         # Set up signal handlers for graceful shutdown
@@ -196,6 +199,9 @@ async def cmd_pipeline(args) -> None:
                 staging_dir=args.staging_dir,
                 disk_space_threshold=args.disk_space_threshold,
                 skip_extract_ocr=args.skip_extract_ocr,
+                enrichment_enabled=not args.skip_enrichment,
+                enrichment_workers=args.enrichment_workers,
+                auto_update_csv=not args.skip_csv_update,
             )
             print("  - Concurrent downloads: 1")
             print("  - Concurrent uploads: 1")
@@ -432,6 +438,17 @@ Examples:
     # OCR extraction options
     pipeline_parser.add_argument(
         "--skip-extract-ocr", action="store_true", help="Skip OCR text extraction (default: extract OCR)"
+    )
+
+    # Enrichment options
+    pipeline_parser.add_argument(
+        "--skip-enrichment", action="store_true", help="Skip automatic enrichment (default: enrichment enabled)"
+    )
+    pipeline_parser.add_argument(
+        "--enrichment-workers", type=int, default=1, help="Number of enrichment workers (default: 1)"
+    )
+    pipeline_parser.add_argument(
+        "--skip-csv-update", action="store_true", help="Skip automatic CSV updates (default: update CSV)"
     )
 
     # GRIN options

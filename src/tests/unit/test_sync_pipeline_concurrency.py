@@ -193,3 +193,123 @@ class TestSyncPipelineConcurrency:
             concurrent_at_point = len(list(acquisition_order[:i+1])) - len(list(release_order[:i]))
             assert concurrent_at_point <= pipeline.concurrent_downloads, \
                 f"Concurrent acquisitions ({concurrent_at_point}) exceeded limit at point {i}"
+
+
+class TestSyncPipelineEnrichmentQueue:
+    """Test enrichment queue infrastructure in sync pipeline."""
+
+    @pytest.fixture
+    def mock_pipeline_dependencies(self):
+        """Mock all pipeline dependencies."""
+        with patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker, \
+             patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter, \
+             patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client:
+
+            # Configure mocks
+            mock_tracker.return_value = MagicMock()
+            mock_reporter.return_value = MagicMock()
+            mock_client.return_value = MagicMock()
+
+            yield {
+                "tracker": mock_tracker.return_value,
+                "reporter": mock_reporter.return_value,
+                "client": mock_client.return_value,
+            }
+
+    def test_enrichment_queue_enabled_by_default(self, mock_pipeline_dependencies):
+        """Test that enrichment queue is enabled by default."""
+        pipeline = SyncPipeline(
+            db_path="/tmp/test.db",
+            storage_type="local",
+            storage_config={"base_path": "/tmp"},
+            library_directory="TestLib",
+        )
+
+        # Enrichment should be enabled by default
+        assert pipeline.enrichment_enabled is True
+        assert pipeline.enrichment_workers == 1
+        assert pipeline.auto_update_csv is True
+
+        # Queue should be initialized
+        assert pipeline.enrichment_queue is not None
+        assert pipeline.enrichment_queue.qsize() == 0
+
+    def test_enrichment_queue_can_be_disabled(self, mock_pipeline_dependencies):
+        """Test that enrichment queue can be disabled."""
+        pipeline = SyncPipeline(
+            db_path="/tmp/test.db",
+            storage_type="local",
+            storage_config={"base_path": "/tmp"},
+            library_directory="TestLib",
+            enrichment_enabled=False,
+        )
+
+        # Enrichment should be disabled
+        assert pipeline.enrichment_enabled is False
+
+        # Queue should be None when disabled
+        assert pipeline.enrichment_queue is None
+
+    def test_enrichment_configuration_options(self, mock_pipeline_dependencies):
+        """Test enrichment configuration options."""
+        pipeline = SyncPipeline(
+            db_path="/tmp/test.db",
+            storage_type="local",
+            storage_config={"base_path": "/tmp"},
+            library_directory="TestLib",
+            enrichment_enabled=True,
+            enrichment_workers=3,
+            auto_update_csv=False,
+        )
+
+        # Configuration should be set correctly
+        assert pipeline.enrichment_enabled is True
+        assert pipeline.enrichment_workers == 3
+        assert pipeline.auto_update_csv is False
+
+        # Queue should still be initialized
+        assert pipeline.enrichment_queue is not None
+
+    async def test_enrichment_queue_size_in_stats(self, mock_pipeline_dependencies):
+        """Test that enrichment queue size is tracked in stats."""
+        pipeline = SyncPipeline(
+            db_path="/tmp/test.db",
+            storage_type="local",
+            storage_config={"base_path": "/tmp"},
+            library_directory="TestLib",
+            enrichment_enabled=True,
+        )
+
+        # Mock database stats
+        mock_tracker = mock_pipeline_dependencies["tracker"]
+        mock_tracker.get_sync_stats = AsyncMock(return_value={"total_books": 100})
+
+        # Initial stats should show queue size 0
+        status = await pipeline.get_sync_status()
+        assert status["session_stats"]["enrichment_queue_size"] == 0
+
+        # Add items to queue
+        await pipeline.enrichment_queue.put("barcode1")
+        await pipeline.enrichment_queue.put("barcode2")
+
+        # Stats should reflect queue size
+        status = await pipeline.get_sync_status()
+        assert status["session_stats"]["enrichment_queue_size"] == 2
+
+    async def test_enrichment_queue_size_zero_when_disabled(self, mock_pipeline_dependencies):
+        """Test that enrichment queue size is 0 when enrichment is disabled."""
+        pipeline = SyncPipeline(
+            db_path="/tmp/test.db",
+            storage_type="local",
+            storage_config={"base_path": "/tmp"},
+            library_directory="TestLib",
+            enrichment_enabled=False,
+        )
+
+        # Mock database stats
+        mock_tracker = mock_pipeline_dependencies["tracker"]
+        mock_tracker.get_sync_stats = AsyncMock(return_value={"total_books": 100})
+
+        # Stats should show queue size 0 when disabled
+        status = await pipeline.get_sync_status()
+        assert status["session_stats"]["enrichment_queue_size"] == 0
