@@ -41,28 +41,28 @@ class BookRecord:
     processing_request_timestamp: str | None = field(default=None, metadata={"csv": "Processing Request Timestamp"})
 
     # GRIN enrichment fields (populated by separate enrichment pipeline)
-    grin_state: str | None = field(default=None, metadata={"csv": "GRIN State", "tsv": "State"})
-    viewability: str | None = field(default=None, metadata={"csv": "Viewability", "tsv": "Viewability"})
-    opted_out: str | None = field(default=None, metadata={"csv": "Opted Out", "tsv": "Opted-Out (post-scan)"})
-    conditions: str | None = field(default=None, metadata={"csv": "Conditions", "tsv": "Conditions"})
-    scannable: str | None = field(default=None, metadata={"csv": "Scannable", "tsv": "Scannable"})
-    tagging: str | None = field(default=None, metadata={"csv": "Tagging", "tsv": "Tagging"})
-    audit: str | None = field(default=None, metadata={"csv": "Audit", "tsv": "Audit"})
+    grin_state: str | None = field(default=None, metadata={"csv": "GRIN State", "grin_tsv": "State"})
+    viewability: str | None = field(default=None, metadata={"csv": "Viewability", "grin_tsv": "Viewability"})
+    opted_out: str | None = field(default=None, metadata={"csv": "Opted Out", "grin_tsv": "Opted-Out (post-scan)"})
+    conditions: str | None = field(default=None, metadata={"csv": "Conditions", "grin_tsv": "Conditions"})
+    scannable: str | None = field(default=None, metadata={"csv": "Scannable", "grin_tsv": "Scannable"})
+    tagging: str | None = field(default=None, metadata={"csv": "Tagging", "grin_tsv": "Tagging"})
+    audit: str | None = field(default=None, metadata={"csv": "Audit", "grin_tsv": "Audit"})
     material_error_percent: str | None = field(
-        default=None, metadata={"csv": "Material Error %", "tsv": "Material Error%"}
+        default=None, metadata={"csv": "Material Error %", "grin_tsv": "Material Error%"}
     )
     overall_error_percent: str | None = field(
-        default=None, metadata={"csv": "Overall Error %", "tsv": "Overall Error%"}
+        default=None, metadata={"csv": "Overall Error %", "grin_tsv": "Overall Error%"}
     )
-    claimed: str | None = field(default=None, metadata={"csv": "Claimed", "tsv": "Claimed"})
+    claimed: str | None = field(default=None, metadata={"csv": "Claimed", "grin_tsv": "Claimed"})
     ocr_analysis_score: str | None = field(
-        default=None, metadata={"csv": "OCR Analysis Score", "tsv": "OCR Analysis Score"}
+        default=None, metadata={"csv": "OCR Analysis Score", "grin_tsv": "OCR Analysis Score"}
     )
     ocr_gtd_score: str | None = field(
-        default=None, metadata={"csv": "OCR GTD Score", "tsv": "OCR GTD Score"}
+        default=None, metadata={"csv": "OCR GTD Score", "grin_tsv": "OCR GTD Score"}
     )
     digitization_method: str | None = field(
-        default=None, metadata={"csv": "Digitization Method", "tsv": "Digitization Method"}
+        default=None, metadata={"csv": "Digitization Method", "grin_tsv": "Digitization Method"}
     )
     enrichment_timestamp: str | None = field(default=None, metadata={"csv": "Enrichment Timestamp"})
 
@@ -125,7 +125,7 @@ class BookRecord:
     @classmethod
     def build_update_enrichment_sql(cls) -> str:
         """Generate UPDATE SQL for enrichment fields."""
-        enrichment_fields = [f.name for f in fields(cls) if "tsv" in f.metadata]
+        enrichment_fields = [f.name for f in fields(cls) if "grin_tsv" in f.metadata]
         enrichment_fields.extend(["enrichment_timestamp", "updated_at"])
         set_clause = ", ".join(f"{field} = ?" for field in enrichment_fields)
         return f"UPDATE books SET {set_clause} WHERE barcode = ?"
@@ -137,16 +137,16 @@ class BookRecord:
 
     @classmethod
     def get_enrichment_fields(cls) -> list[str]:
-        """Get field names that have TSV mappings."""
-        return [f.name for f in fields(cls) if "tsv" in f.metadata]
+        """Get field names that have GRIN TSV mappings."""
+        return [f.name for f in fields(cls) if "grin_tsv" in f.metadata]
 
     @classmethod
-    def get_tsv_column_mapping(cls) -> dict[str, str]:
-        """Get mapping from TSV column names to field names."""
+    def get_grin_tsv_column_mapping(cls) -> dict[str, str]:
+        """Get mapping from GRIN TSV column names to field names."""
         mapping = {}
         for f in fields(cls):
-            if "tsv" in f.metadata:
-                mapping[f.metadata["tsv"]] = f.name
+            if "grin_tsv" in f.metadata:
+                mapping[f.metadata["grin_tsv"]] = f.name
         return mapping
 
     def to_tuple(self) -> tuple:

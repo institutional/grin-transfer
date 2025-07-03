@@ -203,13 +203,13 @@ class GRINEnrichmentPipeline:
                 # Create mapping and extract enrichment fields using centralized TSV mapping
                 data_map = dict(zip(headers, values, strict=False))
 
-                # Use BookRecord's TSV mapping instead of hardcoded mapping
+                # Use BookRecord's GRIN TSV mapping instead of hardcoded mapping
                 from .collect_books.models import BookRecord
-                tsv_mapping = BookRecord.get_tsv_column_mapping()
+                grin_tsv_mapping = BookRecord.get_grin_tsv_column_mapping()
 
                 enrichment_data = {}
-                for tsv_column, field_name in tsv_mapping.items():
-                    enrichment_data[field_name] = data_map.get(tsv_column, "")
+                for grin_tsv_column, field_name in grin_tsv_mapping.items():
+                    enrichment_data[field_name] = data_map.get(grin_tsv_column, "")
 
                 results[barcode] = enrichment_data
                 logger.debug(
