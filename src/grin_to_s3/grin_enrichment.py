@@ -200,24 +200,16 @@ class GRINEnrichmentPipeline:
                     )
                     values = values[: len(headers)]
 
-                # Create mapping and extract enrichment fields
+                # Create mapping and extract enrichment fields using centralized TSV mapping
                 data_map = dict(zip(headers, values, strict=False))
 
-                enrichment_data = {
-                    "grin_state": data_map.get("State", ""),
-                    "viewability": data_map.get("Viewability", ""),
-                    "opted_out": data_map.get("Opted-Out (post-scan)", ""),
-                    "conditions": data_map.get("Conditions", ""),
-                    "scannable": data_map.get("Scannable", ""),
-                    "tagging": data_map.get("Tagging", ""),
-                    "audit": data_map.get("Audit", ""),
-                    "material_error_percent": data_map.get("Material Error%", ""),
-                    "overall_error_percent": data_map.get("Overall Error%", ""),
-                    "claimed": data_map.get("Claimed", ""),
-                    "ocr_analysis_score": data_map.get("OCR Analysis Score", ""),
-                    "ocr_gtd_score": data_map.get("OCR GTD Score", ""),
-                    "digitization_method": data_map.get("Digitization Method", ""),
-                }
+                # Use BookRecord's TSV mapping instead of hardcoded mapping
+                from .collect_books.models import BookRecord
+                tsv_mapping = BookRecord.get_tsv_column_mapping()
+
+                enrichment_data = {}
+                for tsv_column, field_name in tsv_mapping.items():
+                    enrichment_data[field_name] = data_map.get(tsv_column, "")
 
                 results[barcode] = enrichment_data
                 logger.debug(
