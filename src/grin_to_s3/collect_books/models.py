@@ -148,6 +148,15 @@ class BookRecord:
         return f"UPDATE books SET {set_clause} WHERE barcode = ?"
 
     @classmethod
+    def build_reset_enrichment_sql(cls) -> str:
+        """Generate UPDATE SQL to reset all enrichment fields to NULL."""
+        enrichment_fields = [f.name for f in fields(cls) if "grin_tsv" in f.metadata]
+        enrichment_fields.append("enrichment_timestamp")
+        set_clause = ", ".join(f"{field} = NULL" for field in enrichment_fields)
+        set_clause += ", updated_at = ?"
+        return f"UPDATE books SET {set_clause} WHERE enrichment_timestamp IS NOT NULL"
+
+    @classmethod
     def get_field_names(cls) -> list[str]:
         """Get all field names."""
         return [f.name for f in fields(cls)]
