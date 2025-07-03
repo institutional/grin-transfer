@@ -8,7 +8,7 @@ Contains BookRecord and other data classes used in the CSV export system.
 import json
 import logging
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, field, fields
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -25,135 +25,133 @@ class BookRecord:
     """Book record for CSV export and SQLite storage."""
 
     # Core identification
-    barcode: str
-    title: str = ""
+    barcode: str = field(metadata={"csv": "Barcode"})
+    title: str = field(default="", metadata={"csv": "Title"})
 
     # GRIN timestamps (from _all_books endpoint)
-    scanned_date: str | None = None
-    converted_date: str | None = None
-    downloaded_date: str | None = None
-    processed_date: str | None = None
-    analyzed_date: str | None = None
-    ocr_date: str | None = None
-    google_books_link: str = ""
+    scanned_date: str | None = field(default=None, metadata={"csv": "Scanned Date"})
+    converted_date: str | None = field(default=None, metadata={"csv": "Converted Date"})
+    downloaded_date: str | None = field(default=None, metadata={"csv": "Downloaded Date"})
+    processed_date: str | None = field(default=None, metadata={"csv": "Processed Date"})
+    analyzed_date: str | None = field(default=None, metadata={"csv": "Analyzed Date"})
+    ocr_date: str | None = field(default=None, metadata={"csv": "OCR Date"})
+    google_books_link: str = field(default="", metadata={"csv": "Google Books Link"})
 
     # Processing request tracking (status tracked in history table)
-    processing_request_timestamp: str | None = None  # ISO timestamp when processing was requested
+    processing_request_timestamp: str | None = field(default=None, metadata={"csv": "Processing Request Timestamp"})
 
     # GRIN enrichment fields (populated by separate enrichment pipeline)
-    grin_state: str | None = None
-    viewability: str | None = None
-    opted_out: str | None = None
-    conditions: str | None = None
-    scannable: str | None = None
-    tagging: str | None = None
-    audit: str | None = None
-    material_error_percent: str | None = None
-    overall_error_percent: str | None = None
-    claimed: str | None = None
-    ocr_analysis_score: str | None = None
-    ocr_gtd_score: str | None = None
-    digitization_method: str | None = None
-    enrichment_timestamp: str | None = None
+    grin_state: str | None = field(default=None, metadata={"csv": "GRIN State", "grin_tsv": "State"})
+    viewability: str | None = field(default=None, metadata={"csv": "Viewability", "grin_tsv": "Viewability"})
+    opted_out: str | None = field(default=None, metadata={"csv": "Opted Out", "grin_tsv": "Opted-Out (post-scan)"})
+    conditions: str | None = field(default=None, metadata={"csv": "Conditions", "grin_tsv": "Conditions"})
+    scannable: str | None = field(default=None, metadata={"csv": "Scannable", "grin_tsv": "Scannable"})
+    tagging: str | None = field(default=None, metadata={"csv": "Tagging", "grin_tsv": "Tagging"})
+    audit: str | None = field(default=None, metadata={"csv": "Audit", "grin_tsv": "Audit"})
+    material_error_percent: str | None = field(
+        default=None, metadata={"csv": "Material Error %", "grin_tsv": "Material Error%"}
+    )
+    overall_error_percent: str | None = field(
+        default=None, metadata={"csv": "Overall Error %", "grin_tsv": "Overall Error%"}
+    )
+    claimed: str | None = field(default=None, metadata={"csv": "Claimed", "grin_tsv": "Claimed"})
+    ocr_analysis_score: str | None = field(
+        default=None, metadata={"csv": "OCR Analysis Score", "grin_tsv": "OCR Analysis Score"}
+    )
+    ocr_gtd_score: str | None = field(
+        default=None, metadata={"csv": "OCR GTD Score", "grin_tsv": "OCR GTD Score"}
+    )
+    digitization_method: str | None = field(
+        default=None, metadata={"csv": "Digitization Method", "grin_tsv": "Digitization Method"}
+    )
+    enrichment_timestamp: str | None = field(default=None, metadata={"csv": "Enrichment Timestamp"})
 
     # Export tracking
-    csv_exported: str | None = None
-    csv_updated: str | None = None
+    csv_exported: str | None = field(default=None, metadata={"csv": "CSV Exported"})
+    csv_updated: str | None = field(default=None, metadata={"csv": "CSV Updated"})
 
     # Sync tracking for storage pipeline (status tracked in history table)
-    storage_type: str | None = None  # e.g., "r2", "minio", "s3", "local"
-    storage_path: str | None = None  # Path to the encrypted archive in storage
-    storage_decrypted_path: str | None = None  # Path to the decrypted archive in storage
-    last_etag_check: str | None = None  # ISO timestamp of last ETag verification
-    encrypted_etag: str | None = None  # Encrypted file's ETag for the file
-    is_decrypted: bool = False  # Whether decrypted version exists
-    sync_timestamp: str | None = None  # ISO timestamp of last successful sync
-    sync_error: str | None = None  # Error message if sync failed
+    storage_type: str | None = field(default=None, metadata={"csv": "Storage Type"})
+    storage_path: str | None = field(default=None, metadata={"csv": "Storage Path"})
+    storage_decrypted_path: str | None = field(default=None, metadata={"csv": "Storage Decrypted Path"})
+    last_etag_check: str | None = field(default=None, metadata={"csv": "Last ETag Check"})
+    encrypted_etag: str | None = field(default=None, metadata={"csv": "Encrypted ETag"})
+    is_decrypted: bool = field(default=False, metadata={"csv": "Is Decrypted"})
+    sync_timestamp: str | None = field(default=None, metadata={"csv": "Sync Timestamp"})
+    sync_error: str | None = field(default=None, metadata={"csv": "Sync Error"})
 
     # Record keeping
-    created_at: str | None = None  # ISO timestamp when record was created
-    updated_at: str | None = None  # ISO timestamp when record was last updated
+    created_at: str | None = field(default=None, metadata={"csv": "Created At"})
+    updated_at: str | None = field(default=None, metadata={"csv": "Updated At"})
 
     @classmethod
-    def csv_headers(cls) -> list:
-        """Get CSV column headers."""
-        return [
-            "Barcode",
-            "Title",
-            "Scanned Date",
-            "Converted Date",
-            "Downloaded Date",
-            "Processed Date",
-            "Analyzed Date",
-            "OCR Date",
-            "Google Books Link",
-            "Processing Request Timestamp",
-            "GRIN State",
-            "Viewability",
-            "Opted Out",
-            "Conditions",
-            "Scannable",
-            "Tagging",
-            "Audit",
-            "Material Error %",
-            "Overall Error %",
-            "Claimed",
-            "OCR Analysis Score",
-            "OCR GTD Score",
-            "Digitization Method",
-            "Enrichment Timestamp",
-            "CSV Exported",
-            "CSV Updated",
-            "Storage Type",
-            "Storage Path",
-            "Storage Decrypted Path",
-            "Last ETag Check",
-            "Encrypted ETag",
-            "Is Decrypted",
-            "Sync Timestamp",
-            "Sync Error",
-        ]
+    def csv_headers(cls) -> list[str]:
+        """Get CSV column headers from field metadata."""
+        headers = []
+        for f in fields(cls):
+            if "csv" in f.metadata:
+                headers.append(f.metadata["csv"])
+        return headers
 
     def to_csv_row(self) -> list[str]:
-        """Convert to CSV row values."""
-        return [
-            self.barcode,
-            self.title,
-            self.scanned_date or "",
-            self.converted_date or "",
-            self.downloaded_date or "",
-            self.processed_date or "",
-            self.analyzed_date or "",
-            self.ocr_date or "",
-            self.google_books_link,
-            # Processing status removed - tracked in history table
-            self.processing_request_timestamp or "",
-            self.grin_state or "",
-            self.viewability or "",
-            self.opted_out or "",
-            self.conditions or "",
-            self.scannable or "",
-            self.tagging or "",
-            self.audit or "",
-            self.material_error_percent or "",
-            self.overall_error_percent or "",
-            self.claimed or "",
-            self.ocr_analysis_score or "",
-            self.ocr_gtd_score or "",
-            self.digitization_method or "",
-            self.enrichment_timestamp or "",
-            self.csv_exported or "",
-            self.csv_updated or "",
-            self.storage_type or "",
-            self.storage_path or "",
-            self.storage_decrypted_path or "",
-            self.last_etag_check or "",
-            self.encrypted_etag or "",
-            str(self.is_decrypted) if self.is_decrypted else "",
-            # Sync status removed - tracked in history table
-            self.sync_timestamp or "",
-            self.sync_error or "",
-        ]
+        """Convert to CSV row values from field metadata."""
+        values = []
+        for f in fields(self):
+            if "csv" in f.metadata:
+                value = getattr(self, f.name)
+                if value is None:
+                    values.append("")
+                elif isinstance(value, bool):
+                    values.append(str(value) if value else "")
+                else:
+                    values.append(str(value))
+        return values
+
+    @classmethod
+    def build_insert_sql(cls) -> str:
+        """Generate INSERT SQL from dataclass fields."""
+        field_names = [f.name for f in fields(cls)]
+        columns = ", ".join(field_names)
+        placeholders = ", ".join("?" for _ in field_names)
+        return f"INSERT OR REPLACE INTO books ({columns}) VALUES ({placeholders})"
+
+    @classmethod
+    def build_select_sql(cls) -> str:
+        """Generate SELECT SQL from dataclass fields."""
+        field_names = [f.name for f in fields(cls)]
+        columns = ", ".join(field_names)
+        return f"SELECT {columns} FROM books"
+
+    @classmethod
+    def build_update_enrichment_sql(cls) -> str:
+        """Generate UPDATE SQL for enrichment fields."""
+        enrichment_fields = [f.name for f in fields(cls) if "grin_tsv" in f.metadata]
+        enrichment_fields.extend(["enrichment_timestamp", "updated_at"])
+        set_clause = ", ".join(f"{field} = ?" for field in enrichment_fields)
+        return f"UPDATE books SET {set_clause} WHERE barcode = ?"
+
+    @classmethod
+    def get_field_names(cls) -> list[str]:
+        """Get all field names."""
+        return [f.name for f in fields(cls)]
+
+    @classmethod
+    def get_enrichment_fields(cls) -> list[str]:
+        """Get field names that have GRIN TSV mappings."""
+        return [f.name for f in fields(cls) if "grin_tsv" in f.metadata]
+
+    @classmethod
+    def get_grin_tsv_column_mapping(cls) -> dict[str, str]:
+        """Get mapping from GRIN TSV column names to field names."""
+        mapping = {}
+        for f in fields(cls):
+            if "grin_tsv" in f.metadata:
+                mapping[f.metadata["grin_tsv"]] = f.name
+        return mapping
+
+    def to_tuple(self) -> tuple:
+        """Convert to tuple for SQL operations."""
+        return tuple(getattr(self, f.name) for f in fields(self))
 
 
 class BoundedSet:
@@ -458,65 +456,13 @@ class SQLiteProgressTracker:
 
         now = datetime.now(UTC).isoformat()
 
+        # Update timestamps if not already set
+        if not book.created_at:
+            book.created_at = now
+        book.updated_at = now
+
         async with connect_async(self.db_path) as db:
-            await db.execute(
-                """
-                INSERT OR REPLACE INTO books (
-                    barcode, title, scanned_date, converted_date, downloaded_date,
-                    processed_date, analyzed_date, ocr_date, google_books_link,
-                    processing_request_timestamp,
-                    grin_state, viewability, opted_out, conditions, scannable, tagging, audit,
-                    material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
-                    ocr_gtd_score, digitization_method, enrichment_timestamp,
-                    csv_exported, csv_updated, storage_type, storage_path,
-                    storage_decrypted_path, last_etag_check, encrypted_etag,
-                    is_decrypted, sync_timestamp, sync_error,
-                    created_at, updated_at
-                ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                )
-            """,
-                (
-                    book.barcode,
-                    book.title,
-                    book.scanned_date,
-                    book.converted_date,
-                    book.downloaded_date,
-                    book.processed_date,
-                    book.analyzed_date,
-                    book.ocr_date,
-                    book.google_books_link,
-                    getattr(book, "processing_request_timestamp", None),
-                    book.grin_state,
-                    book.viewability,
-                    book.opted_out,
-                    book.conditions,
-                    book.scannable,
-                    book.tagging,
-                    book.audit,
-                    book.material_error_percent,
-                    book.overall_error_percent,
-                    book.claimed,
-                    book.ocr_analysis_score,
-                    book.ocr_gtd_score,
-                    book.digitization_method,
-                    book.enrichment_timestamp,
-                    book.csv_exported,
-                    book.csv_updated,
-                    getattr(book, "storage_type", None),
-                    getattr(book, "storage_path", None),
-                    getattr(book, "storage_decrypted_path", None),
-                    getattr(book, "last_etag_check", None),
-                    getattr(book, "encrypted_etag", None),
-                    getattr(book, "is_decrypted", False),
-                    getattr(book, "sync_timestamp", None),
-                    getattr(book, "sync_error", None),
-                    book.created_at or now,
-                    book.updated_at or now,
-                ),
-            )
+            await db.execute(BookRecord.build_insert_sql(), book.to_tuple())
             await db.commit()
 
     async def get_book(self, barcode: str) -> BookRecord | None:
@@ -525,18 +471,7 @@ class SQLiteProgressTracker:
 
         async with connect_async(self.db_path) as db:
             cursor = await db.execute(
-                """
-                SELECT barcode, title, scanned_date, converted_date, downloaded_date,
-                       processed_date, analyzed_date, ocr_date, google_books_link,
-                       processing_request_timestamp,
-                       grin_state, viewability, opted_out, conditions, scannable, tagging, audit,
-                       material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
-                       ocr_gtd_score, digitization_method, enrichment_timestamp,
-                       csv_exported, csv_updated, storage_type, storage_path,
-                       storage_decrypted_path, last_etag_check, encrypted_etag,
-                       is_decrypted, sync_timestamp, sync_error, created_at, updated_at
-                FROM books WHERE barcode = ?
-            """,
+                f"{BookRecord.build_select_sql()} WHERE barcode = ?",
                 (barcode,),
             )
 
@@ -551,37 +486,16 @@ class SQLiteProgressTracker:
 
         now = datetime.now(UTC).isoformat()
 
-        async with connect_async(self.db_path) as db:
-            await db.execute(
-                """
-                UPDATE books SET
-                    grin_state = ?, viewability = ?, opted_out = ?, conditions = ?,
-                    scannable = ?, tagging = ?, audit = ?, material_error_percent = ?,
-                    overall_error_percent = ?, claimed = ?, ocr_analysis_score = ?,
-                    ocr_gtd_score = ?, digitization_method = ?, enrichment_timestamp = ?,
-                    updated_at = ?
-                WHERE barcode = ?
-            """,
-                (
-                    enrichment_data.get("grin_state"),
-                    enrichment_data.get("viewability"),
-                    enrichment_data.get("opted_out"),
-                    enrichment_data.get("conditions"),
-                    enrichment_data.get("scannable"),
-                    enrichment_data.get("tagging"),
-                    enrichment_data.get("audit"),
-                    enrichment_data.get("material_error_percent"),
-                    enrichment_data.get("overall_error_percent"),
-                    enrichment_data.get("claimed"),
-                    enrichment_data.get("ocr_analysis_score"),
-                    enrichment_data.get("ocr_gtd_score"),
-                    enrichment_data.get("digitization_method"),
-                    now,
-                    now,
-                    barcode,
-                ),
-            )
+        # Build values tuple for enrichment fields
+        enrichment_fields = BookRecord.get_enrichment_fields()
+        values = [enrichment_data.get(field) for field in enrichment_fields]
+        # Add enrichment_timestamp and updated_at
+        values.extend([now, now])
+        # Add barcode for WHERE clause
+        values.append(barcode)
 
+        async with connect_async(self.db_path) as db:
+            await db.execute(BookRecord.build_update_enrichment_sql(), values)
             rows_affected = db.total_changes
             await db.commit()
             return rows_affected > 0
@@ -609,19 +523,7 @@ class SQLiteProgressTracker:
         await self.init_db()
 
         async with connect_async(self.db_path) as db:
-            cursor = await db.execute("""
-                SELECT barcode, title, scanned_date, converted_date, downloaded_date,
-                       processed_date, analyzed_date, ocr_date, google_books_link,
-                       processing_state, processing_request_status, processing_request_timestamp,
-                       grin_state, viewability, opted_out, conditions, scannable, tagging, audit,
-                       material_error_percent, overall_error_percent, claimed, ocr_analysis_score,
-                       ocr_gtd_score, digitization_method, enrichment_timestamp,
-                       csv_exported, csv_updated, storage_type, storage_path,
-                       storage_decrypted_path, last_etag_check, encrypted_etag,
-                       is_decrypted, sync_status, sync_timestamp, sync_error
-                FROM books ORDER BY barcode
-            """)
-
+            cursor = await db.execute(f"{BookRecord.build_select_sql()} ORDER BY barcode")
             rows = await cursor.fetchall()
             return [BookRecord(*row) for row in rows]
 
