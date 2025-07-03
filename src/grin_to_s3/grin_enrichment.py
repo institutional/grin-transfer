@@ -214,7 +214,7 @@ class GRINEnrichmentPipeline:
                 results[barcode] = enrichment_data
                 logger.debug(
                     f"Enriched {barcode}: State={enrichment_data.get('grin_state')}, "
-                    f"Viewability={enrichment_data.get('viewability')}"
+                    f"Viewability={enrichment_data.get('grin_viewability')}"
                 )
 
             # Ensure all requested barcodes have entries (even if None)
