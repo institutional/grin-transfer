@@ -27,20 +27,23 @@ def get_barcode_from_path(archive_path: str) -> str:
 
 class TextExtractionError(Exception):
     """Raised when text extraction fails due to archive issues."""
+
     pass
 
 
 class CorruptedArchiveError(TextExtractionError):
     """Raised when archive is corrupted or cannot be opened."""
+
     pass
 
 
 class InvalidPageFormatError(TextExtractionError):
     """Raised when page files have invalid naming format."""
+
     pass
 
 
-def extract_ocr_pages(
+async def extract_ocr_pages(
     archive_path: str,
     db_path: str,
     session_id: str,
@@ -88,17 +91,17 @@ def extract_ocr_pages(
     method = ExtractionMethod.DISK if extract_to_disk else ExtractionMethod.MEMORY
 
     # Track extraction start
-    track_start(db_path, barcode, session_id)
+    await track_start(db_path, barcode, session_id)
     start_time = time.time()
 
     if not archive_path_obj.exists():
         error = TextExtractionError(f"Archive file not found: {archive_path}")
-        track_failure(db_path, barcode, error, method, session_id)
+        await track_failure(db_path, barcode, error, method, session_id)
         raise error
 
     if not archive_path_obj.suffix.endswith(".gz"):
         error = TextExtractionError(f"Expected .tar.gz archive, got: {archive_path}")
-        track_failure(db_path, barcode, error, method, session_id)
+        await track_failure(db_path, barcode, error, method, session_id)
         raise error
 
     logger.debug(f"Starting OCR text extraction from {archive_path} (extract_to_disk={extract_to_disk})")
@@ -113,7 +116,7 @@ def extract_ocr_pages(
             # Track completion
             extraction_time_ms = int((time.time() - start_time) * 1000)
             file_size = Path(output_file).stat().st_size
-            track_completion(
+            await track_completion(
                 db_path,
                 barcode,
                 page_count,
@@ -137,15 +140,17 @@ def extract_ocr_pages(
 
             # Track completion
             extraction_time_ms = int((time.time() - start_time) * 1000)
-            track_completion(db_path, barcode, len(result), extraction_time_ms, method, session_id)
+            await track_completion(db_path, barcode, len(result), extraction_time_ms, method, session_id)
 
             return result
 
     except tarfile.TarError as e:
-        track_failure(db_path, barcode, e, method, session_id)
+        await track_failure(db_path, barcode, e, method, session_id)
         raise CorruptedArchiveError(f"Failed to open tar.gz archive: {e}") from e
     except Exception as e:
-        track_failure(db_path, barcode, e, method if output_file is None else ExtractionMethod.STREAMING, session_id)
+        await track_failure(
+            db_path, barcode, e, method if output_file is None else ExtractionMethod.STREAMING, session_id
+        )
         if isinstance(e, TextExtractionError):
             raise
         raise TextExtractionError(f"Unexpected error during extraction: {e}") from e
@@ -266,6 +271,7 @@ def _extract_text_from_disk(
         # Cleanup extracted files unless requested to keep them
         if cleanup_temp or not keep_extracted:
             import shutil
+
             try:
                 if cleanup_temp:
                     # Remove temporary directory entirely (parent of barcode dir)
@@ -338,8 +344,6 @@ def _build_page_array(page_data: dict[int, str]) -> list[str]:
         result.append(content)
 
     return result
-
-
 
 
 def _page_content_generator(archive_path: str) -> Iterator[tuple[int, str]]:
@@ -420,5 +424,3 @@ def _extract_text_to_jsonl_file_streaming(archive_path: str, output_path: Path) 
         if output_path.exists():
             output_path.unlink()
         raise
-
-

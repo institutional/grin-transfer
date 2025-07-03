@@ -73,11 +73,12 @@ class TestExtractionWithTracking:
         """Test successful text extraction with complete status tracking."""
         # Get the actual barcode from the archive path
         from grin_to_s3.extract.text_extraction import get_barcode_from_path
+
         barcode = get_barcode_from_path(test_archive_with_content)
         session_id = "test_session_123"
 
         # Run extraction with tracking
-        result = extract_ocr_pages(
+        result = await extract_ocr_pages(
             test_archive_with_content,
             temp_db_tracker.db_path,
             session_id,
@@ -95,6 +96,7 @@ class TestExtractionWithTracking:
         # Verify database tracking was recorded
         # Allow some time for async tasks to complete
         import asyncio
+
         await asyncio.sleep(0.1)
 
         # Check status history entries
@@ -130,6 +132,7 @@ class TestExtractionWithTracking:
         """Test JSONL extraction with database tracking."""
         # Get the actual barcode from the archive path
         from grin_to_s3.extract.text_extraction import get_barcode_from_path
+
         barcode = get_barcode_from_path(test_archive_with_content)
         session_id = "test_session_456"
 
@@ -138,7 +141,7 @@ class TestExtractionWithTracking:
 
         try:
             # Run JSONL extraction with tracking
-            page_count = extract_ocr_pages(
+            page_count = await extract_ocr_pages(
                 test_archive_with_content,
                 temp_db_tracker.db_path,
                 session_id,
@@ -166,6 +169,7 @@ class TestExtractionWithTracking:
 
             # Allow time for async tasks
             import asyncio
+
             await asyncio.sleep(0.1)
 
             # Verify tracking in database
@@ -202,8 +206,9 @@ class TestExtractionWithTracking:
 
         # Try to extract from nonexistent file
         from grin_to_s3.extract.text_extraction import TextExtractionError
+
         with pytest.raises(TextExtractionError):
-            extract_ocr_pages(
+            await extract_ocr_pages(
                 nonexistent_path,
                 temp_db_tracker.db_path,
                 session_id,
@@ -211,6 +216,7 @@ class TestExtractionWithTracking:
 
         # Allow time for async tasks
         import asyncio
+
         await asyncio.sleep(0.1)
 
         # Verify failure was tracked
@@ -231,7 +237,6 @@ class TestExtractionWithTracking:
         assert metadata["extraction_method"] in ["memory", "disk"]
 
 
-
 class TestQueryFunctionsIntegration:
     """Test query functions with real database data."""
 
@@ -241,7 +246,7 @@ class TestQueryFunctionsIntegration:
         # Perform several extractions with different outcomes
 
         # Successful extraction
-        extract_ocr_pages(
+        await extract_ocr_pages(
             test_archive_with_content,
             temp_db_tracker.db_path,
             "session1",
@@ -274,10 +279,11 @@ class TestQueryFunctionsIntegration:
 
         # Allow time for async tasks
         import asyncio
+
         await asyncio.sleep(0.1)
 
         # Test status summary
-        summary = get_status_summary(temp_db_tracker.db_path)
+        summary = await get_status_summary(temp_db_tracker.db_path)
 
         assert summary[ExtractionStatus.COMPLETED.value] >= 2
         assert summary[ExtractionStatus.FAILED.value] >= 1
@@ -312,7 +318,7 @@ class TestQueryFunctionsIntegration:
             )
 
         # Query failed extractions
-        failures = get_failed_extractions(temp_db_tracker.db_path, limit=10)
+        failures = await get_failed_extractions(temp_db_tracker.db_path, limit=10)
 
         assert len(failures) >= 2
 
@@ -356,7 +362,7 @@ class TestQueryFunctionsIntegration:
         )
 
         # Get progress statistics
-        progress = get_extraction_progress(temp_db_tracker.db_path)
+        progress = await get_extraction_progress(temp_db_tracker.db_path)
 
         # Verify statistics
         assert progress["total_pages_extracted"] == 450  # 150 + 200 + 100
@@ -383,7 +389,7 @@ class TestSessionTracking:
         session2 = "batch_session_2"
 
         # Extract with different session IDs
-        extract_ocr_pages(
+        await extract_ocr_pages(
             test_archive_with_content,
             temp_db_tracker.db_path,
             session1,
@@ -400,6 +406,7 @@ class TestSessionTracking:
 
         # Allow time for async tasks
         import asyncio
+
         await asyncio.sleep(0.1)
 
         # Verify session isolation in database

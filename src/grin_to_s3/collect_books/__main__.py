@@ -381,7 +381,7 @@ Examples:
             "type": args.storage,
             "protocol": storage_protocol,
             "config": final_storage_dict,
-            "prefix": ""
+            "prefix": "",
         }
 
         # Set up storage with auto-configuration and connectivity checks

@@ -63,10 +63,10 @@ def test_archive_with_ocr():
             pages={
                 "00000001.txt": "This is page one content",
                 "00000002.txt": "This is page two content",
-                "00000003.txt": "This is page three content"
+                "00000003.txt": "This is page three content",
             },
             temp_dir=temp_path,
-            archive_name="test_book.tar.gz"
+            archive_name="test_book.tar.gz",
         )
 
         yield archive_path
@@ -101,7 +101,9 @@ class TestSyncOCRPipelineIntegration:
             # Create real BookStorage mock with OCR upload capability
             mock_storage = MagicMock()
             mock_storage.save_decrypted_archive_from_file = AsyncMock(return_value="path/to/archive")
-            mock_storage.save_ocr_text_jsonl_from_file = AsyncMock(return_value="bucket_full/TEST123456789/TEST123456789.jsonl")
+            mock_storage.save_ocr_text_jsonl_from_file = AsyncMock(
+                return_value="bucket_full/TEST123456789/TEST123456789.jsonl"
+            )
             mock_create_storage.return_value = mock_storage
             mock_book_storage_class.return_value = mock_storage
 
@@ -135,7 +137,7 @@ class TestSyncOCRPipelineIntegration:
                     """SELECT status_value, metadata FROM book_status_history
                        WHERE barcode = ? AND status_type = ?
                        ORDER BY timestamp""",
-                    (barcode, TEXT_EXTRACTION_STATUS_TYPE)
+                    (barcode, TEXT_EXTRACTION_STATUS_TYPE),
                 )
                 statuses = cursor.fetchall()
 
@@ -208,16 +210,14 @@ class TestSyncOCRPipelineIntegration:
                 cursor = conn.execute(
                     """SELECT COUNT(*) FROM book_status_history
                        WHERE barcode = ? AND status_type = ?""",
-                    (barcode, TEXT_EXTRACTION_STATUS_TYPE)
+                    (barcode, TEXT_EXTRACTION_STATUS_TYPE),
                 )
                 count = cursor.fetchone()[0]
 
             assert count == 0, "No OCR extraction database entries should exist when disabled"
 
     @pytest.mark.asyncio
-    async def test_sync_pipeline_ocr_extraction_failure_non_blocking(
-        self, temp_db_tracker, mock_staging_manager
-    ):
+    async def test_sync_pipeline_ocr_extraction_failure_non_blocking(self, temp_db_tracker, mock_staging_manager):
         """Test that OCR extraction failures don't block sync completion."""
         barcode = "TEST123456789"
 
@@ -266,7 +266,7 @@ class TestSyncOCRPipelineIntegration:
                     """SELECT status_value, metadata FROM book_status_history
                        WHERE barcode = ? AND status_type = ?
                        ORDER BY timestamp""",
-                    (barcode, TEXT_EXTRACTION_STATUS_TYPE)
+                    (barcode, TEXT_EXTRACTION_STATUS_TYPE),
                 )
                 statuses = cursor.fetchall()
 
@@ -305,9 +305,7 @@ class TestSyncOCRPipelineIntegration:
 
             # Mock upload failure
             mock_storage = MagicMock()
-            mock_storage.save_decrypted_archive_from_file = AsyncMock(
-                side_effect=Exception("Storage upload failed")
-            )
+            mock_storage.save_decrypted_archive_from_file = AsyncMock(side_effect=Exception("Storage upload failed"))
             mock_create_storage.return_value = mock_storage
             mock_book_storage_class.return_value = mock_storage
 
@@ -351,14 +349,29 @@ class TestOCRExtractionDatabaseTracking:
         session_id = "test_session_123"
 
         # Track the extraction lifecycle
-        write_status(temp_db_tracker.db_path, barcode, ExtractionStatus.STARTING,
-                    {"session_id": session_id, "source": "sync_pipeline"}, session_id)
+        await write_status(
+            temp_db_tracker.db_path,
+            barcode,
+            ExtractionStatus.STARTING,
+            {"session_id": session_id, "source": "sync_pipeline"},
+            session_id,
+        )
 
-        write_status(temp_db_tracker.db_path, barcode, ExtractionStatus.EXTRACTING,
-                    {"jsonl_file": "/staging/TEST123456789_ocr_temp.jsonl"}, session_id)
+        await write_status(
+            temp_db_tracker.db_path,
+            barcode,
+            ExtractionStatus.EXTRACTING,
+            {"jsonl_file": "/staging/TEST123456789_ocr_temp.jsonl"},
+            session_id,
+        )
 
-        write_status(temp_db_tracker.db_path, barcode, ExtractionStatus.COMPLETED,
-                    {"page_count": 342, "extraction_time_ms": 1247, "jsonl_file_size": 46284}, session_id)
+        await write_status(
+            temp_db_tracker.db_path,
+            barcode,
+            ExtractionStatus.COMPLETED,
+            {"page_count": 342, "extraction_time_ms": 1247, "jsonl_file_size": 46284},
+            session_id,
+        )
 
         # Verify tracking
         with sqlite3.connect(temp_db_tracker.db_path) as conn:
@@ -366,7 +379,7 @@ class TestOCRExtractionDatabaseTracking:
                 """SELECT status_value, metadata, session_id FROM book_status_history
                    WHERE barcode = ? AND status_type = ?
                    ORDER BY timestamp""",
-                (barcode, TEXT_EXTRACTION_STATUS_TYPE)
+                (barcode, TEXT_EXTRACTION_STATUS_TYPE),
             )
             records = cursor.fetchall()
 
@@ -400,18 +413,24 @@ class TestOCRExtractionDatabaseTracking:
         session_id = "test_session_123"
 
         # Track failure
-        write_status(temp_db_tracker.db_path, barcode, ExtractionStatus.STARTING,
-                    {"session_id": session_id}, session_id)
+        await write_status(
+            temp_db_tracker.db_path, barcode, ExtractionStatus.STARTING, {"session_id": session_id}, session_id
+        )
 
-        write_status(temp_db_tracker.db_path, barcode, ExtractionStatus.FAILED,
-                    {"error": "Archive corrupted: Cannot read tar.gz file"}, session_id)
+        await write_status(
+            temp_db_tracker.db_path,
+            barcode,
+            ExtractionStatus.FAILED,
+            {"error": "Archive corrupted: Cannot read tar.gz file"},
+            session_id,
+        )
 
         # Verify failure tracking
         with sqlite3.connect(temp_db_tracker.db_path) as conn:
             cursor = conn.execute(
                 """SELECT status_value, metadata FROM book_status_history
                    WHERE barcode = ? AND status_type = ? AND status_value = ?""",
-                (barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.FAILED.value)
+                (barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.FAILED.value),
             )
             failed_record = cursor.fetchone()
 

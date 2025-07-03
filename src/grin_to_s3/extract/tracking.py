@@ -9,7 +9,7 @@ import logging
 from datetime import UTC, datetime
 from enum import Enum
 
-from ..database import connect_sync
+from ..database import connect_async
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +32,13 @@ class ExtractionMethod(Enum):
     STREAMING = "streaming"
 
 
-def write_status(
+async def write_status(
     db_path: str, barcode: str, status: ExtractionStatus, metadata: dict | None = None, session_id: str | None = None
 ) -> None:
     """Write a status row to the database."""
     try:
-        with connect_sync(db_path) as conn:
-            conn.execute(
+        async with connect_async(db_path) as conn:
+            await conn.execute(
                 """INSERT INTO book_status_history
                    (barcode, status_type, status_value, timestamp, session_id, metadata)
                    VALUES (?, ?, ?, ?, ?, ?)""",
@@ -51,31 +51,31 @@ def write_status(
                     json.dumps(metadata) if metadata else None,
                 ),
             )
-            conn.commit()
+            await conn.commit()
     except Exception as e:
-        logger.warning(f"Failed to write extraction status for {barcode}: {e}")
+        logger.warning(f"⚠️ Failed to write extraction status for {barcode}: {e}")
 
 
-def track_start(db_path: str, barcode: str, session_id: str | None = None) -> None:
+async def track_start(db_path: str, barcode: str, session_id: str | None = None) -> None:
     """Track extraction start."""
     metadata: dict[str, str] = {
         "started_at": datetime.now(UTC).isoformat(),
         "extraction_stage": "initialization",
     }
-    write_status(db_path, barcode, ExtractionStatus.STARTING, metadata, session_id)
+    await write_status(db_path, barcode, ExtractionStatus.STARTING, metadata, session_id)
 
 
-def track_progress(db_path: str, barcode: str, page_count: int, session_id: str | None = None) -> None:
+async def track_progress(db_path: str, barcode: str, page_count: int, session_id: str | None = None) -> None:
     """Track extraction progress."""
     metadata: dict[str, str | int] = {
         "page_count": page_count,
         "extraction_stage": "processing_pages",
         "progress_at": datetime.now(UTC).isoformat(),
     }
-    write_status(db_path, barcode, ExtractionStatus.EXTRACTING, metadata, session_id)
+    await write_status(db_path, barcode, ExtractionStatus.EXTRACTING, metadata, session_id)
 
 
-def track_completion(
+async def track_completion(
     db_path: str,
     barcode: str,
     page_count: int,
@@ -97,10 +97,10 @@ def track_completion(
     if output_path:
         metadata["output_path"] = output_path
 
-    write_status(db_path, barcode, ExtractionStatus.COMPLETED, metadata, session_id)
+    await write_status(db_path, barcode, ExtractionStatus.COMPLETED, metadata, session_id)
 
 
-def track_failure(
+async def track_failure(
     db_path: str,
     barcode: str,
     error: Exception,
@@ -117,22 +117,22 @@ def track_failure(
         "partial_page_count": partial_page_count,
     }
 
-    write_status(db_path, barcode, ExtractionStatus.FAILED, metadata, session_id)
+    await write_status(db_path, barcode, ExtractionStatus.FAILED, metadata, session_id)
 
 
 # Query functions for monitoring
-def get_status_summary(db_path: str) -> dict[str, int]:
+async def get_status_summary(db_path: str) -> dict[str, int]:
     """Get summary of extraction statuses."""
     try:
-        with connect_sync(db_path) as conn:
-            cursor = conn.execute(
+        async with connect_async(db_path) as conn:
+            cursor = await conn.execute(
                 """SELECT status_value, COUNT(*) as count
                    FROM book_status_history
                    WHERE status_type = ?
                    GROUP BY status_value""",
                 (TEXT_EXTRACTION_STATUS_TYPE,),
             )
-            results = cursor.fetchall()
+            results = await cursor.fetchall()
 
             summary = {
                 ExtractionStatus.STARTING.value: 0,
@@ -148,15 +148,15 @@ def get_status_summary(db_path: str) -> dict[str, int]:
             summary["total"] = sum(summary.values())
             return summary
     except Exception as e:
-        logger.error(f"Failed to get status summary: {e}")
+        logger.error(f"⚠️ Failed to get status summary: {e}")
         return {"total": 0}
 
 
-def get_failed_extractions(db_path: str, limit: int = 100) -> list[dict]:
+async def get_failed_extractions(db_path: str, limit: int = 100) -> list[dict]:
     """Get details of recent extraction failures."""
     try:
-        with connect_sync(db_path) as conn:
-            cursor = conn.execute(
+        async with connect_async(db_path) as conn:
+            cursor = await conn.execute(
                 """SELECT barcode, timestamp, metadata
                    FROM book_status_history
                    WHERE status_type = ? AND status_value = ?
@@ -164,40 +164,42 @@ def get_failed_extractions(db_path: str, limit: int = 100) -> list[dict]:
                    LIMIT ?""",
                 (TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.FAILED.value, limit),
             )
-            results = cursor.fetchall()
+            results = await cursor.fetchall()
 
             failures = []
             for barcode, timestamp, metadata_json in results:
                 metadata = json.loads(metadata_json) if metadata_json else {}
-                failures.append({
-                    "barcode": barcode,
-                    "timestamp": timestamp,
-                    "error_type": metadata.get("error_type"),
-                    "error_message": metadata.get("error_message"),
-                    "extraction_method": metadata.get("extraction_method"),
-                    "partial_page_count": metadata.get("partial_page_count", 0),
-                })
+                failures.append(
+                    {
+                        "barcode": barcode,
+                        "timestamp": timestamp,
+                        "error_type": metadata.get("error_type"),
+                        "error_message": metadata.get("error_message"),
+                        "extraction_method": metadata.get("extraction_method"),
+                        "partial_page_count": metadata.get("partial_page_count", 0),
+                    }
+                )
             return failures
     except Exception as e:
-        logger.error(f"Failed to get failed extractions: {e}")
+        logger.error(f"⚠️ Failed to get failed extractions: {e}")
         return []
 
 
-def get_extraction_progress(db_path: str) -> dict:
+async def get_extraction_progress(db_path: str) -> dict:
     """Get overall extraction progress statistics."""
     try:
-        status_summary = get_status_summary(db_path)
-        recent_failures = get_failed_extractions(db_path, limit=10)
+        status_summary = await get_status_summary(db_path)
+        recent_failures = await get_failed_extractions(db_path, limit=10)
 
         # Get aggregated statistics for completed extractions
-        with connect_sync(db_path) as conn:
-            cursor = conn.execute(
+        async with connect_async(db_path) as conn:
+            cursor = await conn.execute(
                 """SELECT metadata
                    FROM book_status_history
                    WHERE status_type = ? AND status_value = ?""",
                 (TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.COMPLETED.value),
             )
-            results = cursor.fetchall()
+            results = await cursor.fetchall()
 
             total_pages = 0
             total_time_ms = 0
@@ -222,6 +224,5 @@ def get_extraction_progress(db_path: str) -> dict:
                 "recent_failures": recent_failures,
             }
     except Exception as e:
-        logger.error(f"Failed to get extraction progress: {e}")
+        logger.error(f"⚠️ Failed to get extraction progress: {e}")
         return {"status_summary": {"total": 0}, "total_pages_extracted": 0, "recent_failures": []}
-

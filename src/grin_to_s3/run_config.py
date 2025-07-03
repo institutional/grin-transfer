@@ -367,7 +367,6 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
         # Load R2 credentials if buckets are missing OR credentials are missing
         if missing_buckets or not all(key in storage_dict for key in ["access_key", "secret_key", "account_id"]):
             try:
-
                 # Determine credentials file path
                 credentials_file = getattr(args, "credentials_file", None)
                 if not credentials_file:

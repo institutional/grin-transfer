@@ -30,15 +30,8 @@ class TestBookStorageIntegration:
             # Create storage instances for raw and full buckets
             raw_storage = Storage(StorageConfig.local(str(raw_dir)))
 
-            bucket_config = {
-                "bucket_raw": "raw",
-                "bucket_meta": "meta",
-                "bucket_full": "full"
-            }
-            book_storage = BookStorage(
-                storage=raw_storage,
-                bucket_config=bucket_config
-            )
+            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config)
 
             text_pages = ["First page content", "Second page content", "Third page content"]
             barcode = "test12345"
@@ -92,16 +85,8 @@ class TestBookStorageIntegration:
             raw_storage = Storage(StorageConfig.local(str(raw_dir)))
 
             base_prefix = "test-collection"
-            bucket_config = {
-                "bucket_raw": "raw",
-                "bucket_meta": "meta",
-                "bucket_full": "full"
-            }
-            book_storage = BookStorage(
-                storage=raw_storage,
-                bucket_config=bucket_config,
-                base_prefix=base_prefix
-            )
+            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
             text_pages = ["Page with prefix content"]
             barcode = "prefix12345"
@@ -140,22 +125,15 @@ class TestBookStorageIntegration:
 
             raw_storage = Storage(StorageConfig.local(temp_dir))
 
-            bucket_config = {
-                "bucket_raw": "raw",
-                "bucket_meta": "meta",
-                "bucket_full": "full"
-            }
-            book_storage = BookStorage(
-                storage=raw_storage,
-                bucket_config=bucket_config
-            )
+            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config)
 
             text_pages = [
                 "English text",
                 "Français avec accents: àéîôû",
                 "日本語のテキスト",
                 "Emoji content: 🚀📚🔍",
-                "Math symbols: ∑∫∂∇"
+                "Math symbols: ∑∫∂∇",
             ]
             barcode = "unicode12345"
 
@@ -195,15 +173,8 @@ class TestBookStorageIntegration:
 
             raw_storage = Storage(StorageConfig.local(temp_dir))
 
-            bucket_config = {
-                "bucket_raw": "raw",
-                "bucket_meta": "meta",
-                "bucket_full": "full"
-            }
-            book_storage = BookStorage(
-                storage=raw_storage,
-                bucket_config=bucket_config
-            )
+            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config)
 
             text_pages = []
             barcode = "empty12345"
@@ -243,15 +214,8 @@ class TestBookStorageIntegration:
             # Create storage instances
             raw_storage = Storage(StorageConfig.local(str(raw_dir)))
 
-            bucket_config = {
-                "bucket_raw": "raw",
-                "bucket_meta": "meta",
-                "bucket_full": "full"
-            }
-            book_storage = BookStorage(
-                storage=raw_storage,
-                bucket_config=bucket_config
-            )
+            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config)
 
             barcode = "multi12345"
             text_pages = ["Page 1", "Page 2"]
@@ -300,16 +264,22 @@ class TestBookStorageIntegration:
             expected_content = '"Page 1"\n"Page 2"\n'
             assert full_content == expected_content
 
-    @pytest.mark.parametrize("storage_type,config", [
-        ("minio", {
-            "bucket_raw": "test-raw-bucket",
-            "bucket_meta": "test-meta-bucket",
-            "bucket_full": "test-full-bucket",
-            "endpoint_url": "http://localhost:9000",
-            "access_key": "minioadmin",
-            "secret_key": "minioadmin123"
-        }),
-    ])
+    @pytest.mark.parametrize(
+        "storage_type,config",
+        [
+            (
+                "minio",
+                {
+                    "bucket_raw": "test-raw-bucket",
+                    "bucket_meta": "test-meta-bucket",
+                    "bucket_full": "test-full-bucket",
+                    "endpoint_url": "http://localhost:9000",
+                    "access_key": "minioadmin",
+                    "secret_key": "minioadmin123",
+                },
+            ),
+        ],
+    )
     def test_create_book_storage_factory_integration(self, storage_type, config):
         """Test creating BookStorage with factory functions (mocked for CI)."""
         # This test validates the factory function works but uses mocks for CI compatibility

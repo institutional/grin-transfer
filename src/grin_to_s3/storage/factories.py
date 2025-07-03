@@ -220,7 +220,6 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
             raise ValueError(f"Storage type {storage_type} does not support bucket-based storage")
 
 
-
 def create_book_storage_with_full_text(storage_type: str, config: dict, base_prefix: str = "") -> BookStorage:
     """
     Create BookStorage instance with full-text bucket support.
@@ -243,7 +242,7 @@ def create_book_storage_with_full_text(storage_type: str, config: dict, base_pre
     bucket_config: BucketConfig = {
         "bucket_raw": config["bucket_raw"],
         "bucket_meta": config["bucket_meta"],
-        "bucket_full": config["bucket_full"]
+        "bucket_full": config["bucket_full"],
     }
 
     return BookStorage(storage=storage, bucket_config=bucket_config, base_prefix=base_prefix)

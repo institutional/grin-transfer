@@ -76,12 +76,7 @@ class TestBucketPrefixingBehavior:
     async def test_local_storage_path_construction(self, staging_file):
         """Test that local storage uses bucket names as directory paths."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            config = {
-                "base_path": temp_dir,
-                "bucket_raw": "local-raw",
-                "bucket_full": "local-full",
-                "prefix": ""
-            }
+            config = {"base_path": temp_dir, "bucket_raw": "local-raw", "bucket_full": "local-full", "prefix": ""}
 
             with patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage:
                 with patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class:
@@ -102,7 +97,7 @@ class TestBucketPrefixingBehavior:
                         staging_manager=None,
                         db_tracker=None,
                         encrypted_etag="test-etag",
-                        skip_extract_ocr=True
+                        skip_extract_ocr=True,
                     )
 
                     # Verify BookStorage was created with correct parameters
@@ -122,11 +117,7 @@ class TestBucketPrefixingBehavior:
     @pytest.mark.asyncio
     async def test_custom_prefix_handling(self, staging_file):
         """Test that custom prefixes work correctly without interfering with bucket names."""
-        config = {
-            "bucket_raw": "test-raw",
-            "bucket_full": "test-full",
-            "prefix": "my-custom-prefix"
-        }
+        config = {"bucket_raw": "test-raw", "bucket_full": "test-full", "prefix": "my-custom-prefix"}
 
         with patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage:
             with patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class:
@@ -147,7 +138,7 @@ class TestBucketPrefixingBehavior:
                     staging_manager=None,
                     db_tracker=None,
                     encrypted_etag="test-etag",
-                    skip_extract_ocr=True
+                    skip_extract_ocr=True,
                 )
 
                 # Verify BookStorage was created with correct parameters
@@ -190,7 +181,7 @@ class TestBucketPrefixingBehavior:
                         staging_manager=None,
                         db_tracker=None,
                         encrypted_etag="test-etag",
-                        skip_extract_ocr=True
+                        skip_extract_ocr=True,
                     )
 
                     # Get the base_prefix passed to BookStorage

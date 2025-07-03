@@ -16,11 +16,13 @@ logger = logging.getLogger(__name__)
 
 class StagingDirectoryError(Exception):
     """Raised when staging directory operations fail."""
+
     pass
 
 
 class DiskSpaceError(StagingDirectoryError):
     """Raised when disk space is insufficient."""
+
     pass
 
 

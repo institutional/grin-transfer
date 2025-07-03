@@ -17,11 +17,13 @@ logger = logging.getLogger(__name__)
 
 class StorageError(Exception):
     """Base exception for storage operations."""
+
     pass
 
 
 class StorageNotFoundError(StorageError):
     """Raised when storage object doesn't exist."""
+
     pass
 
 
@@ -92,6 +94,7 @@ class Storage:
             # For local filesystem, ensure absolute path
             if not path.startswith("/"):
                 from pathlib import Path
+
                 base_path = self.config.options.get("base_path")
                 if not base_path:
                     raise ValueError("Local storage requires explicit base_path")
@@ -174,6 +177,7 @@ class Storage:
         # Ensure parent directories exist for local filesystem
         if self.config.protocol == "file":
             from pathlib import Path
+
             parent = Path(normalized_path).parent
             parent.mkdir(parents=True, exist_ok=True)
 

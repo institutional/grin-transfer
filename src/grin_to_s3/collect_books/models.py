@@ -72,9 +72,7 @@ class BookRecord:
     grin_source_library_bibkey: str | None = field(
         default=None, metadata={"csv": "GRIN Source Library Bibkey", "grin_tsv": "Source Library Bibkey"}
     )
-    grin_rubbish: str | None = field(
-        default=None, metadata={"csv": "GRIN Rubbish", "grin_tsv": "Rubbish"}
-    )
+    grin_rubbish: str | None = field(default=None, metadata={"csv": "GRIN Rubbish", "grin_tsv": "Rubbish"})
     grin_allow_download_updated_date: str | None = field(
         default=None, metadata={"csv": "GRIN Allow Download Updated Date", "grin_tsv": "Allow Download Updated Date"}
     )

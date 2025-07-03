@@ -217,7 +217,11 @@ class TestOCRExtractionIntegration:
             # Verify failure was tracked in database
             # Check that write_status was called with FAILED status
             calls = mock_write_status.call_args_list
-            failed_calls = [call for call in calls if len(call[0]) >= 3 and "FAILED" in str(call[0][2]) or "failed" in str(call[0][2])]
+            failed_calls = [
+                call
+                for call in calls
+                if len(call[0]) >= 3 and "FAILED" in str(call[0][2]) or "failed" in str(call[0][2])
+            ]
             assert len(failed_calls) > 0, f"Expected FAILED status call, but got: {calls}"
 
             # Verify error was logged but didn't raise
@@ -424,7 +428,7 @@ class TestBookStorageIntegrationInSync:
                 "bucket_meta": "test-meta",
                 "bucket_full": "test-full",
                 "config": {"base_path": temp_dir},
-                "prefix": ""
+                "prefix": "",
             }
 
             # Mock other dependencies but let BookStorage initialize normally
@@ -457,7 +461,9 @@ class TestBookStorageIntegrationInSync:
 
                 # Mock BookStorage instance
                 mock_book_storage = MagicMock()
-                mock_book_storage.save_decrypted_archive_from_file = AsyncMock(return_value="bucket_raw/TEST123/TEST123.tar.gz")
+                mock_book_storage.save_decrypted_archive_from_file = AsyncMock(
+                    return_value="bucket_raw/TEST123/TEST123.tar.gz"
+                )
                 mock_book_storage_class.return_value = mock_book_storage
 
                 # This should NOT raise "missing bucket_config argument" error

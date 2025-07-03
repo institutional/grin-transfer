@@ -423,7 +423,7 @@ class ProcessingPipeline:
             else:
                 logger.warning(f"Book {barcode} not found in database when trying to mark as requested")
         except Exception as e:
-            logger.error(f"Failed to mark book {barcode} as requested in database: {e}")
+            logger.error(f"⚠️ Failed to mark book {barcode} as requested in database: {e}")
 
     async def _process_single_batch(self, batch: list[str], batch_num: int) -> dict:
         """Process a single batch of books with rate limiting."""
@@ -691,7 +691,7 @@ class ProcessingMonitor:
                 rows = cursor.fetchall()
                 return {row[0] for row in rows}
         except Exception as e:
-            logger.warning(f"Failed to get requested books from database: {e}")
+            logger.warning(f"⚠️ Failed to get requested books from database: {e}")
             return set()
 
     async def show_status_summary(self) -> None:
@@ -948,8 +948,6 @@ class ProcessingMonitor:
         except Exception as e:
             logger.warning(f"Failed to update book statuses: {e}")
             return {}
-
-
 
 
 async def cmd_request(args) -> None:

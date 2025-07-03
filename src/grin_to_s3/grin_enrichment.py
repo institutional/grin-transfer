@@ -205,6 +205,7 @@ class GRINEnrichmentPipeline:
 
                 # Use BookRecord's GRIN TSV mapping instead of hardcoded mapping
                 from .collect_books.models import BookRecord
+
                 grin_tsv_mapping = BookRecord.get_grin_tsv_column_mapping()
 
                 enrichment_data = {}
@@ -265,12 +266,22 @@ class GRINEnrichmentPipeline:
             remaining_barcodes = remaining_barcodes[effective_batch_size:]
 
         batch_sizes = [len(batch) for batch in grin_batches]
-        avg_batch_size = sum(batch_sizes) / len(batch_sizes) if batch_sizes else 0
-        split_info = (
-            f"  → Split into {len(grin_batches)} GRIN API calls (sizes: {batch_sizes}, avg: {avg_batch_size:.1f}) "
-            f"with up to {self.max_concurrent_requests} concurrent requests"
-        )
-        logger.info(split_info)
+        total_books = sum(batch_sizes)
+
+        if len(grin_batches) == 1 and total_books == 1:
+            # Single book case - keep it simple
+            logger.debug("  → Enriching 1 book via GRIN API")
+        else:
+            # Multiple books or batches - show details
+            avg_batch_size = sum(batch_sizes) / len(batch_sizes) if batch_sizes else 0
+            from grin_to_s3.common import pluralize
+
+            split_info = (
+                f"  → Enriching {total_books} {pluralize(total_books, 'book')} via "
+                f"{len(grin_batches)} GRIN API {pluralize(len(grin_batches), 'call')} "
+                f"(batch sizes: {batch_sizes}, avg: {avg_batch_size:.1f})"
+            )
+            logger.info(split_info)
 
         # Process batches concurrently with rate limiting
         batch_tasks = []
@@ -302,7 +313,7 @@ class GRINEnrichmentPipeline:
                                     enriched_count += 1
                                     logger.debug(f"Successfully enriched {barcode}")
                                 else:
-                                    logger.warning(f"Failed to update database for {barcode}")
+                                    logger.warning(f"⚠️ Failed to update database for {barcode}")
                             else:
                                 # Still mark as processed with empty enrichment timestamp
                                 await self.sqlite_tracker.update_book_enrichment(barcode, {})
@@ -543,8 +554,6 @@ async def export_enriched_csv(db_path: str, output_file: str) -> None:
                 await sqlite_tracker._db.close()
         except Exception:
             pass
-
-
 
 
 async def main() -> None:

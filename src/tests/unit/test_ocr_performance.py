@@ -48,7 +48,7 @@ def temp_db():
 class TestOCRPerformanceBenchmarks:
     """Performance benchmark tests for OCR extraction functionality."""
 
-    def test_small_book_extraction_performance(self, temp_db):
+    async def test_small_book_extraction_performance(self, temp_db):
         """Benchmark OCR extraction performance for small books (10 pages)."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -62,7 +62,7 @@ class TestOCRPerformanceBenchmarks:
 
             # Measure extraction time
             start_time = time.time()
-            result = extract_ocr_pages(str(archive_path), temp_db, "test_session")
+            result = await extract_ocr_pages(str(archive_path), temp_db, "test_session")
             extraction_time = time.time() - start_time
 
             # Verify results
@@ -76,7 +76,7 @@ class TestOCRPerformanceBenchmarks:
             pages_per_second = 10 / extraction_time
             assert pages_per_second > 10, f"Processing rate {pages_per_second:.1f} pages/s too slow for small books"
 
-    def test_medium_book_extraction_performance(self, temp_db):
+    async def test_medium_book_extraction_performance(self, temp_db):
         """Benchmark OCR extraction performance for medium books (100 pages)."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -90,7 +90,7 @@ class TestOCRPerformanceBenchmarks:
 
             # Measure extraction time
             start_time = time.time()
-            result = extract_ocr_pages(str(archive_path), temp_db, "test_session")
+            result = await extract_ocr_pages(str(archive_path), temp_db, "test_session")
             extraction_time = time.time() - start_time
 
             # Verify results
@@ -104,7 +104,7 @@ class TestOCRPerformanceBenchmarks:
             pages_per_second = 100 / extraction_time
             assert pages_per_second > 10, f"Processing rate {pages_per_second:.1f} pages/s too slow for medium books"
 
-    def test_large_book_memory_efficiency(self, temp_db):
+    async def test_large_book_memory_efficiency(self, temp_db):
         """Test that large books don't cause excessive memory usage."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -118,7 +118,7 @@ class TestOCRPerformanceBenchmarks:
 
             # Measure extraction time
             start_time = time.time()
-            result = extract_ocr_pages(str(archive_path), temp_db, "test_session")
+            result = await extract_ocr_pages(str(archive_path), temp_db, "test_session")
             extraction_time = time.time() - start_time
 
             # Verify results
@@ -132,7 +132,7 @@ class TestOCRPerformanceBenchmarks:
             pages_per_second = 500 / extraction_time
             assert pages_per_second > 15, f"Processing rate {pages_per_second:.1f} pages/s too slow for large books"
 
-    def test_sync_pipeline_ocr_performance_simulation(self, temp_db):
+    async def test_sync_pipeline_ocr_performance_simulation(self, temp_db):
         """Simulate sync pipeline OCR extraction performance (unit test approach)."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -146,7 +146,7 @@ class TestOCRPerformanceBenchmarks:
 
             # Measure just the core OCR extraction (which is the main overhead)
             start_time = time.time()
-            result = extract_ocr_pages(str(archive_path), temp_db, "sync_simulation")
+            result = await extract_ocr_pages(str(archive_path), temp_db, "sync_simulation")
             core_extraction_time = time.time() - start_time
 
             # Simulate additional sync pipeline overhead (file I/O, network upload simulation)
@@ -171,7 +171,7 @@ class TestOCRPerformanceBenchmarks:
             ocr_overhead_percent = (core_extraction_time / baseline_sync_time) * 100
             assert ocr_overhead_percent < 150, f"OCR overhead {ocr_overhead_percent:.1f}% exceeds reasonable limit"
 
-    def test_ocr_disabled_vs_enabled_performance_comparison(self, temp_db):
+    async def test_ocr_disabled_vs_enabled_performance_comparison(self, temp_db):
         """Compare performance between OCR enabled and disabled scenarios."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -185,7 +185,7 @@ class TestOCRPerformanceBenchmarks:
 
             # Measure OCR extraction time
             start_time = time.time()
-            result = extract_ocr_pages(str(archive_path), temp_db, "test_session")
+            result = await extract_ocr_pages(str(archive_path), temp_db, "test_session")
             ocr_time = time.time() - start_time
 
             # Verify OCR worked
@@ -199,7 +199,7 @@ class TestOCRPerformanceBenchmarks:
             pages_per_second = 25 / ocr_time
             assert pages_per_second > 8, f"OCR rate {pages_per_second:.1f} pages/s below acceptable threshold"
 
-    def test_concurrent_ocr_extraction_performance(self, temp_db):
+    async def test_concurrent_ocr_extraction_performance(self, temp_db):
         """Test performance characteristics under concurrent OCR extraction."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -218,7 +218,7 @@ class TestOCRPerformanceBenchmarks:
             start_time = time.time()
             results: list[list[str]] = []
             for archive_path in archives:
-                result = extract_ocr_pages(str(archive_path), temp_db, f"session_{len(results)}")
+                result = await extract_ocr_pages(str(archive_path), temp_db, f"session_{len(results)}")
                 results.append(result)
             sequential_time = time.time() - start_time
 
@@ -235,7 +235,7 @@ class TestOCRPerformanceBenchmarks:
             pages_per_second = total_pages / sequential_time
             assert pages_per_second > 6, f"Sequential rate {pages_per_second:.1f} pages/s too slow"
 
-    def test_unicode_content_performance_impact(self, temp_db):
+    async def test_unicode_content_performance_impact(self, temp_db):
         """Test performance impact of processing Unicode-heavy content."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -251,14 +251,14 @@ class TestOCRPerformanceBenchmarks:
                 "00000007.txt": "Русский: тестовый контент. " * 20,
                 "00000008.txt": "Emoji test: 📚📖✨🎯🚀 " * 20,
                 "00000009.txt": "Math: ∑∏∫√∞≠≤≥±× " * 20,
-                "00000010.txt": "Special: «»""''‚„†‡• " * 20,
+                "00000010.txt": "Special: «»''‚„†‡• " * 20,
             }
 
             archive_path = create_test_archive(unicode_pages, temp_path)
 
             # Measure Unicode extraction time
             start_time = time.time()
-            result = extract_ocr_pages(str(archive_path), temp_db, "unicode_session")
+            result = await extract_ocr_pages(str(archive_path), temp_db, "unicode_session")
             unicode_time = time.time() - start_time
 
             # Verify Unicode content was processed correctly
@@ -273,7 +273,7 @@ class TestOCRPerformanceBenchmarks:
             pages_per_second = 10 / unicode_time
             assert pages_per_second > 5, f"Unicode rate {pages_per_second:.1f} pages/s too slow"
 
-    def test_error_handling_performance_impact(self, temp_db):
+    async def test_error_handling_performance_impact(self, temp_db):
         """Test that error handling doesn't significantly impact performance."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -293,7 +293,7 @@ class TestOCRPerformanceBenchmarks:
 
             # Measure extraction time with error handling
             start_time = time.time()
-            result = extract_ocr_pages(str(archive_path), temp_db, "error_session")
+            result = await extract_ocr_pages(str(archive_path), temp_db, "error_session")
             error_handling_time = time.time() - start_time
 
             # Verify error handling worked (should extract valid pages)
@@ -303,7 +303,7 @@ class TestOCRPerformanceBenchmarks:
             # Performance expectations even with errors
             assert error_handling_time < 2.0, f"Error handling OCR took {error_handling_time:.2f}s, expected <2s"
 
-    def test_baseline_performance_metrics(self, temp_db):
+    async def test_baseline_performance_metrics(self, temp_db):
         """Establish baseline performance metrics for OCR extraction."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -317,7 +317,7 @@ class TestOCRPerformanceBenchmarks:
 
             # Measure baseline performance
             start_time = time.time()
-            result = extract_ocr_pages(str(archive_path), temp_db, "baseline_session")
+            result = await extract_ocr_pages(str(archive_path), temp_db, "baseline_session")
             baseline_time = time.time() - start_time
 
             # Verify extraction
@@ -342,4 +342,3 @@ class TestOCRPerformanceBenchmarks:
             # Assumes typical sync operations take ~1-2s per book without OCR
             ocr_overhead_percent = (baseline_time / 2.0) * 100  # Assuming 2s baseline sync time
             assert ocr_overhead_percent < 100, f"OCR overhead {ocr_overhead_percent:.1f}% too high (target <50%)"
-
