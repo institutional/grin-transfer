@@ -46,49 +46,36 @@ class TestCSVExportIntegration:
             skip_csv_export=True,
         )
 
-        result = await pipeline._export_csv_if_enabled(5)
+        result = await pipeline._export_csv_if_enabled()
         assert result["status"] == "skipped"
         assert result["reason"] == "flag"
 
     @pytest.mark.asyncio
-    async def test_csv_export_skipped_when_no_books_synced(self):
-        """Test that CSV export is skipped when no books were synced."""
-        pipeline = SyncPipeline(
-            db_path="/test/db.sqlite",
-            storage_type="local",
-            storage_config={"base_path": "/test"},
-            library_directory="test_lib",
-            skip_csv_export=False,
-        )
-
-        result = await pipeline._export_csv_if_enabled(0)
-        assert result["status"] == "skipped"
-        assert result["reason"] == "no_books"
-
-    @pytest.mark.asyncio
     async def test_csv_export_success(self):
         """Test successful CSV export when enabled and books were synced."""
-        pipeline = SyncPipeline(
-            db_path="/test/db.sqlite",
-            storage_type="local",
-            storage_config={"base_path": "/test"},
-            library_directory="test_lib",
-            skip_csv_export=False,
-        )
+        import tempfile
 
-        # Mock the CSV export function
-        with patch("grin_to_s3.sync.pipeline.export_and_upload_csv") as mock_export:
-            mock_export.return_value = {
-                "status": "completed",
-                "num_rows": 100,
-                "file_size": 5000,
-            }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pipeline = SyncPipeline(
+                db_path=f"{temp_dir}/db.sqlite",
+                storage_type="r2",  # Use non-local storage to test staging path
+                storage_config={"bucket_meta": "test-meta"},
+                library_directory="test_lib",
+                skip_csv_export=False,
+            )
 
-            # Mock storage creation
-            with patch("grin_to_s3.storage.create_storage_from_config"):
-                with patch("grin_to_s3.storage.book_storage.BookStorage"):
-                    with patch("grin_to_s3.storage.staging.StagingDirectoryManager"):
-                        result = await pipeline._export_csv_if_enabled(5)
+            # Mock the CSV export function
+            with patch("grin_to_s3.sync.pipeline.export_and_upload_csv") as mock_export:
+                mock_export.return_value = {
+                    "status": "completed",
+                    "num_rows": 100,
+                    "file_size": 5000,
+                }
+
+                # Mock storage creation
+                with patch("grin_to_s3.storage.create_storage_from_config"):
+                    with patch("grin_to_s3.storage.book_storage.BookStorage"):
+                        result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "completed"
                         assert result["num_rows"] == 100
@@ -101,23 +88,25 @@ class TestCSVExportIntegration:
     @pytest.mark.asyncio
     async def test_csv_export_error_handling(self):
         """Test that CSV export errors are handled properly."""
-        pipeline = SyncPipeline(
-            db_path="/test/db.sqlite",
-            storage_type="local",
-            storage_config={"base_path": "/test"},
-            library_directory="test_lib",
-            skip_csv_export=False,
-        )
+        import tempfile
 
-        # Mock the CSV export function to raise an exception
-        with patch("grin_to_s3.sync.pipeline.export_and_upload_csv") as mock_export:
-            mock_export.side_effect = Exception("Export failed")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pipeline = SyncPipeline(
+                db_path=f"{temp_dir}/db.sqlite",
+                storage_type="r2",  # Use non-local storage to test staging path
+                storage_config={"bucket_meta": "test-meta"},
+                library_directory="test_lib",
+                skip_csv_export=False,
+            )
 
-            # Mock storage creation
-            with patch("grin_to_s3.storage.create_storage_from_config"):
-                with patch("grin_to_s3.storage.book_storage.BookStorage"):
-                    with patch("grin_to_s3.storage.staging.StagingDirectoryManager"):
-                        result = await pipeline._export_csv_if_enabled(5)
+            # Mock the CSV export function to raise an exception
+            with patch("grin_to_s3.sync.pipeline.export_and_upload_csv") as mock_export:
+                mock_export.side_effect = Exception("Export failed")
+
+                # Mock storage creation
+                with patch("grin_to_s3.storage.create_storage_from_config"):
+                    with patch("grin_to_s3.storage.book_storage.BookStorage"):
+                        result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "failed"
                         assert result["error"] == "Export failed"

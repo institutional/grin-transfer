@@ -21,7 +21,7 @@ from grin_to_s3.common import (
 )
 from grin_to_s3.storage import get_storage_protocol
 
-from .csv_export import export_and_upload_csv
+from .csv_export import CSVExportResult, export_and_upload_csv
 from .models import create_sync_stats
 from .operations import (
     check_and_handle_etag_skip,
@@ -377,15 +377,12 @@ class SyncPipeline:
         self._enrichment_workers.clear()
         logger.info("All enrichment workers stopped")
 
-    async def _export_csv_if_enabled(self, books_synced: int) -> dict[str, Any]:
-        """Export CSV if enabled and books were synced successfully."""
+    async def _export_csv_if_enabled(self) -> dict[str, Any]:
+        """Export CSV if enabled."""
         if self.skip_csv_export:
             logger.debug("CSV export skipped due to --skip-csv-export flag")
             return {"status": "skipped", "reason": "flag"}
 
-        if books_synced == 0:
-            logger.debug("CSV export skipped, no books were synced")
-            return {"status": "skipped", "reason": "no_books"}
 
         try:
             # Create book storage for CSV upload
@@ -403,22 +400,21 @@ class SyncPipeline:
 
             book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
-            # Use existing staging manager or create temporary one for local storage
-            staging_manager = self.staging_manager
-            if not staging_manager:
-                # For local storage, create temporary staging manager
-                from grin_to_s3.storage.staging import StagingDirectoryManager
-                staging_manager = StagingDirectoryManager(self.staging_dir)
-
             # Export CSV
             logger.info("Exporting CSV after sync completion")
             start_time = time.time()
-            result = await export_and_upload_csv(
-                db_path=self.db_path,
-                staging_manager=staging_manager,
-                book_storage=book_storage,
-                skip_export=False
-            )
+
+            if self.storage_protocol == "local":
+                # For local storage, write directly to final location
+                result = await self._export_csv_local(book_storage)
+            else:
+                # For cloud storage, use staging manager
+                result = await export_and_upload_csv(
+                    db_path=self.db_path,
+                    staging_manager=self.staging_manager,
+                    book_storage=book_storage,
+                    skip_export=False
+                )
             export_time = time.time() - start_time
 
             if result["status"] == "completed":
@@ -426,6 +422,7 @@ class SyncPipeline:
                     f"CSV export completed successfully in {export_time:.1f}s: "
                     f"{result['num_rows']} rows, {result['file_size']} bytes"
                 )
+                # Return a dict with all the info, not just CSVExportResult
                 return {
                     "status": "completed",
                     "num_rows": result["num_rows"],
@@ -439,6 +436,60 @@ class SyncPipeline:
         except Exception as e:
             logger.error(f"CSV export failed with exception: {e}", exc_info=True)
             return {"status": "failed", "error": str(e)}
+
+    async def _export_csv_local(self, book_storage) -> CSVExportResult:
+        """Export CSV directly to local storage without temporary files."""
+        import csv
+        from datetime import UTC, datetime
+
+        try:
+            # Get database data
+            from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+
+            sqlite_tracker = SQLiteProgressTracker(self.db_path)
+            books = await sqlite_tracker.get_all_books_csv_data()
+            logger.info(f"Exporting {len(books)} books to local CSV")
+
+            # Get final CSV paths directly from book storage
+            timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+            latest_path = book_storage._meta_path("books_latest.csv")
+            timestamped_path = book_storage._meta_path(f"timestamped/books_{timestamp}.csv")
+
+            # Ensure directories exist
+            from pathlib import Path
+            latest_path = Path(latest_path)
+            timestamped_path = Path(timestamped_path)
+
+            latest_path.parent.mkdir(parents=True, exist_ok=True)
+            timestamped_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Write directly to latest CSV file
+            with open(latest_path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(BookRecord.csv_headers())
+                for book in books:
+                    writer.writerow(book.to_csv_row())
+
+            # Copy to timestamped version
+            import shutil
+            shutil.copy2(latest_path, timestamped_path)
+
+            # Get file size
+            file_size = latest_path.stat().st_size
+            num_rows = len(books) + 1  # Include header
+
+            logger.info(f"CSV written directly to {latest_path}")
+            logger.info(f"CSV timestamped copy at {timestamped_path}")
+
+            return {
+                "status": "completed",
+                "num_rows": num_rows,
+                "file_size": file_size,
+            }
+
+        except Exception as e:
+            logger.error(f"Local CSV export failed: {e}", exc_info=True)
+            return {"status": "failed", "file_size": 0, "num_rows": 0}
 
     async def queue_book_for_enrichment(self, barcode: str) -> None:
         """Add a book to the enrichment queue."""
@@ -602,8 +653,8 @@ class SyncPipeline:
                 avg_rate = self.stats["completed"] / total_elapsed
                 print(f"  Average rate: {avg_rate:.1f} books/second")
 
-            # Export CSV if enabled and books were synced
-            csv_result = await self._export_csv_if_enabled(self.stats["completed"])
+            # Export CSV if enabled
+            csv_result = await self._export_csv_if_enabled()
             if csv_result["status"] == "completed":
                 print(f"  CSV exported: {csv_result['num_rows']:,} rows ({csv_result['file_size']:,} bytes)")
             elif csv_result["status"] == "failed":
@@ -768,8 +819,8 @@ class SyncPipeline:
                 avg_rate = self.stats["completed"] / total_elapsed
                 print(f"  Average rate: {avg_rate:.1f} books/second")
 
-            # Export CSV if enabled and books were synced
-            csv_result = await self._export_csv_if_enabled(self.stats["completed"])
+            # Export CSV if enabled
+            csv_result = await self._export_csv_if_enabled()
             if csv_result["status"] == "completed":
                 print(f"  CSV exported: {csv_result['num_rows']:,} rows ({csv_result['file_size']:,} bytes)")
             elif csv_result["status"] == "failed":
