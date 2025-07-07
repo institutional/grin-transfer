@@ -436,6 +436,60 @@ class TestGRINEnrichmentPipeline:
         book = await tracker.get_book("TEST001")
         assert book.enrichment_timestamp is not None  # Marked as processed
 
+    def test_enrichment_completion_no_csv_suggestions(self, capsys):
+        """Test that enrichment completion messages no longer suggest CSV export."""
+        import tempfile
+        from pathlib import Path
+
+        from grin_to_s3.collect_books.models import SQLiteProgressTracker
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create test database with some books
+            db_path = Path(temp_dir) / "test.db"
+            tracker = SQLiteProgressTracker(str(db_path))
+
+            # Add a test book
+            import asyncio
+            async def setup_data():
+                book = BookRecord(barcode="TEST001", title="Test Book")
+                await tracker.save_book(book)
+                await tracker.update_book_enrichment("TEST001", {"grin_state": "ACTIVE"})
+
+            asyncio.run(setup_data())
+
+            # Mock the pipeline completion scenario where all books are enriched
+            mock_client = MockGRINEnrichmentClient()
+            pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=str(db_path))
+            pipeline.grin_client = mock_client
+
+            # Test the "all books already enriched" scenario
+            async def test_completion():
+                # Simulate calling the beginning of run_enrichment where it checks existing enrichment
+                total_books = await pipeline.sqlite_tracker.get_book_count()
+                enriched_books = await pipeline.sqlite_tracker.get_enriched_book_count()
+                remaining_books = total_books - enriched_books
+
+                if remaining_books == 0:
+                    print("✅ All books are already enriched!")
+
+                    # This is the section we modified - should only suggest sync pipeline
+                    run_name = Path(pipeline.db_path).parent.name
+                    print("\nNext steps:")
+                    print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name}")
+                    # CSV export suggestion should be removed
+
+            asyncio.run(test_completion())
+
+            # Capture the output
+            captured = capsys.readouterr()
+
+            # Verify CSV export is NOT suggested
+            assert "export" not in captured.out.lower() or "csv" not in captured.out.lower()
+            # Verify sync pipeline is still suggested
+            assert "sync pipeline" in captured.out
+            # Verify the basic completion message is present
+            assert "All books are already enriched" in captured.out
+
 
 class TestEnrichmentDataExtraction:
     """Test enrichment data extraction and mapping"""

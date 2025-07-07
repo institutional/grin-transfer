@@ -413,7 +413,6 @@ class GRINEnrichmentPipeline:
             run_name = Path(self.db_path).parent.name
             print("\nNext steps:")
             print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name}")
-            print(f"  Export books to CSV: python grin.py export --run-name {run_name} --output books.csv")
             return
 
         # Start enrichment
@@ -521,7 +520,6 @@ class GRINEnrichmentPipeline:
                 run_name = Path(self.db_path).parent.name
                 print("\nNext steps:")
                 print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name}")
-                print(f"  Export books to CSV: python grin.py export --run-name {run_name} --output books.csv")
 
 
 

@@ -301,3 +301,131 @@ class TestBookStorageIntegration:
             assert book_storage.bucket_meta == "test-meta-bucket"
             assert book_storage.bucket_full == "test-full-bucket"
             assert book_storage.base_prefix == "test-prefix"
+
+    def test_upload_csv_file_integration(self):
+        """Test CSV file upload to metadata bucket with both latest and timestamped versions."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create separate directories for meta bucket
+            meta_dir = Path(temp_dir) / "meta"
+            meta_dir.mkdir()
+
+            # Create timestamped subdirectory
+            timestamped_dir = meta_dir / "timestamped"
+            timestamped_dir.mkdir()
+
+            raw_storage = Storage(StorageConfig.local(temp_dir))
+            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config)
+
+            # Create a test CSV file
+            csv_content = "barcode,title,author\nTEST001,Test Book,Test Author\nTEST002,Another Book,Another Author\n"
+            csv_file = Path(temp_dir) / "test_books.csv"
+            with open(csv_file, "w", encoding="utf-8") as f:
+                f.write(csv_content)
+
+            import asyncio
+
+            async def test_upload():
+                return await book_storage.upload_csv_file(str(csv_file))
+
+            latest_path, timestamped_path = asyncio.run(test_upload())
+
+            # Verify both files were created
+            latest_file = meta_dir / "books_latest.csv"
+            assert latest_file.exists()
+
+            # Find the timestamped file (we don't know exact timestamp)
+            timestamped_files = list(timestamped_dir.glob("books_*.csv"))
+            assert len(timestamped_files) == 1
+            timestamped_file = timestamped_files[0]
+
+            # Verify content in both files
+            with open(latest_file, encoding="utf-8") as f:
+                latest_content = f.read()
+            assert latest_content == csv_content
+
+            with open(timestamped_file, encoding="utf-8") as f:
+                timestamped_content = f.read()
+            assert timestamped_content == csv_content
+
+            # Verify returned paths
+            assert latest_path == "meta/books_latest.csv"
+            assert timestamped_path.startswith("meta/timestamped/books_")
+            assert timestamped_path.endswith(".csv")
+
+    def test_upload_csv_file_custom_filename_integration(self):
+        """Test CSV file upload with custom filename."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            meta_dir = Path(temp_dir) / "meta"
+            meta_dir.mkdir()
+            timestamped_dir = meta_dir / "timestamped"
+            timestamped_dir.mkdir()
+
+            raw_storage = Storage(StorageConfig.local(temp_dir))
+            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config)
+
+            # Create a test CSV file
+            csv_content = "barcode,title\nTEST001,Custom Export\n"
+            csv_file = Path(temp_dir) / "custom_export.csv"
+            with open(csv_file, "w", encoding="utf-8") as f:
+                f.write(csv_content)
+
+            import asyncio
+
+            async def test_upload():
+                return await book_storage.upload_csv_file(str(csv_file), "custom_books.csv")
+
+            latest_path, timestamped_path = asyncio.run(test_upload())
+
+            # Verify custom filename was used for latest
+            custom_file = meta_dir / "custom_books.csv"
+            assert custom_file.exists()
+
+            with open(custom_file, encoding="utf-8") as f:
+                content = f.read()
+            assert content == csv_content
+
+            # Verify returned paths use custom filename
+            assert latest_path == "meta/custom_books.csv"
+            assert timestamped_path.startswith("meta/timestamped/books_")  # Timestamped always uses books_ prefix
+
+    def test_upload_csv_file_with_prefix_integration(self):
+        """Test CSV file upload with base prefix."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            meta_dir = Path(temp_dir) / "meta"
+            meta_dir.mkdir()
+
+            # Create prefixed directories
+            prefix_dir = meta_dir / "test-prefix"
+            prefix_dir.mkdir()
+            timestamped_dir = prefix_dir / "timestamped"
+            timestamped_dir.mkdir()
+
+            raw_storage = Storage(StorageConfig.local(temp_dir))
+            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config, base_prefix="test-prefix")
+
+            # Create a test CSV file
+            csv_content = "barcode,title\nPREFIX001,Prefixed Book\n"
+            csv_file = Path(temp_dir) / "prefix_test.csv"
+            with open(csv_file, "w", encoding="utf-8") as f:
+                f.write(csv_content)
+
+            import asyncio
+
+            async def test_upload():
+                return await book_storage.upload_csv_file(str(csv_file))
+
+            latest_path, timestamped_path = asyncio.run(test_upload())
+
+            # Verify files were created with prefix
+            latest_file = prefix_dir / "books_latest.csv"
+            assert latest_file.exists()
+
+            timestamped_files = list(timestamped_dir.glob("books_*.csv"))
+            assert len(timestamped_files) == 1
+
+            # Verify returned paths include prefix
+            assert latest_path == "meta/test-prefix/books_latest.csv"
+            assert timestamped_path.startswith("meta/test-prefix/timestamped/books_")
