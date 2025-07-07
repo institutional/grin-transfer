@@ -8,6 +8,12 @@ Data models, validation functions, and type definitions for sync operations.
 from typing import TypedDict
 
 
+class FileResult(TypedDict):
+    """Base result structure for file operations."""
+
+    status: str
+
+
 class SyncStats(TypedDict):
     """Statistics for sync operations."""
 
@@ -20,11 +26,10 @@ class SyncStats(TypedDict):
     enrichment_queue_size: int
 
 
-class BookSyncResult(TypedDict):
+class BookSyncResult(FileResult):
     """Result of syncing a single book."""
 
     barcode: str
-    status: str
     skipped: bool
     encrypted_etag: str | None
     file_size: int

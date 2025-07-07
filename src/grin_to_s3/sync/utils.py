@@ -10,9 +10,10 @@ import json
 import logging
 import tempfile
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 from ..database import connect_async
+from .models import FileResult
 
 logger = logging.getLogger(__name__)
 
@@ -277,16 +278,11 @@ async def get_converted_books(grin_client, library_directory: str) -> set[str]:
         return set()
 
 
-class CSVExportResult(TypedDict):
+class CSVExportResult(FileResult):
     """Result dictionary for CSV export and upload operations."""
 
-    success: bool
     exported: bool
     uploaded: bool
-    latest_path: str | None
-    timestamped_path: str | None
-    error: str | None
-    temp_file_cleaned: bool
 
 
 async def export_and_upload_csv(
@@ -310,32 +306,22 @@ async def export_and_upload_csv(
 
     Returns:
         Dict with operation results:
-        - success: bool - Overall operation success
+        - status: str - Operation status ("completed", "failed", "skipped")
         - exported: bool - Whether CSV was exported successfully
         - uploaded: bool - Whether CSV was uploaded successfully
-        - latest_path: str | None - Path to latest version in storage
-        - timestamped_path: str | None - Path to timestamped version in storage
-        - error: str | None - Error message if operation failed
-        - temp_file_cleaned: bool - Whether temporary file was cleaned up
 
     Raises:
         Exception: Only if cleanup fails after successful operation
     """
     result: CSVExportResult = {
-        "success": False,
+        "status": "pending",
         "exported": False,
         "uploaded": False,
-        "latest_path": None,
-        "timestamped_path": None,
-        "error": None,
-        "temp_file_cleaned": False,
     }
 
     if skip_export:
         logger.info("CSV export skipped due to skip_export flag")
-        result["success"] = True
-        result["exported"] = False
-        result["uploaded"] = False
+        result["status"] = "skipped"
         return result
 
     temp_csv_path = None
@@ -383,34 +369,23 @@ async def export_and_upload_csv(
         )
 
         result["uploaded"] = True
-        result["latest_path"] = latest_path
-        result["timestamped_path"] = timestamped_path
-        logger.info("CSV upload completed successfully:")
-        logger.info(f"  Latest: {latest_path}")
-        logger.info(f"  Timestamped: {timestamped_path}")
+        logger.info(f"CSV upload completed successfully: {latest_path}")
 
         # Mark overall operation as successful
-        result["success"] = True
+        result["status"] = "completed"
 
     except Exception as e:
-        error_msg = f"CSV export and upload failed: {e}"
-        logger.error(error_msg, exc_info=True)
-        result["error"] = error_msg
-        result["success"] = False
+        logger.error(f"CSV export and upload failed: {e}", exc_info=True)
+        result["status"] = "failed"
 
     finally:
         # Clean up temporary file in all cases
         if temp_csv_path and Path(temp_csv_path).exists():
             try:
                 Path(temp_csv_path).unlink()
-                result["temp_file_cleaned"] = True
                 logger.debug(f"Cleaned up temporary file: {temp_csv_path}")
             except Exception as cleanup_error:
                 logger.warning(f"Failed to cleanup temporary CSV file {temp_csv_path}: {cleanup_error}")
-                result["temp_file_cleaned"] = False
                 # Don't fail the overall operation due to cleanup failure
-                if result["success"]:
-                    # Only raise if the main operation succeeded but cleanup failed
-                    raise Exception(f"CSV operation succeeded but cleanup failed: {cleanup_error}") from cleanup_error
 
     return result
