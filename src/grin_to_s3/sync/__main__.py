@@ -153,7 +153,7 @@ async def cmd_pipeline(args) -> None:
             skip_extract_ocr=args.skip_extract_ocr,
             enrichment_enabled=not args.skip_enrichment,
             enrichment_workers=args.enrichment_workers,
-            auto_update_csv=not args.skip_csv_update,
+            skip_csv_export=args.skip_csv_export,
         )
 
         # Set up signal handlers for graceful shutdown
@@ -201,7 +201,7 @@ async def cmd_pipeline(args) -> None:
                 skip_extract_ocr=args.skip_extract_ocr,
                 enrichment_enabled=not args.skip_enrichment,
                 enrichment_workers=args.enrichment_workers,
-                auto_update_csv=not args.skip_csv_update,
+                skip_csv_export=args.skip_csv_export,
             )
             print("  - Concurrent downloads: 1")
             print("  - Concurrent uploads: 1")
@@ -448,7 +448,7 @@ Examples:
         "--enrichment-workers", type=int, default=1, help="Number of enrichment workers (default: 1)"
     )
     pipeline_parser.add_argument(
-        "--skip-csv-update", action="store_true", help="Skip automatic CSV updates (default: update CSV)"
+        "--skip-csv-export", action="store_true", help="Skip automatic CSV export (default: export CSV)"
     )
 
     # GRIN options
