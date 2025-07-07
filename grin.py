@@ -12,7 +12,7 @@ Commands:
   storage        Manage storage buckets (ls, rm)
   extract        Extract OCR text from decrypted book archives
   enrich         Enrich books with GRIN metadata
-  export-csv     Export enriched data to CSV
+  export         Export ALL books in collection to CSV with available metadata
   status         Show enrichment status
 """
 
@@ -65,8 +65,8 @@ Examples:
   # Show enrichment status
   python grin.py status --run-name harvard_2024
 
-  # Export to CSV
-  python grin.py export-csv --run-name harvard_2024 --output books.csv
+  # Export ALL books to CSV (works at any pipeline stage)
+  python grin.py export --run-name harvard_2024 --output books.csv
 
 For more help on each command, use: python grin.py <command> --help
         """,
@@ -82,7 +82,7 @@ For more help on each command, use: python grin.py <command> --help
     storage_parser = subparsers.add_parser("storage", help="Manage storage buckets and data (ls, rm)")
     extract_parser = subparsers.add_parser("extract", help="Extract OCR text from decrypted book archives")
     enrich_parser = subparsers.add_parser("enrich", help="Enrich books with GRIN metadata")
-    export_parser = subparsers.add_parser("export-csv", help="Export enriched data to CSV")
+    export_parser = subparsers.add_parser("export", help="Export ALL books in collection to CSV")
     status_parser = subparsers.add_parser("status", help="Show enrichment status")
 
     return parser, {
@@ -93,7 +93,7 @@ For more help on each command, use: python grin.py <command> --help
         "storage": storage_parser,
         "extract": extract_parser,
         "enrich": enrich_parser,
-        "export-csv": export_parser,
+        "export": export_parser,
         "status": status_parser,
     }
 
@@ -160,12 +160,12 @@ async def main():
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await enrich_main()
 
-    elif command == "export-csv":
-        from grin_to_s3.grin_enrichment import export_csv_main
+    elif command == "export":
+        from grin_to_s3.export import main as export_main
 
-        # Remove 'export-csv' from args and pass the rest
+        # Remove 'export' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await export_csv_main()
+        return await export_main()
 
     # TODO make this an overall status command that can be used for all steps
     elif command == "status":
