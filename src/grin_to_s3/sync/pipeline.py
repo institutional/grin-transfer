@@ -6,20 +6,27 @@ Main pipeline orchestration for syncing books from GRIN to storage.
 """
 
 import asyncio
+import csv
 import logging
+import shutil
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from grin_to_s3.client import GRINClient
-from grin_to_s3.collect_books.models import SQLiteProgressTracker
+from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.common import (
     ProgressReporter,
+    RateLimiter,
     SlidingWindowRateCalculator,
     format_duration,
     pluralize,
 )
-from grin_to_s3.storage import get_storage_protocol
+from grin_to_s3.grin_enrichment import GRINEnrichmentPipeline
+from grin_to_s3.storage import create_storage_from_config, get_storage_protocol
+from grin_to_s3.storage.book_storage import BookStorage, BucketConfig
+from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .csv_export import CSVExportResult, export_and_upload_csv
 from .models import create_sync_stats
@@ -96,7 +103,6 @@ class SyncPipeline:
 
         # Initialize staging directory manager only for non-local storage
         if self.storage_protocol != "local":
-            from grin_to_s3.storage import StagingDirectoryManager
 
             self.staging_manager = StagingDirectoryManager(
                 staging_path=self.staging_dir, capacity_threshold=self.disk_space_threshold
@@ -262,8 +268,6 @@ class SyncPipeline:
         logger.info(f"Starting {worker_name}")
 
         # Import enrichment components
-        from grin_to_s3.common import RateLimiter
-        from grin_to_s3.grin_enrichment import GRINEnrichmentPipeline
 
         # Create shared rate limiter (5 QPS across all workers)
         rate_limiter = RateLimiter(requests_per_second=5.0)
@@ -351,7 +355,6 @@ class SyncPipeline:
             logger.debug("Enrichment disabled, not starting workers")
             return
 
-        from grin_to_s3.common import pluralize
 
         logger.info(f"Starting {self.enrichment_workers} enrichment {pluralize(self.enrichment_workers, 'worker')}")
 
@@ -386,8 +389,6 @@ class SyncPipeline:
 
         try:
             # Create book storage for CSV upload
-            from grin_to_s3.storage import create_storage_from_config
-            from grin_to_s3.storage.book_storage import BookStorage, BucketConfig
 
             storage = create_storage_from_config(self.storage_type, self.storage_config or {})
             base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
@@ -420,11 +421,10 @@ class SyncPipeline:
                     f"CSV export completed successfully in {result['export_time']:.1f}s: "
                     f"{result['num_rows']} rows, {result['file_size']} bytes"
                 )
-                # Return the actual CSVExportResult object
-                return result
             else:
                 logger.error(f"CSV export failed: {result.get('status', 'unknown error')}")
-                return result
+
+            return result
 
         except Exception as e:
             logger.error(f"CSV export failed with exception: {e}", exc_info=True)
@@ -432,14 +432,9 @@ class SyncPipeline:
 
     async def _export_csv_local(self, book_storage) -> CSVExportResult:
         """Export CSV directly to local storage without temporary files."""
-        import csv
-        import time
-        from datetime import UTC, datetime
-
         start_time = time.time()
         try:
             # Get database data
-            from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 
             sqlite_tracker = SQLiteProgressTracker(self.db_path)
             books = await sqlite_tracker.get_all_books_csv_data()
@@ -451,7 +446,6 @@ class SyncPipeline:
             timestamped_path = book_storage._meta_path(f"timestamped/books_{timestamp}.csv")
 
             # Ensure directories exist
-            from pathlib import Path
             latest_path = Path(latest_path)
             timestamped_path = Path(timestamped_path)
 
@@ -466,7 +460,6 @@ class SyncPipeline:
                     writer.writerow(book.to_csv_row())
 
             # Copy to timestamped version
-            import shutil
             shutil.copy2(latest_path, timestamped_path)
 
             # Get file size
