@@ -10,6 +10,7 @@ to CSV format and uploading to storage.
 import csv
 import logging
 import tempfile
+import time
 from pathlib import Path
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
@@ -24,6 +25,7 @@ class CSVExportResult(FileResult):
     """Result dictionary for CSV export and upload operations."""
 
     num_rows: int
+    export_time: float
 
 
 async def export_and_upload_csv(
@@ -50,19 +52,23 @@ async def export_and_upload_csv(
         - status: str - Operation status ("completed", "failed", "skipped")
         - file_size: int - Size of exported CSV file in bytes
         - num_rows: int - Number of rows exported (including header)
+        - export_time: float - Time taken for export operation in seconds
 
     Raises:
         Exception: Only if cleanup fails after successful operation
     """
+    start_time = time.time()
     result: CSVExportResult = {
         "status": "pending",
         "file_size": 0,
         "num_rows": 0,
+        "export_time": 0.0,
     }
 
     if skip_export:
         logger.info("CSV export skipped due to skip_export flag")
         result["status"] = "skipped"
+        result["export_time"] = time.time() - start_time
         return result
 
     temp_csv_path = None
@@ -108,10 +114,12 @@ async def export_and_upload_csv(
 
         # Mark overall operation as successful
         result["status"] = "completed"
+        result["export_time"] = time.time() - start_time
 
     except Exception as e:
         logger.error(f"CSV export and upload failed: {e}", exc_info=True)
         result["status"] = "failed"
+        result["export_time"] = time.time() - start_time
 
     finally:
         # Clean up temporary file in all cases

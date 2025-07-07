@@ -48,7 +48,9 @@ class TestCSVExportIntegration:
 
         result = await pipeline._export_csv_if_enabled()
         assert result["status"] == "skipped"
-        assert result["reason"] == "flag"
+        assert result["file_size"] == 0
+        assert result["num_rows"] == 0
+        assert result["export_time"] == 0.0
 
     @pytest.mark.asyncio
     async def test_csv_export_success(self):
@@ -70,6 +72,7 @@ class TestCSVExportIntegration:
                     "status": "completed",
                     "num_rows": 100,
                     "file_size": 5000,
+                    "export_time": 1.5,
                 }
 
                 # Mock storage creation
@@ -109,5 +112,7 @@ class TestCSVExportIntegration:
                         result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "failed"
-                        assert result["error"] == "Export failed"
+                        assert result["file_size"] == 0
+                        assert result["num_rows"] == 0
+                        assert result["export_time"] == 0.0
 

@@ -377,11 +377,11 @@ class SyncPipeline:
         self._enrichment_workers.clear()
         logger.info("All enrichment workers stopped")
 
-    async def _export_csv_if_enabled(self) -> dict[str, Any]:
+    async def _export_csv_if_enabled(self) -> CSVExportResult:
         """Export CSV if enabled."""
         if self.skip_csv_export:
             logger.debug("CSV export skipped due to --skip-csv-export flag")
-            return {"status": "skipped", "reason": "flag"}
+            return {"status": "skipped", "file_size": 0, "num_rows": 0, "export_time": 0.0}
 
 
         try:
@@ -402,7 +402,6 @@ class SyncPipeline:
 
             # Export CSV
             logger.info("Exporting CSV after sync completion")
-            start_time = time.time()
 
             if self.storage_protocol == "local":
                 # For local storage, write directly to final location
@@ -415,33 +414,29 @@ class SyncPipeline:
                     book_storage=book_storage,
                     skip_export=False
                 )
-            export_time = time.time() - start_time
 
             if result["status"] == "completed":
                 logger.info(
-                    f"CSV export completed successfully in {export_time:.1f}s: "
+                    f"CSV export completed successfully in {result['export_time']:.1f}s: "
                     f"{result['num_rows']} rows, {result['file_size']} bytes"
                 )
-                # Return a dict with all the info, not just CSVExportResult
-                return {
-                    "status": "completed",
-                    "num_rows": result["num_rows"],
-                    "file_size": result["file_size"],
-                    "export_time": export_time,
-                }
+                # Return the actual CSVExportResult object
+                return result
             else:
                 logger.error(f"CSV export failed: {result.get('status', 'unknown error')}")
-                return {"status": "failed", "export_time": export_time}
+                return result
 
         except Exception as e:
             logger.error(f"CSV export failed with exception: {e}", exc_info=True)
-            return {"status": "failed", "error": str(e)}
+            return {"status": "failed", "file_size": 0, "num_rows": 0, "export_time": 0.0}
 
     async def _export_csv_local(self, book_storage) -> CSVExportResult:
         """Export CSV directly to local storage without temporary files."""
         import csv
+        import time
         from datetime import UTC, datetime
 
+        start_time = time.time()
         try:
             # Get database data
             from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
@@ -485,11 +480,12 @@ class SyncPipeline:
                 "status": "completed",
                 "num_rows": num_rows,
                 "file_size": file_size,
+                "export_time": time.time() - start_time,
             }
 
         except Exception as e:
             logger.error(f"Local CSV export failed: {e}", exc_info=True)
-            return {"status": "failed", "file_size": 0, "num_rows": 0}
+            return {"status": "failed", "file_size": 0, "num_rows": 0, "export_time": time.time() - start_time}
 
     async def queue_book_for_enrichment(self, barcode: str) -> None:
         """Add a book to the enrichment queue."""
