@@ -430,6 +430,14 @@ class SyncPipeline:
             logger.error(f"CSV export failed with exception: {e}", exc_info=True)
             return {"status": "failed", "file_size": 0, "num_rows": 0, "export_time": 0.0}
 
+    async def _export_csv_and_print_result(self) -> None:
+        """Export CSV if enabled and print result to console."""
+        csv_result = await self._export_csv_if_enabled()
+        if csv_result["status"] == "completed":
+            print(f"  CSV exported: {csv_result['num_rows']:,} rows ({csv_result['file_size']:,} bytes)")
+        elif csv_result["status"] == "failed":
+            print(f"  CSV export failed: {csv_result.get('error', 'unknown error')}")
+
     async def _export_csv_local(self, book_storage) -> CSVExportResult:
         """Export CSV directly to local storage without temporary files."""
         start_time = time.time()
@@ -643,11 +651,7 @@ class SyncPipeline:
                 print(f"  Average rate: {avg_rate:.1f} books/second")
 
             # Export CSV if enabled
-            csv_result = await self._export_csv_if_enabled()
-            if csv_result["status"] == "completed":
-                print(f"  CSV exported: {csv_result['num_rows']:,} rows ({csv_result['file_size']:,} bytes)")
-            elif csv_result["status"] == "failed":
-                print(f"  CSV export failed: {csv_result.get('error', 'unknown error')}")
+            await self._export_csv_and_print_result()
 
             logger.info("Sync completed")
 
@@ -809,11 +813,7 @@ class SyncPipeline:
                 print(f"  Average rate: {avg_rate:.1f} books/second")
 
             # Export CSV if enabled
-            csv_result = await self._export_csv_if_enabled()
-            if csv_result["status"] == "completed":
-                print(f"  CSV exported: {csv_result['num_rows']:,} rows ({csv_result['file_size']:,} bytes)")
-            elif csv_result["status"] == "failed":
-                print(f"  CSV export failed: {csv_result.get('error', 'unknown error')}")
+            await self._export_csv_and_print_result()
 
             logger.info("Sync completed")
 
