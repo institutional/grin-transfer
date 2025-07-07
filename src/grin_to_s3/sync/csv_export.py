@@ -13,6 +13,7 @@ import tempfile
 from pathlib import Path
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .models import FileResult
 
@@ -27,7 +28,7 @@ class CSVExportResult(FileResult):
 
 async def export_and_upload_csv(
     db_path: str,
-    staging_dir: str,
+    staging_manager: StagingDirectoryManager,
     book_storage,
     skip_export: bool = False,
     custom_filename: str | None = None,
@@ -39,7 +40,7 @@ async def export_and_upload_csv(
 
     Args:
         db_path: Path to SQLite database file
-        staging_dir: Directory for temporary file creation
+        staging_manager: StagingDirectoryManager instance for temporary file creation
         book_storage: BookStorage instance for upload operations
         skip_export: If True, skip export and return early
         custom_filename: Optional custom filename for latest version
@@ -66,14 +67,11 @@ async def export_and_upload_csv(
 
     temp_csv_path = None
     try:
-        # Create staging directory if it doesn't exist
-        staging_path = Path(staging_dir)
-        staging_path.mkdir(parents=True, exist_ok=True)
-        logger.debug(f"Using staging directory: {staging_path}")
+        logger.debug(f"Using staging directory: {staging_manager.staging_path}")
 
         # Create temporary CSV file in staging directory
         with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", dir=staging_path, delete=False, encoding="utf-8"
+            mode="w", suffix=".csv", dir=staging_manager.staging_path, delete=False, encoding="utf-8"
         ) as temp_file:
             temp_csv_path = temp_file.name
             logger.debug(f"Created temporary CSV file: {temp_csv_path}")

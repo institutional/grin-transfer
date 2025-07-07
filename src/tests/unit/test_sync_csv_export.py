@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from grin_to_s3.storage.staging import StagingDirectoryManager
 from grin_to_s3.sync.csv_export import export_and_upload_csv
 
 
@@ -52,12 +53,18 @@ class TestExportAndUploadCSV:
             books.append(book)
         return books
 
+    @pytest.fixture
+    def staging_manager(self):
+        """Create a staging manager for temporary directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            staging_dir = str(Path(temp_dir) / "staging")
+            yield StagingDirectoryManager(staging_dir)
+
     @pytest.mark.asyncio
-    async def test_successful_export_and_upload(self, mock_book_storage, sample_books):
+    async def test_successful_export_and_upload(self, mock_book_storage, sample_books, staging_manager):
         """Test successful CSV export and upload workflow."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
-            staging_dir = str(Path(temp_dir) / "staging")
 
             # Mock the dependencies
             with patch("grin_to_s3.sync.csv_export.SQLiteProgressTracker") as mock_tracker_cls:
@@ -71,7 +78,7 @@ class TestExportAndUploadCSV:
                     # Call the function
                     result = await export_and_upload_csv(
                         db_path=db_path,
-                        staging_dir=staging_dir,
+                        staging_manager=staging_manager,
                         book_storage=mock_book_storage,
                         skip_export=False
                     )
@@ -89,18 +96,16 @@ class TestExportAndUploadCSV:
                     assert args[1] is None  # custom filename
 
                     # Verify staging directory was created
-                    assert Path(staging_dir).exists()
+                    assert staging_manager.staging_path.exists()
 
     @pytest.mark.asyncio
-    async def test_skip_export_flag(self, mock_book_storage):
+    async def test_skip_export_flag(self, mock_book_storage, staging_manager):
         """Test that skip_export flag works correctly."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
-            staging_dir = str(Path(temp_dir) / "staging")
-
             result = await export_and_upload_csv(
                 db_path=db_path,
-                staging_dir=staging_dir,
+                staging_manager=staging_manager,
                 book_storage=mock_book_storage,
                 skip_export=True
             )
@@ -114,12 +119,10 @@ class TestExportAndUploadCSV:
             mock_book_storage.upload_csv_file.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_custom_filename(self, mock_book_storage, sample_books):
+    async def test_custom_filename(self, mock_book_storage, sample_books, staging_manager):
         """Test export with custom filename."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
-            staging_dir = str(Path(temp_dir) / "staging")
-
             with patch("grin_to_s3.sync.csv_export.SQLiteProgressTracker") as mock_tracker_cls:
                 mock_tracker = AsyncMock()
                 mock_tracker.get_all_books_csv_data.return_value = sample_books
@@ -130,7 +133,7 @@ class TestExportAndUploadCSV:
 
                     result = await export_and_upload_csv(
                         db_path=db_path,
-                        staging_dir=staging_dir,
+                        staging_manager=staging_manager,
                         book_storage=mock_book_storage,
                         custom_filename="custom_export.csv"
                     )
@@ -143,12 +146,10 @@ class TestExportAndUploadCSV:
                     assert result["status"] == "completed"
 
     @pytest.mark.asyncio
-    async def test_database_error_handling(self, mock_book_storage):
+    async def test_database_error_handling(self, mock_book_storage, staging_manager):
         """Test error handling when database operations fail."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
-            staging_dir = str(Path(temp_dir) / "staging")
-
             # Mock database error
             with patch("grin_to_s3.sync.csv_export.SQLiteProgressTracker") as mock_tracker_cls:
                 mock_tracker = AsyncMock()
@@ -157,7 +158,7 @@ class TestExportAndUploadCSV:
 
                 result = await export_and_upload_csv(
                     db_path=db_path,
-                    staging_dir=staging_dir,
+                    staging_manager=staging_manager,
                     book_storage=mock_book_storage
                 )
 
@@ -168,12 +169,10 @@ class TestExportAndUploadCSV:
                 mock_book_storage.upload_csv_file.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_upload_error_handling(self, mock_book_storage, sample_books):
+    async def test_upload_error_handling(self, mock_book_storage, sample_books, staging_manager):
         """Test error handling when upload operations fail."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
-            staging_dir = str(Path(temp_dir) / "staging")
-
             # Mock upload error
             mock_book_storage.upload_csv_file.side_effect = Exception("Upload failed")
 
@@ -187,7 +186,7 @@ class TestExportAndUploadCSV:
 
                     result = await export_and_upload_csv(
                         db_path=db_path,
-                        staging_dir=staging_dir,
+                        staging_manager=staging_manager,
                         book_storage=mock_book_storage
                     )
 
@@ -197,12 +196,10 @@ class TestExportAndUploadCSV:
                     assert result["file_size"] > 0  # Export succeeded, so file size was captured
 
     @pytest.mark.asyncio
-    async def test_empty_database(self, mock_book_storage):
+    async def test_empty_database(self, mock_book_storage, staging_manager):
         """Test export with empty database."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
-            staging_dir = str(Path(temp_dir) / "staging")
-
             with patch("grin_to_s3.sync.csv_export.SQLiteProgressTracker") as mock_tracker_cls:
                 mock_tracker = AsyncMock()
                 mock_tracker.get_all_books_csv_data.return_value = []  # Empty list
@@ -213,7 +210,7 @@ class TestExportAndUploadCSV:
 
                     result = await export_and_upload_csv(
                         db_path=db_path,
-                        staging_dir=staging_dir,
+                        staging_manager=staging_manager,
                         book_storage=mock_book_storage
                     )
 
@@ -235,6 +232,12 @@ class TestExportAndUploadCSV:
             # Verify staging directory doesn't exist initially
             assert not Path(staging_dir).exists()
 
+            # Create staging manager, which will create the directory
+            staging_manager = StagingDirectoryManager(staging_dir)
+
+            # Verify staging directory was created by manager
+            assert staging_manager.staging_path.exists()
+
             with patch("grin_to_s3.sync.csv_export.SQLiteProgressTracker") as mock_tracker_cls:
                 mock_tracker = AsyncMock()
                 mock_tracker.get_all_books_csv_data.return_value = sample_books
@@ -245,21 +248,18 @@ class TestExportAndUploadCSV:
 
                     result = await export_and_upload_csv(
                         db_path=db_path,
-                        staging_dir=staging_dir,
+                        staging_manager=staging_manager,
                         book_storage=mock_book_storage
                     )
 
-                    # Verify staging directory was created
-                    assert Path(staging_dir).exists()
+                    # Verify export operation completed successfully
                     assert result["status"] == "completed"
 
     @pytest.mark.asyncio
-    async def test_cleanup_failure_handling(self, mock_book_storage, sample_books):
+    async def test_cleanup_failure_handling(self, mock_book_storage, sample_books, staging_manager):
         """Test handling of cleanup failures after successful operation."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
-            staging_dir = str(Path(temp_dir) / "staging")
-
             with patch("grin_to_s3.sync.csv_export.SQLiteProgressTracker") as mock_tracker_cls:
                 mock_tracker = AsyncMock()
                 mock_tracker.get_all_books_csv_data.return_value = sample_books
@@ -275,7 +275,7 @@ class TestExportAndUploadCSV:
                         # Should not raise exception for cleanup failure, just log warning
                         result = await export_and_upload_csv(
                             db_path=db_path,
-                            staging_dir=staging_dir,
+                            staging_manager=staging_manager,
                             book_storage=mock_book_storage
                         )
 
@@ -283,12 +283,10 @@ class TestExportAndUploadCSV:
                         assert result["status"] == "completed"
 
     @pytest.mark.asyncio
-    async def test_temp_file_cleanup_verification(self, mock_book_storage, sample_books):
+    async def test_temp_file_cleanup_verification(self, mock_book_storage, sample_books, staging_manager):
         """Test that temporary files are properly cleaned up."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
-            staging_dir = str(Path(temp_dir) / "staging")
-
             # Capture the temporary file path for verification
             temp_file_path = None
             original_upload = mock_book_storage.upload_csv_file
@@ -313,7 +311,7 @@ class TestExportAndUploadCSV:
 
                     result = await export_and_upload_csv(
                         db_path=db_path,
-                        staging_dir=staging_dir,
+                        staging_manager=staging_manager,
                         book_storage=mock_book_storage
                     )
 
@@ -323,12 +321,10 @@ class TestExportAndUploadCSV:
                     assert not Path(temp_file_path).exists()
 
     @pytest.mark.asyncio
-    async def test_concurrent_operations(self, mock_book_storage, sample_books):
+    async def test_concurrent_operations(self, mock_book_storage, sample_books, staging_manager):
         """Test that multiple concurrent export operations work correctly."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
-            staging_dir = str(Path(temp_dir) / "staging")
-
             with patch("grin_to_s3.sync.csv_export.SQLiteProgressTracker") as mock_tracker_cls:
                 mock_tracker = AsyncMock()
                 mock_tracker.get_all_books_csv_data.return_value = sample_books
@@ -342,7 +338,7 @@ class TestExportAndUploadCSV:
                     for i in range(3):
                         task = export_and_upload_csv(
                             db_path=db_path,
-                            staging_dir=staging_dir,
+                            staging_manager=staging_manager,
                             book_storage=mock_book_storage,
                             custom_filename=f"concurrent_{i}.csv"
                         )
