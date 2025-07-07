@@ -17,7 +17,7 @@ from typing import Any
 
 # Check Python version requirement
 from grin_to_s3.client import GRINClient
-from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import (
     BackupManager,
     RateLimiter,
@@ -413,7 +413,7 @@ class GRINEnrichmentPipeline:
             run_name = Path(self.db_path).parent.name
             print("\nNext steps:")
             print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name}")
-            print(f"  Export enriched CSV: python grin.py export-csv --run-name {run_name} --output books.csv")
+            print(f"  Export books to CSV: python grin.py export --run-name {run_name} --output books.csv")
             return
 
         # Start enrichment
@@ -521,39 +521,9 @@ class GRINEnrichmentPipeline:
                 run_name = Path(self.db_path).parent.name
                 print("\nNext steps:")
                 print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name}")
-                print(f"  Export enriched CSV: python grin.py export-csv --run-name {run_name} --output books.csv")
+                print(f"  Export books to CSV: python grin.py export --run-name {run_name} --output books.csv")
 
 
-async def export_enriched_csv(db_path: str, output_file: str) -> None:
-    """Export all books (including enriched data) to CSV."""
-    print(f"Exporting enriched data from {db_path} to {output_file}")
-
-    sqlite_tracker = SQLiteProgressTracker(db_path)
-
-    try:
-        books = await sqlite_tracker.get_all_books_csv_data()
-
-        print(f"Found {len(books):,} books in database")
-
-        # Write CSV
-        import csv
-
-        with open(output_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(BookRecord.csv_headers())
-
-            for book in books:
-                writer.writerow(book.to_csv_row())
-
-        print(f"✅ Exported {len(books):,} books to {output_file}")
-
-    finally:
-        # Clean up database connections
-        try:
-            if hasattr(sqlite_tracker, "_db") and sqlite_tracker._db:
-                await sqlite_tracker._db.close()
-        except Exception:
-            pass
 
 
 async def main() -> None:
@@ -575,7 +545,6 @@ async def main() -> None:
 Examples:
   python grin.py enrich --run-name harvard_2024
   python grin.py status --run-name harvard_2024
-  python grin.py export-csv --run-name harvard_2024 --output books.csv
         """,
     )
 
@@ -599,12 +568,6 @@ Examples:
         "--secrets-dir", help="Directory containing GRIN secrets files (auto-detected from run config if not specified)"
     )
     enrich_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
-
-    # Export command
-    export_parser = subparsers.add_parser("export-csv", help="Export enriched data to CSV")
-    export_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
-    export_parser.add_argument("--output", default="books_enriched.csv", help="Output CSV file")
-    export_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
 
     # Status command
     status_parser = subparsers.add_parser("status", help="Show enrichment status")
@@ -633,7 +596,7 @@ Examples:
             sys.exit(1)
 
     # Set up logging - use unified log file from run config
-    if args.command in ["enrich", "export-csv"]:
+    if args.command == "enrich":
         from grin_to_s3.run_config import find_run_config
 
         run_config = find_run_config(args.db_path)
@@ -663,9 +626,6 @@ Examples:
                     secrets_dir=args.secrets_dir,
                 )
                 await pipeline.run_enrichment(limit=args.limit, reset=args.reset)
-
-            case "export-csv":
-                await export_enriched_csv(args.db_path, args.output)
 
             case "status":
                 sqlite_tracker = SQLiteProgressTracker(args.db_path)
@@ -700,12 +660,6 @@ async def enrich_main():
     sys.argv.insert(1, "enrich")
     await main()
 
-
-async def export_csv_main():
-    """Entry point for 'grin export-csv' command."""
-    # Insert 'export-csv' as the subcommand
-    sys.argv.insert(1, "export-csv")
-    await main()
 
 
 async def status_main():
