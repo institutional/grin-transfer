@@ -8,7 +8,9 @@ storage helpers, and common operations.
 
 import json
 import logging
-from typing import Any
+import tempfile
+from pathlib import Path
+from typing import Any, TypedDict
 
 from ..database import connect_async
 
@@ -273,3 +275,142 @@ async def get_converted_books(grin_client, library_directory: str) -> set[str]:
     except Exception as e:
         logger.warning(f"Failed to get converted books: {e}")
         return set()
+
+
+class CSVExportResult(TypedDict):
+    """Result dictionary for CSV export and upload operations."""
+
+    success: bool
+    exported: bool
+    uploaded: bool
+    latest_path: str | None
+    timestamped_path: str | None
+    error: str | None
+    temp_file_cleaned: bool
+
+
+async def export_and_upload_csv(
+    db_path: str,
+    staging_dir: str,
+    book_storage,
+    skip_export: bool = False,
+    custom_filename: str | None = None,
+) -> CSVExportResult:
+    """Export CSV from database and upload to storage with comprehensive error handling.
+
+    Creates temporary CSV file in staging directory, uploads to both latest and
+    timestamped locations in metadata bucket, and ensures proper cleanup.
+
+    Args:
+        db_path: Path to SQLite database file
+        staging_dir: Directory for temporary file creation
+        book_storage: BookStorage instance for upload operations
+        skip_export: If True, skip export and return early
+        custom_filename: Optional custom filename for latest version
+
+    Returns:
+        Dict with operation results:
+        - success: bool - Overall operation success
+        - exported: bool - Whether CSV was exported successfully
+        - uploaded: bool - Whether CSV was uploaded successfully
+        - latest_path: str | None - Path to latest version in storage
+        - timestamped_path: str | None - Path to timestamped version in storage
+        - error: str | None - Error message if operation failed
+        - temp_file_cleaned: bool - Whether temporary file was cleaned up
+
+    Raises:
+        Exception: Only if cleanup fails after successful operation
+    """
+    result: CSVExportResult = {
+        "success": False,
+        "exported": False,
+        "uploaded": False,
+        "latest_path": None,
+        "timestamped_path": None,
+        "error": None,
+        "temp_file_cleaned": False,
+    }
+
+    if skip_export:
+        logger.info("CSV export skipped due to skip_export flag")
+        result["success"] = True
+        result["exported"] = False
+        result["uploaded"] = False
+        return result
+
+    temp_csv_path = None
+    try:
+        # Create staging directory if it doesn't exist
+        staging_path = Path(staging_dir)
+        staging_path.mkdir(parents=True, exist_ok=True)
+        logger.debug(f"Using staging directory: {staging_path}")
+
+        # Create temporary CSV file in staging directory
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", dir=staging_path, delete=False, encoding="utf-8"
+        ) as temp_file:
+            temp_csv_path = temp_file.name
+            logger.debug(f"Created temporary CSV file: {temp_csv_path}")
+
+            # Export CSV data using existing export module
+            from grin_to_s3.collect_books.models import SQLiteProgressTracker
+
+            # Export to temporary file
+            sqlite_tracker = SQLiteProgressTracker(db_path)
+            books = await sqlite_tracker.get_all_books_csv_data()
+            logger.info(f"Exporting {len(books)} books to CSV")
+
+            # Write CSV data to temporary file
+            import csv
+
+            from grin_to_s3.collect_books.models import BookRecord
+
+            writer = csv.writer(temp_file)
+            writer.writerow(BookRecord.csv_headers())
+            for book in books:
+                writer.writerow(book.to_csv_row())
+
+            temp_file.flush()
+            logger.debug(f"CSV data written to temporary file: {temp_csv_path}")
+
+        result["exported"] = True
+        logger.info(f"CSV export completed successfully: {len(books)} books")
+
+        # Upload CSV file to storage
+        logger.info("Uploading CSV file to storage")
+        latest_path, timestamped_path = await book_storage.upload_csv_file(
+            temp_csv_path, custom_filename
+        )
+
+        result["uploaded"] = True
+        result["latest_path"] = latest_path
+        result["timestamped_path"] = timestamped_path
+        logger.info("CSV upload completed successfully:")
+        logger.info(f"  Latest: {latest_path}")
+        logger.info(f"  Timestamped: {timestamped_path}")
+
+        # Mark overall operation as successful
+        result["success"] = True
+
+    except Exception as e:
+        error_msg = f"CSV export and upload failed: {e}"
+        logger.error(error_msg, exc_info=True)
+        result["error"] = error_msg
+        result["success"] = False
+
+    finally:
+        # Clean up temporary file in all cases
+        if temp_csv_path and Path(temp_csv_path).exists():
+            try:
+                Path(temp_csv_path).unlink()
+                result["temp_file_cleaned"] = True
+                logger.debug(f"Cleaned up temporary file: {temp_csv_path}")
+            except Exception as cleanup_error:
+                logger.warning(f"Failed to cleanup temporary CSV file {temp_csv_path}: {cleanup_error}")
+                result["temp_file_cleaned"] = False
+                # Don't fail the overall operation due to cleanup failure
+                if result["success"]:
+                    # Only raise if the main operation succeeded but cleanup failed
+                    raise Exception(f"CSV operation succeeded but cleanup failed: {cleanup_error}") from cleanup_error
+
+    return result
