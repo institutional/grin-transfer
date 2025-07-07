@@ -47,6 +47,7 @@ async def export_and_upload_csv(
     Returns:
         Dict with operation results:
         - status: str - Operation status ("completed", "failed", "skipped")
+        - file_size: int - Size of exported CSV file in bytes
         - num_rows: int - Number of rows exported (including header)
 
     Raises:
@@ -54,6 +55,7 @@ async def export_and_upload_csv(
     """
     result: CSVExportResult = {
         "status": "pending",
+        "file_size": 0,
         "num_rows": 0,
     }
 
@@ -90,9 +92,13 @@ async def export_and_upload_csv(
             temp_file.flush()
             logger.debug(f"CSV data written to temporary file: {temp_csv_path}")
 
-        # Set number of rows (header + data rows)
+        # Get file size and row count
+        csv_file_size = Path(temp_csv_path).stat().st_size
+        result["file_size"] = csv_file_size
         result["num_rows"] = len(books) + 1
-        logger.info(f"CSV export completed successfully: {len(books)} books, {result['num_rows']} total rows")
+        logger.info(
+            f"CSV export completed successfully: {len(books)} books, {result['num_rows']} rows, {csv_file_size} bytes"
+        )
 
         # Upload CSV file to storage
         logger.info("Uploading CSV file to storage")

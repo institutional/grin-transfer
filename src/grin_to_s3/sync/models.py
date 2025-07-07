@@ -12,6 +12,7 @@ class FileResult(TypedDict):
     """Base result structure for file operations."""
 
     status: str
+    file_size: int
 
 
 class SyncStats(TypedDict):
@@ -32,7 +33,6 @@ class BookSyncResult(FileResult):
     barcode: str
     skipped: bool
     encrypted_etag: str | None
-    file_size: int
     total_time: float
 
 
