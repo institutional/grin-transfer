@@ -245,3 +245,46 @@ class BookStorage:
         path = self._raw_archive_path(barcode, filename)
         async for chunk in self.storage.stream_download(path):
             yield chunk
+
+    async def upload_csv_file(self, local_csv_path: str, filename: str | None = None) -> tuple[str, str]:
+        """Upload CSV file to metadata bucket with both latest and timestamped versions.
+
+        Args:
+            local_csv_path: Path to local CSV file to upload
+            filename: Optional custom filename (defaults to books_latest.csv)
+
+        Returns:
+            Tuple of (latest_path, timestamped_path) that were uploaded to
+
+        Raises:
+            Exception: If upload fails for either version
+        """
+        if filename is None:
+            filename = "books_latest.csv"
+
+        # Generate filename-safe timestamp
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        timestamped_filename = f"books_{timestamp}.csv"
+
+        # Generate paths for both versions
+        latest_path = self._meta_path(filename)
+        timestamped_path = self._meta_path(f"timestamped/{timestamped_filename}")
+
+        logger.info(f"Uploading CSV file {local_csv_path} to metadata bucket")
+        logger.debug(f"Latest version: {latest_path}")
+        logger.debug(f"Timestamped version: {timestamped_path}")
+
+        try:
+            # Upload to both locations
+            await self.storage.write_file(latest_path, local_csv_path)
+            logger.debug(f"Successfully uploaded latest CSV to {latest_path}")
+
+            await self.storage.write_file(timestamped_path, local_csv_path)
+            logger.debug(f"Successfully uploaded timestamped CSV to {timestamped_path}")
+
+            logger.info(f"CSV upload completed: {latest_path} and {timestamped_path}")
+            return latest_path, timestamped_path
+
+        except Exception as e:
+            logger.error(f"Failed to upload CSV file: {e}")
+            raise
