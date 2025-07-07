@@ -76,8 +76,8 @@ class TestCSVExportIntegration:
                 }
 
                 # Mock storage creation
-                with patch("grin_to_s3.storage.create_storage_from_config"):
-                    with patch("grin_to_s3.storage.book_storage.BookStorage"):
+                with patch("grin_to_s3.sync.pipeline.create_storage_from_config"):
+                    with patch("grin_to_s3.sync.pipeline.BookStorage"):
                         result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "completed"
@@ -107,8 +107,8 @@ class TestCSVExportIntegration:
                 mock_export.side_effect = Exception("Export failed")
 
                 # Mock storage creation
-                with patch("grin_to_s3.storage.create_storage_from_config"):
-                    with patch("grin_to_s3.storage.book_storage.BookStorage"):
+                with patch("grin_to_s3.sync.pipeline.create_storage_from_config"):
+                    with patch("grin_to_s3.sync.pipeline.BookStorage"):
                         result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "failed"
