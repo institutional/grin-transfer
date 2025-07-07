@@ -3,7 +3,7 @@
 CSV Export Module
 
 Exports books from SQLite database to CSV format. Works at any pipeline stage
-and exports ALL books with whatever metadata is available.
+and exports books with whatever metadata is available.
 """
 
 import argparse
@@ -22,10 +22,9 @@ logger = logging.getLogger(__name__)
 
 
 async def export_csv(db_path: str, output_file: str) -> None:
-    """Export all books from database to CSV format.
+    """Export books from database to CSV format.
 
-    Exports ALL books in the collection with whatever metadata is available,
-    regardless of processing stage (works after collect, enrich, or sync).
+    Exports books in the collection with whatever metadata is available.
 
     Args:
         db_path: Path to SQLite database
@@ -63,15 +62,9 @@ def create_parser() -> argparse.ArgumentParser:
         description="Export ALL books in collection to CSV with available metadata",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  # Export after collecting books
+Example:
+
   python grin.py export --run-name harvard_2024 --output books.csv
-
-  # Export after enrichment
-  python grin.py export --run-name harvard_2024 --output books_enriched.csv
-
-  # Export after sync with full metadata
-  python grin.py export --run-name harvard_2024 --output books_complete.csv
 
 Note: This command exports ALL books in the database regardless of processing stage.
       Books will include whatever metadata is available (basic after collect,
