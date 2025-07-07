@@ -281,8 +281,7 @@ async def get_converted_books(grin_client, library_directory: str) -> set[str]:
 class CSVExportResult(FileResult):
     """Result dictionary for CSV export and upload operations."""
 
-    exported: bool
-    uploaded: bool
+    num_rows: int
 
 
 async def export_and_upload_csv(
@@ -307,16 +306,14 @@ async def export_and_upload_csv(
     Returns:
         Dict with operation results:
         - status: str - Operation status ("completed", "failed", "skipped")
-        - exported: bool - Whether CSV was exported successfully
-        - uploaded: bool - Whether CSV was uploaded successfully
+        - num_rows: int - Number of rows exported (including header)
 
     Raises:
         Exception: Only if cleanup fails after successful operation
     """
     result: CSVExportResult = {
         "status": "pending",
-        "exported": False,
-        "uploaded": False,
+        "num_rows": 0,
     }
 
     if skip_export:
@@ -359,8 +356,9 @@ async def export_and_upload_csv(
             temp_file.flush()
             logger.debug(f"CSV data written to temporary file: {temp_csv_path}")
 
-        result["exported"] = True
-        logger.info(f"CSV export completed successfully: {len(books)} books")
+        # Set number of rows (header + data rows)
+        result["num_rows"] = len(books) + 1
+        logger.info(f"CSV export completed successfully: {len(books)} books, {result['num_rows']} total rows")
 
         # Upload CSV file to storage
         logger.info("Uploading CSV file to storage")
@@ -368,7 +366,6 @@ async def export_and_upload_csv(
             temp_csv_path, custom_filename
         )
 
-        result["uploaded"] = True
         logger.info(f"CSV upload completed successfully: {latest_path}")
 
         # Mark overall operation as successful

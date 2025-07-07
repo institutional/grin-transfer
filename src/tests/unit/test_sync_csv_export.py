@@ -78,8 +78,7 @@ class TestExportAndUploadCSV:
 
                     # Verify result
                     assert result["status"] == "completed"
-                    assert result["exported"] is True
-                    assert result["uploaded"] is True
+                    assert result["num_rows"] == 4  # header + 3 books
 
                     # Verify storage upload was called
                     mock_book_storage.upload_csv_file.assert_called_once()
@@ -107,8 +106,7 @@ class TestExportAndUploadCSV:
 
             # Verify result
             assert result["status"] == "skipped"
-            assert result["exported"] is False
-            assert result["uploaded"] is False
+            assert result["num_rows"] == 0  # No export happened
 
             # Verify storage upload was not called
             mock_book_storage.upload_csv_file.assert_not_called()
@@ -163,8 +161,6 @@ class TestExportAndUploadCSV:
 
                 # Verify error handling
                 assert result["status"] == "failed"
-                assert result["exported"] is False
-                assert result["uploaded"] is False
 
                 # Verify storage upload was not called
                 mock_book_storage.upload_csv_file.assert_not_called()
@@ -195,8 +191,7 @@ class TestExportAndUploadCSV:
 
                     # Verify error handling
                     assert result["status"] == "failed"
-                    assert result["exported"] is True  # Export succeeded
-                    assert result["uploaded"] is False  # Upload failed
+                    assert result["num_rows"] == 4  # Export succeeded, so rows were counted
 
     @pytest.mark.asyncio
     async def test_empty_database(self, mock_book_storage):
@@ -221,8 +216,7 @@ class TestExportAndUploadCSV:
 
                     # Verify successful operation with empty data
                     assert result["status"] == "completed"
-                    assert result["exported"] is True
-                    assert result["uploaded"] is True
+                    assert result["num_rows"] == 1  # Just header row
 
                     # Verify upload was still called
                     mock_book_storage.upload_csv_file.assert_called_once()
@@ -283,8 +277,6 @@ class TestExportAndUploadCSV:
 
                         # Operation should still succeed despite cleanup failure
                         assert result["status"] == "completed"
-                        assert result["exported"] is True
-                        assert result["uploaded"] is True
 
     @pytest.mark.asyncio
     async def test_temp_file_content_verification(self, mock_book_storage, sample_books):
@@ -363,8 +355,6 @@ class TestExportAndUploadCSV:
                     # Verify all operations succeeded
                     for result in results:
                         assert result["status"] == "completed"
-                        assert result["exported"] is True
-                        assert result["uploaded"] is True
 
                     # Verify all uploads were called
                     assert mock_book_storage.upload_csv_file.call_count == 3
