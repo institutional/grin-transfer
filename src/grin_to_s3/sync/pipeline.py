@@ -21,6 +21,7 @@ from grin_to_s3.common import (
 )
 from grin_to_s3.storage import get_storage_protocol
 
+from .csv_export import export_and_upload_csv
 from .models import create_sync_stats
 from .operations import (
     check_and_handle_etag_skip,
@@ -57,7 +58,7 @@ class SyncPipeline:
         skip_extract_ocr: bool = False,
         enrichment_enabled: bool = True,
         enrichment_workers: int = 1,
-        auto_update_csv: bool = True,
+        skip_csv_export: bool = False,
     ):
         self.db_path = db_path
         # Keep original storage type for storage creation
@@ -86,7 +87,7 @@ class SyncPipeline:
         # Enrichment configuration
         self.enrichment_enabled = enrichment_enabled
         self.enrichment_workers = enrichment_workers
-        self.auto_update_csv = auto_update_csv
+        self.skip_csv_export = skip_csv_export
 
         # Initialize components
         self.db_tracker = SQLiteProgressTracker(db_path)
@@ -376,6 +377,69 @@ class SyncPipeline:
         self._enrichment_workers.clear()
         logger.info("All enrichment workers stopped")
 
+    async def _export_csv_if_enabled(self, books_synced: int) -> dict[str, Any]:
+        """Export CSV if enabled and books were synced successfully."""
+        if self.skip_csv_export:
+            logger.debug("CSV export skipped due to --skip-csv-export flag")
+            return {"status": "skipped", "reason": "flag"}
+
+        if books_synced == 0:
+            logger.debug("CSV export skipped, no books were synced")
+            return {"status": "skipped", "reason": "no_books"}
+
+        try:
+            # Create book storage for CSV upload
+            from grin_to_s3.storage import create_storage_from_config
+            from grin_to_s3.storage.book_storage import BookStorage, BucketConfig
+
+            storage = create_storage_from_config(self.storage_type, self.storage_config or {})
+            base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
+
+            bucket_config: BucketConfig = {
+                "bucket_raw": self.storage_config.get("bucket_raw", "") if self.storage_config else "",
+                "bucket_meta": self.storage_config.get("bucket_meta", "") if self.storage_config else "",
+                "bucket_full": self.storage_config.get("bucket_full", "") if self.storage_config else "",
+            }
+
+            book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix=base_prefix)
+
+            # Use existing staging manager or create temporary one for local storage
+            staging_manager = self.staging_manager
+            if not staging_manager:
+                # For local storage, create temporary staging manager
+                from grin_to_s3.storage.staging import StagingDirectoryManager
+                staging_manager = StagingDirectoryManager(self.staging_dir)
+
+            # Export CSV
+            logger.info("Exporting CSV after sync completion")
+            start_time = time.time()
+            result = await export_and_upload_csv(
+                db_path=self.db_path,
+                staging_manager=staging_manager,
+                book_storage=book_storage,
+                skip_export=False
+            )
+            export_time = time.time() - start_time
+
+            if result["status"] == "completed":
+                logger.info(
+                    f"CSV export completed successfully in {export_time:.1f}s: "
+                    f"{result['num_rows']} rows, {result['file_size']} bytes"
+                )
+                return {
+                    "status": "completed",
+                    "num_rows": result["num_rows"],
+                    "file_size": result["file_size"],
+                    "export_time": export_time,
+                }
+            else:
+                logger.error(f"CSV export failed: {result.get('status', 'unknown error')}")
+                return {"status": "failed", "export_time": export_time}
+
+        except Exception as e:
+            logger.error(f"CSV export failed with exception: {e}", exc_info=True)
+            return {"status": "failed", "error": str(e)}
+
     async def queue_book_for_enrichment(self, barcode: str) -> None:
         """Add a book to the enrichment queue."""
         if self.enrichment_queue is None:
@@ -538,6 +602,13 @@ class SyncPipeline:
                 avg_rate = self.stats["completed"] / total_elapsed
                 print(f"  Average rate: {avg_rate:.1f} books/second")
 
+            # Export CSV if enabled and books were synced
+            csv_result = await self._export_csv_if_enabled(self.stats["completed"])
+            if csv_result["status"] == "completed":
+                print(f"  CSV exported: {csv_result['num_rows']:,} rows ({csv_result['file_size']:,} bytes)")
+            elif csv_result["status"] == "failed":
+                print(f"  CSV export failed: {csv_result.get('error', 'unknown error')}")
+
             logger.info("Sync completed")
 
     async def _run_block_storage_sync(
@@ -696,6 +767,13 @@ class SyncPipeline:
             if total_elapsed > 0 and self.stats["completed"] > 0:
                 avg_rate = self.stats["completed"] / total_elapsed
                 print(f"  Average rate: {avg_rate:.1f} books/second")
+
+            # Export CSV if enabled and books were synced
+            csv_result = await self._export_csv_if_enabled(self.stats["completed"])
+            if csv_result["status"] == "completed":
+                print(f"  CSV exported: {csv_result['num_rows']:,} rows ({csv_result['file_size']:,} bytes)")
+            elif csv_result["status"] == "failed":
+                print(f"  CSV export failed: {csv_result.get('error', 'unknown error')}")
 
             logger.info("Sync completed")
 

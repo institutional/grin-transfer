@@ -239,7 +239,7 @@ class TestSyncPipelineEnrichmentQueue:
         # Enrichment should be enabled by default
         assert pipeline.enrichment_enabled is True
         assert pipeline.enrichment_workers == 1
-        assert pipeline.auto_update_csv is True
+        assert pipeline.skip_csv_export is False
 
         # Queue should be initialized
         assert pipeline.enrichment_queue is not None
@@ -270,13 +270,13 @@ class TestSyncPipelineEnrichmentQueue:
             library_directory="TestLib",
             enrichment_enabled=True,
             enrichment_workers=3,
-            auto_update_csv=False,
+            skip_csv_export=True,
         )
 
         # Configuration should be set correctly
         assert pipeline.enrichment_enabled is True
         assert pipeline.enrichment_workers == 3
-        assert pipeline.auto_update_csv is False
+        assert pipeline.skip_csv_export is True
 
         # Queue should still be initialized
         assert pipeline.enrichment_queue is not None
