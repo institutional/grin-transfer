@@ -70,7 +70,7 @@ def mock_pipeline_dependencies():
 class TestAsyncEnrichmentQueueInfrastructure:
     """Test enrichment queue infrastructure and configuration."""
 
-    def test_enrichment_queue_enabled_by_default(self, temp_db_tracker, mock_pipeline_dependencies):
+    def test_enrichment_queue_enabled_by_default(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage):
         """Test that enrichment queue is enabled by default."""
         tracker, db_path = temp_db_tracker
 
@@ -79,6 +79,7 @@ class TestAsyncEnrichmentQueueInfrastructure:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
         )
 
         # Enrichment should be enabled by default
@@ -87,7 +88,7 @@ class TestAsyncEnrichmentQueueInfrastructure:
         assert pipeline.enrichment_queue is not None
         assert pipeline.enrichment_queue.qsize() == 0
 
-    def test_enrichment_queue_can_be_disabled(self, temp_db_tracker, mock_pipeline_dependencies):
+    def test_enrichment_queue_can_be_disabled(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage):
         """Test that enrichment queue can be disabled."""
         tracker, db_path = temp_db_tracker
 
@@ -96,6 +97,7 @@ class TestAsyncEnrichmentQueueInfrastructure:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=False,
         )
 
@@ -103,7 +105,7 @@ class TestAsyncEnrichmentQueueInfrastructure:
         assert pipeline.enrichment_enabled is False
         assert pipeline.enrichment_queue is None
 
-    def test_enrichment_queue_configuration_options(self, temp_db_tracker, mock_pipeline_dependencies):
+    def test_enrichment_queue_configuration_options(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage):
         """Test enrichment queue configuration options."""
         tracker, db_path = temp_db_tracker
 
@@ -112,6 +114,7 @@ class TestAsyncEnrichmentQueueInfrastructure:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
             enrichment_workers=3,
             skip_csv_export=True,
@@ -124,7 +127,7 @@ class TestAsyncEnrichmentQueueInfrastructure:
         assert pipeline.enrichment_queue is not None
 
     @pytest.mark.asyncio
-    async def test_enrichment_queue_size_tracking_in_stats(self, temp_db_tracker, mock_pipeline_dependencies):
+    async def test_enrichment_queue_size_tracking_in_stats(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage):
         """Test that enrichment queue size is tracked in pipeline statistics."""
         tracker, db_path = temp_db_tracker
 
@@ -133,6 +136,7 @@ class TestAsyncEnrichmentQueueInfrastructure:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
         )
 
@@ -153,7 +157,7 @@ class TestAsyncEnrichmentQueueInfrastructure:
         assert status["session_stats"]["enrichment_queue_size"] == 3
 
     @pytest.mark.asyncio
-    async def test_enrichment_queue_size_zero_when_disabled(self, temp_db_tracker, mock_pipeline_dependencies):
+    async def test_enrichment_queue_size_zero_when_disabled(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage):
         """Test that enrichment queue size is 0 when enrichment is disabled."""
         tracker, db_path = temp_db_tracker
 
@@ -162,6 +166,7 @@ class TestAsyncEnrichmentQueueInfrastructure:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=False,
         )
 
@@ -177,7 +182,7 @@ class TestAsyncEnrichmentWorkerLifecycle:
     """Test enrichment worker lifecycle management."""
 
     @pytest.mark.asyncio
-    async def test_enrichment_workers_start_correctly(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline):
+    async def test_enrichment_workers_start_correctly(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage):
         """Test that enrichment workers start correctly."""
         tracker, db_path = temp_db_tracker
 
@@ -186,6 +191,7 @@ class TestAsyncEnrichmentWorkerLifecycle:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
             enrichment_workers=2,
         )
@@ -202,7 +208,7 @@ class TestAsyncEnrichmentWorkerLifecycle:
         await pipeline.stop_enrichment_workers()
 
     @pytest.mark.asyncio
-    async def test_enrichment_workers_not_started_when_disabled(self, temp_db_tracker, mock_pipeline_dependencies):
+    async def test_enrichment_workers_not_started_when_disabled(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage):
         """Test that enrichment workers are not started when disabled."""
         tracker, db_path = temp_db_tracker
 
@@ -211,6 +217,7 @@ class TestAsyncEnrichmentWorkerLifecycle:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=False,
         )
 
@@ -221,7 +228,7 @@ class TestAsyncEnrichmentWorkerLifecycle:
         assert len(pipeline._enrichment_workers) == 0
 
     @pytest.mark.asyncio
-    async def test_enrichment_workers_process_queued_books(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline):
+    async def test_enrichment_workers_process_queued_books(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage):
         """Test that enrichment workers process queued books."""
         tracker, db_path = temp_db_tracker
 
@@ -230,6 +237,7 @@ class TestAsyncEnrichmentWorkerLifecycle:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
             enrichment_workers=1,
         )
@@ -255,7 +263,7 @@ class TestAsyncEnrichmentWorkerLifecycle:
         await pipeline.stop_enrichment_workers()
 
     @pytest.mark.asyncio
-    async def test_enrichment_workers_graceful_shutdown(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline):
+    async def test_enrichment_workers_graceful_shutdown(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage):
         """Test graceful shutdown of enrichment workers."""
         tracker, db_path = temp_db_tracker
 
@@ -264,6 +272,7 @@ class TestAsyncEnrichmentWorkerLifecycle:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
             enrichment_workers=2,
         )
@@ -292,7 +301,7 @@ class TestAsyncEnrichmentWorkerLifecycle:
         assert len(pipeline._enrichment_workers) == 0
 
     @pytest.mark.asyncio
-    async def test_enrichment_workers_multiple_worker_configuration(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline):
+    async def test_enrichment_workers_multiple_worker_configuration(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage):
         """Test multiple enrichment workers working concurrently."""
         tracker, db_path = temp_db_tracker
 
@@ -301,6 +310,7 @@ class TestAsyncEnrichmentWorkerLifecycle:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
             enrichment_workers=3,
         )
@@ -333,7 +343,7 @@ class TestAsyncEnrichmentEndToEndIntegration:
     """Test end-to-end integration of async enrichment with sync pipeline."""
 
     @pytest.mark.asyncio
-    async def test_book_queued_for_enrichment_after_successful_upload(self, temp_db_tracker, mock_pipeline_dependencies):
+    async def test_book_queued_for_enrichment_after_successful_upload(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage):
         """Test that books are automatically queued for enrichment after successful upload."""
         tracker, db_path = temp_db_tracker
 
@@ -342,6 +352,7 @@ class TestAsyncEnrichmentEndToEndIntegration:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
         )
 
@@ -366,7 +377,7 @@ class TestAsyncEnrichmentEndToEndIntegration:
         assert result[0] == "pending"
 
     @pytest.mark.asyncio
-    async def test_enrichment_disabled_does_not_queue_books(self, temp_db_tracker, mock_pipeline_dependencies):
+    async def test_enrichment_disabled_does_not_queue_books(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage):
         """Test that books are not queued when enrichment is disabled."""
         tracker, db_path = temp_db_tracker
 
@@ -375,6 +386,7 @@ class TestAsyncEnrichmentEndToEndIntegration:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=False,
         )
 
@@ -397,7 +409,7 @@ class TestAsyncEnrichmentEndToEndIntegration:
         assert count == 0
 
     @pytest.mark.asyncio
-    async def test_enrichment_with_different_storage_types(self, temp_db_tracker, mock_pipeline_dependencies):
+    async def test_enrichment_with_different_storage_types(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage):
         """Test enrichment works with different storage types."""
         tracker, db_path = temp_db_tracker
 
@@ -409,6 +421,7 @@ class TestAsyncEnrichmentEndToEndIntegration:
                 storage_type=storage_type,
                 storage_config={"bucket_raw": "test-bucket"} if storage_type != "local" else {"base_path": "/tmp"},
                 library_directory="TestLib",
+                process_summary_stage=mock_process_stage,
                 enrichment_enabled=True,
             )
 
@@ -431,7 +444,7 @@ class TestAsyncEnrichmentErrorHandling:
     """Test error handling and recovery in async enrichment."""
 
     @pytest.mark.asyncio
-    async def test_enrichment_worker_handles_grin_api_failures(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline):
+    async def test_enrichment_worker_handles_grin_api_failures(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage):
         """Test that enrichment workers handle GRIN API failures gracefully."""
         tracker, db_path = temp_db_tracker
 
@@ -440,6 +453,7 @@ class TestAsyncEnrichmentErrorHandling:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
             enrichment_workers=1,
         )
@@ -479,7 +493,7 @@ class TestAsyncEnrichmentErrorHandling:
         await pipeline.stop_enrichment_workers()
 
     @pytest.mark.asyncio
-    async def test_enrichment_worker_continues_after_single_failure(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline):
+    async def test_enrichment_worker_continues_after_single_failure(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage):
         """Test that enrichment workers continue processing after single failures."""
         tracker, db_path = temp_db_tracker
 
@@ -488,6 +502,7 @@ class TestAsyncEnrichmentErrorHandling:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
             enrichment_workers=1,
         )
@@ -534,7 +549,7 @@ class TestAsyncEnrichmentErrorHandling:
         await pipeline.stop_enrichment_workers()
 
     @pytest.mark.asyncio
-    async def test_enrichment_worker_handles_database_errors(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline):
+    async def test_enrichment_worker_handles_database_errors(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage):
         """Test enrichment workers handle database errors gracefully."""
         tracker, db_path = temp_db_tracker
 
@@ -543,6 +558,7 @@ class TestAsyncEnrichmentErrorHandling:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
             enrichment_workers=1,
         )
@@ -574,7 +590,7 @@ class TestAsyncEnrichmentDatabaseIntegration:
     """Test database integration for async enrichment."""
 
     @pytest.mark.asyncio
-    async def test_enrichment_status_tracking(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline):
+    async def test_enrichment_status_tracking(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage):
         """Test that enrichment status is properly tracked in database."""
         tracker, db_path = temp_db_tracker
 
@@ -583,6 +599,7 @@ class TestAsyncEnrichmentDatabaseIntegration:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
             enrichment_workers=1,
         )
@@ -620,7 +637,7 @@ class TestAsyncEnrichmentDatabaseIntegration:
         await pipeline.stop_enrichment_workers()
 
     @pytest.mark.asyncio
-    async def test_enrichment_metadata_storage(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline):
+    async def test_enrichment_metadata_storage(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage):
         """Test that enrichment metadata is properly stored."""
         tracker, db_path = temp_db_tracker
 
@@ -629,6 +646,7 @@ class TestAsyncEnrichmentDatabaseIntegration:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
             enrichment_workers=1,
         )
@@ -665,7 +683,7 @@ class TestAsyncEnrichmentDatabaseIntegration:
         await pipeline.stop_enrichment_workers()
 
     @pytest.mark.asyncio
-    async def test_enrichment_no_data_handling(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline):
+    async def test_enrichment_no_data_handling(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage):
         """Test handling of books with no enrichment data."""
         tracker, db_path = temp_db_tracker
 
@@ -674,6 +692,7 @@ class TestAsyncEnrichmentDatabaseIntegration:
             storage_type="local",
             storage_config={"base_path": "/tmp"},
             library_directory="TestLib",
+            process_summary_stage=mock_process_stage,
             enrichment_enabled=True,
             enrichment_workers=1,
         )

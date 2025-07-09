@@ -54,6 +54,7 @@ class SyncPipeline:
         storage_type: str,
         storage_config: dict,
         library_directory: str,
+        process_summary_stage,
         concurrent_downloads: int = 5,
         concurrent_uploads: int = 10,
         batch_size: int = 10,
@@ -95,6 +96,9 @@ class SyncPipeline:
         self.enrichment_enabled = enrichment_enabled
         self.enrichment_workers = enrichment_workers
         self.skip_csv_export = skip_csv_export
+
+        # Process summary tracking
+        self.process_summary_stage = process_summary_stage
 
         # Initialize components
         self.db_tracker = SQLiteProgressTracker(db_path)
@@ -280,6 +284,7 @@ class SyncPipeline:
             batch_size=100,  # Smaller batches for background processing
             max_concurrent_requests=1,  # Conservative for background work
             secrets_dir=self.secrets_dir,
+            process_summary_stage=self.process_summary_stage,
         )
 
         try:
@@ -742,14 +747,23 @@ class SyncPipeline:
                                     # Download skipped due to ETag match, count as completed
                                     self.stats["skipped"] += 1
                                     logger.info(f"[{barcode}] Download skipped (already up to date)")
+
+                                    # Track skipped as successful in process summary
+                                    self.process_summary_stage.increment_items(successful=1)
                                 else:
                                     # Download failed, update stats
                                     self.stats["failed"] += 1
                                     logger.warning(f"[{barcode}] Download failed, not starting upload")
 
+                                    # Track download failure in process summary
+                                    self.process_summary_stage.increment_items(failed=1)
+
                                 # Update progress
                                 processed_count += 1
                                 rate_calculator.add_batch(time.time(), processed_count)
+
+                                # Track in process summary
+                                self.process_summary_stage.increment_items(processed=1)
 
                                 # Show detailed progress at intervals
                                 last_progress_report, initial_reports_count = self._maybe_show_progress(
@@ -777,13 +791,23 @@ class SyncPipeline:
                                     logger.info(f"[{barcode}] Book sync fully completed")
                                     # Queue for enrichment after successful sync
                                     await self.queue_book_for_enrichment(barcode)
+
+                                    # Track success in process summary
+                                    self.process_summary_stage.increment_items(successful=1)
                                 else:
                                     self.stats["failed"] += 1
                                     logger.warning(f"[{barcode}] Upload failed")
 
+                                    # Track failure in process summary
+                                    self.process_summary_stage.increment_items(failed=1)
+
                     except Exception as e:
                         logger.error(f"Error processing completed task: {e}", exc_info=True)
                         self.stats["failed"] += 1
+
+                        # Track exception as failure in process summary
+                        self.process_summary_stage.increment_items(failed=1)
+                        self.process_summary_stage.add_error(type(e).__name__, str(e))
 
         finally:
             # Cancel remaining tasks
@@ -814,6 +838,11 @@ class SyncPipeline:
 
             # Export CSV if enabled
             await self._export_csv_and_print_result()
+
+            # Point to process summary file
+            run_name = Path(self.db_path).parent.name
+            process_summary_path = f"output/{run_name}/process_summary.json"
+            print(f"\nProcess summary: {process_summary_path}")
 
             logger.info("Sync completed")
 

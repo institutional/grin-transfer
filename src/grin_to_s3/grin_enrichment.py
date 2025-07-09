@@ -27,6 +27,7 @@ from grin_to_s3.common import (
     setup_logging,
 )
 from grin_to_s3.database_utils import validate_database_file
+from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
 
 from .database import connect_async
@@ -40,6 +41,7 @@ class GRINEnrichmentPipeline:
     def __init__(
         self,
         directory: str,
+        process_summary_stage,
         db_path: str = "output/default/books.db",
         rate_limit_delay: float = 0.2,  # 5 QPS
         batch_size: int = 2000,
@@ -52,6 +54,7 @@ class GRINEnrichmentPipeline:
         self.batch_size = batch_size
         self.max_concurrent_requests = max_concurrent_requests
         self.timeout = timeout
+        self.process_summary_stage = process_summary_stage
 
         # Initialize components
         self.grin_client = GRINClient(timeout=timeout, secrets_dir=secrets_dir)
@@ -312,12 +315,15 @@ class GRINEnrichmentPipeline:
                                 if success:
                                     enriched_count += 1
                                     logger.debug(f"Successfully enriched {barcode}")
+                                    self.process_summary_stage.increment_items(processed=1, successful=1)
                                 else:
                                     logger.warning(f"⚠️ Failed to update database for {barcode}")
+                                    self.process_summary_stage.increment_items(processed=1, failed=1)
                             else:
                                 # Still mark as processed with empty enrichment timestamp
                                 await self.sqlite_tracker.update_book_enrichment(barcode, {})
                                 logger.debug(f"No enrichment data found for {barcode}")
+                                self.process_summary_stage.increment_items(processed=1)
 
                         except Exception as e:
                             logger.error(f"Error processing {barcode}: {e}")
@@ -326,6 +332,7 @@ class GRINEnrichmentPipeline:
                                 await self.sqlite_tracker.update_book_enrichment(barcode, {})
                             except Exception:
                                 pass
+                            self.process_summary_stage.increment_items(processed=1, failed=1)
 
                 except Exception as e:
                     logger.error(f"Error processing batch results: {e}")
@@ -335,6 +342,7 @@ class GRINEnrichmentPipeline:
                             await self.sqlite_tracker.update_book_enrichment(barcode, {})
                         except Exception:
                             pass
+                        self.process_summary_stage.increment_items(processed=1, failed=1)
 
         except Exception as e:
             logger.error(f"Critical error in concurrent batch processing: {e}")
@@ -344,6 +352,7 @@ class GRINEnrichmentPipeline:
                     await self.sqlite_tracker.update_book_enrichment(barcode, {})
                 except Exception:
                     pass
+                self.process_summary_stage.increment_items(processed=1, failed=1)
 
         return enriched_count
 
@@ -612,44 +621,77 @@ Examples:
         )
         logger.info(f"Command: {' '.join(sys.argv)}")
 
+    # Create process summary for enrich command
+    run_summary = None
+    enrich_stage = None
+    if args.command == "enrich":
+        run_summary = await create_process_summary(args.run_name, "enrich")
+        enrich_stage = get_current_stage(run_summary, "enrich")
+        enrich_stage.set_command_arg("grin_library_directory", args.grin_library_directory)
+        enrich_stage.set_command_arg("rate_limit", args.rate_limit)
+        enrich_stage.set_command_arg("batch_size", args.batch_size)
+        enrich_stage.set_command_arg("max_concurrent", args.max_concurrent)
+        enrich_stage.set_command_arg("reset", args.reset)
+        if args.limit:
+            enrich_stage.set_command_arg("limit", args.limit)
+
     try:
-        match args.command:
-            case "enrich":
-                pipeline = GRINEnrichmentPipeline(
-                    directory=args.grin_library_directory,
-                    db_path=args.db_path,
-                    rate_limit_delay=args.rate_limit,
-                    batch_size=args.batch_size,
-                    max_concurrent_requests=args.max_concurrent,
-                    secrets_dir=args.secrets_dir,
-                )
-                await pipeline.run_enrichment(limit=args.limit, reset=args.reset)
+        try:
+            match args.command:
+                case "enrich":
+                    assert enrich_stage is not None  # Should be set for enrich command
+                    pipeline = GRINEnrichmentPipeline(
+                        directory=args.grin_library_directory,
+                        process_summary_stage=enrich_stage,
+                        db_path=args.db_path,
+                        rate_limit_delay=args.rate_limit,
+                        batch_size=args.batch_size,
+                        max_concurrent_requests=args.max_concurrent,
+                        secrets_dir=args.secrets_dir,
+                    )
 
-            case "status":
-                sqlite_tracker = SQLiteProgressTracker(args.db_path)
-                try:
-                    total_books = await sqlite_tracker.get_book_count()
-                    enriched_books = await sqlite_tracker.get_enriched_book_count()
+                    enrich_stage.add_progress_update("Starting enrichment pipeline")
+                    await pipeline.run_enrichment(limit=args.limit, reset=args.reset)
+                    enrich_stage.add_progress_update("Enrichment pipeline completed successfully")
 
-                    print("Enrichment Status:")
-                    print(f"  Database: {args.db_path}")
-                    print(f"  Total books: {total_books:,}")
-                    print(f"  Enriched books: {enriched_books:,}")
-                    print(f"  Remaining: {total_books - enriched_books:,}")
-                    print(f"  Progress: {enriched_books / max(1, total_books) * 100:.1f}%")
-                finally:
-                    # Clean up database connections
+                case "status":
+                    sqlite_tracker = SQLiteProgressTracker(args.db_path)
                     try:
-                        if hasattr(sqlite_tracker, "_db") and sqlite_tracker._db:
-                            await sqlite_tracker._db.close()
-                    except Exception:
-                        pass
+                        total_books = await sqlite_tracker.get_book_count()
+                        enriched_books = await sqlite_tracker.get_enriched_book_count()
 
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-    except Exception as e:
-        print(f"Operation failed: {e}")
-        sys.exit(1)
+                        print("Enrichment Status:")
+                        print(f"  Database: {args.db_path}")
+                        print(f"  Total books: {total_books:,}")
+                        print(f"  Enriched books: {enriched_books:,}")
+                        print(f"  Remaining: {total_books - enriched_books:,}")
+                        print(f"  Progress: {enriched_books / max(1, total_books) * 100:.1f}%")
+                    finally:
+                        # Clean up database connections
+                        try:
+                            if hasattr(sqlite_tracker, "_db") and sqlite_tracker._db:
+                                await sqlite_tracker._db.close()
+                        except Exception:
+                            pass
+
+        except KeyboardInterrupt:
+            if enrich_stage:
+                enrich_stage.add_progress_update("Operation cancelled by user")
+                enrich_stage.add_error("KeyboardInterrupt", "User cancelled operation")
+            print("\nOperation cancelled by user")
+        except Exception as e:
+            if enrich_stage:
+                error_type = type(e).__name__
+                enrich_stage.add_error(error_type, str(e))
+                enrich_stage.add_progress_update(f"Operation failed: {error_type}")
+            print(f"Operation failed: {e}")
+            sys.exit(1)
+
+    finally:
+        # Always end the stage and save summary for enrich command
+        if run_summary:
+            run_summary.end_stage("enrich")
+            await save_process_summary(run_summary)
 
 
 async def enrich_main():

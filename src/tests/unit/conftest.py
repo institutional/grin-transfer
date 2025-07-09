@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from grin_to_s3.process_summary import ProcessStageMetrics
 from grin_to_s3.sync.models import create_sync_stats
 
 
@@ -129,3 +130,9 @@ def mock_staging_manager():
     manager.cleanup_file = AsyncMock()
     manager.check_and_wait_for_space = AsyncMock()
     return manager
+
+
+@pytest.fixture(autouse=True)
+def mock_process_stage():
+    """Create a mock process summary stage for testing. Auto-used in all tests."""
+    return ProcessStageMetrics("test")

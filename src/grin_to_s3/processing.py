@@ -18,6 +18,7 @@ from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import RateLimiter, format_duration, pluralize, setup_logging
 from grin_to_s3.database_utils import validate_database_file
+from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
 
 from .database import connect_async, connect_sync
@@ -188,6 +189,7 @@ class ProcessingPipeline:
         self,
         db_path: str,
         directory: str,
+        process_summary_stage,
         rate_limit_delay: float = 0.2,  # 5 QPS
         batch_size: int = 200,  # Increased from 100 based on testing
         max_in_process: int = 50000,  # GRIN's max queue limit
@@ -198,6 +200,7 @@ class ProcessingPipeline:
         self.rate_limit_delay = rate_limit_delay
         self.batch_size = batch_size
         self.max_in_process = max_in_process
+        self.process_summary_stage = process_summary_stage
 
         # Initialize components
         self.processing_client = ProcessingClient(
@@ -451,6 +454,7 @@ class ProcessingPipeline:
                         if status == "Success":
                             successful += 1
                             logger.info(f"Successfully requested processing for {barcode}")
+                            self.process_summary_stage.increment_items(processed=1, successful=1)
                         elif status == "Already available for download":
                             successful += 1  # Count as successful since book is ready
                             logger.warning(f"Book {barcode} already processed: {status}")
@@ -461,12 +465,15 @@ class ProcessingPipeline:
                                 )
                             except Exception as e:
                                 logger.debug(f"Failed to update status for {barcode}: {e}")
+                            self.process_summary_stage.increment_items(processed=1, successful=1)
                         else:
                             failed += 1
                             logger.error(f"Failed to request processing for {barcode}: {status}")
+                            self.process_summary_stage.increment_items(processed=1, failed=1)
                     else:
                         failed += 1
                         logger.error(f"No result returned for {barcode}")
+                        self.process_summary_stage.increment_items(processed=1, failed=1)
 
                 batch_elapsed = time.time() - batch_start
                 rate = batch_size / batch_elapsed if batch_elapsed > 0 else 0
@@ -982,67 +989,105 @@ async def cmd_request(args) -> None:
     )
     logger.info(f"Command: {' '.join(sys.argv)}")
 
+    # Extract run name from database path
+    run_name = Path(args.db_path).parent.name
+
+    # Create or load process summary
+    run_summary = await create_process_summary(run_name, "process")
+    process_stage = get_current_stage(run_summary, "process")
+    process_stage.set_command_arg("grin_library_directory", args.grin_library_directory)
+    process_stage.set_command_arg("rate_limit", args.rate_limit)
+    process_stage.set_command_arg("batch_size", args.batch_size)
+    process_stage.set_command_arg("max_in_process", args.max_in_process)
+    process_stage.set_command_arg("status_only", args.status_only)
+    if args.limit:
+        process_stage.set_command_arg("limit", args.limit)
+
     # Create and run pipeline
     try:
-        pipeline = ProcessingPipeline(
-            db_path=args.db_path,
-            directory=args.grin_library_directory,
-            rate_limit_delay=args.rate_limit,
-            batch_size=args.batch_size,
-            max_in_process=args.max_in_process,
-            secrets_dir=args.secrets_dir,
-        )
+        try:
+            pipeline = ProcessingPipeline(
+                db_path=args.db_path,
+                directory=args.grin_library_directory,
+                process_summary_stage=process_stage,
+                rate_limit_delay=args.rate_limit,
+                batch_size=args.batch_size,
+                max_in_process=args.max_in_process,
+                secrets_dir=args.secrets_dir,
+            )
 
-        # Set queue report interval
-        pipeline.queue_report_interval = args.queue_report_interval
+            # Set queue report interval
+            pipeline.queue_report_interval = args.queue_report_interval
 
-        if args.status_only:
-            # Just show status
-            status = await pipeline.get_processing_status()
-            print("GRIN Processing Status:")
-            print(f"  In process: {status['in_process']:,}")
-            print(f"  Queue space: {status['queue_space']:,}")
+            if args.status_only:
+                process_stage.add_progress_update("Checking processing status")
 
-            # Show database status
-            total_books = await pipeline.db_tracker.get_book_count()
-            print("\nDatabase Status:")
-            print(f"  Total books: {total_books:,}")
+                # Just show status
+                status = await pipeline.get_processing_status()
+                print("GRIN Processing Status:")
+                print(f"  In process: {status['in_process']:,}")
+                print(f"  Queue space: {status['queue_space']:,}")
 
-            # Count books by processing request status
-            async with connect_async(pipeline.db_path) as db:
-                cursor = await db.execute(
-                    """
-                    SELECT COALESCE(h1.status_value, 'no_status') as status, COUNT(*) as count
-                    FROM books b
-                    LEFT JOIN (
-                        SELECT DISTINCT h1.barcode, h1.status_value
-                        FROM book_status_history h1
-                        INNER JOIN (
-                            SELECT barcode, MAX(timestamp) as max_timestamp, MAX(id) as max_id
-                            FROM book_status_history
-                            WHERE status_type = 'processing_request'
-                            GROUP BY barcode
-                        ) h2 ON h1.barcode = h2.barcode
-                            AND h1.timestamp = h2.max_timestamp
-                            AND h1.id = h2.max_id
-                        WHERE h1.status_type = 'processing_request'
-                    ) h1 ON b.barcode = h1.barcode
-                    GROUP BY COALESCE(h1.status_value, 'no_status')
-                    """
-                )
-                status_counts = await cursor.fetchall()
-                for status, count in status_counts:
-                    status_name = status if status else "not requested"
-                    print(f"  {status_name}: {count:,}")
-        else:
-            # Run processing requests
-            await pipeline.run_processing_requests(limit=args.limit)
+                process_stage.set_command_arg("in_process", status["in_process"])
+                process_stage.set_command_arg("queue_space", status["queue_space"])
 
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-    except Exception as e:
-        print(f"Pipeline failed: {e}")
-        sys.exit(1)
+                # Show database status
+                total_books = await pipeline.db_tracker.get_book_count()
+                print("\nDatabase Status:")
+                print(f"  Total books: {total_books:,}")
+
+                process_stage.set_command_arg("total_books", total_books)
+
+                # Count books by processing request status
+                async with connect_async(pipeline.db_path) as db:
+                    cursor = await db.execute(
+                        """
+                        SELECT COALESCE(h1.status_value, 'no_status') as status, COUNT(*) as count
+                        FROM books b
+                        LEFT JOIN (
+                            SELECT DISTINCT h1.barcode, h1.status_value
+                            FROM book_status_history h1
+                            INNER JOIN (
+                                SELECT barcode, MAX(timestamp) as max_timestamp, MAX(id) as max_id
+                                FROM book_status_history
+                                WHERE status_type = 'processing_request'
+                                GROUP BY barcode
+                            ) h2 ON h1.barcode = h2.barcode
+                                AND h1.timestamp = h2.max_timestamp
+                                AND h1.id = h2.max_id
+                            WHERE h1.status_type = 'processing_request'
+                        ) h1 ON b.barcode = h1.barcode
+                        GROUP BY COALESCE(h1.status_value, 'no_status')
+                        """
+                    )
+                    status_counts = await cursor.fetchall()
+                    for status, count in status_counts:
+                        status_name = status if status else "not requested"
+                        print(f"  {status_name}: {count:,}")
+                        process_stage.set_command_arg(f"status_{status_name}", count)
+
+                process_stage.add_progress_update("Status check completed")
+            else:
+                # Run processing requests
+                process_stage.add_progress_update("Starting processing requests")
+                await pipeline.run_processing_requests(limit=args.limit)
+                process_stage.add_progress_update("Processing requests completed")
+
+        except KeyboardInterrupt:
+            process_stage.add_progress_update("Operation cancelled by user")
+            process_stage.add_error("KeyboardInterrupt", "User cancelled operation")
+            print("\nOperation cancelled by user")
+        except Exception as e:
+            error_type = type(e).__name__
+            process_stage.add_error(error_type, str(e))
+            process_stage.add_progress_update(f"Pipeline failed: {error_type}")
+            print(f"Pipeline failed: {e}")
+            sys.exit(1)
+
+    finally:
+        # Always end the stage and save summary
+        run_summary.end_stage("process")
+        await save_process_summary(run_summary)
 
 
 async def cmd_monitor(args) -> None:
