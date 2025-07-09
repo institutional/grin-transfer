@@ -17,8 +17,10 @@ from typing import Any
 from grin_to_s3.common import setup_logging, setup_storage_with_checks
 from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
 from grin_to_s3.run_config import (
+    RunConfig,
     apply_run_config_to_args,
     build_storage_config_dict,
+    load_run_config,
     setup_run_database_path,
 )
 from grin_to_s3.sync.models import validate_and_parse_barcodes
@@ -41,6 +43,7 @@ async def cmd_pipeline(args) -> None:
     # Build storage configuration from run config
     config_path = Path(args.db_path).parent / "run_config.json"
     storage_config = {}
+    existing_storage_config = {}
 
     if config_path.exists():
         try:
@@ -141,23 +144,24 @@ async def cmd_pipeline(args) -> None:
 
     try:
         try:
-            pipeline = SyncPipeline(
-                db_path=args.db_path,
-                storage_type=args.storage,
-                storage_config=storage_config,
-                library_directory=args.grin_library_directory,
+            # Load run config for factory method
+            config_path = Path(args.db_path).parent / "run_config.json"
+            run_config = load_run_config(str(config_path))
+
+            # Update storage config in run_config if it was modified above
+            if existing_storage_config != run_config.config_dict.get("storage_config", {}):
+                run_config.config_dict["storage_config"] = {
+                    "type": args.storage,
+                    "config": storage_config,
+                    "prefix": "",
+                }
+
+            pipeline = SyncPipeline.from_run_config(
+                config=run_config,
                 process_summary_stage=sync_stage,
-                concurrent_downloads=args.concurrent,
-                concurrent_uploads=args.concurrent_uploads,
-                batch_size=args.batch_size,
-                secrets_dir=args.secrets_dir,
-                gpg_key_file=args.gpg_key_file,
                 force=args.force,
-                staging_dir=args.staging_dir,
-                disk_space_threshold=args.disk_space_threshold,
                 skip_extract_ocr=args.skip_extract_ocr,
-                enrichment_enabled=not args.skip_enrichment,
-                enrichment_workers=args.enrichment_workers,
+                skip_enrichment=args.skip_enrichment,
                 skip_csv_export=args.skip_csv_export,
             )
 
@@ -195,23 +199,21 @@ async def cmd_pipeline(args) -> None:
                 print("Auto-optimizing settings for single book processing...")
 
                 # Create optimized pipeline for single book
-                pipeline = SyncPipeline(
-                    db_path=args.db_path,
-                    storage_type=args.storage,
-                    storage_config=storage_config,
-                    library_directory=args.grin_library_directory,
+                # Clone run config and modify sync settings for single book
+                single_book_config = RunConfig(run_config.config_dict.copy())
+                single_book_config.config_dict["sync_config"] = {
+                    **single_book_config.config_dict.get("sync_config", {}),
+                    "concurrent_downloads": 1,  # Optimal for single book
+                    "concurrent_uploads": 1,  # Optimal for single book
+                    "batch_size": 1,  # Single book batch
+                }
+
+                pipeline = SyncPipeline.from_run_config(
+                    config=single_book_config,
                     process_summary_stage=sync_stage,
-                    concurrent_downloads=1,  # Optimal for single book
-                    concurrent_uploads=1,  # Optimal for single book
-                    batch_size=1,  # Single book batch
-                    secrets_dir=args.secrets_dir,
-                    gpg_key_file=args.gpg_key_file,
                     force=args.force,
-                    staging_dir=args.staging_dir,
-                    disk_space_threshold=args.disk_space_threshold,
                     skip_extract_ocr=args.skip_extract_ocr,
-                    enrichment_enabled=not args.skip_enrichment,
-                    enrichment_workers=args.enrichment_workers,
+                    skip_enrichment=args.skip_enrichment,
                     skip_csv_export=args.skip_csv_export,
                 )
                 print("  - Concurrent downloads: 1")
