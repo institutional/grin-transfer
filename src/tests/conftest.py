@@ -105,6 +105,11 @@ class ConfigBuilder:
         self._config["sync_config"]["staging_dir"] = staging_dir
         return self
 
+    def with_log_file(self, log_file: str):
+        """Set log file path."""
+        self._config["log_file"] = log_file
+        return self
+
     def build(self) -> RunConfig:
         """Build the RunConfig instance."""
         return RunConfig(self._config)
