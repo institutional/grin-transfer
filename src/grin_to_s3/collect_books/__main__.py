@@ -21,6 +21,13 @@ from grin_to_s3.common import (
     setup_storage_with_checks,
 )
 from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
+from grin_to_s3.run_config import (
+    DEFAULT_SYNC_BATCH_SIZE,
+    DEFAULT_SYNC_CONCURRENT_DOWNLOADS,
+    DEFAULT_SYNC_CONCURRENT_UPLOADS,
+    DEFAULT_SYNC_DISK_SPACE_THRESHOLD,
+    DEFAULT_SYNC_ENRICHMENT_WORKERS,
+)
 from grin_to_s3.storage import get_storage_protocol
 
 # Check Python version requirement
@@ -211,6 +218,42 @@ Examples:
     # Performance options
     parser.add_argument("--disable-prefetch", action="store_true", help="Disable HTTP prefetching for next page")
 
+    # Sync configuration options (stored in run config for later use)
+    parser.add_argument(
+        "--sync-concurrent-downloads",
+        type=int,
+        default=DEFAULT_SYNC_CONCURRENT_DOWNLOADS,
+        help=f"Concurrent downloads for sync operations (default: {DEFAULT_SYNC_CONCURRENT_DOWNLOADS})",
+    )
+    parser.add_argument(
+        "--sync-concurrent-uploads",
+        type=int,
+        default=DEFAULT_SYNC_CONCURRENT_UPLOADS,
+        help=f"Concurrent uploads for sync operations (default: {DEFAULT_SYNC_CONCURRENT_UPLOADS})",
+    )
+    parser.add_argument(
+        "--sync-batch-size",
+        type=int,
+        default=DEFAULT_SYNC_BATCH_SIZE,
+        help=f"Batch size for sync operations (default: {DEFAULT_SYNC_BATCH_SIZE})",
+    )
+    parser.add_argument(
+        "--sync-staging-dir", help="Custom staging directory path for sync operations (default: auto)"
+    )
+    parser.add_argument(
+        "--sync-disk-space-threshold",
+        type=float,
+        default=DEFAULT_SYNC_DISK_SPACE_THRESHOLD,
+        help=f"Disk usage threshold to pause downloads (0.0-1.0, default: {DEFAULT_SYNC_DISK_SPACE_THRESHOLD})",
+    )
+    parser.add_argument(
+        "--sync-enrichment-workers",
+        type=int,
+        default=DEFAULT_SYNC_ENRICHMENT_WORKERS,
+        help=f"Number of enrichment workers for sync operations (default: {DEFAULT_SYNC_ENRICHMENT_WORKERS})",
+    )
+    parser.add_argument("--sync-gpg-key-file", help="Custom GPG key file path for sync operations")
+
     args = parser.parse_args()
 
     # Validate storage arguments
@@ -316,6 +359,17 @@ Examples:
         if args.disable_prefetch:
             config.enable_prefetch = False
 
+        # Build sync configuration from CLI arguments
+        sync_config = {
+            "concurrent_downloads": args.sync_concurrent_downloads,
+            "concurrent_uploads": args.sync_concurrent_uploads,
+            "batch_size": args.sync_batch_size,
+            "staging_dir": args.sync_staging_dir,
+            "disk_space_threshold": args.sync_disk_space_threshold,
+            "enrichment_workers": args.sync_enrichment_workers,
+            "gpg_key_file": args.sync_gpg_key_file,
+        }
+
         # Create enhanced config dict with storage and runtime info
         config_dict = config.to_dict()
         config_dict.update(
@@ -327,6 +381,7 @@ Examples:
                 "progress_file": progress_file,
                 "log_file": log_file,
                 "storage_config": storage_config,
+                "sync_config": sync_config,
                 "secrets_dir": args.secrets_dir,
                 "limit": args.limit,
             }
@@ -418,6 +473,17 @@ Examples:
             if args.disable_prefetch:
                 config.enable_prefetch = False
 
+            # Build sync configuration from CLI arguments
+            sync_config = {
+                "concurrent_downloads": args.sync_concurrent_downloads,
+                "concurrent_uploads": args.sync_concurrent_uploads,
+                "batch_size": args.sync_batch_size,
+                "staging_dir": args.sync_staging_dir,
+                "disk_space_threshold": args.sync_disk_space_threshold,
+                "enrichment_workers": args.sync_enrichment_workers,
+                "gpg_key_file": args.sync_gpg_key_file,
+            }
+
             # Write run configuration to run directory
             config_dict = config.to_dict()
             config_dict.update(
@@ -429,6 +495,7 @@ Examples:
                     "progress_file": progress_file,
                     "log_file": log_file,
                     "storage_config": storage_config,
+                    "sync_config": sync_config,
                     "secrets_dir": args.secrets_dir,
                     "limit": args.limit,
                 }

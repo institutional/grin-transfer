@@ -12,6 +12,13 @@ from typing import Any
 
 from .storage.factories import load_json_credentials
 
+# Sync configuration defaults
+DEFAULT_SYNC_CONCURRENT_DOWNLOADS = 5
+DEFAULT_SYNC_CONCURRENT_UPLOADS = 10
+DEFAULT_SYNC_BATCH_SIZE = 100
+DEFAULT_SYNC_DISK_SPACE_THRESHOLD = 0.9
+DEFAULT_SYNC_ENRICHMENT_WORKERS = 1
+
 
 class RunConfig:
     """Configuration for a specific collection run."""
@@ -107,17 +114,17 @@ class RunConfig:
     @property
     def sync_concurrent_downloads(self) -> int:
         """Get the concurrent downloads setting for sync operations."""
-        return self.sync_config.get("concurrent_downloads", 5)
+        return self.sync_config.get("concurrent_downloads", DEFAULT_SYNC_CONCURRENT_DOWNLOADS)
 
     @property
     def sync_concurrent_uploads(self) -> int:
         """Get the concurrent uploads setting for sync operations."""
-        return self.sync_config.get("concurrent_uploads", 10)
+        return self.sync_config.get("concurrent_uploads", DEFAULT_SYNC_CONCURRENT_UPLOADS)
 
     @property
     def sync_batch_size(self) -> int:
         """Get the batch size setting for sync operations."""
-        return self.sync_config.get("batch_size", 100)
+        return self.sync_config.get("batch_size", DEFAULT_SYNC_BATCH_SIZE)
 
     @property
     def sync_staging_dir(self) -> str | None:
@@ -127,12 +134,12 @@ class RunConfig:
     @property
     def sync_disk_space_threshold(self) -> float:
         """Get the disk space threshold setting for sync operations."""
-        return self.sync_config.get("disk_space_threshold", 0.9)
+        return self.sync_config.get("disk_space_threshold", DEFAULT_SYNC_DISK_SPACE_THRESHOLD)
 
     @property
     def sync_enrichment_workers(self) -> int:
         """Get the enrichment workers setting for sync operations."""
-        return self.sync_config.get("enrichment_workers", 1)
+        return self.sync_config.get("enrichment_workers", DEFAULT_SYNC_ENRICHMENT_WORKERS)
 
     @property
     def sync_gpg_key_file(self) -> str | None:
