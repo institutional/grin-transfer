@@ -21,7 +21,7 @@ class TestWriteToBucket:
     async def test_write_to_bucket_success(self):
         """Test successful uploading to bucket."""
         mock_storage = AsyncMock()
-        mock_storage.save_ocr_text_jsonl_from_file.return_value = "test-prefix/12345.jsonl"
+        mock_storage.save_ocr_text_jsonl_from_file = AsyncMock(return_value="test-prefix/12345.jsonl")
 
         jsonl_file_path = "/path/to/12345.jsonl"
         barcode = "12345"
@@ -34,7 +34,7 @@ class TestWriteToBucket:
     async def test_write_to_bucket_failure(self):
         """Test error handling when bucket uploading fails."""
         mock_storage = AsyncMock()
-        mock_storage.save_ocr_text_jsonl_from_file.side_effect = Exception("Network error")
+        mock_storage.save_ocr_text_jsonl_from_file = AsyncMock(side_effect=Exception("Network error"))
 
         jsonl_file_path = "/path/to/12345.jsonl"
         barcode = "12345"
@@ -47,14 +47,14 @@ class TestExtractCLIIntegration:
     """Test CLI integration with bucket functionality."""
 
     @patch("grin_to_s3.storage.factories.create_book_storage_with_full_text")
-    @patch("grin_to_s3.extract.__main__.extract_ocr_pages")
+    @patch("grin_to_s3.extract.__main__.extract_ocr_pages", new_callable=AsyncMock)
     @pytest.mark.asyncio
     async def test_extract_single_archive_with_bucket(self, mock_extract_to_file, mock_create_storage):
         """Test extract_single_archive with bucket storage only."""
         from grin_to_s3.extract.__main__ import extract_single_archive
 
         mock_book_storage = AsyncMock()
-        mock_book_storage.save_ocr_text_jsonl_from_file.return_value = "book12345.jsonl"
+        mock_book_storage.save_ocr_text_jsonl_from_file = AsyncMock(return_value="book12345.jsonl")
 
         # Test extraction with bucket storage only (no file output)
         result = await extract_single_archive(
@@ -84,7 +84,7 @@ class TestExtractCLIIntegration:
         assert result["success"] is True
         assert result["archive"] == "/path/to/book12345.tar.gz"
 
-    @patch("grin_to_s3.extract.__main__.extract_ocr_pages")
+    @patch("grin_to_s3.extract.__main__.extract_ocr_pages", new_callable=AsyncMock)
     @pytest.mark.asyncio
     async def test_extract_single_archive_bucket_and_file(self, mock_extract_to_file):
         """Test that file output takes priority when both file and run config are specified."""
@@ -118,7 +118,9 @@ class TestExtractCLIIntegration:
                 mock_json_load.return_value = {
                     "storage_config": {"type": "r2", "config": {"bucket_full": "test-bucket"}, "prefix": ""}
                 }
-                mock_create_storage.return_value = MagicMock()
+                mock_storage = AsyncMock()
+                mock_storage.save_ocr_text_jsonl_from_file = AsyncMock(return_value="test.jsonl")
+                mock_create_storage.return_value = mock_storage
 
                 result = await main()
 
@@ -131,7 +133,7 @@ class TestExtractCLIIntegration:
                 assert call_args[0][0] == "/path/to/test.tar.gz"  # archive path
                 assert call_args[1]["output_file"] == "/path/to/output.jsonl"  # file output used
 
-    @patch("grin_to_s3.extract.__main__.extract_ocr_pages")
+    @patch("grin_to_s3.extract.__main__.extract_ocr_pages", new_callable=AsyncMock)
     @pytest.mark.asyncio
     async def test_extract_single_archive_bucket_only_no_stdout(self, mock_extract_to_file):
         """Test that stdout output is suppressed when using bucket storage."""
@@ -139,6 +141,7 @@ class TestExtractCLIIntegration:
 
         mock_extract_to_file.return_value = 1  # Return page count
         mock_book_storage = AsyncMock()
+        mock_book_storage.save_ocr_text_jsonl_from_file = AsyncMock(return_value="test.jsonl")
 
         with patch("builtins.print") as mock_print:
             await extract_single_archive(
@@ -199,6 +202,7 @@ class TestExtractCLIIntegration:
 
         # Mock storage creation
         mock_book_storage = AsyncMock()
+        mock_book_storage.save_ocr_text_jsonl_from_file = AsyncMock(return_value="test.jsonl")
         mock_create_storage.return_value = mock_book_storage
 
         # Mock extraction result
