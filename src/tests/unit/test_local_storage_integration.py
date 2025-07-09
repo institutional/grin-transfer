@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
+from grin_to_s3.run_config import RunConfig
 from grin_to_s3.sync.pipeline import SyncPipeline
 
 
@@ -26,14 +27,23 @@ class TestLocalStorageIntegration:
             await tracker.close()
 
             # Create sync pipeline with local storage
-            storage_config = {"base_path": temp_dir}
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="local",
-                storage_config=storage_config,
-                library_directory="test_library",
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": str(db_path),
+                "library_directory": "test_library",
+                "storage_config": {
+                    "type": "local",
+                    "config": {"base_path": temp_dir}
+                },
+                "sync_config": {
+                    "concurrent_downloads": 1,
+                }
+            }
+            config = RunConfig(config_dict)
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                concurrent_downloads=1,
             )
 
             # Mock database methods
@@ -63,12 +73,20 @@ class TestLocalStorageIntegration:
             await tracker.close()
 
             # Test case 1: Valid storage config
-            storage_config = {"base_path": "/valid/path"}
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="local",
-                storage_config=storage_config,
-                library_directory="test_library",
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": str(db_path),
+                "library_directory": "test_library",
+                "storage_config": {
+                    "type": "local",
+                    "config": {"base_path": "/valid/path"}
+                },
+                "sync_config": {}
+            }
+            config = RunConfig(config_dict)
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
             )
 
@@ -103,18 +121,26 @@ class TestLocalStorageIntegration:
         """Test that ProgressReporter has expected methods and they work correctly."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
-            storage_config = {"base_path": temp_dir}
 
             # Initialize database
             tracker = SQLiteProgressTracker(str(db_path))
             await tracker.init_db()
             await tracker.close()
 
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="local",
-                storage_config=storage_config,
-                library_directory="test_library",
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": str(db_path),
+                "library_directory": "test_library",
+                "storage_config": {
+                    "type": "local",
+                    "config": {"base_path": temp_dir}
+                },
+                "sync_config": {}
+            }
+            config = RunConfig(config_dict)
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
             )
 
@@ -139,18 +165,26 @@ class TestLocalStorageIntegration:
         """Test that local storage properly handles None staging_manager."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
-            storage_config = {"base_path": temp_dir}
 
             # Initialize database
             tracker = SQLiteProgressTracker(str(db_path))
             await tracker.init_db()
             await tracker.close()
 
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="local",
-                storage_config=storage_config,
-                library_directory="test_library",
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": str(db_path),
+                "library_directory": "test_library",
+                "storage_config": {
+                    "type": "local",
+                    "config": {"base_path": temp_dir}
+                },
+                "sync_config": {}
+            }
+            config = RunConfig(config_dict)
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
             )
 

@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from grin_to_s3.run_config import RunConfig
 from grin_to_s3.sync.pipeline import SyncPipeline
 
 
@@ -16,22 +17,40 @@ class TestCSVExportIntegration:
 
     def test_skip_csv_export_flag_default(self, mock_process_stage):
         """Test that skip_csv_export defaults to False."""
-        pipeline = SyncPipeline(
-            db_path="/test/db.sqlite",
-            storage_type="local",
-            storage_config={"base_path": "/test"},
-            library_directory="test_lib",
+        config_dict = {
+            "run_name": "test_run",
+            "sqlite_db_path": "/test/db.sqlite",
+            "library_directory": "test_lib",
+            "storage_config": {
+                "type": "local",
+                "config": {"base_path": "/test"}
+            },
+            "sync_config": {}
+        }
+        config = RunConfig(config_dict)
+
+        pipeline = SyncPipeline.from_run_config(
+            config=config,
             process_summary_stage=mock_process_stage,
         )
         assert pipeline.skip_csv_export is False
 
     def test_skip_csv_export_flag_enabled(self, mock_process_stage):
         """Test that skip_csv_export can be set to True."""
-        pipeline = SyncPipeline(
-            db_path="/test/db.sqlite",
-            storage_type="local",
-            storage_config={"base_path": "/test"},
-            library_directory="test_lib",
+        config_dict = {
+            "run_name": "test_run",
+            "sqlite_db_path": "/test/db.sqlite",
+            "library_directory": "test_lib",
+            "storage_config": {
+                "type": "local",
+                "config": {"base_path": "/test"}
+            },
+            "sync_config": {}
+        }
+        config = RunConfig(config_dict)
+
+        pipeline = SyncPipeline.from_run_config(
+            config=config,
             process_summary_stage=mock_process_stage,
             skip_csv_export=True,
         )
@@ -40,11 +59,20 @@ class TestCSVExportIntegration:
     @pytest.mark.asyncio
     async def test_csv_export_skipped_when_flag_set(self, mock_process_stage):
         """Test that CSV export is skipped when flag is set."""
-        pipeline = SyncPipeline(
-            db_path="/test/db.sqlite",
-            storage_type="local",
-            storage_config={"base_path": "/test"},
-            library_directory="test_lib",
+        config_dict = {
+            "run_name": "test_run",
+            "sqlite_db_path": "/test/db.sqlite",
+            "library_directory": "test_lib",
+            "storage_config": {
+                "type": "local",
+                "config": {"base_path": "/test"}
+            },
+            "sync_config": {}
+        }
+        config = RunConfig(config_dict)
+
+        pipeline = SyncPipeline.from_run_config(
+            config=config,
             process_summary_stage=mock_process_stage,
             skip_csv_export=True,
         )
@@ -61,11 +89,20 @@ class TestCSVExportIntegration:
         import tempfile
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            pipeline = SyncPipeline(
-                db_path=f"{temp_dir}/db.sqlite",
-                storage_type="r2",  # Use non-local storage to test staging path
-                storage_config={"bucket_meta": "test-meta"},
-                library_directory="test_lib",
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": f"{temp_dir}/db.sqlite",
+                "library_directory": "test_lib",
+                "storage_config": {
+                    "type": "r2",
+                    "config": {"bucket_meta": "test-meta"}
+                },
+                "sync_config": {}
+            }
+            config = RunConfig(config_dict)
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
                 skip_csv_export=False,
             )
@@ -98,11 +135,20 @@ class TestCSVExportIntegration:
         import tempfile
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            pipeline = SyncPipeline(
-                db_path=f"{temp_dir}/db.sqlite",
-                storage_type="r2",  # Use non-local storage to test staging path
-                storage_config={"bucket_meta": "test-meta"},
-                library_directory="test_lib",
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": f"{temp_dir}/db.sqlite",
+                "library_directory": "test_lib",
+                "storage_config": {
+                    "type": "r2",
+                    "config": {"bucket_meta": "test-meta"}
+                },
+                "sync_config": {}
+            }
+            config = RunConfig(config_dict)
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
                 skip_csv_export=False,
             )

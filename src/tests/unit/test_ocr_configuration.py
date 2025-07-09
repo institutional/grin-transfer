@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from grin_to_s3.run_config import RunConfig
 from grin_to_s3.sync.pipeline import SyncPipeline
 
 
@@ -37,13 +38,23 @@ class TestOCRConfiguration:
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
-            pipeline = SyncPipeline(
-                db_path=":memory:",
-                storage_type="local",
-                storage_config={"path": "/tmp/test"},
-                library_directory="/tmp/library",
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": ":memory:",
+                "library_directory": "/tmp/library",
+                "storage_config": {
+                    "type": "local",
+                    "config": {"base_path": "/tmp/test"}
+                },
+                "sync_config": {
+                    "staging_dir": "/tmp/test"
+                }
+            }
+            config = RunConfig(config_dict)
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                staging_dir="/tmp/test",
             )
             assert pipeline.skip_extract_ocr is False  # Default is to extract OCR
 
@@ -60,13 +71,23 @@ class TestOCRConfiguration:
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
-            pipeline = SyncPipeline(
-                db_path=":memory:",
-                storage_type="local",
-                storage_config={"path": "/tmp/test"},
-                library_directory="/tmp/library",
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": ":memory:",
+                "library_directory": "/tmp/library",
+                "storage_config": {
+                    "type": "local",
+                    "config": {"base_path": "/tmp/test"}
+                },
+                "sync_config": {
+                    "staging_dir": "/tmp/test"
+                }
+            }
+            config = RunConfig(config_dict)
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                staging_dir="/tmp/test",
                 skip_extract_ocr=True,
             )
             assert pipeline.skip_extract_ocr is True
@@ -125,26 +146,32 @@ class TestOCRConfiguration:
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": ":memory:",
+                "library_directory": "/tmp/library",
+                "storage_config": {
+                    "type": "local",
+                    "config": {"base_path": "/tmp/test"}
+                },
+                "sync_config": {
+                    "staging_dir": "/tmp/test"
+                }
+            }
+            config = RunConfig(config_dict)
+
             # Test OCR enabled
-            pipeline_enabled = SyncPipeline(
-                db_path=":memory:",
-                storage_type="local",
-                storage_config={"path": "/tmp/test"},
-                library_directory="/tmp/library",
+            pipeline_enabled = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                staging_dir="/tmp/test",
                 skip_extract_ocr=False,
             )
             assert pipeline_enabled.skip_extract_ocr is False
 
             # Test OCR disabled
-            pipeline_disabled = SyncPipeline(
-                db_path=":memory:",
-                storage_type="local",
-                storage_config={"path": "/tmp/test"},
-                library_directory="/tmp/library",
+            pipeline_disabled = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                staging_dir="/tmp/test",
                 skip_extract_ocr=True,
             )
             assert pipeline_disabled.skip_extract_ocr is True

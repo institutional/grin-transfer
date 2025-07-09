@@ -11,6 +11,7 @@ import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import SlidingWindowRateCalculator
+from grin_to_s3.run_config import RunConfig
 from grin_to_s3.sync.pipeline import SyncPipeline
 
 
@@ -29,15 +30,24 @@ class TestBlockStorageSyncIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            storage_config = {"access_key": "test", "secret_key": "test", "bucket_raw": "test"}
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="s3",
-                storage_config=storage_config,
-                library_directory="test_library",
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": str(db_path),
+                "library_directory": "test_library",
+                "storage_config": {
+                    "type": "s3",
+                    "config": {"access_key": "test", "secret_key": "test", "bucket_raw": "test"}
+                },
+                "sync_config": {
+                    "concurrent_downloads": 1,
+                    "staging_dir": str(staging_dir),
+                }
+            }
+            config = RunConfig(config_dict)
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                concurrent_downloads=1,
-                staging_dir=str(staging_dir),
             )
 
             # Use REAL SlidingWindowRateCalculator to catch method name issues
@@ -95,20 +105,38 @@ class TestBlockStorageSyncIntegration:
             await tracker.close()
 
             # Test that cloud storage creates staging manager
-            cloud_pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="s3",
-                storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
-                library_directory="test_library",
+            cloud_config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": str(db_path),
+                "library_directory": "test_library",
+                "storage_config": {
+                    "type": "s3",
+                    "config": {"access_key": "test", "secret_key": "test", "bucket_raw": "test"}
+                },
+                "sync_config": {}
+            }
+            cloud_config = RunConfig(cloud_config_dict)
+
+            cloud_pipeline = SyncPipeline.from_run_config(
+                config=cloud_config,
                 process_summary_stage=mock_process_stage,
             )
 
             # Test that local storage doesn't create staging manager
-            local_pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="local",
-                storage_config={"base_path": temp_dir},
-                library_directory="test_library",
+            local_config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": str(db_path),
+                "library_directory": "test_library",
+                "storage_config": {
+                    "type": "local",
+                    "config": {"base_path": temp_dir}
+                },
+                "sync_config": {}
+            }
+            local_config = RunConfig(local_config_dict)
+
+            local_pipeline = SyncPipeline.from_run_config(
+                config=local_config,
                 process_summary_stage=mock_process_stage,
             )
 
@@ -129,15 +157,25 @@ class TestBlockStorageSyncIntegration:
             await tracker.close()
 
             # Create pipeline with specific concurrency limits
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="s3",
-                storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
-                library_directory="test_library",
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": str(db_path),
+                "library_directory": "test_library",
+                "storage_config": {
+                    "type": "s3",
+                    "config": {"access_key": "test", "secret_key": "test", "bucket_raw": "test"}
+                },
+                "sync_config": {
+                    "concurrent_downloads": 2,
+                    "concurrent_uploads": 3,
+                    "staging_dir": str(staging_dir),
+                }
+            }
+            config = RunConfig(config_dict)
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                concurrent_downloads=2,
-                concurrent_uploads=3,
-                staging_dir=str(staging_dir),
             )
 
             # Verify semaphore limits are set correctly
@@ -156,13 +194,23 @@ class TestBlockStorageSyncIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="s3",
-                storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
-                library_directory="test_library",
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": str(db_path),
+                "library_directory": "test_library",
+                "storage_config": {
+                    "type": "s3",
+                    "config": {"access_key": "test", "secret_key": "test", "bucket_raw": "test"}
+                },
+                "sync_config": {
+                    "staging_dir": str(staging_dir),
+                }
+            }
+            config = RunConfig(config_dict)
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                staging_dir=str(staging_dir),
             )
 
             # Test cleanup doesn't error
@@ -183,14 +231,24 @@ class TestBlockStorageSyncIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="s3",
-                storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
-                library_directory="test_library",
+            config_dict = {
+                "run_name": "test_run",
+                "sqlite_db_path": str(db_path),
+                "library_directory": "test_library",
+                "storage_config": {
+                    "type": "s3",
+                    "config": {"access_key": "test", "secret_key": "test", "bucket_raw": "test"}
+                },
+                "sync_config": {
+                    "concurrent_downloads": 1,
+                    "staging_dir": str(staging_dir),
+                }
+            }
+            config = RunConfig(config_dict)
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                concurrent_downloads=1,
-                staging_dir=str(staging_dir),
             )
 
             # Mock dependencies

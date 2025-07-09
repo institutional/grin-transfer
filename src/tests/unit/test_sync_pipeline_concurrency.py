@@ -7,11 +7,31 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from grin_to_s3.run_config import RunConfig
 from grin_to_s3.sync.pipeline import SyncPipeline
 
 
 class TestSyncPipelineConcurrency:
     """Test concurrency control in sync pipeline."""
+
+    @pytest.fixture
+    def mock_run_config(self):
+        """Create a mock RunConfig for testing."""
+        config_dict = {
+            "run_name": "test_run",
+            "sqlite_db_path": "/tmp/test.db",
+            "library_directory": "TestLib",
+            "storage_config": {
+                "type": "minio",
+                "config": {"bucket_raw": "test-raw"}
+            },
+            "sync_config": {
+                "concurrent_downloads": 2,  # Low limit for testing
+                "concurrent_uploads": 1,
+                "batch_size": 10,
+            }
+        }
+        return RunConfig(config_dict)
 
     @pytest.fixture
     def mock_pipeline_dependencies(self):
@@ -44,17 +64,11 @@ class TestSyncPipelineConcurrency:
                 }
 
     @pytest.fixture
-    def pipeline(self, mock_pipeline_dependencies, mock_process_stage):
+    def pipeline(self, mock_pipeline_dependencies, mock_process_stage, mock_run_config):
         """Create a test pipeline with low concurrency limits."""
-        return SyncPipeline(
-            db_path="/tmp/test.db",
-            storage_type="minio",
-            storage_config={"bucket_raw": "test-raw"},
-            library_directory="TestLib",
+        return SyncPipeline.from_run_config(
+            config=mock_run_config,
             process_summary_stage=mock_process_stage,
-            concurrent_downloads=2,  # Low limit for testing
-            concurrent_uploads=1,
-            batch_size=10,
         )
 
     async def test_download_concurrency_limit_respected(self, pipeline, mock_pipeline_dependencies):
@@ -210,6 +224,21 @@ class TestSyncPipelineEnrichmentQueue:
     """Test enrichment queue infrastructure in sync pipeline."""
 
     @pytest.fixture
+    def mock_local_run_config(self):
+        """Create a mock RunConfig for local storage testing."""
+        config_dict = {
+            "run_name": "test_run",
+            "sqlite_db_path": "/tmp/test.db",
+            "library_directory": "TestLib",
+            "storage_config": {
+                "type": "local",
+                "config": {"base_path": "/tmp"}
+            },
+            "sync_config": {}
+        }
+        return RunConfig(config_dict)
+
+    @pytest.fixture
     def mock_pipeline_dependencies(self):
         """Mock all pipeline dependencies."""
         with (
@@ -228,13 +257,10 @@ class TestSyncPipelineEnrichmentQueue:
                 "client": mock_client.return_value,
             }
 
-    def test_enrichment_queue_enabled_by_default(self, mock_pipeline_dependencies, mock_process_stage):
+    def test_enrichment_queue_enabled_by_default(self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config):
         """Test that enrichment queue is enabled by default."""
-        pipeline = SyncPipeline(
-            db_path="/tmp/test.db",
-            storage_type="local",
-            storage_config={"base_path": "/tmp"},
-            library_directory="TestLib",
+        pipeline = SyncPipeline.from_run_config(
+            config=mock_local_run_config,
             process_summary_stage=mock_process_stage,
         )
 
@@ -247,15 +273,12 @@ class TestSyncPipelineEnrichmentQueue:
         assert pipeline.enrichment_queue is not None
         assert pipeline.enrichment_queue.qsize() == 0
 
-    def test_enrichment_queue_can_be_disabled(self, mock_pipeline_dependencies, mock_process_stage):
+    def test_enrichment_queue_can_be_disabled(self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config):
         """Test that enrichment queue can be disabled."""
-        pipeline = SyncPipeline(
-            db_path="/tmp/test.db",
-            storage_type="local",
-            storage_config={"base_path": "/tmp"},
-            library_directory="TestLib",
+        pipeline = SyncPipeline.from_run_config(
+            config=mock_local_run_config,
             process_summary_stage=mock_process_stage,
-            enrichment_enabled=False,
+            skip_enrichment=True,
         )
 
         # Enrichment should be disabled
@@ -264,16 +287,14 @@ class TestSyncPipelineEnrichmentQueue:
         # Queue should be None when disabled
         assert pipeline.enrichment_queue is None
 
-    def test_enrichment_configuration_options(self, mock_pipeline_dependencies, mock_process_stage):
+    def test_enrichment_configuration_options(self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config):
         """Test enrichment configuration options."""
-        pipeline = SyncPipeline(
-            db_path="/tmp/test.db",
-            storage_type="local",
-            storage_config={"base_path": "/tmp"},
-            library_directory="TestLib",
+        # Modify the config to test custom enrichment workers
+        mock_local_run_config.config_dict["sync_config"]["enrichment_workers"] = 3
+
+        pipeline = SyncPipeline.from_run_config(
+            config=mock_local_run_config,
             process_summary_stage=mock_process_stage,
-            enrichment_enabled=True,
-            enrichment_workers=3,
             skip_csv_export=True,
         )
 
@@ -285,15 +306,11 @@ class TestSyncPipelineEnrichmentQueue:
         # Queue should still be initialized
         assert pipeline.enrichment_queue is not None
 
-    async def test_enrichment_queue_size_in_stats(self, mock_pipeline_dependencies, mock_process_stage):
+    async def test_enrichment_queue_size_in_stats(self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config):
         """Test that enrichment queue size is tracked in stats."""
-        pipeline = SyncPipeline(
-            db_path="/tmp/test.db",
-            storage_type="local",
-            storage_config={"base_path": "/tmp"},
-            library_directory="TestLib",
+        pipeline = SyncPipeline.from_run_config(
+            config=mock_local_run_config,
             process_summary_stage=mock_process_stage,
-            enrichment_enabled=True,
         )
 
         # Mock database stats
@@ -312,15 +329,12 @@ class TestSyncPipelineEnrichmentQueue:
         status = await pipeline.get_sync_status()
         assert status["session_stats"]["enrichment_queue_size"] == 2
 
-    async def test_enrichment_queue_size_zero_when_disabled(self, mock_pipeline_dependencies, mock_process_stage):
+    async def test_enrichment_queue_size_zero_when_disabled(self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config):
         """Test that enrichment queue size is 0 when enrichment is disabled."""
-        pipeline = SyncPipeline(
-            db_path="/tmp/test.db",
-            storage_type="local",
-            storage_config={"base_path": "/tmp"},
-            library_directory="TestLib",
+        pipeline = SyncPipeline.from_run_config(
+            config=mock_local_run_config,
             process_summary_stage=mock_process_stage,
-            enrichment_enabled=False,
+            skip_enrichment=True,
         )
 
         # Mock database stats
