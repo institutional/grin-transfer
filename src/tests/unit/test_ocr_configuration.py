@@ -5,7 +5,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from grin_to_s3.run_config import RunConfig
 from grin_to_s3.sync.pipeline import SyncPipeline
 
 
@@ -25,7 +24,7 @@ class MockOCRConfig:
 class TestOCRConfiguration:
     """Test OCR extraction configuration validation and behavior."""
 
-    def test_sync_pipeline_default_ocr_enabled(self, mock_process_stage):
+    def test_sync_pipeline_default_ocr_enabled(self, mock_process_stage, test_config_builder):
         """Test that OCR extraction is enabled by default."""
         with (
             patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
@@ -38,19 +37,12 @@ class TestOCRConfiguration:
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
-            config_dict = {
-                "run_name": "test_run",
-                "sqlite_db_path": ":memory:",
-                "library_directory": "/tmp/library",
-                "storage_config": {
-                    "type": "local",
-                    "config": {"base_path": "/tmp/test"}
-                },
-                "sync_config": {
-                    "staging_dir": "/tmp/test"
-                }
-            }
-            config = RunConfig(config_dict)
+            config = (test_config_builder
+                     .with_db_path(":memory:")
+                     .with_library_directory("/tmp/library")
+                     .local_storage("/tmp/test")
+                     .with_staging_dir("/tmp/test")
+                     .build())
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -58,7 +50,7 @@ class TestOCRConfiguration:
             )
             assert pipeline.skip_extract_ocr is False  # Default is to extract OCR
 
-    def test_sync_pipeline_ocr_disabled(self, mock_process_stage):
+    def test_sync_pipeline_ocr_disabled(self, mock_process_stage, test_config_builder):
         """Test that OCR extraction can be disabled."""
         with (
             patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
@@ -71,19 +63,12 @@ class TestOCRConfiguration:
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
-            config_dict = {
-                "run_name": "test_run",
-                "sqlite_db_path": ":memory:",
-                "library_directory": "/tmp/library",
-                "storage_config": {
-                    "type": "local",
-                    "config": {"base_path": "/tmp/test"}
-                },
-                "sync_config": {
-                    "staging_dir": "/tmp/test"
-                }
-            }
-            config = RunConfig(config_dict)
+            config = (test_config_builder
+                     .with_db_path(":memory:")
+                     .with_library_directory("/tmp/library")
+                     .local_storage("/tmp/test")
+                     .with_staging_dir("/tmp/test")
+                     .build())
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -133,7 +118,7 @@ class TestOCRConfiguration:
         config_disabled = MockOCRConfig(enabled=False)
         assert config_disabled.enabled is False
 
-    def test_sync_pipeline_ocr_configuration_integration(self, mock_process_stage):
+    def test_sync_pipeline_ocr_configuration_integration(self, mock_process_stage, test_config_builder):
         """Test OCR configuration integration with sync pipeline."""
         with (
             patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
@@ -146,19 +131,12 @@ class TestOCRConfiguration:
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
-            config_dict = {
-                "run_name": "test_run",
-                "sqlite_db_path": ":memory:",
-                "library_directory": "/tmp/library",
-                "storage_config": {
-                    "type": "local",
-                    "config": {"base_path": "/tmp/test"}
-                },
-                "sync_config": {
-                    "staging_dir": "/tmp/test"
-                }
-            }
-            config = RunConfig(config_dict)
+            config = (test_config_builder
+                     .with_db_path(":memory:")
+                     .with_library_directory("/tmp/library")
+                     .local_storage("/tmp/test")
+                     .with_staging_dir("/tmp/test")
+                     .build())
 
             # Test OCR enabled
             pipeline_enabled = SyncPipeline.from_run_config(

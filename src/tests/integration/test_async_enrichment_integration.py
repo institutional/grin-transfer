@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.run_config import RunConfig
 from grin_to_s3.sync.pipeline import SyncPipeline
 
 
@@ -49,25 +48,33 @@ def mock_grin_enrichment_pipeline():
 
 
 @pytest.fixture
-def mock_test_config():
+def mock_test_config(test_config_builder):
     """Create a test RunConfig for pipeline testing."""
     def _create_config(db_path: str, **kwargs):
-        config_dict = {
-            "run_name": "test_run",
-            "sqlite_db_path": db_path,
-            "library_directory": "test_library",
-            "storage_config": {
-                "type": kwargs.get("storage_type", "local"),
-                "config": kwargs.get("storage_config", {"base_path": "/tmp"})
-            },
-            "sync_config": {
-                "concurrent_downloads": kwargs.get("concurrent_downloads", 1),
-                "concurrent_uploads": kwargs.get("concurrent_uploads", 1),
-                "batch_size": kwargs.get("batch_size", 10),
-                "enrichment_workers": kwargs.get("enrichment_workers", 1),
-            }
+        builder = test_config_builder.with_db_path(db_path)
+
+        # Apply storage configuration
+        storage_type = kwargs.get("storage_type", "local")
+        if storage_type == "local":
+            storage_config = kwargs.get("storage_config", {"base_path": "/tmp"})
+            builder = builder.local_storage(storage_config.get("base_path", "/tmp"))
+        elif storage_type == "s3":
+            storage_config = kwargs.get("storage_config", {"bucket_raw": "test-bucket"})
+            builder = builder.s3_storage(**storage_config)
+        elif storage_type == "r2":
+            storage_config = kwargs.get("storage_config", {"bucket_raw": "test-bucket"})
+            builder = builder.r2_storage(**storage_config)
+
+        # Apply sync configuration
+        sync_config = {
+            "concurrent_downloads": kwargs.get("concurrent_downloads", 1),
+            "concurrent_uploads": kwargs.get("concurrent_uploads", 1),
+            "batch_size": kwargs.get("batch_size", 10),
+            "enrichment_workers": kwargs.get("enrichment_workers", 1),
         }
-        return RunConfig(config_dict)
+        builder = builder.with_sync_config(**sync_config)
+
+        return builder.build()
     return _create_config
 
 @pytest.fixture

@@ -8,26 +8,15 @@ from unittest.mock import patch
 
 import pytest
 
-from grin_to_s3.run_config import RunConfig
 from grin_to_s3.sync.pipeline import SyncPipeline
 
 
 class TestCSVExportIntegration:
     """Test suite for CSV export integration in sync pipeline."""
 
-    def test_skip_csv_export_flag_default(self, mock_process_stage):
+    def test_skip_csv_export_flag_default(self, mock_process_stage, test_config_builder):
         """Test that skip_csv_export defaults to False."""
-        config_dict = {
-            "run_name": "test_run",
-            "sqlite_db_path": "/test/db.sqlite",
-            "library_directory": "test_lib",
-            "storage_config": {
-                "type": "local",
-                "config": {"base_path": "/test"}
-            },
-            "sync_config": {}
-        }
-        config = RunConfig(config_dict)
+        config = test_config_builder.with_db_path("/test/db.sqlite").with_library_directory("test_lib").local_storage("/test").build()
 
         pipeline = SyncPipeline.from_run_config(
             config=config,
@@ -35,19 +24,9 @@ class TestCSVExportIntegration:
         )
         assert pipeline.skip_csv_export is False
 
-    def test_skip_csv_export_flag_enabled(self, mock_process_stage):
+    def test_skip_csv_export_flag_enabled(self, mock_process_stage, test_config_builder):
         """Test that skip_csv_export can be set to True."""
-        config_dict = {
-            "run_name": "test_run",
-            "sqlite_db_path": "/test/db.sqlite",
-            "library_directory": "test_lib",
-            "storage_config": {
-                "type": "local",
-                "config": {"base_path": "/test"}
-            },
-            "sync_config": {}
-        }
-        config = RunConfig(config_dict)
+        config = test_config_builder.with_db_path("/test/db.sqlite").with_library_directory("test_lib").local_storage("/test").build()
 
         pipeline = SyncPipeline.from_run_config(
             config=config,
@@ -57,19 +36,9 @@ class TestCSVExportIntegration:
         assert pipeline.skip_csv_export is True
 
     @pytest.mark.asyncio
-    async def test_csv_export_skipped_when_flag_set(self, mock_process_stage):
+    async def test_csv_export_skipped_when_flag_set(self, mock_process_stage, test_config_builder):
         """Test that CSV export is skipped when flag is set."""
-        config_dict = {
-            "run_name": "test_run",
-            "sqlite_db_path": "/test/db.sqlite",
-            "library_directory": "test_lib",
-            "storage_config": {
-                "type": "local",
-                "config": {"base_path": "/test"}
-            },
-            "sync_config": {}
-        }
-        config = RunConfig(config_dict)
+        config = test_config_builder.with_db_path("/test/db.sqlite").with_library_directory("test_lib").local_storage("/test").build()
 
         pipeline = SyncPipeline.from_run_config(
             config=config,
@@ -84,22 +53,12 @@ class TestCSVExportIntegration:
         assert result["export_time"] == 0.0
 
     @pytest.mark.asyncio
-    async def test_csv_export_success(self, mock_process_stage):
+    async def test_csv_export_success(self, mock_process_stage, test_config_builder):
         """Test successful CSV export when enabled and books were synced."""
         import tempfile
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            config_dict = {
-                "run_name": "test_run",
-                "sqlite_db_path": f"{temp_dir}/db.sqlite",
-                "library_directory": "test_lib",
-                "storage_config": {
-                    "type": "r2",
-                    "config": {"bucket_meta": "test-meta"}
-                },
-                "sync_config": {}
-            }
-            config = RunConfig(config_dict)
+            config = test_config_builder.with_db_path(f"{temp_dir}/db.sqlite").with_library_directory("test_lib").r2_storage(bucket_meta="test-meta").build()
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -130,22 +89,12 @@ class TestCSVExportIntegration:
                         mock_export.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_csv_export_error_handling(self, mock_process_stage):
+    async def test_csv_export_error_handling(self, mock_process_stage, test_config_builder):
         """Test that CSV export errors are handled properly."""
         import tempfile
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            config_dict = {
-                "run_name": "test_run",
-                "sqlite_db_path": f"{temp_dir}/db.sqlite",
-                "library_directory": "test_lib",
-                "storage_config": {
-                    "type": "r2",
-                    "config": {"bucket_meta": "test-meta"}
-                },
-                "sync_config": {}
-            }
-            config = RunConfig(config_dict)
+            config = test_config_builder.with_db_path(f"{temp_dir}/db.sqlite").with_library_directory("test_lib").r2_storage(bucket_meta="test-meta").build()
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,

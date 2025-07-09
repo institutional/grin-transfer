@@ -140,10 +140,9 @@ class TestSyncPipelineLocalOptimization:
         assert storage_config["config"]["base_path"] == "/tmp/test"
 
     @pytest.mark.asyncio
-    async def test_no_staging_for_local_storage(self, mock_process_stage):
+    async def test_no_staging_for_local_storage(self, mock_process_stage, test_config_builder):
         """Test that local storage skips staging directory."""
         from grin_to_s3.collect_books.models import SQLiteProgressTracker
-        from grin_to_s3.run_config import RunConfig
         from grin_to_s3.sync.pipeline import SyncPipeline
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -152,20 +151,12 @@ class TestSyncPipelineLocalOptimization:
             db_tracker = SQLiteProgressTracker(str(db_path))
 
             # Create RunConfig with local storage
-            config_dict = {
-                "run_name": "test_run",
-                "sqlite_db_path": str(db_path),
-                "library_directory": "test_library",
-                "storage_config": {
-                    "type": "local",
-                    "config": {"base_path": temp_dir}
-                },
-                "sync_config": {
-                    "concurrent_downloads": 1,
-                    "staging_dir": str(Path(temp_dir) / "staging"),  # Should not be used
-                }
-            }
-            config = RunConfig(config_dict)
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .local_storage(temp_dir)
+                     .with_concurrent_downloads(1)
+                     .with_staging_dir(str(Path(temp_dir) / "staging"))  # Should not be used
+                     .build())
 
             # Create sync pipeline with local storage
             pipeline = SyncPipeline.from_run_config(

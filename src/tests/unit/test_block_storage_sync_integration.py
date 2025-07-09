@@ -11,7 +11,6 @@ import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import SlidingWindowRateCalculator
-from grin_to_s3.run_config import RunConfig
 from grin_to_s3.sync.pipeline import SyncPipeline
 
 
@@ -19,7 +18,7 @@ class TestBlockStorageSyncIntegration:
     """Integration tests for block storage sync pipeline interface compatibility."""
 
     @pytest.mark.asyncio
-    async def test_rate_calculator_method_compatibility(self, mock_process_stage):
+    async def test_rate_calculator_method_compatibility(self, mock_process_stage, test_config_builder):
         """Test that SlidingWindowRateCalculator interface is used correctly in sync pipeline."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -30,20 +29,12 @@ class TestBlockStorageSyncIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            config_dict = {
-                "run_name": "test_run",
-                "sqlite_db_path": str(db_path),
-                "library_directory": "test_library",
-                "storage_config": {
-                    "type": "s3",
-                    "config": {"access_key": "test", "secret_key": "test", "bucket_raw": "test"}
-                },
-                "sync_config": {
-                    "concurrent_downloads": 1,
-                    "staging_dir": str(staging_dir),
-                }
-            }
-            config = RunConfig(config_dict)
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                     .with_concurrent_downloads(1)
+                     .with_staging_dir(str(staging_dir))
+                     .build())
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -95,7 +86,7 @@ class TestBlockStorageSyncIntegration:
         assert isinstance(rate, int | float)
 
     @pytest.mark.asyncio
-    async def test_staging_vs_local_sync_selection(self, mock_process_stage):
+    async def test_staging_vs_local_sync_selection(self, mock_process_stage, test_config_builder):
         """Test that storage type determines sync method selection."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -105,17 +96,10 @@ class TestBlockStorageSyncIntegration:
             await tracker.close()
 
             # Test that cloud storage creates staging manager
-            cloud_config_dict = {
-                "run_name": "test_run",
-                "sqlite_db_path": str(db_path),
-                "library_directory": "test_library",
-                "storage_config": {
-                    "type": "s3",
-                    "config": {"access_key": "test", "secret_key": "test", "bucket_raw": "test"}
-                },
-                "sync_config": {}
-            }
-            cloud_config = RunConfig(cloud_config_dict)
+            cloud_config = (test_config_builder
+                           .with_db_path(str(db_path))
+                           .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                           .build())
 
             cloud_pipeline = SyncPipeline.from_run_config(
                 config=cloud_config,
@@ -123,17 +107,10 @@ class TestBlockStorageSyncIntegration:
             )
 
             # Test that local storage doesn't create staging manager
-            local_config_dict = {
-                "run_name": "test_run",
-                "sqlite_db_path": str(db_path),
-                "library_directory": "test_library",
-                "storage_config": {
-                    "type": "local",
-                    "config": {"base_path": temp_dir}
-                },
-                "sync_config": {}
-            }
-            local_config = RunConfig(local_config_dict)
+            local_config = (test_config_builder
+                           .with_db_path(str(db_path))
+                           .local_storage(temp_dir)
+                           .build())
 
             local_pipeline = SyncPipeline.from_run_config(
                 config=local_config,
@@ -145,7 +122,7 @@ class TestBlockStorageSyncIntegration:
             assert local_pipeline.staging_manager is None
 
     @pytest.mark.asyncio
-    async def test_concurrent_semaphore_limits(self, mock_process_stage):
+    async def test_concurrent_semaphore_limits(self, mock_process_stage, test_config_builder):
         """Test that concurrent limits are respected in staging sync."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -157,21 +134,13 @@ class TestBlockStorageSyncIntegration:
             await tracker.close()
 
             # Create pipeline with specific concurrency limits
-            config_dict = {
-                "run_name": "test_run",
-                "sqlite_db_path": str(db_path),
-                "library_directory": "test_library",
-                "storage_config": {
-                    "type": "s3",
-                    "config": {"access_key": "test", "secret_key": "test", "bucket_raw": "test"}
-                },
-                "sync_config": {
-                    "concurrent_downloads": 2,
-                    "concurrent_uploads": 3,
-                    "staging_dir": str(staging_dir),
-                }
-            }
-            config = RunConfig(config_dict)
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                     .with_concurrent_downloads(2)
+                     .with_concurrent_uploads(3)
+                     .with_staging_dir(str(staging_dir))
+                     .build())
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -183,7 +152,7 @@ class TestBlockStorageSyncIntegration:
             assert pipeline._upload_semaphore._value == 3
 
     @pytest.mark.asyncio
-    async def test_pipeline_cleanup_and_shutdown(self, mock_process_stage):
+    async def test_pipeline_cleanup_and_shutdown(self, mock_process_stage, test_config_builder):
         """Test pipeline cleanup and shutdown behavior."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -194,19 +163,11 @@ class TestBlockStorageSyncIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            config_dict = {
-                "run_name": "test_run",
-                "sqlite_db_path": str(db_path),
-                "library_directory": "test_library",
-                "storage_config": {
-                    "type": "s3",
-                    "config": {"access_key": "test", "secret_key": "test", "bucket_raw": "test"}
-                },
-                "sync_config": {
-                    "staging_dir": str(staging_dir),
-                }
-            }
-            config = RunConfig(config_dict)
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                     .with_staging_dir(str(staging_dir))
+                     .build())
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -220,7 +181,7 @@ class TestBlockStorageSyncIntegration:
             assert pipeline._shutdown_requested is True
 
     @pytest.mark.asyncio
-    async def test_statistics_tracking(self, mock_process_stage):
+    async def test_statistics_tracking(self, mock_process_stage, test_config_builder):
         """Test that statistics are tracked correctly during staging sync."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -231,20 +192,12 @@ class TestBlockStorageSyncIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            config_dict = {
-                "run_name": "test_run",
-                "sqlite_db_path": str(db_path),
-                "library_directory": "test_library",
-                "storage_config": {
-                    "type": "s3",
-                    "config": {"access_key": "test", "secret_key": "test", "bucket_raw": "test"}
-                },
-                "sync_config": {
-                    "concurrent_downloads": 1,
-                    "staging_dir": str(staging_dir),
-                }
-            }
-            config = RunConfig(config_dict)
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                     .with_concurrent_downloads(1)
+                     .with_staging_dir(str(staging_dir))
+                     .build())
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,

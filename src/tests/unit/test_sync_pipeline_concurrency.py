@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.run_config import RunConfig
 from grin_to_s3.sync.pipeline import SyncPipeline
 
 
@@ -15,23 +14,15 @@ class TestSyncPipelineConcurrency:
     """Test concurrency control in sync pipeline."""
 
     @pytest.fixture
-    def mock_run_config(self):
+    def mock_run_config(self, test_config_builder):
         """Create a mock RunConfig for testing."""
-        config_dict = {
-            "run_name": "test_run",
-            "sqlite_db_path": "/tmp/test.db",
-            "library_directory": "TestLib",
-            "storage_config": {
-                "type": "minio",
-                "config": {"bucket_raw": "test-raw"}
-            },
-            "sync_config": {
-                "concurrent_downloads": 2,  # Low limit for testing
-                "concurrent_uploads": 1,
-                "batch_size": 10,
-            }
-        }
-        return RunConfig(config_dict)
+        return (test_config_builder
+                .with_library_directory("TestLib")
+                .minio_storage(bucket_raw="test-raw")
+                .with_concurrent_downloads(2)  # Low limit for testing
+                .with_concurrent_uploads(1)
+                .with_batch_size(10)
+                .build())
 
     @pytest.fixture
     def mock_pipeline_dependencies(self):
@@ -224,19 +215,12 @@ class TestSyncPipelineEnrichmentQueue:
     """Test enrichment queue infrastructure in sync pipeline."""
 
     @pytest.fixture
-    def mock_local_run_config(self):
+    def mock_local_run_config(self, test_config_builder):
         """Create a mock RunConfig for local storage testing."""
-        config_dict = {
-            "run_name": "test_run",
-            "sqlite_db_path": "/tmp/test.db",
-            "library_directory": "TestLib",
-            "storage_config": {
-                "type": "local",
-                "config": {"base_path": "/tmp"}
-            },
-            "sync_config": {}
-        }
-        return RunConfig(config_dict)
+        return (test_config_builder
+                .with_library_directory("TestLib")
+                .local_storage()
+                .build())
 
     @pytest.fixture
     def mock_pipeline_dependencies(self):
