@@ -99,6 +99,46 @@ class RunConfig:
         """Get the unified log file path."""
         return self.config_dict["log_file"]
 
+    @property
+    def sync_config(self) -> dict[str, Any]:
+        """Get the sync configuration section."""
+        return self.config_dict.get("sync_config", {})
+
+    @property
+    def sync_concurrent_downloads(self) -> int:
+        """Get the concurrent downloads setting for sync operations."""
+        return self.sync_config.get("concurrent_downloads", 5)
+
+    @property
+    def sync_concurrent_uploads(self) -> int:
+        """Get the concurrent uploads setting for sync operations."""
+        return self.sync_config.get("concurrent_uploads", 10)
+
+    @property
+    def sync_batch_size(self) -> int:
+        """Get the batch size setting for sync operations."""
+        return self.sync_config.get("batch_size", 100)
+
+    @property
+    def sync_staging_dir(self) -> str | None:
+        """Get the staging directory setting for sync operations."""
+        return self.sync_config.get("staging_dir")
+
+    @property
+    def sync_disk_space_threshold(self) -> float:
+        """Get the disk space threshold setting for sync operations."""
+        return self.sync_config.get("disk_space_threshold", 0.9)
+
+    @property
+    def sync_enrichment_workers(self) -> int:
+        """Get the enrichment workers setting for sync operations."""
+        return self.sync_config.get("enrichment_workers", 1)
+
+    @property
+    def sync_gpg_key_file(self) -> str | None:
+        """Get the GPG key file setting for sync operations."""
+        return self.sync_config.get("gpg_key_file")
+
     def get_storage_args(self) -> dict[str, str]:
         """Get storage arguments suitable for command line scripts."""
         args: dict[str, str] = {}
@@ -273,6 +313,18 @@ def print_run_config_info(db_path: str) -> None:
                 print(f"  Full-text Bucket: {storage_config['bucket_full']}")
             if "prefix" in storage_config:
                 print(f"  Storage Prefix: {storage_config['prefix']}")
+
+        if config.sync_config:
+            print("  Sync Configuration:")
+            print(f"    Concurrent Downloads: {config.sync_concurrent_downloads}")
+            print(f"    Concurrent Uploads: {config.sync_concurrent_uploads}")
+            print(f"    Batch Size: {config.sync_batch_size}")
+            print(f"    Disk Space Threshold: {config.sync_disk_space_threshold}")
+            print(f"    Enrichment Workers: {config.sync_enrichment_workers}")
+            if config.sync_staging_dir:
+                print(f"    Staging Directory: {config.sync_staging_dir}")
+            if config.sync_gpg_key_file:
+                print(f"    GPG Key File: {config.sync_gpg_key_file}")
     else:
         run_name, output_dir = get_run_info_from_db_path(db_path)
         print("No run configuration found.")
