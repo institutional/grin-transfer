@@ -18,7 +18,7 @@ class TestBlockStorageSyncIntegration:
     """Integration tests for block storage sync pipeline interface compatibility."""
 
     @pytest.mark.asyncio
-    async def test_rate_calculator_method_compatibility(self, mock_process_stage):
+    async def test_rate_calculator_method_compatibility(self, mock_process_stage, test_config_builder):
         """Test that SlidingWindowRateCalculator interface is used correctly in sync pipeline."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -29,15 +29,16 @@ class TestBlockStorageSyncIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            storage_config = {"access_key": "test", "secret_key": "test", "bucket_raw": "test"}
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="s3",
-                storage_config=storage_config,
-                library_directory="test_library",
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                     .with_concurrent_downloads(1)
+                     .with_staging_dir(str(staging_dir))
+                     .build())
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                concurrent_downloads=1,
-                staging_dir=str(staging_dir),
             )
 
             # Use REAL SlidingWindowRateCalculator to catch method name issues
@@ -85,7 +86,7 @@ class TestBlockStorageSyncIntegration:
         assert isinstance(rate, int | float)
 
     @pytest.mark.asyncio
-    async def test_staging_vs_local_sync_selection(self, mock_process_stage):
+    async def test_staging_vs_local_sync_selection(self, mock_process_stage, test_config_builder):
         """Test that storage type determines sync method selection."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -95,20 +96,24 @@ class TestBlockStorageSyncIntegration:
             await tracker.close()
 
             # Test that cloud storage creates staging manager
-            cloud_pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="s3",
-                storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
-                library_directory="test_library",
+            cloud_config = (test_config_builder
+                           .with_db_path(str(db_path))
+                           .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                           .build())
+
+            cloud_pipeline = SyncPipeline.from_run_config(
+                config=cloud_config,
                 process_summary_stage=mock_process_stage,
             )
 
             # Test that local storage doesn't create staging manager
-            local_pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="local",
-                storage_config={"base_path": temp_dir},
-                library_directory="test_library",
+            local_config = (test_config_builder
+                           .with_db_path(str(db_path))
+                           .local_storage(temp_dir)
+                           .build())
+
+            local_pipeline = SyncPipeline.from_run_config(
+                config=local_config,
                 process_summary_stage=mock_process_stage,
             )
 
@@ -117,7 +122,7 @@ class TestBlockStorageSyncIntegration:
             assert local_pipeline.staging_manager is None
 
     @pytest.mark.asyncio
-    async def test_concurrent_semaphore_limits(self, mock_process_stage):
+    async def test_concurrent_semaphore_limits(self, mock_process_stage, test_config_builder):
         """Test that concurrent limits are respected in staging sync."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -129,15 +134,17 @@ class TestBlockStorageSyncIntegration:
             await tracker.close()
 
             # Create pipeline with specific concurrency limits
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="s3",
-                storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
-                library_directory="test_library",
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                     .with_concurrent_downloads(2)
+                     .with_concurrent_uploads(3)
+                     .with_staging_dir(str(staging_dir))
+                     .build())
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                concurrent_downloads=2,
-                concurrent_uploads=3,
-                staging_dir=str(staging_dir),
             )
 
             # Verify semaphore limits are set correctly
@@ -145,7 +152,7 @@ class TestBlockStorageSyncIntegration:
             assert pipeline._upload_semaphore._value == 3
 
     @pytest.mark.asyncio
-    async def test_pipeline_cleanup_and_shutdown(self, mock_process_stage):
+    async def test_pipeline_cleanup_and_shutdown(self, mock_process_stage, test_config_builder):
         """Test pipeline cleanup and shutdown behavior."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -156,13 +163,15 @@ class TestBlockStorageSyncIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="s3",
-                storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
-                library_directory="test_library",
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                     .with_staging_dir(str(staging_dir))
+                     .build())
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                staging_dir=str(staging_dir),
             )
 
             # Test cleanup doesn't error
@@ -172,7 +181,7 @@ class TestBlockStorageSyncIntegration:
             assert pipeline._shutdown_requested is True
 
     @pytest.mark.asyncio
-    async def test_statistics_tracking(self, mock_process_stage):
+    async def test_statistics_tracking(self, mock_process_stage, test_config_builder):
         """Test that statistics are tracked correctly during staging sync."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -183,14 +192,16 @@ class TestBlockStorageSyncIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="s3",
-                storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
-                library_directory="test_library",
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                     .with_concurrent_downloads(1)
+                     .with_staging_dir(str(staging_dir))
+                     .build())
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                concurrent_downloads=1,
-                staging_dir=str(staging_dir),
             )
 
             # Mock dependencies

@@ -24,6 +24,7 @@ from grin_to_s3.common import (
     pluralize,
 )
 from grin_to_s3.grin_enrichment import GRINEnrichmentPipeline
+from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config, get_storage_protocol
 from grin_to_s3.storage.book_storage import BookStorage, BucketConfig
 from grin_to_s3.storage.staging import StagingDirectoryManager
@@ -48,75 +49,95 @@ REGULAR_PROGRESS_INTERVAL = 300  # 5 minutes for subsequent reports
 class SyncPipeline:
     """Pipeline for syncing converted books from GRIN to storage with database tracking."""
 
+    @classmethod
+    def from_run_config(
+        cls,
+        config: RunConfig,
+        process_summary_stage,
+        force: bool = False,
+        skip_extract_ocr: bool = False,
+        skip_enrichment: bool = False,
+        skip_csv_export: bool = False,
+    ) -> "SyncPipeline":
+        """Create SyncPipeline from RunConfig.
+
+        Args:
+            config: RunConfig containing all pipeline configuration
+            process_summary_stage: Process summary stage for tracking
+            force: Force re-download even if ETags match
+            skip_extract_ocr: Skip OCR text extraction
+            skip_enrichment: Skip enrichment processing
+            skip_csv_export: Skip CSV export after sync
+
+        Returns:
+            Configured SyncPipeline instance
+        """
+        return cls(
+            config=config,
+            process_summary_stage=process_summary_stage,
+            force=force,
+            skip_extract_ocr=skip_extract_ocr,
+            skip_enrichment=skip_enrichment,
+            skip_csv_export=skip_csv_export,
+        )
+
     def __init__(
         self,
-        db_path: str,
-        storage_type: str,
-        storage_config: dict,
-        library_directory: str,
+        config: RunConfig,
         process_summary_stage,
-        concurrent_downloads: int = 5,
-        concurrent_uploads: int = 10,
-        batch_size: int = 10,
-        secrets_dir: str | None = None,
-        gpg_key_file: str | None = None,
         force: bool = False,
-        staging_dir: str | None = None,
-        disk_space_threshold: float = 0.9,
         skip_extract_ocr: bool = False,
-        enrichment_enabled: bool = True,
-        enrichment_workers: int = 1,
+        skip_enrichment: bool = False,
         skip_csv_export: bool = False,
     ):
-        self.db_path = db_path
-        # Keep original storage type for storage creation
-        self.storage_type = storage_type
-        # Determine storage protocol for operational logic
-        self.storage_protocol = get_storage_protocol(storage_type)
-        self.storage_config = storage_config
-        self.concurrent_downloads = concurrent_downloads
-        self.concurrent_uploads = concurrent_uploads
-        self.batch_size = batch_size
-        self.library_directory = library_directory
-        self.secrets_dir = secrets_dir
-        self.gpg_key_file = gpg_key_file
+        # Store configuration and runtime parameters
+        self.config = config
         self.force = force
-
-        # Configure staging directory
-        if staging_dir is None:
-            # Default to run directory + staging
-            run_dir = Path(db_path).parent
-            self.staging_dir = run_dir / "staging"
-        else:
-            self.staging_dir = Path(staging_dir)
-        self.disk_space_threshold = disk_space_threshold
         self.skip_extract_ocr = skip_extract_ocr
-
-        # Enrichment configuration
-        self.enrichment_enabled = enrichment_enabled
-        self.enrichment_workers = enrichment_workers
+        self.enrichment_enabled = not skip_enrichment
         self.skip_csv_export = skip_csv_export
-
-        # Process summary tracking
         self.process_summary_stage = process_summary_stage
 
+        # Extract commonly used config values
+        self.db_path = config.sqlite_db_path
+        self.storage_type = config.storage_type or "local"  # Default to local if None
+        self.storage_protocol = get_storage_protocol(self.storage_type)
+        self.storage_config = config.storage_config.get("config", {}) if config.storage_config else {}
+        self.library_directory = config.library_directory
+        self.secrets_dir = config.secrets_dir
+
+        # Sync configuration from RunConfig
+        self.concurrent_downloads = config.sync_concurrent_downloads
+        self.concurrent_uploads = config.sync_concurrent_uploads
+        self.batch_size = config.sync_batch_size
+        self.disk_space_threshold = config.sync_disk_space_threshold
+        self.enrichment_workers = config.sync_enrichment_workers
+        self.gpg_key_file = config.sync_gpg_key_file
+
+        # Configure staging directory
+        if config.sync_staging_dir is None:
+            # Default to run directory + staging
+            run_dir = Path(self.db_path).parent
+            self.staging_dir = run_dir / "staging"
+        else:
+            self.staging_dir = Path(config.sync_staging_dir)
+
         # Initialize components
-        self.db_tracker = SQLiteProgressTracker(db_path)
+        self.db_tracker = SQLiteProgressTracker(self.db_path)
         self.progress_reporter = ProgressReporter("sync", None)
-        self.grin_client = GRINClient(secrets_dir=secrets_dir)
+        self.grin_client = GRINClient(secrets_dir=self.secrets_dir)
 
         # Initialize staging directory manager only for non-local storage
         if self.storage_protocol != "local":
-
-            self.staging_manager = StagingDirectoryManager(
+            self.staging_manager: StagingDirectoryManager | None = StagingDirectoryManager(
                 staging_path=self.staging_dir, capacity_threshold=self.disk_space_threshold
             )
         else:
             self.staging_manager = None  # Not needed for local storage
 
         # Concurrency control
-        self._download_semaphore = asyncio.Semaphore(concurrent_downloads)
-        self._upload_semaphore = asyncio.Semaphore(concurrent_uploads)
+        self._download_semaphore = asyncio.Semaphore(self.concurrent_downloads)
+        self._upload_semaphore = asyncio.Semaphore(self.concurrent_uploads)
         self._shutdown_requested = False
         self._fatal_error: str | None = None  # Store fatal errors that should stop the pipeline
 
@@ -414,6 +435,7 @@ class SyncPipeline:
                 result = await self._export_csv_local(book_storage)
             else:
                 # For cloud storage, use staging manager
+                assert self.staging_manager is not None, "Staging manager required for cloud storage"
                 result = await export_and_upload_csv(
                     db_path=self.db_path,
                     staging_manager=self.staging_manager,

@@ -24,7 +24,7 @@ class MockOCRConfig:
 class TestOCRConfiguration:
     """Test OCR extraction configuration validation and behavior."""
 
-    def test_sync_pipeline_default_ocr_enabled(self, mock_process_stage):
+    def test_sync_pipeline_default_ocr_enabled(self, mock_process_stage, test_config_builder):
         """Test that OCR extraction is enabled by default."""
         with (
             patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
@@ -37,17 +37,20 @@ class TestOCRConfiguration:
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
-            pipeline = SyncPipeline(
-                db_path=":memory:",
-                storage_type="local",
-                storage_config={"path": "/tmp/test"},
-                library_directory="/tmp/library",
+            config = (test_config_builder
+                     .with_db_path(":memory:")
+                     .with_library_directory("/tmp/library")
+                     .local_storage("/tmp/test")
+                     .with_staging_dir("/tmp/test")
+                     .build())
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                staging_dir="/tmp/test",
             )
             assert pipeline.skip_extract_ocr is False  # Default is to extract OCR
 
-    def test_sync_pipeline_ocr_disabled(self, mock_process_stage):
+    def test_sync_pipeline_ocr_disabled(self, mock_process_stage, test_config_builder):
         """Test that OCR extraction can be disabled."""
         with (
             patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
@@ -60,13 +63,16 @@ class TestOCRConfiguration:
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
-            pipeline = SyncPipeline(
-                db_path=":memory:",
-                storage_type="local",
-                storage_config={"path": "/tmp/test"},
-                library_directory="/tmp/library",
+            config = (test_config_builder
+                     .with_db_path(":memory:")
+                     .with_library_directory("/tmp/library")
+                     .local_storage("/tmp/test")
+                     .with_staging_dir("/tmp/test")
+                     .build())
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                staging_dir="/tmp/test",
                 skip_extract_ocr=True,
             )
             assert pipeline.skip_extract_ocr is True
@@ -112,7 +118,7 @@ class TestOCRConfiguration:
         config_disabled = MockOCRConfig(enabled=False)
         assert config_disabled.enabled is False
 
-    def test_sync_pipeline_ocr_configuration_integration(self, mock_process_stage):
+    def test_sync_pipeline_ocr_configuration_integration(self, mock_process_stage, test_config_builder):
         """Test OCR configuration integration with sync pipeline."""
         with (
             patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
@@ -125,26 +131,25 @@ class TestOCRConfiguration:
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
+            config = (test_config_builder
+                     .with_db_path(":memory:")
+                     .with_library_directory("/tmp/library")
+                     .local_storage("/tmp/test")
+                     .with_staging_dir("/tmp/test")
+                     .build())
+
             # Test OCR enabled
-            pipeline_enabled = SyncPipeline(
-                db_path=":memory:",
-                storage_type="local",
-                storage_config={"path": "/tmp/test"},
-                library_directory="/tmp/library",
+            pipeline_enabled = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                staging_dir="/tmp/test",
                 skip_extract_ocr=False,
             )
             assert pipeline_enabled.skip_extract_ocr is False
 
             # Test OCR disabled
-            pipeline_disabled = SyncPipeline(
-                db_path=":memory:",
-                storage_type="local",
-                storage_config={"path": "/tmp/test"},
-                library_directory="/tmp/library",
+            pipeline_disabled = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                staging_dir="/tmp/test",
                 skip_extract_ocr=True,
             )
             assert pipeline_disabled.skip_extract_ocr is True

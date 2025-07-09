@@ -14,7 +14,7 @@ class TestLocalStorageIntegration:
     """Integration tests that verify the complete local storage pipeline flow."""
 
     @pytest.mark.asyncio
-    async def test_local_storage_sync_pipeline_flow(self, mock_process_stage):
+    async def test_local_storage_sync_pipeline_flow(self, mock_process_stage, test_config_builder):
         """Test the complete local storage sync pipeline flow."""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create test database
@@ -26,14 +26,15 @@ class TestLocalStorageIntegration:
             await tracker.close()
 
             # Create sync pipeline with local storage
-            storage_config = {"base_path": temp_dir}
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="local",
-                storage_config=storage_config,
-                library_directory="test_library",
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .local_storage(temp_dir)
+                     .with_concurrent_downloads(1)
+                     .build())
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
-                concurrent_downloads=1,
             )
 
             # Mock database methods
@@ -52,7 +53,7 @@ class TestLocalStorageIntegration:
                 assert "session_stats" in status
 
     @pytest.mark.asyncio
-    async def test_local_storage_startup_configuration_display(self, mock_process_stage):
+    async def test_local_storage_startup_configuration_display(self, mock_process_stage, test_config_builder):
         """Test that storage configuration is displayed at pipeline startup."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -63,12 +64,13 @@ class TestLocalStorageIntegration:
             await tracker.close()
 
             # Test case 1: Valid storage config
-            storage_config = {"base_path": "/valid/path"}
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="local",
-                storage_config=storage_config,
-                library_directory="test_library",
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .local_storage("/valid/path")
+                     .build())
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
             )
 
@@ -99,22 +101,23 @@ class TestLocalStorageIntegration:
                     assert none_printed, "Should display 'None' for missing storage config"
 
     @pytest.mark.asyncio
-    async def test_progress_reporter_methods_exist(self, mock_process_stage):
+    async def test_progress_reporter_methods_exist(self, mock_process_stage, test_config_builder):
         """Test that ProgressReporter has expected methods and they work correctly."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
-            storage_config = {"base_path": temp_dir}
 
             # Initialize database
             tracker = SQLiteProgressTracker(str(db_path))
             await tracker.init_db()
             await tracker.close()
 
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="local",
-                storage_config=storage_config,
-                library_directory="test_library",
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .local_storage(temp_dir)
+                     .build())
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
             )
 
@@ -135,22 +138,23 @@ class TestLocalStorageIntegration:
             reporter.finish()  # This is what should be called, not stop()
 
     @pytest.mark.asyncio
-    async def test_staging_manager_none_handling(self, mock_process_stage):
+    async def test_staging_manager_none_handling(self, mock_process_stage, test_config_builder):
         """Test that local storage properly handles None staging_manager."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
-            storage_config = {"base_path": temp_dir}
 
             # Initialize database
             tracker = SQLiteProgressTracker(str(db_path))
             await tracker.init_db()
             await tracker.close()
 
-            pipeline = SyncPipeline(
-                db_path=str(db_path),
-                storage_type="local",
-                storage_config=storage_config,
-                library_directory="test_library",
+            config = (test_config_builder
+                     .with_db_path(str(db_path))
+                     .local_storage(temp_dir)
+                     .build())
+
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
                 process_summary_stage=mock_process_stage,
             )
 

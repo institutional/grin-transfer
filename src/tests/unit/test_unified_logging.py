@@ -87,23 +87,23 @@ class TestSetupLogging:
 class TestRunConfigLogFile:
     """Test RunConfig log_file property."""
 
-    def test_run_config_log_file_property(self):
+    def test_run_config_log_file_property(self, test_config_builder):
         """Test that RunConfig.log_file returns the correct path."""
-        config_dict = {"log_file": "/path/to/logfile.log", "run_name": "test_run", "storage_config": {"type": "local"}}
-
-        run_config = RunConfig(config_dict)
+        run_config = (test_config_builder
+                     .local_storage()
+                     .with_run_name("test_run")
+                     .with_log_file("/path/to/logfile.log")
+                     .build())
 
         assert run_config.log_file == "/path/to/logfile.log"
 
-    def test_run_config_log_file_with_run_name(self):
+    def test_run_config_log_file_with_run_name(self, test_config_builder):
         """Test log_file property with realistic run name format."""
-        config_dict = {
-            "log_file": "logs/grin_pipeline_my_test_run_20250626_105045.log",
-            "run_name": "my_test_run",
-            "storage_config": {"type": "local"},
-        }
-
-        run_config = RunConfig(config_dict)
+        run_config = (test_config_builder
+                     .local_storage()
+                     .with_run_name("my_test_run")
+                     .with_log_file("logs/grin_pipeline_my_test_run_20250626_105045.log")
+                     .build())
 
         assert "grin_pipeline_my_test_run" in run_config.log_file
         assert run_config.log_file.endswith(".log")
@@ -112,7 +112,7 @@ class TestRunConfigLogFile:
 class TestUnifiedLoggingIntegration:
     """Test unified logging integration with collect command."""
 
-    def test_collect_creates_log_file_in_config(self):
+    def test_collect_creates_log_file_in_config(self, test_config_builder):
         """Test that collect command creates log_file in run_config.json."""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Simulate what collect command does
@@ -122,7 +122,11 @@ class TestUnifiedLoggingIntegration:
             log_file = f"{log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
 
             # Create config dict as collect would
-            config_dict = {"run_name": run_name, "log_file": log_file, "storage_config": {"type": "local"}}
+            config_dict = (test_config_builder
+                          .local_storage()
+                          .with_run_name(run_name)
+                          .with_log_file(log_file)
+                          .build().config_dict)
 
             # Write config file
             config_path = Path(temp_dir) / "run_config.json"
@@ -134,7 +138,7 @@ class TestUnifiedLoggingIntegration:
             assert run_config.log_file == log_file
             assert "grin_pipeline_test_run" in run_config.log_file
 
-    def test_custom_log_dir_in_config(self):
+    def test_custom_log_dir_in_config(self, test_config_builder):
         """Test that custom log directory is preserved in config."""
         with tempfile.TemporaryDirectory():
             # Simulate collect with custom log dir
@@ -143,18 +147,26 @@ class TestUnifiedLoggingIntegration:
             custom_log_dir = "custom_logs"
             log_file = f"{custom_log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
 
-            config_dict = {"run_name": run_name, "log_file": log_file, "storage_config": {"type": "local"}}
+            config_dict = (test_config_builder
+                          .local_storage()
+                          .with_run_name(run_name)
+                          .with_log_file(log_file)
+                          .build().config_dict)
 
             run_config = RunConfig(config_dict)
             assert run_config.log_file.startswith("custom_logs/")
             assert "grin_pipeline_test_run" in run_config.log_file
 
-    def test_subsequent_commands_use_same_log_file(self):
+    def test_subsequent_commands_use_same_log_file(self, test_config_builder):
         """Test that subsequent commands can access the same log file."""
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = str(Path(temp_dir) / "grin_pipeline_test_20250626_105045.log")
 
-            config_dict = {"run_name": "test", "log_file": log_file, "storage_config": {"type": "local"}}
+            config_dict = (test_config_builder
+                          .local_storage()
+                          .with_run_name("test")
+                          .with_log_file(log_file)
+                          .build().config_dict)
 
             # First command (collect) creates log
             setup_logging("INFO", log_file)

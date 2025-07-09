@@ -17,8 +17,10 @@ from typing import Any
 from grin_to_s3.common import setup_logging, setup_storage_with_checks
 from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
 from grin_to_s3.run_config import (
+    RunConfig,
     apply_run_config_to_args,
     build_storage_config_dict,
+    load_run_config,
     setup_run_database_path,
 )
 from grin_to_s3.sync.models import validate_and_parse_barcodes
@@ -41,6 +43,7 @@ async def cmd_pipeline(args) -> None:
     # Build storage configuration from run config
     config_path = Path(args.db_path).parent / "run_config.json"
     storage_config = {}
+    existing_storage_config = {}
 
     if config_path.exists():
         try:
@@ -120,8 +123,7 @@ async def cmd_pipeline(args) -> None:
     barcodes_info = f" barcodes={','.join(args.barcodes)}" if hasattr(args, "barcodes") and args.barcodes else ""
     limit_info = f" limit={args.limit}" if hasattr(args, "limit") and args.limit else ""
     logger.info(
-        f"SYNC PIPELINE STARTED - storage={args.storage} concurrent={args.concurrent}/{args.concurrent_uploads}"
-        f" force={args.force}{barcodes_info}{limit_info}"
+        f"SYNC PIPELINE STARTED - storage={args.storage} force={args.force}{barcodes_info}{limit_info}"
     )
     logger.info(f"Command: {' '.join(sys.argv)}")
 
@@ -132,32 +134,30 @@ async def cmd_pipeline(args) -> None:
     run_summary = await create_process_summary(args.run_name, "sync")
     sync_stage = get_current_stage(run_summary, "sync")
     sync_stage.set_command_arg("storage_type", args.storage)
-    sync_stage.set_command_arg("concurrent_downloads", args.concurrent)
-    sync_stage.set_command_arg("concurrent_uploads", args.concurrent_uploads)
-    sync_stage.set_command_arg("batch_size", args.batch_size)
     sync_stage.set_command_arg("force_mode", args.force)
     if args.limit:
         sync_stage.set_command_arg("limit", args.limit)
 
     try:
         try:
-            pipeline = SyncPipeline(
-                db_path=args.db_path,
-                storage_type=args.storage,
-                storage_config=storage_config,
-                library_directory=args.grin_library_directory,
+            # Load run config for factory method
+            config_path = Path(args.db_path).parent / "run_config.json"
+            run_config = load_run_config(str(config_path))
+
+            # Update storage config in run_config if it was modified above
+            if existing_storage_config != run_config.config_dict.get("storage_config", {}):
+                run_config.config_dict["storage_config"] = {
+                    "type": args.storage,
+                    "config": storage_config,
+                    "prefix": "",
+                }
+
+            pipeline = SyncPipeline.from_run_config(
+                config=run_config,
                 process_summary_stage=sync_stage,
-                concurrent_downloads=args.concurrent,
-                concurrent_uploads=args.concurrent_uploads,
-                batch_size=args.batch_size,
-                secrets_dir=args.secrets_dir,
-                gpg_key_file=args.gpg_key_file,
                 force=args.force,
-                staging_dir=args.staging_dir,
-                disk_space_threshold=args.disk_space_threshold,
                 skip_extract_ocr=args.skip_extract_ocr,
-                enrichment_enabled=not args.skip_enrichment,
-                enrichment_workers=args.enrichment_workers,
+                skip_enrichment=args.skip_enrichment,
                 skip_csv_export=args.skip_csv_export,
             )
 
@@ -195,23 +195,21 @@ async def cmd_pipeline(args) -> None:
                 print("Auto-optimizing settings for single book processing...")
 
                 # Create optimized pipeline for single book
-                pipeline = SyncPipeline(
-                    db_path=args.db_path,
-                    storage_type=args.storage,
-                    storage_config=storage_config,
-                    library_directory=args.grin_library_directory,
+                # Clone run config and modify sync settings for single book
+                single_book_config = RunConfig(run_config.config_dict.copy())
+                single_book_config.config_dict["sync_config"] = {
+                    **single_book_config.config_dict.get("sync_config", {}),
+                    "concurrent_downloads": 1,  # Optimal for single book
+                    "concurrent_uploads": 1,  # Optimal for single book
+                    "batch_size": 1,  # Single book batch
+                }
+
+                pipeline = SyncPipeline.from_run_config(
+                    config=single_book_config,
                     process_summary_stage=sync_stage,
-                    concurrent_downloads=1,  # Optimal for single book
-                    concurrent_uploads=1,  # Optimal for single book
-                    batch_size=1,  # Single book batch
-                    secrets_dir=args.secrets_dir,
-                    gpg_key_file=args.gpg_key_file,
                     force=args.force,
-                    staging_dir=args.staging_dir,
-                    disk_space_threshold=args.disk_space_threshold,
                     skip_extract_ocr=args.skip_extract_ocr,
-                    enrichment_enabled=not args.skip_enrichment,
-                    enrichment_workers=args.enrichment_workers,
+                    skip_enrichment=args.skip_enrichment,
                     skip_csv_export=args.skip_csv_export,
                 )
                 print("  - Concurrent downloads: 1")
@@ -301,9 +299,6 @@ Examples:
   # Sync specific books only
   python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
 
-  # Sync with custom concurrency
-  python grin.py sync pipeline --run-name harvard_2024 --concurrent 5
-
   # Retry failed syncs only
   python grin.py sync pipeline --run-name harvard_2024 --status failed
 
@@ -331,28 +326,17 @@ Examples:
     )
     pipeline_parser.add_argument("--credentials-file", help="Custom credentials file path")
 
-    # Pipeline options
-    pipeline_parser.add_argument("--concurrent", type=int, default=5, help="Concurrent downloads (default: 5)")
-    pipeline_parser.add_argument("--concurrent-uploads", type=int, default=10, help="Concurrent uploads (default: 10)")
-    pipeline_parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing (default: 100)")
+    # Runtime options (configuration options are stored in run config)
     pipeline_parser.add_argument("--limit", type=int, help="Limit number of books to sync")
     pipeline_parser.add_argument(
         "--barcodes", help="Comma-separated list of specific barcodes to sync (e.g., '12345,67890,abcde')"
     )
+    pipeline_parser.add_argument(
+        "--status", help="Filter books by sync status (e.g., 'failed', 'pending')"
+    )
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
     pipeline_parser.add_argument(
-        "--grin-library-directory", help="GRIN library directory name (required, from run config)"
-    )
-
-    # Staging directory options
-    pipeline_parser.add_argument(
-        "--staging-dir", help="Custom staging directory path (default: output/run-name/staging)"
-    )
-    pipeline_parser.add_argument(
-        "--disk-space-threshold",
-        type=float,
-        default=0.9,
-        help="Disk usage threshold to pause downloads (0.0-1.0, default: 0.9)",
+        "--grin-library-directory", help="GRIN library directory name (auto-detected from run config if not specified)"
     )
 
     # OCR extraction options
@@ -365,9 +349,6 @@ Examples:
         "--skip-enrichment", action="store_true", help="Skip automatic enrichment (default: enrichment enabled)"
     )
     pipeline_parser.add_argument(
-        "--enrichment-workers", type=int, default=1, help="Number of enrichment workers (default: 1)"
-    )
-    pipeline_parser.add_argument(
         "--skip-csv-export", action="store_true", help="Skip automatic CSV export (default: export CSV)"
     )
 
@@ -375,7 +356,6 @@ Examples:
     pipeline_parser.add_argument(
         "--secrets-dir", help="Directory containing GRIN secrets (auto-detected from run config if not specified)"
     )
-    pipeline_parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
 
     # Logging
     pipeline_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
