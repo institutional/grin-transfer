@@ -11,7 +11,6 @@ import json
 import logging
 import signal
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,14 +20,6 @@ from grin_to_s3.run_config import (
     apply_run_config_to_args,
     build_storage_config_dict,
     setup_run_database_path,
-)
-from grin_to_s3.sync.catchup import (
-    confirm_catchup_sync,
-    find_catchup_books,
-    get_books_for_catchup_sync,
-    mark_books_for_catchup_processing,
-    run_catchup_validation,
-    show_catchup_dry_run,
 )
 from grin_to_s3.sync.models import validate_and_parse_barcodes
 from grin_to_s3.sync.status import show_sync_status, validate_database_file
@@ -267,112 +258,6 @@ async def cmd_status(args) -> None:
         sys.exit(1)
 
 
-async def cmd_catchup(args) -> None:
-    """Handle the 'catchup' command."""
-    # Set up database path and apply run configuration
-    db_path = setup_run_database_path(args, args.run_name)
-    logger.debug(f"Using run: {args.run_name}")
-    print(f"Database: {db_path}")
-
-    # Set up signal handlers for graceful shutdown
-    def signal_handler(signum: int, frame: Any) -> None:
-        print(f"\nReceived signal {signum}, shutting down gracefully...")
-        raise KeyboardInterrupt()
-
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-
-    # Validate database
-    validate_database_file(args.db_path)
-
-    # Build storage configuration from run config
-    config_path = Path(args.db_path).parent / "run_config.json"
-    if not config_path.exists():
-        print(f"❌ Error: No run config found at {config_path}")
-        print("Run collect_books.py first to create a run configuration")
-        sys.exit(1)
-
-    try:
-        with open(config_path) as f:
-            run_config = json.load(f)
-
-        storage_config_dict = run_config.get("storage_config")
-        if not storage_config_dict:
-            print("❌ Error: No storage configuration found in run config")
-            print("Run collect_books.py with storage configuration first")
-            sys.exit(1)
-
-        storage_type = storage_config_dict.get("type")
-        storage_config = storage_config_dict.get("config", {})
-
-        # Validate configuration
-        storage_type, storage_config = await run_catchup_validation(run_config, storage_type, storage_config)
-
-    except (json.JSONDecodeError, OSError) as e:
-        print(f"❌ Error reading run config: {e}")
-        sys.exit(1)
-
-    # Get current timestamp for session tracking
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    try:
-        # Find books available for catchup
-        converted_barcodes, all_books, catchup_candidates = await find_catchup_books(
-            args.db_path, run_config.get("library_directory"), run_config.get("secrets_dir")
-        )
-
-        if not catchup_candidates:
-            print("No books available for catchup")
-            return
-
-        # Get books that need sync
-        books_to_sync = await get_books_for_catchup_sync(args.db_path, storage_type, catchup_candidates, args.limit)
-
-        if not books_to_sync:
-            return
-
-        # Handle dry-run mode
-        if args.dry_run:
-            show_catchup_dry_run(books_to_sync)
-            return
-
-        # Confirm with user
-        if not confirm_catchup_sync(books_to_sync, args.yes):
-            return
-
-        print(f"Catchup sync: {len(books_to_sync):,} books")
-
-        # Mark books for processing
-        await mark_books_for_catchup_processing(args.db_path, books_to_sync, timestamp)
-
-        # Import and create pipeline for catchup
-        # Create a minimal process stage for catchup (not part of main pipeline tracking)
-        from grin_to_s3.process_summary import ProcessStageMetrics
-        from grin_to_s3.sync.pipeline import SyncPipeline
-        catchup_stage = ProcessStageMetrics("catchup")
-
-        pipeline = SyncPipeline(
-            db_path=args.db_path,
-            storage_type=storage_type,
-            storage_config=storage_config,
-            library_directory=run_config.get("library_directory"),
-            process_summary_stage=catchup_stage,
-            concurrent_downloads=args.concurrent,
-            concurrent_uploads=args.concurrent_uploads,
-            batch_size=args.batch_size,
-            secrets_dir=run_config.get("secrets_dir"),
-            gpg_key_file=args.gpg_key_file,
-            force=args.force,
-        )
-
-        # Use a custom method to sync these specific books
-        await pipeline._run_catchup_sync(books_to_sync, args.limit)
-
-    except KeyboardInterrupt:
-        print("\nCatchup cancelled by user")
-    except Exception as e:
-        print(f"Catchup failed: {e}")
-        sys.exit(1)
 
 
 async def main() -> None:
@@ -394,8 +279,6 @@ Examples:
   # Check sync status
   python grin.py sync status --run-name harvard_2024
 
-  # Download already-converted books
-  python grin.py sync catchup --run-name harvard_2024
         """,
     )
 
@@ -515,38 +398,6 @@ Examples:
     status_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
     status_parser.add_argument("--storage-type", choices=["local", "minio", "r2", "s3"], help="Filter by storage type")
 
-    # Catchup command
-    catchup_parser = subparsers.add_parser(
-        "catchup",
-        help="Download already-converted books from GRIN",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Check what books would be synced
-  python grin.py sync catchup --run-name harvard_2024 --dry-run
-
-  # Basic catchup (uses storage config from run)
-  python grin.py sync catchup --run-name harvard_2024
-
-  # Catchup with limit and auto-confirm
-  python grin.py sync catchup --run-name harvard_2024 --limit 100 --yes
-
-  # Catchup with custom concurrency
-  python grin.py sync catchup --run-name harvard_2024 --concurrent 5
-        """,
-    )
-
-    catchup_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
-    catchup_parser.add_argument("--limit", type=int, help="Limit number of books to download")
-    catchup_parser.add_argument("--concurrent", type=int, default=5, help="Concurrent downloads (default: 5)")
-    catchup_parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing (default: 100)")
-    catchup_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
-    catchup_parser.add_argument("--yes", "-y", action="store_true", help="Auto-confirm without prompting")
-    catchup_parser.add_argument(
-        "--dry-run", action="store_true", help="Show what books would be synced without downloading"
-    )
-    catchup_parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
-    catchup_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
 
     args = parser.parse_args()
 
@@ -558,8 +409,6 @@ Examples:
         await cmd_pipeline(args)
     elif args.command == "status":
         await cmd_status(args)
-    elif args.command == "catchup":
-        await cmd_catchup(args)
 
 
 if __name__ == "__main__":

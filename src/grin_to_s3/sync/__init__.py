@@ -6,14 +6,6 @@ Modular sync operations for downloading and uploading books from GRIN to storage
 """
 
 from .__main__ import main
-from .catchup import (
-    confirm_catchup_sync,
-    find_catchup_books,
-    get_books_for_catchup_sync,
-    mark_books_for_catchup_processing,
-    run_catchup_validation,
-    show_catchup_dry_run,
-)
 from .models import (
     BookSyncResult,
     SyncStats,
@@ -43,13 +35,6 @@ from .utils import (
 )
 
 __all__ = [
-    # Catchup operations
-    "confirm_catchup_sync",
-    "find_catchup_books",
-    "get_books_for_catchup_sync",
-    "mark_books_for_catchup_processing",
-    "run_catchup_validation",
-    "show_catchup_dry_run",
     # Core sync functions
     "check_and_handle_etag_skip",
     "download_book_to_staging",
