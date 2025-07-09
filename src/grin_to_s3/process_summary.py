@@ -1,8 +1,9 @@
 """
 Process summary logging infrastructure for pipeline operations.
 
-Tracks timing, errors, retries, and other operational metrics for long-running
-pipeline operations like collect, process, sync, and enrich.
+Tracks timing, errors, retries, and other operational metrics for a complete
+pipeline run across multiple commands (collect, process, sync, enrich).
+Uses a single summary file per run that accumulates data from all stages.
 """
 
 import json
@@ -19,24 +20,11 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class ProcessSummary:
-    """
-    Tracks comprehensive metrics for a pipeline process.
+class ProcessStageMetrics:
+    """Metrics for a single pipeline stage (collect, process, sync, enrich)."""
 
-    Follows existing codebase patterns:
-    - Uses session IDs with Unix timestamps
-    - Tracks timing with time.perf_counter() for precision
-    - Persists state to survive interruptions
-    - Includes error counts and retry tracking
-    """
-
-    # Process identification
-    process_name: str
-    run_name: str
-    session_id: int = field(default_factory=lambda: int(datetime.now(UTC).timestamp()))
-
-    # Timing metrics
-    start_time: float = field(default_factory=time.perf_counter)
+    stage_name: str
+    start_time: float | None = None
     end_time: float | None = None
     duration_seconds: float | None = None
 
@@ -53,33 +41,28 @@ class ProcessSummary:
     last_error_message: str | None = None
     last_error_time: float | None = None
 
-    # Interruption detection
-    interruption_count: int = 0
-    last_checkpoint_time: float | None = None
+    # Command-line arguments and configuration
+    command_args: dict[str, Any] = field(default_factory=dict)
 
     # Progress tracking
     progress_updates: list[dict[str, Any]] = field(default_factory=list)
 
-    # Custom metrics (for command-specific data)
-    custom_metrics: dict[str, Any] = field(default_factory=dict)
-
-    def start_process(self) -> None:
-        """Start the process tracking."""
+    def start_stage(self) -> None:
+        """Start timing this stage."""
         self.start_time = time.perf_counter()
-        self.last_checkpoint_time = self.start_time
-        logger.info(f"Started process summary tracking for {self.process_name} (session {self.session_id})")
+        logger.info(f"Started {self.stage_name} stage")
 
-    def end_process(self) -> None:
-        """End the process tracking and calculate final metrics."""
-        if self.end_time is None:
+    def end_stage(self) -> None:
+        """End timing this stage."""
+        if self.start_time is not None and self.end_time is None:
             self.end_time = time.perf_counter()
             self.duration_seconds = self.end_time - self.start_time
-            logger.info(f"Ended process summary tracking for {self.process_name} after {self.duration_seconds:.1f}s")
+            logger.info(f"Ended {self.stage_name} stage after {self.duration_seconds:.1f}s")
 
     def add_progress_update(self, message: str, **kwargs) -> None:
         """Add a progress update with timestamp."""
         current_time = time.perf_counter()
-        elapsed = current_time - self.start_time
+        elapsed = current_time - self.start_time if self.start_time else 0
 
         update = {
             "timestamp": current_time,
@@ -92,7 +75,7 @@ class ProcessSummary:
         }
 
         self.progress_updates.append(update)
-        logger.debug(f"Progress update: {message} (elapsed: {elapsed:.1f}s)")
+        logger.debug(f"{self.stage_name} progress: {message} (elapsed: {elapsed:.1f}s)")
 
     def increment_items(self, processed: int = 0, successful: int = 0, failed: int = 0,
                        retried: int = 0, bytes_count: int = 0) -> None:
@@ -109,14 +92,66 @@ class ProcessSummary:
         self.error_types[error_type] = self.error_types.get(error_type, 0) + 1
         self.last_error_message = error_message
         self.last_error_time = time.perf_counter()
-        logger.debug(f"Recorded error: {error_type} - {error_message}")
+        logger.debug(f"{self.stage_name} error: {error_type} - {error_message}")
+
+    def set_command_arg(self, key: str, value: Any) -> None:
+        """Set a command-line argument or configuration value for this stage."""
+        self.command_args[key] = value
+
+
+@dataclass
+class RunSummary:
+    """
+    Tracks comprehensive metrics for an entire pipeline run.
+
+    Accumulates data from all pipeline stages (collect, process, sync, enrich)
+    in a single summary that persists across command invocations.
+    """
+
+    run_name: str
+    run_start_time: float = field(default_factory=time.perf_counter)
+    run_end_time: float | None = None
+    total_duration_seconds: float | None = None
+
+    # Per-stage metrics
+    stages: dict[str, ProcessStageMetrics] = field(default_factory=dict)
+
+    # Overall run tracking
+    interruption_count: int = 0
+    last_checkpoint_time: float | None = None
+
+    # Run-level metadata
+    session_id: int = field(default_factory=lambda: int(datetime.now(UTC).timestamp()))
+
+    def get_or_create_stage(self, stage_name: str) -> ProcessStageMetrics:
+        """Get existing stage or create new one."""
+        if stage_name not in self.stages:
+            self.stages[stage_name] = ProcessStageMetrics(stage_name)
+        return self.stages[stage_name]
+
+    def start_stage(self, stage_name: str) -> ProcessStageMetrics:
+        """Start a new stage or resume existing one."""
+        stage = self.get_or_create_stage(stage_name)
+        if stage.start_time is None:
+            stage.start_stage()
+        self.checkpoint()
+        return stage
+
+    def end_stage(self, stage_name: str) -> None:
+        """End a stage."""
+        if stage_name in self.stages:
+            self.stages[stage_name].end_stage()
+            self.checkpoint()
+
+    def end_run(self) -> None:
+        """End the entire run."""
+        if self.run_end_time is None:
+            self.run_end_time = time.perf_counter()
+            self.total_duration_seconds = self.run_end_time - self.run_start_time
+            logger.info(f"Ended run {self.run_name} after {self.total_duration_seconds:.1f}s")
 
     def detect_interruption(self) -> bool:
-        """
-        Detect if the process was interrupted and restarted.
-
-        Returns True if interruption is detected based on time gap since last checkpoint.
-        """
+        """Detect if the run was interrupted and restarted."""
         if self.last_checkpoint_time is None:
             return False
 
@@ -126,8 +161,7 @@ class ProcessSummary:
         # If more than 5 minutes have passed without a checkpoint, consider it an interruption
         if time_gap > 300:  # 5 minutes
             self.interruption_count += 1
-            self.add_progress_update(f"Interruption detected: {time_gap:.1f}s gap since last checkpoint")
-            logger.warning(f"Process interruption detected: {time_gap:.1f}s gap")
+            logger.warning(f"Run interruption detected: {time_gap:.1f}s gap")
             return True
 
         return False
@@ -136,106 +170,132 @@ class ProcessSummary:
         """Update checkpoint time to track for interruptions."""
         self.last_checkpoint_time = time.perf_counter()
 
-    def set_custom_metric(self, key: str, value: Any) -> None:
-        """Set a custom metric for command-specific data."""
-        self.custom_metrics[key] = value
-
     def get_summary_dict(self) -> dict[str, Any]:
-        """Get a dictionary representation of the process summary."""
-        # Calculate final duration if not set
-        if self.duration_seconds is None and self.end_time is not None:
-            self.duration_seconds = self.end_time - self.start_time
-        elif self.duration_seconds is None:
-            # Process is still running
-            current_time = time.perf_counter()
-            current_duration = current_time - self.start_time
-        else:
-            current_duration = self.duration_seconds
+        """Get a dictionary representation of the run summary."""
+        # Calculate totals across all stages
+        total_items_processed = sum(stage.items_processed for stage in self.stages.values())
+        total_items_successful = sum(stage.items_successful for stage in self.stages.values())
+        total_items_failed = sum(stage.items_failed for stage in self.stages.values())
+        total_items_retried = sum(stage.items_retried for stage in self.stages.values())
+        total_bytes_processed = sum(stage.bytes_processed for stage in self.stages.values())
+        total_errors = sum(stage.error_count for stage in self.stages.values())
 
         # Calculate success rate
-        total_attempted = self.items_successful + self.items_failed
-        success_rate = (self.items_successful / total_attempted * 100) if total_attempted > 0 else 0
+        success_rate = (
+            (total_items_successful / max(1, total_items_processed)) * 100
+            if total_items_processed > 0 else 0
+        )
 
         # Calculate processing rate
-        duration_for_rate = self.duration_seconds if self.duration_seconds else current_duration
-        processing_rate = self.items_processed / duration_for_rate if duration_for_rate > 0 else 0
+        if self.total_duration_seconds is None and self.run_end_time is not None:
+            self.total_duration_seconds = self.run_end_time - self.run_start_time
+        elif self.total_duration_seconds is None:
+            # Run is still active
+            current_time = time.perf_counter()
+            elapsed = current_time - self.run_start_time
+            processing_rate = total_items_processed / elapsed if elapsed > 0 else 0
+        else:
+            processing_rate = (
+                total_items_processed / self.total_duration_seconds
+                if self.total_duration_seconds > 0 else 0
+            )
+
+        # Convert stages to dict
+        stages_dict = {}
+        for stage_name, stage in self.stages.items():
+            stages_dict[stage_name] = {
+                "start_time": stage.start_time,
+                "end_time": stage.end_time,
+                "duration_seconds": stage.duration_seconds,
+                "items_processed": stage.items_processed,
+                "items_successful": stage.items_successful,
+                "items_failed": stage.items_failed,
+                "items_retried": stage.items_retried,
+                "bytes_processed": stage.bytes_processed,
+                "error_count": stage.error_count,
+                "error_types": stage.error_types,
+                "last_error_message": stage.last_error_message,
+                "last_error_time": stage.last_error_time,
+                "command_args": stage.command_args,
+                "progress_updates": stage.progress_updates,
+                "is_completed": stage.end_time is not None,
+                "success_rate_percent": (
+                    (stage.items_successful / max(1, stage.items_processed)) * 100
+                    if stage.items_processed > 0 else 0
+                ),
+            }
 
         return {
-            "process_name": self.process_name,
             "run_name": self.run_name,
             "session_id": self.session_id,
-            "start_time": self.start_time,
-            "end_time": self.end_time,
-            "duration_seconds": self.duration_seconds,
-            "is_completed": self.end_time is not None,
-            "items_processed": self.items_processed,
-            "items_successful": self.items_successful,
-            "items_failed": self.items_failed,
-            "items_retried": self.items_retried,
-            "bytes_processed": self.bytes_processed,
-            "success_rate_percent": round(success_rate, 2),
-            "processing_rate_per_second": round(processing_rate, 2),
-            "error_count": self.error_count,
-            "error_types": self.error_types,
-            "last_error_message": self.last_error_message,
-            "last_error_time": self.last_error_time,
+            "run_start_time": self.run_start_time,
+            "run_end_time": self.run_end_time,
+            "total_duration_seconds": self.total_duration_seconds,
             "interruption_count": self.interruption_count,
-            "progress_updates_count": len(self.progress_updates),
-            "progress_updates": self.progress_updates,
-            "custom_metrics": self.custom_metrics,
+            "last_checkpoint_time": self.last_checkpoint_time,
+
+            # Totals across all stages
+            "total_items_processed": total_items_processed,
+            "total_items_successful": total_items_successful,
+            "total_items_failed": total_items_failed,
+            "total_items_retried": total_items_retried,
+            "total_bytes_processed": total_bytes_processed,
+            "total_error_count": total_errors,
+            "overall_success_rate_percent": success_rate,
+            "overall_processing_rate_per_second": processing_rate,
+
+            # Per-stage details
+            "stages": stages_dict,
+
+            # Run status
+            "is_completed": self.run_end_time is not None,
+            "has_errors": total_errors > 0,
+            "active_stages": [
+                name for name, stage in self.stages.items()
+                if stage.start_time is not None and stage.end_time is None
+            ],
+            "completed_stages": [name for name, stage in self.stages.items() if stage.end_time is not None],
+
             "generated_at": datetime.now(UTC).isoformat(),
         }
 
-    def get_progress_summary(self) -> dict[str, Any]:
-        """Get a summary of recent progress updates."""
-        if not self.progress_updates:
-            return {}
 
-        recent_updates = self.progress_updates[-5:]  # Last 5 updates
-        return {
-            "total_updates": len(self.progress_updates),
-            "recent_updates": recent_updates,
-            "first_update": self.progress_updates[0] if self.progress_updates else None,
-            "latest_update": self.progress_updates[-1] if self.progress_updates else None,
-        }
-
-
-class ProcessSummaryManager:
+class RunSummaryManager:
     """
-    Manages process summary persistence and recovery.
+    Manages run summary persistence and recovery.
 
-    Handles saving/loading process summaries to survive interruptions.
+    Handles saving/loading run summaries to survive interruptions.
+    Uses a single summary file per run that tracks all pipeline stages.
     """
 
-    def __init__(self, run_name: str, process_name: str):
+    def __init__(self, run_name: str):
         self.run_name = run_name
-        self.process_name = process_name
-        self.summary_file = Path(f"runs/{run_name}/process_summary_{process_name}.json")
-        self.summary: ProcessSummary | None = None
+        self.summary_file = Path(f"output/{run_name}/process_summary.json")
+        self.summary: RunSummary | None = None
 
-    async def load_or_create_summary(self) -> ProcessSummary:
+    async def load_or_create_summary(self) -> RunSummary:
         """Load existing summary or create new one."""
         if await self._summary_file_exists():
             try:
                 summary = await self._load_summary()
                 # Detect interruption if we're loading an existing summary
                 if summary.detect_interruption():
-                    summary.add_progress_update("Process resumed after interruption")
+                    # Add interruption note to the most recent stage
+                    if summary.stages:
+                        latest_stage_name = max(summary.stages.keys(), key=lambda s: summary.stages[s].start_time or 0)
+                        latest_stage = summary.stages[latest_stage_name]
+                        latest_stage.add_progress_update("Run resumed after interruption")
                 return summary
             except Exception as e:
                 logger.warning(f"Failed to load existing summary: {e}")
                 # Fall back to creating new summary
 
         # Create new summary
-        summary = ProcessSummary(
-            process_name=self.process_name,
-            run_name=self.run_name
-        )
-        summary.start_process()
+        summary = RunSummary(run_name=self.run_name)
         return summary
 
-    async def save_summary(self, summary: ProcessSummary) -> None:
-        """Save process summary to file."""
+    async def save_summary(self, summary: RunSummary) -> None:
+        """Save run summary to file."""
         try:
             # Ensure directory exists
             self.summary_file.parent.mkdir(parents=True, exist_ok=True)
@@ -245,77 +305,73 @@ class ProcessSummaryManager:
             async with aiofiles.open(self.summary_file, "w") as f:
                 await f.write(json.dumps(summary_dict, indent=2))
 
-            logger.debug(f"Saved process summary to {self.summary_file}")
+            logger.debug(f"Saved run summary to {self.summary_file}")
         except Exception as e:
-            logger.error(f"Failed to save process summary: {e}")
+            logger.error(f"Failed to save run summary: {e}")
 
     async def _summary_file_exists(self) -> bool:
         """Check if summary file exists."""
         return self.summary_file.exists()
 
-    async def _load_summary(self) -> ProcessSummary:
+    async def _load_summary(self) -> RunSummary:
         """Load summary from file."""
         async with aiofiles.open(self.summary_file) as f:
-            content = await f.read()
-            data = json.loads(content)
+            data = json.loads(await f.read())
 
-        # Reconstruct ProcessSummary from saved data
-        summary = ProcessSummary(
-            process_name=data["process_name"],
+        # Reconstruct RunSummary from saved data
+        summary = RunSummary(
             run_name=data["run_name"],
-            session_id=data["session_id"]
+            session_id=data["session_id"],
+            run_start_time=data["run_start_time"],
+            run_end_time=data.get("run_end_time"),
+            total_duration_seconds=data.get("total_duration_seconds"),
+            interruption_count=data.get("interruption_count", 0),
+            last_checkpoint_time=data.get("last_checkpoint_time"),
         )
 
-        # Restore saved state
-        summary.start_time = data["start_time"]
-        summary.end_time = data["end_time"]
-        summary.duration_seconds = data["duration_seconds"]
-        summary.items_processed = data["items_processed"]
-        summary.items_successful = data["items_successful"]
-        summary.items_failed = data["items_failed"]
-        summary.items_retried = data["items_retried"]
-        summary.bytes_processed = data["bytes_processed"]
-        summary.error_count = data["error_count"]
-        summary.error_types = data["error_types"]
-        summary.last_error_message = data["last_error_message"]
-        summary.last_error_time = data["last_error_time"]
-        summary.interruption_count = data["interruption_count"]
-        summary.custom_metrics = data["custom_metrics"]
-        summary.progress_updates = data.get("progress_updates", [])
+        # Reconstruct stages
+        for stage_name, stage_data in data.get("stages", {}).items():
+            stage = ProcessStageMetrics(
+                stage_name=stage_name,
+                start_time=stage_data.get("start_time"),
+                end_time=stage_data.get("end_time"),
+                duration_seconds=stage_data.get("duration_seconds"),
+                items_processed=stage_data.get("items_processed", 0),
+                items_successful=stage_data.get("items_successful", 0),
+                items_failed=stage_data.get("items_failed", 0),
+                items_retried=stage_data.get("items_retried", 0),
+                bytes_processed=stage_data.get("bytes_processed", 0),
+                error_count=stage_data.get("error_count", 0),
+                error_types=stage_data.get("error_types", {}),
+                last_error_message=stage_data.get("last_error_message"),
+                last_error_time=stage_data.get("last_error_time"),
+                command_args=stage_data.get("command_args", {}),
+                progress_updates=stage_data.get("progress_updates", []),
+            )
+            summary.stages[stage_name] = stage
 
         return summary
 
-    async def cleanup_summary(self) -> None:
-        """Remove summary file after successful completion."""
-        try:
-            if self.summary_file.exists():
-                self.summary_file.unlink()
-                logger.debug(f"Cleaned up process summary file: {self.summary_file}")
-        except Exception as e:
-            logger.warning(f"Failed to cleanup process summary file: {e}")
+
+# Convenience functions for backward compatibility
+async def create_process_summary(run_name: str, process_name: str) -> RunSummary:
+    """Create or load a run summary and return the specified stage."""
+    manager = RunSummaryManager(run_name)
+    summary = await manager.load_or_create_summary()
+
+    # Start the requested stage
+    summary.start_stage(process_name)
+
+    return summary
 
 
-async def create_process_summary(run_name: str, process_name: str) -> ProcessSummary:
-    """
-    Create or load a process summary for a pipeline operation.
-
-    Args:
-        run_name: Name of the run (e.g., "harvard_2024")
-        process_name: Name of the process (e.g., "collect", "sync", "enrich")
-
-    Returns:
-        ProcessSummary instance ready for tracking
-    """
-    manager = ProcessSummaryManager(run_name, process_name)
-    return await manager.load_or_create_summary()
-
-
-async def save_process_summary(summary: ProcessSummary) -> None:
-    """
-    Save a process summary to file.
-
-    Args:
-        summary: ProcessSummary instance to save
-    """
-    manager = ProcessSummaryManager(summary.run_name, summary.process_name)
+async def save_process_summary(summary: RunSummary) -> None:
+    """Save a run summary."""
+    manager = RunSummaryManager(summary.run_name)
     await manager.save_summary(summary)
+
+
+# For accessing the current stage in the summary
+def get_current_stage(summary: RunSummary, stage_name: str) -> ProcessStageMetrics:
+    """Get the current stage from a run summary."""
+    return summary.get_or_create_stage(stage_name)

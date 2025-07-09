@@ -24,7 +24,7 @@ class MockOCRConfig:
 class TestOCRConfiguration:
     """Test OCR extraction configuration validation and behavior."""
 
-    def test_sync_pipeline_default_ocr_enabled(self):
+    def test_sync_pipeline_default_ocr_enabled(self, mock_process_stage):
         """Test that OCR extraction is enabled by default."""
         with (
             patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
@@ -42,11 +42,12 @@ class TestOCRConfiguration:
                 storage_type="local",
                 storage_config={"path": "/tmp/test"},
                 library_directory="/tmp/library",
+                process_summary_stage=mock_process_stage,
                 staging_dir="/tmp/test",
             )
             assert pipeline.skip_extract_ocr is False  # Default is to extract OCR
 
-    def test_sync_pipeline_ocr_disabled(self):
+    def test_sync_pipeline_ocr_disabled(self, mock_process_stage):
         """Test that OCR extraction can be disabled."""
         with (
             patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
@@ -64,6 +65,7 @@ class TestOCRConfiguration:
                 storage_type="local",
                 storage_config={"path": "/tmp/test"},
                 library_directory="/tmp/library",
+                process_summary_stage=mock_process_stage,
                 staging_dir="/tmp/test",
                 skip_extract_ocr=True,
             )
@@ -110,7 +112,7 @@ class TestOCRConfiguration:
         config_disabled = MockOCRConfig(enabled=False)
         assert config_disabled.enabled is False
 
-    def test_sync_pipeline_ocr_configuration_integration(self):
+    def test_sync_pipeline_ocr_configuration_integration(self, mock_process_stage):
         """Test OCR configuration integration with sync pipeline."""
         with (
             patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
@@ -129,6 +131,7 @@ class TestOCRConfiguration:
                 storage_type="local",
                 storage_config={"path": "/tmp/test"},
                 library_directory="/tmp/library",
+                process_summary_stage=mock_process_stage,
                 staging_dir="/tmp/test",
                 skip_extract_ocr=False,
             )
@@ -140,6 +143,7 @@ class TestOCRConfiguration:
                 storage_type="local",
                 storage_config={"path": "/tmp/test"},
                 library_directory="/tmp/library",
+                process_summary_stage=mock_process_stage,
                 staging_dir="/tmp/test",
                 skip_extract_ocr=True,
             )

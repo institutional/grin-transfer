@@ -230,7 +230,7 @@ class TestBookCollector:
         # Should be detected as HTML format because title doesn't look like date
 
     @pytest.mark.asyncio
-    async def test_progress_save_and_load(self):
+    async def test_progress_save_and_load(self, mock_process_stage):
         """Test progress tracking functionality."""
         with tempfile.TemporaryDirectory() as temp_dir:
             progress_file = Path(temp_dir) / "test_progress.json"
@@ -243,7 +243,7 @@ class TestBookCollector:
                 library_directory="TestLibrary", resume_file=str(progress_file), sqlite_db_path=str(test_db_path)
             )
 
-            exporter = BookCollector(directory="TestLibrary", config=config)
+            exporter = BookCollector(directory="TestLibrary", process_summary_stage=mock_process_stage, config=config)
 
             # Add some processed items via SQLite tracker
             await exporter.sqlite_tracker.mark_processed("TEST001")
@@ -259,7 +259,7 @@ class TestBookCollector:
             config2 = ExportConfig(
                 library_directory="TestLibrary", resume_file=str(progress_file), sqlite_db_path=str(test_db_path)
             )
-            exporter2 = BookCollector(directory="TestLibrary", config=config2)
+            exporter2 = BookCollector(directory="TestLibrary", process_summary_stage=mock_process_stage, config=config2)
             await exporter2.load_progress()
 
             # Check that progress was loaded via SQLite
@@ -434,7 +434,7 @@ class TestBookCollectionIntegration:
             if hasattr(exporter, "_background_tasks") and exporter._background_tasks:
                 await asyncio.gather(*exporter._background_tasks, return_exceptions=True)
 
-    def test_book_collector_with_storage_initialization(self):
+    def test_book_collector_with_storage_initialization(self, mock_process_stage):
         """Test BookCollector initialization with storage configuration."""
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_config = {
@@ -447,7 +447,7 @@ class TestBookCollectionIntegration:
             }
 
             # This should not raise an exception
-            collector = BookCollector("TestDirectory", storage_config=storage_config)
+            collector = BookCollector("TestDirectory", process_summary_stage=mock_process_stage, storage_config=storage_config)
 
             # Verify storage was initialized correctly
             assert collector.book_storage is not None

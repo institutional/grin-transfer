@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from grin_to_s3.common import setup_logging, setup_storage_with_checks
+from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
 from grin_to_s3.run_config import (
     apply_run_config_to_args,
     build_storage_config_dict,
@@ -136,63 +137,28 @@ async def cmd_pipeline(args) -> None:
     # Import and create pipeline
     from grin_to_s3.sync.pipeline import SyncPipeline
 
+    # Create or load process summary
+    run_summary = await create_process_summary(args.run_name, "sync")
+    sync_stage = get_current_stage(run_summary, "sync")
+    sync_stage.set_command_arg("storage_type", args.storage)
+    sync_stage.set_command_arg("concurrent_downloads", args.concurrent)
+    sync_stage.set_command_arg("concurrent_uploads", args.concurrent_uploads)
+    sync_stage.set_command_arg("batch_size", args.batch_size)
+    sync_stage.set_command_arg("force_mode", args.force)
+    if args.limit:
+        sync_stage.set_command_arg("limit", args.limit)
+
     try:
-        pipeline = SyncPipeline(
-            db_path=args.db_path,
-            storage_type=args.storage,
-            storage_config=storage_config,
-            library_directory=args.grin_library_directory,
-            concurrent_downloads=args.concurrent,
-            concurrent_uploads=args.concurrent_uploads,
-            batch_size=args.batch_size,
-            secrets_dir=args.secrets_dir,
-            gpg_key_file=args.gpg_key_file,
-            force=args.force,
-            staging_dir=args.staging_dir,
-            disk_space_threshold=args.disk_space_threshold,
-            skip_extract_ocr=args.skip_extract_ocr,
-            enrichment_enabled=not args.skip_enrichment,
-            enrichment_workers=args.enrichment_workers,
-            skip_csv_export=args.skip_csv_export,
-        )
-
-        # Set up signal handlers for graceful shutdown
-        def signal_handler(signum: int, frame: Any) -> None:
-            if pipeline._shutdown_requested:
-                # Second interrupt - hard exit
-                print(f"\nReceived second signal {signum}, forcing immediate exit...")
-                sys.exit(1)
-            print(f"\nReceived signal {signum}, shutting down gracefully...")
-            print("Press Control-C again to force immediate exit")
-            pipeline._shutdown_requested = True
-
-        signal.signal(signal.SIGINT, signal_handler)
-        signal.signal(signal.SIGTERM, signal_handler)
-
-        # Parse barcodes if provided
-        specific_barcodes = None
-        if hasattr(args, "barcodes") and args.barcodes:
-            try:
-                specific_barcodes = validate_and_parse_barcodes(args.barcodes)
-                print(f"Filtering to specific barcodes: {', '.join(specific_barcodes)}")
-            except ValueError as e:
-                print(f"Error: Invalid barcodes: {e}")
-                sys.exit(1)
-
-        # Auto-optimization for single barcode processing
-        if specific_barcodes and len(specific_barcodes) == 1:
-            print(f"Single barcode detected: {specific_barcodes[0]}")
-            print("Auto-optimizing settings for single book processing...")
-
-            # Create optimized pipeline for single book
+        try:
             pipeline = SyncPipeline(
                 db_path=args.db_path,
                 storage_type=args.storage,
                 storage_config=storage_config,
                 library_directory=args.grin_library_directory,
-                concurrent_downloads=1,  # Optimal for single book
-                concurrent_uploads=1,  # Optimal for single book
-                batch_size=1,  # Single book batch
+                process_summary_stage=sync_stage,
+                concurrent_downloads=args.concurrent,
+                concurrent_uploads=args.concurrent_uploads,
+                batch_size=args.batch_size,
                 secrets_dir=args.secrets_dir,
                 gpg_key_file=args.gpg_key_file,
                 force=args.force,
@@ -203,18 +169,85 @@ async def cmd_pipeline(args) -> None:
                 enrichment_workers=args.enrichment_workers,
                 skip_csv_export=args.skip_csv_export,
             )
-            print("  - Concurrent downloads: 1")
-            print("  - Concurrent uploads: 1")
-            print("  - Batch size: 1")
-            print()
 
-        await pipeline.run_sync(limit=args.limit, specific_barcodes=specific_barcodes)
+            # Set up signal handlers for graceful shutdown
+            def signal_handler(signum: int, frame: Any) -> None:
+                if pipeline._shutdown_requested:
+                    # Second interrupt - hard exit
+                    print(f"\nReceived second signal {signum}, forcing immediate exit...")
+                    sync_stage.add_progress_update("Force exit requested")
+                    sys.exit(1)
+                print(f"\nReceived signal {signum}, shutting down gracefully...")
+                print("Press Control-C again to force immediate exit")
+                sync_stage.add_progress_update("Graceful shutdown requested")
+                pipeline._shutdown_requested = True
 
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-    except Exception as e:
-        print(f"Pipeline failed: {e}")
-        sys.exit(1)
+            signal.signal(signal.SIGINT, signal_handler)
+            signal.signal(signal.SIGTERM, signal_handler)
+
+            # Parse barcodes if provided
+            specific_barcodes = None
+            if hasattr(args, "barcodes") and args.barcodes:
+                try:
+                    specific_barcodes = validate_and_parse_barcodes(args.barcodes)
+                    print(f"Filtering to specific barcodes: {', '.join(specific_barcodes)}")
+                    sync_stage.set_command_arg("specific_barcodes", len(specific_barcodes))
+                    sync_stage.add_progress_update(f"Filtering to {len(specific_barcodes)} specific barcodes")
+                except ValueError as e:
+                    sync_stage.add_error("BarcodeValidationError", str(e))
+                    print(f"Error: Invalid barcodes: {e}")
+                    sys.exit(1)
+
+            # Auto-optimization for single barcode processing
+            if specific_barcodes and len(specific_barcodes) == 1:
+                print(f"Single barcode detected: {specific_barcodes[0]}")
+                print("Auto-optimizing settings for single book processing...")
+
+                # Create optimized pipeline for single book
+                pipeline = SyncPipeline(
+                    db_path=args.db_path,
+                    storage_type=args.storage,
+                    storage_config=storage_config,
+                    library_directory=args.grin_library_directory,
+                    process_summary_stage=sync_stage,
+                    concurrent_downloads=1,  # Optimal for single book
+                    concurrent_uploads=1,  # Optimal for single book
+                    batch_size=1,  # Single book batch
+                    secrets_dir=args.secrets_dir,
+                    gpg_key_file=args.gpg_key_file,
+                    force=args.force,
+                    staging_dir=args.staging_dir,
+                    disk_space_threshold=args.disk_space_threshold,
+                    skip_extract_ocr=args.skip_extract_ocr,
+                    enrichment_enabled=not args.skip_enrichment,
+                    enrichment_workers=args.enrichment_workers,
+                    skip_csv_export=args.skip_csv_export,
+                )
+                print("  - Concurrent downloads: 1")
+                print("  - Concurrent uploads: 1")
+                print("  - Batch size: 1")
+                print()
+                sync_stage.add_progress_update("Single book mode optimization applied")
+
+            sync_stage.add_progress_update("Starting sync pipeline")
+            await pipeline.run_sync(limit=args.limit, specific_barcodes=specific_barcodes)
+            sync_stage.add_progress_update("Sync pipeline completed successfully")
+
+        except KeyboardInterrupt:
+            sync_stage.add_progress_update("Operation cancelled by user")
+            sync_stage.add_error("KeyboardInterrupt", "User cancelled operation")
+            print("\nOperation cancelled by user")
+        except Exception as e:
+            error_type = type(e).__name__
+            sync_stage.add_error(error_type, str(e))
+            sync_stage.add_progress_update(f"Pipeline failed: {error_type}")
+            print(f"Pipeline failed: {e}")
+            sys.exit(1)
+
+    finally:
+        # Always end the stage and save summary
+        run_summary.end_stage("sync")
+        await save_process_summary(run_summary)
 
 
 async def cmd_status(args) -> None:
@@ -313,13 +346,17 @@ async def cmd_catchup(args) -> None:
         await mark_books_for_catchup_processing(args.db_path, books_to_sync, timestamp)
 
         # Import and create pipeline for catchup
+        # Create a minimal process stage for catchup (not part of main pipeline tracking)
+        from grin_to_s3.process_summary import ProcessStageMetrics
         from grin_to_s3.sync.pipeline import SyncPipeline
+        catchup_stage = ProcessStageMetrics("catchup")
 
         pipeline = SyncPipeline(
             db_path=args.db_path,
             storage_type=storage_type,
             storage_config=storage_config,
             library_directory=run_config.get("library_directory"),
+            process_summary_stage=catchup_stage,
             concurrent_downloads=args.concurrent,
             concurrent_uploads=args.concurrent_uploads,
             batch_size=args.batch_size,

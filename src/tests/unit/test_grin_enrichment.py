@@ -163,11 +163,11 @@ class TestGRINEnrichmentPipeline:
         }
 
     @pytest.mark.asyncio
-    async def test_fetch_grin_metadata_batch_single(self, mock_enrichment_data):
+    async def test_fetch_grin_metadata_batch_single(self, mock_enrichment_data, mock_process_stage):
         """Test fetching enrichment data for a single barcode"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:")
+        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage)
         pipeline.grin_client = mock_client
 
         # Test single barcode batch
@@ -180,11 +180,11 @@ class TestGRINEnrichmentPipeline:
         assert result["TEST001"]["grin_ocr_analysis_score"] == "98"
 
     @pytest.mark.asyncio
-    async def test_fetch_grin_metadata_batch_multiple(self, mock_enrichment_data):
+    async def test_fetch_grin_metadata_batch_multiple(self, mock_enrichment_data, mock_process_stage):
         """Test fetching enrichment data for multiple barcodes"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:")
+        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage)
         pipeline.grin_client = mock_client
 
         # Test multiple barcode batch
@@ -196,11 +196,11 @@ class TestGRINEnrichmentPipeline:
         assert result["TEST003"]["grin_viewability"] == "VIEW_SNIPPET"
 
     @pytest.mark.asyncio
-    async def test_fetch_grin_metadata_batch_missing_barcode(self, mock_enrichment_data):
+    async def test_fetch_grin_metadata_batch_missing_barcode(self, mock_enrichment_data, mock_process_stage):
         """Test handling of missing barcodes in batch response"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:")
+        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage)
         pipeline.grin_client = mock_client
 
         # Test with a barcode not in mock data
@@ -211,7 +211,7 @@ class TestGRINEnrichmentPipeline:
         assert result["MISSING"] is None
 
     @pytest.mark.asyncio
-    async def test_fetch_grin_metadata_batch_header_value_mismatch(self):
+    async def test_fetch_grin_metadata_batch_header_value_mismatch(self, mock_process_stage):
         """Test handling of header/value mismatch (padding)"""
         # Create mock client that returns fewer values than headers
         mock_client = MockGRINEnrichmentClient()
@@ -281,7 +281,7 @@ class TestGRINEnrichmentPipeline:
 
         mock_client.fetch_resource = mock_fetch_resource
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:")
+        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage)
         pipeline.grin_client = mock_client
 
         # This should handle the mismatch gracefully by padding
@@ -295,11 +295,11 @@ class TestGRINEnrichmentPipeline:
         assert result["TEST001"]["grin_ocr_analysis_score"] == ""
 
     @pytest.mark.asyncio
-    async def test_enrich_books_batch(self, temp_db, mock_enrichment_data):
+    async def test_enrich_books_batch(self, temp_db, mock_enrichment_data, mock_process_stage):
         """Test enriching a batch of books"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db)
+        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage)
         pipeline.grin_client = mock_client
 
         # Enrich all books
@@ -324,11 +324,11 @@ class TestGRINEnrichmentPipeline:
         assert book3.enrichment_timestamp is not None
 
     @pytest.mark.asyncio
-    async def test_reset_enrichment_data(self, temp_db, mock_enrichment_data):
+    async def test_reset_enrichment_data(self, temp_db, mock_enrichment_data, mock_process_stage):
         """Test resetting enrichment data"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db)
+        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage)
         pipeline.grin_client = mock_client
 
         # First enrich some books
@@ -351,7 +351,7 @@ class TestGRINEnrichmentPipeline:
         assert book1_after.grin_viewability is None
 
     @pytest.mark.asyncio
-    async def test_dynamic_batch_size_splitting(self, temp_db, mock_enrichment_data):
+    async def test_dynamic_batch_size_splitting(self, temp_db, mock_enrichment_data, mock_process_stage):
         """Test that batches use dynamic sizing based on URL length"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
@@ -366,7 +366,7 @@ class TestGRINEnrichmentPipeline:
 
         mock_client.fetch_resource = counting_fetch_resource
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db)
+        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage)
         pipeline.grin_client = mock_client
 
         # Process 3 books - with dynamic sizing, should fit in one request for small batches
@@ -377,10 +377,11 @@ class TestGRINEnrichmentPipeline:
         assert call_count == 1  # Should fit in one GRIN request for small batches
 
     @pytest.mark.asyncio
-    async def test_pipeline_initialization(self):
+    async def test_pipeline_initialization(self, mock_process_stage):
         """Test pipeline initialization with various parameters"""
         pipeline = GRINEnrichmentPipeline(
             directory="TestDir",
+            process_summary_stage=mock_process_stage,
             db_path="/test/path.db",
             rate_limit_delay=0.5,
             batch_size=500,
@@ -394,7 +395,7 @@ class TestGRINEnrichmentPipeline:
         assert pipeline.timeout == 30
 
     @pytest.mark.asyncio
-    async def test_error_handling_in_batch_fetch(self, temp_db):
+    async def test_error_handling_in_batch_fetch(self, temp_db, mock_process_stage):
         """Test error handling when GRIN request fails"""
         mock_client = MockGRINEnrichmentClient()
 
@@ -404,7 +405,7 @@ class TestGRINEnrichmentPipeline:
 
         mock_client.fetch_resource = failing_fetch_resource
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db)
+        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage)
         pipeline.grin_client = mock_client
 
         # This should handle the error gracefully
@@ -413,7 +414,7 @@ class TestGRINEnrichmentPipeline:
         assert result["TEST001"] is None
 
     @pytest.mark.asyncio
-    async def test_error_handling_in_enrich_batch(self, temp_db):
+    async def test_error_handling_in_enrich_batch(self, temp_db, mock_process_stage):
         """Test error handling when enrichment processing fails"""
         mock_client = MockGRINEnrichmentClient({"TEST001": {"grin_viewability": "VIEW_FULL"}})
 
@@ -423,7 +424,7 @@ class TestGRINEnrichmentPipeline:
 
         mock_client.fetch_resource = failing_fetch_resource
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db)
+        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage)
         pipeline.grin_client = mock_client
 
         # Should handle errors gracefully and still mark books as processed
@@ -440,9 +441,9 @@ class TestGRINEnrichmentPipeline:
 class TestEnrichmentDataExtraction:
     """Test enrichment data extraction and mapping"""
 
-    def test_enrichment_field_mapping(self):
+    def test_enrichment_field_mapping(self, mock_process_stage):
         """Test that TSV data is correctly mapped to enrichment fields"""
-        GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:")
+        GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage)
 
         # Mock TSV data
         headers = [

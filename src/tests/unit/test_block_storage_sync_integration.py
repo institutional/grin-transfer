@@ -18,7 +18,7 @@ class TestBlockStorageSyncIntegration:
     """Integration tests for block storage sync pipeline interface compatibility."""
 
     @pytest.mark.asyncio
-    async def test_rate_calculator_method_compatibility(self):
+    async def test_rate_calculator_method_compatibility(self, mock_process_stage):
         """Test that SlidingWindowRateCalculator interface is used correctly in sync pipeline."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -35,6 +35,7 @@ class TestBlockStorageSyncIntegration:
                 storage_type="s3",
                 storage_config=storage_config,
                 library_directory="test_library",
+                process_summary_stage=mock_process_stage,
                 concurrent_downloads=1,
                 staging_dir=str(staging_dir),
             )
@@ -84,7 +85,7 @@ class TestBlockStorageSyncIntegration:
         assert isinstance(rate, int | float)
 
     @pytest.mark.asyncio
-    async def test_staging_vs_local_sync_selection(self):
+    async def test_staging_vs_local_sync_selection(self, mock_process_stage):
         """Test that storage type determines sync method selection."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -99,6 +100,7 @@ class TestBlockStorageSyncIntegration:
                 storage_type="s3",
                 storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
                 library_directory="test_library",
+                process_summary_stage=mock_process_stage,
             )
 
             # Test that local storage doesn't create staging manager
@@ -107,6 +109,7 @@ class TestBlockStorageSyncIntegration:
                 storage_type="local",
                 storage_config={"base_path": temp_dir},
                 library_directory="test_library",
+                process_summary_stage=mock_process_stage,
             )
 
             # Verify correct staging manager setup
@@ -114,7 +117,7 @@ class TestBlockStorageSyncIntegration:
             assert local_pipeline.staging_manager is None
 
     @pytest.mark.asyncio
-    async def test_concurrent_semaphore_limits(self):
+    async def test_concurrent_semaphore_limits(self, mock_process_stage):
         """Test that concurrent limits are respected in staging sync."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -131,6 +134,7 @@ class TestBlockStorageSyncIntegration:
                 storage_type="s3",
                 storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
                 library_directory="test_library",
+                process_summary_stage=mock_process_stage,
                 concurrent_downloads=2,
                 concurrent_uploads=3,
                 staging_dir=str(staging_dir),
@@ -141,7 +145,7 @@ class TestBlockStorageSyncIntegration:
             assert pipeline._upload_semaphore._value == 3
 
     @pytest.mark.asyncio
-    async def test_pipeline_cleanup_and_shutdown(self):
+    async def test_pipeline_cleanup_and_shutdown(self, mock_process_stage):
         """Test pipeline cleanup and shutdown behavior."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -157,6 +161,7 @@ class TestBlockStorageSyncIntegration:
                 storage_type="s3",
                 storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
                 library_directory="test_library",
+                process_summary_stage=mock_process_stage,
                 staging_dir=str(staging_dir),
             )
 
@@ -167,7 +172,7 @@ class TestBlockStorageSyncIntegration:
             assert pipeline._shutdown_requested is True
 
     @pytest.mark.asyncio
-    async def test_statistics_tracking(self):
+    async def test_statistics_tracking(self, mock_process_stage):
         """Test that statistics are tracked correctly during staging sync."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
@@ -183,6 +188,7 @@ class TestBlockStorageSyncIntegration:
                 storage_type="s3",
                 storage_config={"access_key": "test", "secret_key": "test", "bucket_raw": "test"},
                 library_directory="test_library",
+                process_summary_stage=mock_process_stage,
                 concurrent_downloads=1,
                 staging_dir=str(staging_dir),
             )

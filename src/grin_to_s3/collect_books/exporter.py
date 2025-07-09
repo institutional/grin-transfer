@@ -47,6 +47,7 @@ class BookCollector:
     def __init__(
         self,
         directory: str,
+        process_summary_stage,
         rate_limit: float = 1.0,
         storage_config: dict | None = None,
         resume_file: str = "output/default/progress.json",
@@ -61,6 +62,7 @@ class BookCollector:
 
         self.directory = self.config.library_directory
         self.test_mode = test_mode
+        self.process_summary_stage = process_summary_stage
 
         # Initialize client (will be replaced with mock if in test mode)
         self.client = GRINClient(secrets_dir=secrets_dir)
@@ -923,6 +925,9 @@ class BookCollector:
                             processed_count += 1
                             self.progress.increment(1, record_id=record.barcode)
 
+                            # Track in process summary
+                            self.process_summary_stage.increment_items(processed=1, successful=1)
+
                             # Save progress periodically
                             if processed_count % 100 == 0:
                                 await self.save_progress()
@@ -932,11 +937,17 @@ class BookCollector:
                                 import gc
 
                                 gc.collect()
+                        else:
+                            # Book was processed but no record created (already exists, etc.)
+                            self.process_summary_stage.increment_items(processed=1)
 
                     except Exception as e:
                         print(f"Error processing {barcode}: {e}")
                         await self.sqlite_tracker.mark_failed(barcode, str(e))
                         self.recent_failed.add(barcode)
+
+                        # Track failed item in process summary
+                        self.process_summary_stage.increment_items(processed=1, failed=1)
                         continue
 
                 print(f"Processed {processed_count} new books")

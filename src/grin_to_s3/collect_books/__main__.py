@@ -20,6 +20,7 @@ from grin_to_s3.common import (
     setup_logging,
     setup_storage_with_checks,
 )
+from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
 from grin_to_s3.storage import get_storage_protocol
 
 # Check Python version requirement
@@ -391,63 +392,101 @@ Examples:
         await create_storage_buckets_or_directories(args.storage, final_storage_dict)
 
     try:
-        # Load configuration with CLI overrides
-        config = ConfigManager.load_config(
-            config_file=args.config_file,
-            library_directory=args.library_directory,
-            rate_limit=args.rate_limit,
-            resume_file=progress_file,  # Use generated progress file
-            pagination_page_size=args.page_size,
-            pagination_max_pages=args.max_pages,
-            pagination_start_page=args.start_page,
-            sqlite_db_path=sqlite_db,  # Use generated SQLite path
-        )
+        # Create or load process summary
+        run_summary = await create_process_summary(run_name, "collect")
+        collect_stage = get_current_stage(run_summary, "collect")
+        collect_stage.set_command_arg("library_directory", args.library_directory)
+        collect_stage.set_command_arg("storage_type", args.storage)
+        collect_stage.set_command_arg("test_mode", args.test_mode)
+        if args.limit:
+            collect_stage.set_command_arg("limit", args.limit)
 
-        # Apply performance overrides
-        if args.disable_prefetch:
-            config.enable_prefetch = False
+        try:
+            # Load configuration with CLI overrides
+            config = ConfigManager.load_config(
+                config_file=args.config_file,
+                library_directory=args.library_directory,
+                rate_limit=args.rate_limit,
+                resume_file=progress_file,  # Use generated progress file
+                pagination_page_size=args.page_size,
+                pagination_max_pages=args.max_pages,
+                pagination_start_page=args.start_page,
+                sqlite_db_path=sqlite_db,  # Use generated SQLite path
+            )
 
-        # Write run configuration to run directory
-        config_dict = config.to_dict()
-        config_dict.update(
-            {
-                "run_name": run_name,
-                "run_identifier": run_identifier,
-                "output_directory": f"output/{run_name}",
-                "sqlite_db_path": sqlite_db,
-                "progress_file": progress_file,
-                "log_file": log_file,
-                "storage_config": storage_config,
-                "secrets_dir": args.secrets_dir,
-                "limit": args.limit,
-            }
-        )
+            # Apply performance overrides
+            if args.disable_prefetch:
+                config.enable_prefetch = False
 
-        config_path = Path(f"output/{run_name}/run_config.json")
-        config_path.parent.mkdir(parents=True, exist_ok=True)
+            # Write run configuration to run directory
+            config_dict = config.to_dict()
+            config_dict.update(
+                {
+                    "run_name": run_name,
+                    "run_identifier": run_identifier,
+                    "output_directory": f"output/{run_name}",
+                    "sqlite_db_path": sqlite_db,
+                    "progress_file": progress_file,
+                    "log_file": log_file,
+                    "storage_config": storage_config,
+                    "secrets_dir": args.secrets_dir,
+                    "limit": args.limit,
+                }
+            )
 
-        with open(config_path, "w") as f:
-            import json
+            config_path = Path(f"output/{run_name}/run_config.json")
+            config_path.parent.mkdir(parents=True, exist_ok=True)
 
-            json.dump(config_dict, f, indent=2)
+            with open(config_path, "w") as f:
+                import json
 
-        logger.info(f"Configuration written to {config_path}")
+                json.dump(config_dict, f, indent=2)
 
-        # Create book collector with configuration
-        collector = BookCollector(
-            directory=args.library_directory,
-            storage_config=storage_config,
-            test_mode=args.test_mode,
-            config=config,
-            secrets_dir=args.secrets_dir,
-        )
+            logger.info(f"Configuration written to {config_path}")
+            collect_stage.add_progress_update("Configuration written, starting collection")
 
-        # Run book collection with pagination
-        completed = await collector.collect_books(output_file, args.limit)
+            # Create book collector with configuration
+            collector = BookCollector(
+                directory=args.library_directory,
+                process_summary_stage=collect_stage,
+                storage_config=storage_config,
+                test_mode=args.test_mode,
+                config=config,
+                secrets_dir=args.secrets_dir,
+            )
 
-        # Only show resume command if collection was not completed
-        if not completed:
-            print_resume_command(args, run_name)
+            # Run book collection with pagination
+            collect_stage.add_progress_update("Starting book collection")
+            completed = await collector.collect_books(output_file, args.limit)
+
+            # Track completion status
+            if completed:
+                collect_stage.add_progress_update("Collection completed successfully")
+            else:
+                collect_stage.add_progress_update("Collection incomplete - interrupted or limited")
+
+            # Only show resume command if collection was not completed
+            if not completed:
+                print_resume_command(args, run_name)
+
+            return 0
+
+        except Exception as e:
+            # Record error in summary
+            error_type = type(e).__name__
+            collect_stage.add_error(error_type, str(e))
+
+            if isinstance(e, KeyboardInterrupt):
+                collect_stage.add_progress_update("Collection interrupted by user")
+            else:
+                collect_stage.add_progress_update(f"Collection failed: {error_type}")
+            raise
+
+        finally:
+            # Always end the stage and save summary
+            run_summary.end_stage("collect")
+            await save_process_summary(run_summary)
+
         return 0
 
     except Exception as e:
