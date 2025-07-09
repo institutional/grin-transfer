@@ -123,8 +123,7 @@ async def cmd_pipeline(args) -> None:
     barcodes_info = f" barcodes={','.join(args.barcodes)}" if hasattr(args, "barcodes") and args.barcodes else ""
     limit_info = f" limit={args.limit}" if hasattr(args, "limit") and args.limit else ""
     logger.info(
-        f"SYNC PIPELINE STARTED - storage={args.storage} concurrent={args.concurrent}/{args.concurrent_uploads}"
-        f" force={args.force}{barcodes_info}{limit_info}"
+        f"SYNC PIPELINE STARTED - storage={args.storage} force={args.force}{barcodes_info}{limit_info}"
     )
     logger.info(f"Command: {' '.join(sys.argv)}")
 
@@ -135,9 +134,6 @@ async def cmd_pipeline(args) -> None:
     run_summary = await create_process_summary(args.run_name, "sync")
     sync_stage = get_current_stage(run_summary, "sync")
     sync_stage.set_command_arg("storage_type", args.storage)
-    sync_stage.set_command_arg("concurrent_downloads", args.concurrent)
-    sync_stage.set_command_arg("concurrent_uploads", args.concurrent_uploads)
-    sync_stage.set_command_arg("batch_size", args.batch_size)
     sync_stage.set_command_arg("force_mode", args.force)
     if args.limit:
         sync_stage.set_command_arg("limit", args.limit)
@@ -303,9 +299,6 @@ Examples:
   # Sync specific books only
   python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
 
-  # Sync with custom concurrency
-  python grin.py sync pipeline --run-name harvard_2024 --concurrent 5
-
   # Retry failed syncs only
   python grin.py sync pipeline --run-name harvard_2024 --status failed
 
@@ -333,28 +326,17 @@ Examples:
     )
     pipeline_parser.add_argument("--credentials-file", help="Custom credentials file path")
 
-    # Pipeline options
-    pipeline_parser.add_argument("--concurrent", type=int, default=5, help="Concurrent downloads (default: 5)")
-    pipeline_parser.add_argument("--concurrent-uploads", type=int, default=10, help="Concurrent uploads (default: 10)")
-    pipeline_parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing (default: 100)")
+    # Runtime options (configuration options are stored in run config)
     pipeline_parser.add_argument("--limit", type=int, help="Limit number of books to sync")
     pipeline_parser.add_argument(
         "--barcodes", help="Comma-separated list of specific barcodes to sync (e.g., '12345,67890,abcde')"
     )
+    pipeline_parser.add_argument(
+        "--status", help="Filter books by sync status (e.g., 'failed', 'pending')"
+    )
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
     pipeline_parser.add_argument(
-        "--grin-library-directory", help="GRIN library directory name (required, from run config)"
-    )
-
-    # Staging directory options
-    pipeline_parser.add_argument(
-        "--staging-dir", help="Custom staging directory path (default: output/run-name/staging)"
-    )
-    pipeline_parser.add_argument(
-        "--disk-space-threshold",
-        type=float,
-        default=0.9,
-        help="Disk usage threshold to pause downloads (0.0-1.0, default: 0.9)",
+        "--grin-library-directory", help="GRIN library directory name (auto-detected from run config if not specified)"
     )
 
     # OCR extraction options
@@ -367,9 +349,6 @@ Examples:
         "--skip-enrichment", action="store_true", help="Skip automatic enrichment (default: enrichment enabled)"
     )
     pipeline_parser.add_argument(
-        "--enrichment-workers", type=int, default=1, help="Number of enrichment workers (default: 1)"
-    )
-    pipeline_parser.add_argument(
         "--skip-csv-export", action="store_true", help="Skip automatic CSV export (default: export CSV)"
     )
 
@@ -377,7 +356,6 @@ Examples:
     pipeline_parser.add_argument(
         "--secrets-dir", help="Directory containing GRIN secrets (auto-detected from run config if not specified)"
     )
-    pipeline_parser.add_argument("--gpg-key-file", help="Custom GPG key file path")
 
     # Logging
     pipeline_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
