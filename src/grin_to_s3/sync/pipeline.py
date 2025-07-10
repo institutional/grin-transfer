@@ -56,6 +56,7 @@ class SyncPipeline:
         process_summary_stage,
         force: bool = False,
         skip_extract_ocr: bool = False,
+        skip_extract_marc: bool = False,
         skip_enrichment: bool = False,
         skip_csv_export: bool = False,
     ) -> "SyncPipeline":
@@ -66,6 +67,7 @@ class SyncPipeline:
             process_summary_stage: Process summary stage for tracking
             force: Force re-download even if ETags match
             skip_extract_ocr: Skip OCR text extraction
+            skip_extract_marc: Skip MARC metadata extraction
             skip_enrichment: Skip enrichment processing
             skip_csv_export: Skip CSV export after sync
 
@@ -77,6 +79,7 @@ class SyncPipeline:
             process_summary_stage=process_summary_stage,
             force=force,
             skip_extract_ocr=skip_extract_ocr,
+            skip_extract_marc=skip_extract_marc,
             skip_enrichment=skip_enrichment,
             skip_csv_export=skip_csv_export,
         )
@@ -87,6 +90,7 @@ class SyncPipeline:
         process_summary_stage,
         force: bool = False,
         skip_extract_ocr: bool = False,
+        skip_extract_marc: bool = False,
         skip_enrichment: bool = False,
         skip_csv_export: bool = False,
     ):
@@ -94,6 +98,7 @@ class SyncPipeline:
         self.config = config
         self.force = force
         self.skip_extract_ocr = skip_extract_ocr
+        self.skip_extract_marc = skip_extract_marc
         self.enrichment_enabled = not skip_enrichment
         self.skip_csv_export = skip_csv_export
         self.process_summary_stage = process_summary_stage
@@ -565,6 +570,7 @@ class SyncPipeline:
                             self.gpg_key_file,
                             self.secrets_dir,
                             self.skip_extract_ocr,
+                            self.skip_extract_marc,
                         )
                     )
                     active_tasks[barcode] = task
@@ -637,6 +643,7 @@ class SyncPipeline:
                                     self.gpg_key_file,
                                     self.secrets_dir,
                                     self.skip_extract_ocr,
+                                    self.skip_extract_marc,
                                 )
                             )
                             active_tasks[next_barcode] = task
@@ -939,6 +946,7 @@ class SyncPipeline:
                     self.gpg_key_file,
                     self.secrets_dir,
                     self.skip_extract_ocr,
+                    self.skip_extract_marc,
                 )
 
                 return {

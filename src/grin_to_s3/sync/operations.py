@@ -15,12 +15,15 @@ from typing import Any
 import aiofiles
 
 from grin_to_s3.client import GRINClient
+from grin_to_s3.collect_books.models import BookRecord
 from grin_to_s3.common import (
     create_http_session,
     decrypt_gpg_file,
 )
+from grin_to_s3.database import connect_async
 from grin_to_s3.extract.text_extraction import extract_ocr_pages
 from grin_to_s3.extract.tracking import ExtractionStatus, write_status
+from grin_to_s3.metadata.marc_extraction import extract_marc_metadata
 from grin_to_s3.storage import BookStorage, create_storage_from_config
 from grin_to_s3.storage.book_storage import BucketConfig
 from grin_to_s3.storage.staging import StagingDirectoryManager
@@ -301,6 +304,166 @@ async def extract_and_upload_ocr_text(
                 logger.warning(f"⚠️ [{barcode}] Failed to track extraction failure in database: {db_error}")
 
 
+async def extract_and_update_marc_metadata(
+    barcode: str,
+    decrypted_file: Path,
+    db_tracker,
+    logger: logging.Logger,
+) -> None:
+    """
+    Extract MARC metadata from decrypted archive and update database (non-blocking).
+
+    This function is designed to be non-blocking - any failures are logged but do not
+    raise exceptions that would interrupt the main sync workflow.
+
+    Args:
+        barcode: Book barcode
+        decrypted_file: Path to decrypted tar.gz archive
+        db_tracker: Database tracker for status updates
+        logger: Logger instance for structured logging
+    """
+    session_id = f"marc_sync_{int(time.time())}"
+
+    try:
+        logger.info(f"[{barcode}] Starting MARC metadata extraction from decrypted archive")
+
+        # Track extraction start
+        if db_tracker:
+            await write_status(
+                db_tracker.db_path,
+                barcode,
+                ExtractionStatus.STARTING,
+                metadata={"session_id": session_id, "source": "sync_pipeline", "extraction_type": "marc"},
+                session_id=session_id,
+            )
+
+        # Extract MARC metadata
+        try:
+            # Track extraction progress
+            if db_tracker:
+                await write_status(
+                    db_tracker.db_path,
+                    barcode,
+                    ExtractionStatus.EXTRACTING,
+                    metadata={"extraction_type": "marc", "archive_path": str(decrypted_file)},
+                    session_id=session_id,
+                )
+
+            # Extract MARC metadata from the archive
+            marc_metadata = extract_marc_metadata(str(decrypted_file))
+
+            if not marc_metadata:
+                logger.warning(f"[{barcode}] No MARC metadata found in archive")
+                if db_tracker:
+                    await write_status(
+                        db_tracker.db_path,
+                        barcode,
+                        ExtractionStatus.FAILED,
+                        metadata={"error_type": "NoMARCDataFound", "error_message": "No MARC metadata found", "extraction_type": "marc"},
+                        session_id=session_id,
+                    )
+                return
+
+            # Update database with MARC metadata
+            if db_tracker:
+                await write_status(
+                    db_tracker.db_path,
+                    barcode,
+                    ExtractionStatus.EXTRACTING,
+                    metadata={"extraction_type": "marc", "fields_count": len(marc_metadata), "stage": "database_update"},
+                    session_id=session_id,
+                )
+
+                # Prepare values for database update
+                marc_fields = [f.name for f in BookRecord.__dataclass_fields__.values() if f.name.startswith("marc_")]
+                values = []
+                for field_name in marc_fields:
+                    if field_name == "marc_extraction_timestamp":
+                        values.append(datetime.now(UTC).isoformat())
+                    else:
+                        # Map from old field names to new field names
+                        old_field_name = field_name.replace("marc_", "")
+                        if old_field_name == "author_personal":
+                            old_field_name = "author100"
+                        elif old_field_name == "author_corporate":
+                            old_field_name = "author110"
+                        elif old_field_name == "author_meeting":
+                            old_field_name = "author111"
+                        elif old_field_name == "lc_call_number":
+                            old_field_name = "loc_call_number"
+                        elif old_field_name == "lccn":
+                            old_field_name = "loc_control_number"
+                        elif old_field_name == "oclc_numbers":
+                            old_field_name = "oclc"
+                        elif old_field_name == "subjects":
+                            old_field_name = "subject"
+                        elif old_field_name == "genres":
+                            old_field_name = "genre"
+                        elif old_field_name == "general_note":
+                            old_field_name = "note"
+
+                        values.append(marc_metadata.get(old_field_name))
+
+                # Add updated_at timestamp and barcode for WHERE clause
+                values.append(datetime.now(UTC).isoformat())
+                values.append(barcode)
+
+                # Update database
+                async with connect_async(db_tracker.db_path) as db:
+                    await db.execute(BookRecord.build_update_marc_sql(), values)
+                    await db.commit()
+
+                logger.info(f"[{barcode}] Successfully updated database with MARC metadata ({len(marc_metadata)} fields)")
+
+                # Track completion
+                await write_status(
+                    db_tracker.db_path,
+                    barcode,
+                    ExtractionStatus.COMPLETED,
+                    metadata={
+                        "extraction_type": "marc",
+                        "fields_extracted": len(marc_metadata),
+                        "completion_time": datetime.now(UTC).isoformat(),
+                    },
+                    session_id=session_id,
+                )
+
+        except Exception as extraction_error:
+            logger.error(f"[{barcode}] MARC extraction failed: {extraction_error}")
+            if db_tracker:
+                await write_status(
+                    db_tracker.db_path,
+                    barcode,
+                    ExtractionStatus.FAILED,
+                    metadata={
+                        "error_type": type(extraction_error).__name__,
+                        "error_message": str(extraction_error),
+                        "extraction_type": "marc",
+                        "error_time": datetime.now(UTC).isoformat(),
+                    },
+                    session_id=session_id,
+                )
+
+    except Exception as outer_error:
+        logger.error(f"[{barcode}] MARC extraction workflow failed: {outer_error}")
+        if db_tracker:
+            try:
+                await write_status(
+                    db_tracker.db_path,
+                    barcode,
+                    ExtractionStatus.FAILED,
+                    metadata={
+                        "error_type": type(outer_error).__name__,
+                        "error_message": str(outer_error),
+                        "extraction_type": "marc",
+                        "workflow_error": True,
+                    },
+                    session_id=session_id,
+                )
+            except Exception as db_error:
+                logger.warning(f"⚠️ [{barcode}] Failed to track MARC extraction failure in database: {db_error}")
+
+
 async def upload_book_from_staging(
     barcode: str,
     staging_file_path: str,
@@ -312,6 +475,7 @@ async def upload_book_from_staging(
     gpg_key_file: str | None = None,
     secrets_dir: str | None = None,
     skip_extract_ocr: bool = False,
+    skip_extract_marc: bool = False,
 ) -> dict[str, Any]:
     """Upload book from staging directory to storage.
 
@@ -329,8 +493,8 @@ async def upload_book_from_staging(
     Returns:
         dict: Upload result
     """
-    # Initialize extraction task to None
-    extraction_task = None
+    # Initialize extraction tasks list
+    extraction_tasks: list = []
 
     try:
         # Check if this is a skip download scenario
@@ -374,14 +538,21 @@ async def upload_book_from_staging(
             logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB from staging after failure")
             raise Exception(f"GPG decryption failed for {barcode}: {e}") from e
 
-        # Extract OCR text if enabled (non-blocking)
+        # Start extractions (OCR and MARC) if enabled (non-blocking)
+
         if not skip_extract_ocr:
-            # Run extraction concurrently with upload for better performance
-            extraction_task = asyncio.create_task(
+            # Run OCR extraction concurrently with upload for better performance
+            ocr_task = asyncio.create_task(
                 extract_and_upload_ocr_text(barcode, decrypted_file, book_storage, db_tracker, staging_manager, logger)
             )
-        else:
-            extraction_task = None
+            extraction_tasks.append(ocr_task)
+
+        if not skip_extract_marc:
+            # Run MARC extraction concurrently with upload for better performance
+            marc_task = asyncio.create_task(
+                extract_and_update_marc_metadata(barcode, decrypted_file, db_tracker, logger)
+            )
+            extraction_tasks.append(marc_task)
 
         # Upload decrypted file
         logger.debug(f"[{barcode}] 🚀 Upload started")
@@ -418,13 +589,13 @@ async def upload_book_from_staging(
         }
         await db_tracker.update_sync_data(barcode, sync_data)
 
-        # Wait for OCR extraction to complete before cleanup
-        if extraction_task:
+        # Wait for extraction tasks to complete before cleanup
+        if extraction_tasks:
             try:
-                await extraction_task
+                await asyncio.gather(*extraction_tasks, return_exceptions=True)
             except Exception as e:
                 # Log extraction failure but don't fail the sync
-                logger.warning(f"[{barcode}] OCR extraction task failed: {e}")
+                logger.warning(f"[{barcode}] Extraction tasks failed: {e}")
 
         # Clean up staging files after successful uploads
         freed_bytes = staging_manager.cleanup_files(barcode)
@@ -441,15 +612,16 @@ async def upload_book_from_staging(
     except Exception as e:
         logger.error(f"[{barcode}] Upload failed: {e}")
 
-        # Cancel extraction task if upload failed
-        if extraction_task:
-            extraction_task.cancel()
+        # Cancel extraction tasks if upload failed
+        if extraction_tasks:
+            for task in extraction_tasks:
+                task.cancel()
             try:
-                await extraction_task
+                await asyncio.gather(*extraction_tasks, return_exceptions=True)
             except asyncio.CancelledError:
-                logger.debug(f"[{barcode}] OCR extraction task cancelled due to upload failure")
+                logger.debug(f"[{barcode}] Extraction tasks cancelled due to upload failure")
             except Exception as extraction_error:
-                logger.warning(f"[{barcode}] OCR extraction task failed during cleanup: {extraction_error}")
+                logger.warning(f"[{barcode}] Extraction tasks failed during cleanup: {extraction_error}")
 
         # Don't clean up staging files on failure - they can be retried
         return {
@@ -469,6 +641,7 @@ async def sync_book_to_local_storage(
     gpg_key_file: str | None = None,
     secrets_dir: str | None = None,
     skip_extract_ocr: bool = False,
+    skip_extract_marc: bool = False,
 ) -> dict[str, Any]:
     """Sync a book directly to local storage without staging.
 

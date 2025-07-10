@@ -193,6 +193,7 @@ class TestSyncOCRPipelineIntegration:
                 None,
                 None,
                 skip_extract_ocr=True,  # OCR disabled
+                skip_extract_marc=True,  # MARC disabled too
             )
 
             # Verify successful sync

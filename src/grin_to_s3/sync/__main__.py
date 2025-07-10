@@ -159,6 +159,7 @@ async def cmd_pipeline(args) -> None:
                 process_summary_stage=sync_stage,
                 force=args.force,
                 skip_extract_ocr=args.skip_extract_ocr,
+                skip_extract_marc=args.skip_extract_marc,
                 skip_enrichment=args.skip_enrichment,
                 skip_csv_export=args.skip_csv_export,
             )
@@ -211,6 +212,7 @@ async def cmd_pipeline(args) -> None:
                     process_summary_stage=sync_stage,
                     force=args.force,
                     skip_extract_ocr=args.skip_extract_ocr,
+                    skip_extract_marc=args.skip_extract_marc,
                     skip_enrichment=args.skip_enrichment,
                     skip_csv_export=args.skip_csv_export,
                 )
@@ -340,6 +342,11 @@ Examples:
     # OCR extraction options
     pipeline_parser.add_argument(
         "--skip-extract-ocr", action="store_true", help="Skip OCR text extraction (default: extract OCR)"
+    )
+
+    # MARC extraction options
+    pipeline_parser.add_argument(
+        "--skip-extract-marc", action="store_true", help="Skip MARC metadata extraction (default: extract MARC)"
     )
 
     # Enrichment options
