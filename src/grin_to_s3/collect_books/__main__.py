@@ -447,8 +447,12 @@ Examples:
         await create_storage_buckets_or_directories(args.storage, final_storage_dict)
 
     try:
+        # Create book storage for process summary uploads
+        from grin_to_s3.process_summary import create_book_storage_for_uploads
+        book_storage = await create_book_storage_for_uploads(run_name)
+
         # Create or load process summary
-        run_summary = await create_process_summary(run_name, "collect")
+        run_summary = await create_process_summary(run_name, "collect", book_storage)
         collect_stage = get_current_stage(run_summary, "collect")
         collect_stage.set_command_arg("library_directory", args.library_directory)
         collect_stage.set_command_arg("storage_type", args.storage)
@@ -552,7 +556,7 @@ Examples:
         finally:
             # Always end the stage and save summary
             run_summary.end_stage("collect")
-            await save_process_summary(run_summary)
+            await save_process_summary(run_summary, book_storage)
 
         return 0
 

@@ -13,6 +13,7 @@ Commands:
   extract        Extract OCR text from decrypted book archives
   enrich         Enrich books with GRIN metadata
   export         Export ALL books in collection to CSV with available metadata
+  logs           View and download process summaries
   status         Show enrichment status
 """
 
@@ -66,6 +67,12 @@ Examples:
   # Export ALL books to CSV (works at any pipeline stage)
   python grin.py export --run-name harvard_2024 --output books.csv
 
+  # View process summary
+  python grin.py logs summary --run-name harvard_2024
+
+  # Download process summary from storage
+  python grin.py logs summary --run-name harvard_2024 --download
+
 For more help on each command, use: python grin.py <command> --help
         """,
     )
@@ -81,6 +88,7 @@ For more help on each command, use: python grin.py <command> --help
     extract_parser = subparsers.add_parser("extract", help="Extract OCR text from decrypted book archives")
     enrich_parser = subparsers.add_parser("enrich", help="Enrich books with GRIN metadata")
     export_parser = subparsers.add_parser("export", help="Export ALL books in collection to CSV")
+    logs_parser = subparsers.add_parser("logs", help="View and download process summaries")
     status_parser = subparsers.add_parser("status", help="Show enrichment status")
 
     return parser, {
@@ -92,6 +100,7 @@ For more help on each command, use: python grin.py <command> --help
         "extract": extract_parser,
         "enrich": enrich_parser,
         "export": export_parser,
+        "logs": logs_parser,
         "status": status_parser,
     }
 
@@ -164,6 +173,13 @@ async def main():
         # Remove 'export' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await export_main()
+
+    elif command == "logs":
+        from grin_to_s3.logs import main as logs_main
+
+        # Remove 'logs' from args and pass the rest
+        sys.argv = [sys.argv[0]] + sys.argv[2:]
+        return await logs_main()
 
     # TODO make this an overall status command that can be used for all steps
     elif command == "status":

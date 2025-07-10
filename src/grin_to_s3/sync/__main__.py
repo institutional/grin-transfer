@@ -128,10 +128,14 @@ async def cmd_pipeline(args) -> None:
     logger.info(f"Command: {' '.join(sys.argv)}")
 
     # Import and create pipeline
+    from grin_to_s3.process_summary import create_book_storage_for_uploads
     from grin_to_s3.sync.pipeline import SyncPipeline
 
+    # Create book storage for process summary uploads
+    book_storage = await create_book_storage_for_uploads(args.run_name)
+
     # Create or load process summary
-    run_summary = await create_process_summary(args.run_name, "sync")
+    run_summary = await create_process_summary(args.run_name, "sync", book_storage)
     sync_stage = get_current_stage(run_summary, "sync")
     sync_stage.set_command_arg("storage_type", args.storage)
     sync_stage.set_command_arg("force_mode", args.force)
@@ -236,7 +240,7 @@ async def cmd_pipeline(args) -> None:
     finally:
         # Always end the stage and save summary
         run_summary.end_stage("sync")
-        await save_process_summary(run_summary)
+        await save_process_summary(run_summary, book_storage)
 
 
 async def cmd_status(args) -> None:
