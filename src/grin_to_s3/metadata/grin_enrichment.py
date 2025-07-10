@@ -26,11 +26,10 @@ from grin_to_s3.common import (
     pluralize,
     setup_logging,
 )
+from grin_to_s3.database.connections import connect_async
 from grin_to_s3.database_utils import validate_database_file
 from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
-
-from .database import connect_async
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +206,7 @@ class GRINEnrichmentPipeline:
                 data_map = dict(zip(headers, values, strict=False))
 
                 # Use BookRecord's GRIN TSV mapping instead of hardcoded mapping
-                from .collect_books.models import BookRecord
+                from grin_to_s3.collect_books.models import BookRecord
 
                 grin_tsv_mapping = BookRecord.get_grin_tsv_column_mapping()
 
@@ -358,7 +357,7 @@ class GRINEnrichmentPipeline:
 
     async def reset_enrichment_data(self) -> int:
         """Reset enrichment data for all books in the database."""
-        from .collect_books.models import BookRecord
+        from grin_to_s3.collect_books.models import BookRecord
 
         async with connect_async(self.db_path) as conn:
             # Reset enrichment fields to NULL using generated SQL

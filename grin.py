@@ -155,7 +155,7 @@ async def main():
         return await extract_main()
 
     elif command == "enrich":
-        from grin_to_s3.grin_enrichment import enrich_main
+        from grin_to_s3.metadata.grin_enrichment import enrich_main
 
         # Remove 'enrich' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]

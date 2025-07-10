@@ -60,7 +60,7 @@ test = [
 
 [project.scripts]
 grin-collect = "collect_books.__main__:main"
-grin-enrich = "grin_enrichment:main"
+grin-enrich = "grin_to_s3.metadata.grin_enrichment:main"
 
 [project.urls]
 Homepage = "https://github.com/harvard-idi/grin-to-s3-wip"
@@ -69,7 +69,7 @@ Issues = "https://github.com/harvard-idi/grin-to-s3-wip/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["collect_books*", "csv_export*", "grin_enrichment*"]
+include = ["collect_books*", "csv_export*", "metadata*"]
 
 [tool.ruff]
 line-length = 120

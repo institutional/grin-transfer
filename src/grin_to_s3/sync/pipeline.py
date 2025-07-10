@@ -23,7 +23,7 @@ from grin_to_s3.common import (
     format_duration,
     pluralize,
 )
-from grin_to_s3.grin_enrichment import GRINEnrichmentPipeline
+from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config, get_storage_protocol
 from grin_to_s3.storage.book_storage import BookStorage, BucketConfig
