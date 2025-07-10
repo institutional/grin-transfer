@@ -81,6 +81,26 @@ class BookRecord:
     )
     enrichment_timestamp: str | None = field(default=None, metadata={"csv": "Enrichment Timestamp"})
 
+    # MARC metadata fields (from METS XML parsing)
+    marc_control_number: str | None = field(default=None, metadata={"csv": "MARC Control Number"})
+    marc_date_type: str | None = field(default=None, metadata={"csv": "MARC Date Type"})
+    marc_date_1: str | None = field(default=None, metadata={"csv": "MARC Date 1"})
+    marc_date_2: str | None = field(default=None, metadata={"csv": "MARC Date 2"})
+    marc_language: str | None = field(default=None, metadata={"csv": "MARC Language"})
+    marc_lccn: str | None = field(default=None, metadata={"csv": "MARC LCCN"})
+    marc_lc_call_number: str | None = field(default=None, metadata={"csv": "MARC LC Call Number"})
+    marc_isbn: str | None = field(default=None, metadata={"csv": "MARC ISBN"})
+    marc_oclc_numbers: str | None = field(default=None, metadata={"csv": "MARC OCLC Numbers"})
+    marc_title: str | None = field(default=None, metadata={"csv": "MARC Title"})
+    marc_title_remainder: str | None = field(default=None, metadata={"csv": "MARC Title Remainder"})
+    marc_author_personal: str | None = field(default=None, metadata={"csv": "MARC Author Personal"})
+    marc_author_corporate: str | None = field(default=None, metadata={"csv": "MARC Author Corporate"})
+    marc_author_meeting: str | None = field(default=None, metadata={"csv": "MARC Author Meeting"})
+    marc_subjects: str | None = field(default=None, metadata={"csv": "MARC Subjects"})
+    marc_genres: str | None = field(default=None, metadata={"csv": "MARC Genres"})
+    marc_general_note: str | None = field(default=None, metadata={"csv": "MARC General Note"})
+    marc_extraction_timestamp: str | None = field(default=None, metadata={"csv": "MARC Extraction Timestamp"})
+
     # Export tracking
     csv_exported: str | None = field(default=None, metadata={"csv": "CSV Exported"})
     csv_updated: str | None = field(default=None, metadata={"csv": "CSV Updated"})
@@ -155,6 +175,14 @@ class BookRecord:
         return f"UPDATE books SET {set_clause} WHERE enrichment_timestamp IS NOT NULL"
 
     @classmethod
+    def build_update_marc_sql(cls) -> str:
+        """Generate UPDATE SQL for MARC fields."""
+        marc_fields = [f.name for f in fields(cls) if f.name.startswith("marc_")]
+        marc_fields.append("updated_at")
+        set_clause = ", ".join(f"{field} = ?" for field in marc_fields)
+        return f"UPDATE books SET {set_clause} WHERE barcode = ?"
+
+    @classmethod
     def get_field_names(cls) -> list[str]:
         """Get all field names."""
         return [f.name for f in fields(cls)]
@@ -163,6 +191,11 @@ class BookRecord:
     def get_enrichment_fields(cls) -> list[str]:
         """Get field names that have GRIN TSV mappings."""
         return [f.name for f in fields(cls) if "grin_tsv" in f.metadata]
+
+    @classmethod
+    def get_marc_fields(cls) -> list[str]:
+        """Get field names for MARC metadata fields."""
+        return [f.name for f in fields(cls) if f.name.startswith("marc_")]
 
     @classmethod
     def get_grin_tsv_column_mapping(cls) -> dict[str, str]:
@@ -520,6 +553,26 @@ class SQLiteProgressTracker:
 
         async with connect_async(self.db_path) as db:
             await db.execute(BookRecord.build_update_enrichment_sql(), values)
+            rows_affected = db.total_changes
+            await db.commit()
+            return rows_affected > 0
+
+    async def update_book_marc_metadata(self, barcode: str, marc_data: dict) -> bool:
+        """Update MARC metadata fields for an existing book record."""
+        await self.init_db()
+
+        now = datetime.now(UTC).isoformat()
+
+        # Build values tuple for MARC fields
+        marc_fields = BookRecord.get_marc_fields()
+        values = [marc_data.get(field) for field in marc_fields]
+        # Add updated_at timestamp
+        values.append(now)
+        # Add barcode for WHERE clause
+        values.append(barcode)
+
+        async with connect_async(self.db_path) as db:
+            await db.execute(BookRecord.build_update_marc_sql(), values)
             rows_affected = db.total_changes
             await db.commit()
             return rows_affected > 0

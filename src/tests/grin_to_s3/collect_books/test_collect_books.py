@@ -64,6 +64,111 @@ class TestBookRecord:
         assert row[2] == "2024-01-01T10:00:00"  # Scanned Date
         assert row[9] == "2024-01-02T10:00:00"  # Processing Request Timestamp
 
+    def test_marc_fields_in_csv_headers(self):
+        """Test that MARC fields are included in CSV headers."""
+        headers = BookRecord.csv_headers()
+
+        # Check that all expected MARC headers are present
+        expected_marc_headers = [
+            "MARC Control Number", "MARC Date Type", "MARC Date 1", "MARC Date 2",
+            "MARC Language", "MARC LCCN", "MARC LC Call Number", "MARC ISBN",
+            "MARC OCLC Numbers", "MARC Title", "MARC Title Remainder",
+            "MARC Author Personal", "MARC Author Corporate", "MARC Author Meeting",
+            "MARC Subjects", "MARC Genres", "MARC General Note", "MARC Extraction Timestamp"
+        ]
+
+        for expected_header in expected_marc_headers:
+            assert expected_header in headers, f"Missing MARC header: {expected_header}"
+
+    def test_marc_fields_in_csv_row(self):
+        """Test that MARC fields are properly included in CSV row output."""
+        record = BookRecord(
+            barcode="MARC123",
+            title="Test Book",
+            marc_control_number="123456789",
+            marc_title="MARC Title Test",
+            marc_subjects="Science, Technology",
+            marc_extraction_timestamp="2025-07-10T12:00:00Z"
+        )
+
+        headers = BookRecord.csv_headers()
+        row = record.to_csv_row()
+
+        # Create header-to-value mapping
+        data_dict = dict(zip(headers, row, strict=False))
+
+        # Check specific MARC values
+        assert data_dict["MARC Control Number"] == "123456789"
+        assert data_dict["MARC Title"] == "MARC Title Test"
+        assert data_dict["MARC Subjects"] == "Science, Technology"
+        assert data_dict["MARC Extraction Timestamp"] == "2025-07-10T12:00:00Z"
+
+        # Check that None values are converted to empty strings
+        assert data_dict["MARC Date Type"] == ""
+        assert data_dict["MARC Author Personal"] == ""
+
+    def test_get_marc_fields(self):
+        """Test that get_marc_fields returns all MARC field names."""
+        marc_fields = BookRecord.get_marc_fields()
+
+        expected_fields = [
+            "marc_control_number", "marc_date_type", "marc_date_1", "marc_date_2",
+            "marc_language", "marc_lccn", "marc_lc_call_number", "marc_isbn",
+            "marc_oclc_numbers", "marc_title", "marc_title_remainder",
+            "marc_author_personal", "marc_author_corporate", "marc_author_meeting",
+            "marc_subjects", "marc_genres", "marc_general_note", "marc_extraction_timestamp"
+        ]
+
+        assert len(marc_fields) == 18, f"Expected 18 MARC fields, got {len(marc_fields)}"
+        for expected_field in expected_fields:
+            assert expected_field in marc_fields, f"Missing MARC field: {expected_field}"
+
+    def test_build_update_marc_sql(self):
+        """Test that MARC update SQL is properly generated."""
+        sql = BookRecord.build_update_marc_sql()
+
+        # Check that SQL contains all MARC fields
+        marc_fields = BookRecord.get_marc_fields()
+        for field in marc_fields:
+            assert field in sql, f"MARC field {field} not found in SQL"
+
+        # Check SQL structure
+        assert "UPDATE books SET" in sql
+        assert "WHERE barcode = ?" in sql
+        assert "updated_at = ?" in sql
+
+        # Count placeholders (should be 18 MARC fields + 1 updated_at + 1 barcode)
+        placeholder_count = sql.count("?")
+        assert placeholder_count == 20, f"Expected 20 placeholders, got {placeholder_count}"
+
+    def test_marc_field_types(self):
+        """Test that all MARC fields accept string or None values."""
+        # Test with all None values
+        record = BookRecord(barcode="TEST")
+        assert record.marc_control_number is None
+        assert record.marc_title is None
+        assert record.marc_extraction_timestamp is None
+
+        # Test with string values
+        record_with_data = BookRecord(
+            barcode="TEST2",
+            marc_control_number="123",
+            marc_title="Test Title",
+            marc_extraction_timestamp="2025-07-10T12:00:00Z"
+        )
+        assert record_with_data.marc_control_number == "123"
+        assert record_with_data.marc_title == "Test Title"
+        assert record_with_data.marc_extraction_timestamp == "2025-07-10T12:00:00Z"
+
+    def test_marc_field_defaults(self):
+        """Test that MARC fields have proper default values."""
+        record = BookRecord(barcode="DEFAULT_TEST")
+
+        marc_fields = BookRecord.get_marc_fields()
+        for field in marc_fields:
+            value = getattr(record, field)
+            assert value is None, f"MARC field {field} should default to None, got {value}"
+
 
 class TestRateLimiter:
     """Test rate limiting functionality."""
