@@ -147,9 +147,9 @@ class TestMETSParsing:
         assert result["title_remainder"] == "A comprehensive physics journal"
         assert result["author100"] == "Einstein, Albert,"
         assert result["loc_call_number"] == "QC1"
-        assert result["subject"] == "Physics.; Science"
-        assert result["genre"] == "Academic journals."
-        assert result["note"] == "General note about the publication.; Another note about the work."
+        assert result["subject"] == "Physics, Science"
+        assert result["genre"] == "Academic journals"
+        assert result["note"] == "General note about the publication., Another note about the work."
         assert result["oclc"] == "(OCoLC)12345678"  # Only OCoLC prefixed values
 
     def test_parse_mets_without_marc(self):
@@ -361,7 +361,7 @@ class TestHelperFunctions:
 
         root = ET.fromstring(xml_content)
         result = _get_datafield_subfield_list(root, "650", "a")
-        assert result == "Physics; Science"
+        assert result == "Physics, Science"
 
     def test_get_datafield_subfield_list_empty(self):
         """Test getting empty datafield subfield list."""
@@ -374,3 +374,89 @@ class TestHelperFunctions:
         root = ET.fromstring(xml_content)
         result = _get_datafield_subfield_list(root, "650", "a")
         assert result is None
+
+    def test_get_datafield_subfield_list_with_period_stripping(self):
+        """Test getting multiple datafield subfields with period stripping."""
+        import xml.etree.ElementTree as ET
+
+        xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
+            <slim:datafield tag="650" ind1=" " ind2="0">
+                <slim:subfield code="a">Physics.</slim:subfield>
+            </slim:datafield>
+            <slim:datafield tag="650" ind1=" " ind2="0">
+                <slim:subfield code="a">Science.</slim:subfield>
+            </slim:datafield>
+        </slim:record>"""
+
+        root = ET.fromstring(xml_content)
+        result = _get_datafield_subfield_list(root, "650", "a", strip_periods=True)
+        assert result == "Physics, Science"
+
+    def test_get_datafield_subfield_list_without_period_stripping(self):
+        """Test getting multiple datafield subfields without period stripping."""
+        import xml.etree.ElementTree as ET
+
+        xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
+            <slim:datafield tag="500" ind1=" " ind2=" ">
+                <slim:subfield code="a">First note.</slim:subfield>
+            </slim:datafield>
+            <slim:datafield tag="500" ind1=" " ind2=" ">
+                <slim:subfield code="a">Second note.</slim:subfield>
+            </slim:datafield>
+        </slim:record>"""
+
+        root = ET.fromstring(xml_content)
+        result = _get_datafield_subfield_list(root, "500", "a", strip_periods=False)
+        assert result == "First note., Second note."
+
+
+class TestOCLCFiltering:
+    """Test OCLC number filtering functionality."""
+
+    def test_oclc_filtering_with_mixed_values(self):
+        """Test that OCLC filtering only includes (OCoLC) prefixed values."""
+        import xml.etree.ElementTree as ET
+
+        from grin_to_s3.metadata.marc_extraction import _extract_marc_fields
+
+        xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
+            <slim:controlfield tag="001">123456</slim:controlfield>
+            <slim:controlfield tag="008">750727c17909999gw br p       0   b1gerdd</slim:controlfield>
+            <slim:datafield tag="035" ind1=" " ind2=" ">
+                <slim:subfield code="a">(OCoLC)12345678</slim:subfield>
+            </slim:datafield>
+            <slim:datafield tag="035" ind1=" " ind2=" ">
+                <slim:subfield code="a">987654321</slim:subfield>
+            </slim:datafield>
+            <slim:datafield tag="035" ind1=" " ind2=" ">
+                <slim:subfield code="a">(OCoLC)87654321</slim:subfield>
+            </slim:datafield>
+            <slim:datafield tag="035" ind1=" " ind2=" ">
+                <slim:subfield code="a">(DLC)somevalue</slim:subfield>
+            </slim:datafield>
+        </slim:record>"""
+
+        root = ET.fromstring(xml_content)
+        result = _extract_marc_fields(root)
+        assert result["oclc"] == "(OCoLC)12345678, (OCoLC)87654321"
+
+    def test_oclc_filtering_no_oclc_values(self):
+        """Test OCLC filtering when no (OCoLC) values present."""
+        import xml.etree.ElementTree as ET
+
+        from grin_to_s3.metadata.marc_extraction import _extract_marc_fields
+
+        xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
+            <slim:controlfield tag="001">123456</slim:controlfield>
+            <slim:controlfield tag="008">750727c17909999gw br p       0   b1gerdd</slim:controlfield>
+            <slim:datafield tag="035" ind1=" " ind2=" ">
+                <slim:subfield code="a">987654321</slim:subfield>
+            </slim:datafield>
+            <slim:datafield tag="035" ind1=" " ind2=" ">
+                <slim:subfield code="a">(DLC)somevalue</slim:subfield>
+            </slim:datafield>
+        </slim:record>"""
+
+        root = ET.fromstring(xml_content)
+        result = _extract_marc_fields(root)
+        assert result["oclc"] is None

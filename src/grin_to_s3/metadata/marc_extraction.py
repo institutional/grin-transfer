@@ -165,27 +165,27 @@ def _extract_marc_fields(marc_record: ET.Element) -> dict[str, str | None]:
         fields["date_type"] = None
         fields["language"] = None
 
-    # Data fields with subfields
+    # Data fields with subfields - single values
     fields["loc_control_number"] = _get_datafield_subfield(marc_record, "010", "a")
-    fields["loc_call_number"] = _get_datafield_subfield(marc_record, "050", "a")
-    fields["isbn"] = _get_datafield_subfield(marc_record, "020", "a")
     fields["title"] = _get_datafield_subfield(marc_record, "245", "a")
     fields["title_remainder"] = _get_datafield_subfield(marc_record, "245", "b")
     fields["author100"] = _get_datafield_subfield(marc_record, "100", "a")
     fields["author110"] = _get_datafield_subfield(marc_record, "110", "a")
     fields["author111"] = _get_datafield_subfield(marc_record, "111", "a")
 
-    # Fields that may have multiple values
-    fields["subject"] = _get_datafield_subfield_list(marc_record, "650", "a")
-    fields["genre"] = _get_datafield_subfield_list(marc_record, "655", "a")
+    # Data fields with subfields - repeating values (joined with ", ")
+    fields["loc_call_number"] = _get_datafield_subfield_list(marc_record, "050", "a")
+    fields["isbn"] = _get_datafield_subfield_list(marc_record, "020", "a")
+    fields["subject"] = _get_datafield_subfield_list(marc_record, "650", "a", strip_periods=True)
+    fields["genre"] = _get_datafield_subfield_list(marc_record, "655", "a", strip_periods=True)
     fields["note"] = _get_datafield_subfield_list(marc_record, "500", "a")
 
     # OCLC numbers from 035 field (filter for OCoLC prefix)
     oclc_string = _get_datafield_subfield_list(marc_record, "035", "a")
     if oclc_string:
-        oclc_numbers = oclc_string.split("; ")
-        oclc_filtered = [num.strip() for num in oclc_numbers if num.strip() and "OCoLC" in num]
-        fields["oclc"] = "; ".join(oclc_filtered) if oclc_filtered else None
+        oclc_numbers = oclc_string.split(", ")
+        oclc_filtered = [num.strip() for num in oclc_numbers if num.strip() and "(OCoLC)" in num]
+        fields["oclc"] = ", ".join(oclc_filtered) if oclc_filtered else None
     else:
         fields["oclc"] = None
 
@@ -204,12 +204,18 @@ def _get_datafield_subfield(record: ET.Element, tag: str, subfield: str) -> str 
     return field.text.strip() if field is not None and field.text else None
 
 
-def _get_datafield_subfield_list(record: ET.Element, tag: str, subfield: str) -> str | None:
-    """Get all values from MARC datafield subfields, joined with semicolons."""
+def _get_datafield_subfield_list(record: ET.Element, tag: str, subfield: str, strip_periods: bool = False) -> str | None:
+    """Get all values from MARC datafield subfields, joined with commas."""
     fields = record.findall(f".//slim:datafield[@tag='{tag}']/slim:subfield[@code='{subfield}']", NAMESPACES)
     if fields:
-        values = [f.text.strip() for f in fields if f.text]
-        return "; ".join(values) if values else None
+        values = []
+        for f in fields:
+            if f.text:
+                text = f.text.strip()
+                if strip_periods:
+                    text = text.rstrip(".")
+                values.append(text)
+        return ", ".join(values) if values else None
     return None
 
 

@@ -40,6 +40,26 @@ CREATE TABLE IF NOT EXISTS books (
     grin_viewability_updated_date TEXT,
     enrichment_timestamp TEXT,
     
+    -- MARC metadata fields (from METS XML parsing)
+    marc_control_number TEXT,
+    marc_date_type TEXT,
+    marc_date_1 TEXT,
+    marc_date_2 TEXT,
+    marc_language TEXT,
+    marc_lccn TEXT,
+    marc_lc_call_number TEXT,
+    marc_isbn TEXT,
+    marc_oclc_numbers TEXT,
+    marc_title TEXT,
+    marc_title_remainder TEXT,
+    marc_author_personal TEXT,
+    marc_author_corporate TEXT,
+    marc_author_meeting TEXT,
+    marc_subjects TEXT,
+    marc_genres TEXT,
+    marc_general_note TEXT,
+    marc_extraction_timestamp TEXT,
+    
     -- Export tracking
     csv_exported TEXT,
     csv_updated TEXT,
@@ -90,6 +110,7 @@ CREATE TABLE IF NOT EXISTS book_status_history (
 -- Performance indexes
 CREATE INDEX IF NOT EXISTS idx_books_barcode ON books(barcode);
 CREATE INDEX IF NOT EXISTS idx_books_enrichment ON books(enrichment_timestamp);
+CREATE INDEX IF NOT EXISTS idx_books_marc_extraction ON books(marc_extraction_timestamp);
 CREATE INDEX IF NOT EXISTS idx_books_grin_state ON books(grin_state);
 CREATE INDEX IF NOT EXISTS idx_books_storage_type ON books(storage_type);
 CREATE INDEX IF NOT EXISTS idx_books_processing_timestamp ON books(processing_request_timestamp);
