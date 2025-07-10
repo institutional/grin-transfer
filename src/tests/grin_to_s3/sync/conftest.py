@@ -84,6 +84,12 @@ def mock_progress_tracker():
     tracker = MagicMock()
     tracker.add_status_change = AsyncMock()
     tracker.update_sync_data = AsyncMock()
+    tracker.get_books_for_sync = AsyncMock(return_value=[])
+    tracker.get_sync_stats = AsyncMock(
+        return_value={"total_converted": 0, "synced": 0, "failed": 0, "pending": 0}
+    )
+    tracker.update_book_marc_metadata = AsyncMock()
+    tracker.db_path = "/tmp/test.db"
     tracker._db = MagicMock()
     tracker._db.close = AsyncMock()
     return tracker
@@ -127,8 +133,13 @@ def mock_staging_manager():
     """Mock staging directory manager for testing."""
     manager = MagicMock()
     manager.get_staging_path = MagicMock(return_value=Path("/tmp/staging/test_file"))
+    manager.get_decrypted_file_path = MagicMock(return_value=Path("/tmp/staging/TEST123.tar.gz"))
     manager.cleanup_file = AsyncMock()
+    manager.cleanup_files = MagicMock(return_value=1024 * 1024)  # 1MB
     manager.check_and_wait_for_space = AsyncMock()
+    manager.staging_path = Path("/tmp/staging")
+    manager.staging_free_space_gb = 10.0  # 10GB free space
+    manager.min_free_space_gb = 1.0       # 1GB minimum
     return manager
 
 

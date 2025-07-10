@@ -110,3 +110,40 @@ def test_config_builder():
 def mock_process_stage():
     """Mock process stage for testing."""
     return MagicMock()
+
+
+# Enhanced fixtures for sync operation testing
+@pytest.fixture
+def mock_upload_deps():
+    """Fixture providing mocked upload dependencies."""
+    from tests.test_utils.sync_mocks import mock_upload_operations
+
+    with mock_upload_operations() as mocks:
+        yield mocks
+
+
+@pytest.fixture
+def mock_staging_manager():
+    """Fixture providing a configured mock staging manager."""
+    from tests.test_utils.sync_mocks import create_mock_staging_manager
+
+    return create_mock_staging_manager()
+
+
+@pytest.fixture
+def mock_progress_tracker():
+    """Fixture providing a configured mock progress tracker."""
+    from tests.test_utils.sync_mocks import create_mock_progress_tracker
+
+    return create_mock_progress_tracker()
+
+
+@pytest.fixture
+def mock_storage_config():
+    """Fixture providing a standard mock storage configuration."""
+    return {
+        "bucket_raw": "test-raw",
+        "bucket_full": "test-full",
+        "bucket_meta": "test-meta",
+        "base_path": "/tmp/storage",
+    }

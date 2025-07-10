@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from grin_to_s3.sync.operations import upload_book_from_staging
+from tests.test_utils.sync_mocks import mock_minimal_upload
 
 
 class TestBucketPrefixingBehavior:
@@ -89,7 +90,7 @@ class TestBucketPrefixingBehavior:
                     mock_book_storage_class.return_value = mock_book_storage
 
                     # Call the function
-                    with patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"):
+                    with mock_minimal_upload():
                         await upload_book_from_staging(
                             barcode="TEST123",
                             staging_file_path=str(staging_file),
@@ -132,7 +133,7 @@ class TestBucketPrefixingBehavior:
                 mock_book_storage_class.return_value = mock_book_storage
 
                 # Call the function
-                with patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"):
+                with mock_minimal_upload():
                     await upload_book_from_staging(
                         barcode="TEST123",
                         staging_file_path=str(staging_file),
@@ -177,7 +178,7 @@ class TestBucketPrefixingBehavior:
                     mock_book_storage_class.return_value = AsyncMock()
 
                     # Call the function
-                    with patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"):
+                    with mock_minimal_upload():
                         await upload_book_from_staging(
                             barcode="TEST123",
                             staging_file_path=str(staging_file),
