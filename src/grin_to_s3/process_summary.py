@@ -272,6 +272,8 @@ class RunSummaryManager:
         self.run_name = run_name
         self.summary_file = Path(f"output/{run_name}/process_summary.json")
         self.summary: RunSummary | None = None
+        self._storage_upload_enabled = False
+        self._book_storage = None
 
     async def load_or_create_summary(self) -> RunSummary:
         """Load existing summary or create new one."""
@@ -294,8 +296,13 @@ class RunSummaryManager:
         summary = RunSummary(run_name=self.run_name)
         return summary
 
+    def enable_storage_upload(self, book_storage) -> None:
+        """Enable uploading process summaries to storage."""
+        self._storage_upload_enabled = True
+        self._book_storage = book_storage
+
     async def save_summary(self, summary: RunSummary) -> None:
-        """Save run summary to file."""
+        """Save run summary to file and optionally upload to storage."""
         try:
             # Ensure directory exists
             self.summary_file.parent.mkdir(parents=True, exist_ok=True)
@@ -306,8 +313,33 @@ class RunSummaryManager:
                 await f.write(json.dumps(summary_dict, indent=2))
 
             logger.debug(f"Saved run summary to {self.summary_file}")
+
+            # Upload to storage if enabled
+            if self._storage_upload_enabled and self._book_storage:
+                await self._upload_to_storage()
+
         except Exception as e:
             logger.error(f"Failed to save run summary: {e}")
+
+    async def _upload_to_storage(self) -> None:
+        """Upload process summary to metadata bucket."""
+        if not self._book_storage:
+            logger.warning("Storage upload requested but no book storage configured")
+            return
+
+        try:
+            # Generate storage path for process summary
+            filename = f"process_summary_{self.run_name}.json"
+            storage_path = self._book_storage._meta_path(filename)
+
+            # Upload the local summary file
+            await self._book_storage.storage.write_file(storage_path, str(self.summary_file))
+
+            logger.info(f"Uploaded process summary to storage: {storage_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to upload process summary to storage: {e}")
+            # Don't raise - storage upload failure shouldn't break local summary saving
 
     async def _summary_file_exists(self) -> bool:
         """Check if summary file exists."""
@@ -354,9 +386,14 @@ class RunSummaryManager:
 
 
 # Convenience functions for backward compatibility
-async def create_process_summary(run_name: str, process_name: str) -> RunSummary:
+async def create_process_summary(run_name: str, process_name: str, book_storage=None) -> RunSummary:
     """Create or load a run summary and return the specified stage."""
     manager = RunSummaryManager(run_name)
+
+    # Enable storage upload if book_storage is provided
+    if book_storage is not None:
+        manager.enable_storage_upload(book_storage)
+
     summary = await manager.load_or_create_summary()
 
     # Start the requested stage
@@ -365,9 +402,14 @@ async def create_process_summary(run_name: str, process_name: str) -> RunSummary
     return summary
 
 
-async def save_process_summary(summary: RunSummary) -> None:
+async def save_process_summary(summary: RunSummary, book_storage=None) -> None:
     """Save a run summary."""
     manager = RunSummaryManager(summary.run_name)
+
+    # Enable storage upload if book_storage is provided
+    if book_storage is not None:
+        manager.enable_storage_upload(book_storage)
+
     await manager.save_summary(summary)
 
 
@@ -375,3 +417,49 @@ async def save_process_summary(summary: RunSummary) -> None:
 def get_current_stage(summary: RunSummary, stage_name: str) -> ProcessStageMetrics:
     """Get the current stage from a run summary."""
     return summary.get_or_create_stage(stage_name)
+
+
+async def create_book_storage_for_uploads(run_name: str):
+    """Create a BookStorage instance for process summary uploads."""
+    from .run_config import find_run_config
+    from .storage.book_storage import BookStorage, BucketConfig
+    from .storage.factories import create_storage_from_config
+
+    try:
+        # Find and load run configuration
+        db_path = f"output/{run_name}/books.db"
+        run_config = find_run_config(db_path)
+
+        if not run_config or not run_config.storage_config:
+            logger.warning(f"No storage configuration found for run {run_name}")
+            return None
+
+        # Create storage instance
+        storage_type = run_config.storage_type
+        if not storage_type:
+            logger.warning(f"No storage type found in run configuration for {run_name}")
+            return None
+
+        # Extract the nested config for storage creation
+        nested_config = run_config.storage_config.get("config", {})
+        storage = create_storage_from_config(storage_type, nested_config)
+
+        # Create bucket configuration from nested config
+        bucket_meta = nested_config.get("bucket_meta", "")
+        if not bucket_meta:
+            logger.warning(f"No metadata bucket configured for run {run_name}")
+            return None
+
+        bucket_config: BucketConfig = {
+            "bucket_raw": nested_config.get("bucket_raw", ""),
+            "bucket_meta": bucket_meta,
+            "bucket_full": nested_config.get("bucket_full", ""),
+        }
+
+        # Create BookStorage with run name as prefix
+        book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix=run_name)
+        return book_storage
+
+    except Exception as e:
+        logger.error(f"Failed to create book storage for uploads: {e}")
+        return None
