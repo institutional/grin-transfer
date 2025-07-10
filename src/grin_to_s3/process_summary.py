@@ -440,18 +440,20 @@ async def create_book_storage_for_uploads(run_name: str):
             logger.warning(f"No storage type found in run configuration for {run_name}")
             return None
 
-        storage = create_storage_from_config(storage_type, run_config.storage_config)
+        # Extract the nested config for storage creation
+        nested_config = run_config.storage_config.get("config", {})
+        storage = create_storage_from_config(storage_type, nested_config)
 
-        # Create bucket configuration
-        bucket_meta = run_config.storage_config.get("bucket_meta", "")
+        # Create bucket configuration from nested config
+        bucket_meta = nested_config.get("bucket_meta", "")
         if not bucket_meta:
             logger.warning(f"No metadata bucket configured for run {run_name}")
             return None
 
         bucket_config: BucketConfig = {
-            "bucket_raw": run_config.storage_config.get("bucket_raw", ""),
+            "bucket_raw": nested_config.get("bucket_raw", ""),
             "bucket_meta": bucket_meta,
-            "bucket_full": run_config.storage_config.get("bucket_full", ""),
+            "bucket_full": nested_config.get("bucket_full", ""),
         }
 
         # Create BookStorage with run name as prefix
