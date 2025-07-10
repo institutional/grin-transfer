@@ -106,9 +106,7 @@ async def export_and_upload_csv(
 
         # Upload CSV file to storage
         logger.info("Uploading CSV file to storage")
-        latest_path, timestamped_path = await book_storage.upload_csv_file(
-            temp_csv_path, custom_filename
-        )
+        latest_path, timestamped_path = await book_storage.upload_csv_file(temp_csv_path, custom_filename)
 
         logger.info(f"CSV upload completed successfully: {latest_path}")
 

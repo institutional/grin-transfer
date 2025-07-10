@@ -122,9 +122,7 @@ async def cmd_pipeline(args) -> None:
     logger = logging.getLogger(__name__)
     barcodes_info = f" barcodes={','.join(args.barcodes)}" if hasattr(args, "barcodes") and args.barcodes else ""
     limit_info = f" limit={args.limit}" if hasattr(args, "limit") and args.limit else ""
-    logger.info(
-        f"SYNC PIPELINE STARTED - storage={args.storage} force={args.force}{barcodes_info}{limit_info}"
-    )
+    logger.info(f"SYNC PIPELINE STARTED - storage={args.storage} force={args.force}{barcodes_info}{limit_info}")
     logger.info(f"Command: {' '.join(sys.argv)}")
 
     # Import and create pipeline
@@ -260,8 +258,6 @@ async def cmd_status(args) -> None:
         sys.exit(1)
 
 
-
-
 async def main() -> None:
     """Main CLI entry point for sync commands."""
     parser = argparse.ArgumentParser(
@@ -335,9 +331,7 @@ Examples:
     pipeline_parser.add_argument(
         "--barcodes", help="Comma-separated list of specific barcodes to sync (e.g., '12345,67890,abcde')"
     )
-    pipeline_parser.add_argument(
-        "--status", help="Filter books by sync status (e.g., 'failed', 'pending')"
-    )
+    pipeline_parser.add_argument("--status", help="Filter books by sync status (e.g., 'failed', 'pending')")
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
     pipeline_parser.add_argument(
         "--grin-library-directory", help="GRIN library directory name (auto-detected from run config if not specified)"
@@ -381,7 +375,6 @@ Examples:
 
     status_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
     status_parser.add_argument("--storage-type", choices=["local", "minio", "r2", "s3"], help="Filter by storage type")
-
 
     args = parser.parse_args()
 

@@ -176,13 +176,11 @@ def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
 
     # Create a mock process summary stage if not provided
     from grin_to_s3.process_summary import ProcessStageMetrics
+
     mock_stage = ProcessStageMetrics("test")
 
     exporter = BookCollector(
-        directory="TestDirectory",
-        process_summary_stage=mock_stage,
-        storage_config=storage_config,
-        config=config
+        directory="TestDirectory", process_summary_stage=mock_stage, storage_config=storage_config, config=config
     )
 
     # Replace client with mock

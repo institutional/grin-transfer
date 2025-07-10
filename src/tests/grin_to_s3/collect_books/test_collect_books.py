@@ -447,7 +447,9 @@ class TestBookCollectionIntegration:
             }
 
             # This should not raise an exception
-            collector = BookCollector("TestDirectory", process_summary_stage=mock_process_stage, storage_config=storage_config)
+            collector = BookCollector(
+                "TestDirectory", process_summary_stage=mock_process_stage, storage_config=storage_config
+            )
 
             # Verify storage was initialized correctly
             assert collector.book_storage is not None

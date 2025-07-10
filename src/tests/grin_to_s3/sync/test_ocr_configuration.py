@@ -37,12 +37,13 @@ class TestOCRConfiguration:
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
-            config = (test_config_builder
-                     .with_db_path(":memory:")
-                     .with_library_directory("/tmp/library")
-                     .local_storage("/tmp/test")
-                     .with_staging_dir("/tmp/test")
-                     .build())
+            config = (
+                test_config_builder.with_db_path(":memory:")
+                .with_library_directory("/tmp/library")
+                .local_storage("/tmp/test")
+                .with_staging_dir("/tmp/test")
+                .build()
+            )
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -63,12 +64,13 @@ class TestOCRConfiguration:
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
-            config = (test_config_builder
-                     .with_db_path(":memory:")
-                     .with_library_directory("/tmp/library")
-                     .local_storage("/tmp/test")
-                     .with_staging_dir("/tmp/test")
-                     .build())
+            config = (
+                test_config_builder.with_db_path(":memory:")
+                .with_library_directory("/tmp/library")
+                .local_storage("/tmp/test")
+                .with_staging_dir("/tmp/test")
+                .build()
+            )
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -131,12 +133,13 @@ class TestOCRConfiguration:
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
-            config = (test_config_builder
-                     .with_db_path(":memory:")
-                     .with_library_directory("/tmp/library")
-                     .local_storage("/tmp/test")
-                     .with_staging_dir("/tmp/test")
-                     .build())
+            config = (
+                test_config_builder.with_db_path(":memory:")
+                .with_library_directory("/tmp/library")
+                .local_storage("/tmp/test")
+                .with_staging_dir("/tmp/test")
+                .build()
+            )
 
             # Test OCR enabled
             pipeline_enabled = SyncPipeline.from_run_config(

@@ -80,7 +80,7 @@ class TestExportAndUploadCSV:
                         db_path=db_path,
                         staging_manager=staging_manager,
                         book_storage=mock_book_storage,
-                        skip_export=False
+                        skip_export=False,
                     )
 
                     # Verify result
@@ -104,10 +104,7 @@ class TestExportAndUploadCSV:
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
             result = await export_and_upload_csv(
-                db_path=db_path,
-                staging_manager=staging_manager,
-                book_storage=mock_book_storage,
-                skip_export=True
+                db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage, skip_export=True
             )
 
             # Verify result
@@ -135,7 +132,7 @@ class TestExportAndUploadCSV:
                         db_path=db_path,
                         staging_manager=staging_manager,
                         book_storage=mock_book_storage,
-                        custom_filename="custom_export.csv"
+                        custom_filename="custom_export.csv",
                     )
 
                     # Verify custom filename was passed
@@ -157,9 +154,7 @@ class TestExportAndUploadCSV:
                 mock_tracker_cls.return_value = mock_tracker
 
                 result = await export_and_upload_csv(
-                    db_path=db_path,
-                    staging_manager=staging_manager,
-                    book_storage=mock_book_storage
+                    db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage
                 )
 
                 # Verify error handling
@@ -185,9 +180,7 @@ class TestExportAndUploadCSV:
                     mock_record_cls.csv_headers.return_value = ["barcode", "title"]
 
                     result = await export_and_upload_csv(
-                        db_path=db_path,
-                        staging_manager=staging_manager,
-                        book_storage=mock_book_storage
+                        db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage
                     )
 
                     # Verify error handling
@@ -209,9 +202,7 @@ class TestExportAndUploadCSV:
                     mock_record_cls.csv_headers.return_value = ["barcode", "title"]
 
                     result = await export_and_upload_csv(
-                        db_path=db_path,
-                        staging_manager=staging_manager,
-                        book_storage=mock_book_storage
+                        db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage
                     )
 
                     # Verify successful operation with empty data
@@ -247,9 +238,7 @@ class TestExportAndUploadCSV:
                     mock_record_cls.csv_headers.return_value = ["barcode", "title"]
 
                     result = await export_and_upload_csv(
-                        db_path=db_path,
-                        staging_manager=staging_manager,
-                        book_storage=mock_book_storage
+                        db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage
                     )
 
                     # Verify export operation completed successfully
@@ -274,9 +263,7 @@ class TestExportAndUploadCSV:
 
                         # Should not raise exception for cleanup failure, just log warning
                         result = await export_and_upload_csv(
-                            db_path=db_path,
-                            staging_manager=staging_manager,
-                            book_storage=mock_book_storage
+                            db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage
                         )
 
                         # Operation should still succeed despite cleanup failure
@@ -310,9 +297,7 @@ class TestExportAndUploadCSV:
                     mock_record_cls.csv_headers.return_value = ["barcode", "title", "author"]
 
                     result = await export_and_upload_csv(
-                        db_path=db_path,
-                        staging_manager=staging_manager,
-                        book_storage=mock_book_storage
+                        db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage
                     )
 
                     assert result["status"] == "completed"
@@ -340,7 +325,7 @@ class TestExportAndUploadCSV:
                             db_path=db_path,
                             staging_manager=staging_manager,
                             book_storage=mock_book_storage,
-                            custom_filename=f"concurrent_{i}.csv"
+                            custom_filename=f"concurrent_{i}.csv",
                         )
                         tasks.append(task)
 

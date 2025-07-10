@@ -71,14 +71,15 @@ class ProcessStageMetrics:
             "items_processed": self.items_processed,
             "items_successful": self.items_successful,
             "items_failed": self.items_failed,
-            **kwargs
+            **kwargs,
         }
 
         self.progress_updates.append(update)
         logger.debug(f"{self.stage_name} progress: {message} (elapsed: {elapsed:.1f}s)")
 
-    def increment_items(self, processed: int = 0, successful: int = 0, failed: int = 0,
-                       retried: int = 0, bytes_count: int = 0) -> None:
+    def increment_items(
+        self, processed: int = 0, successful: int = 0, failed: int = 0, retried: int = 0, bytes_count: int = 0
+    ) -> None:
         """Increment item counters."""
         self.items_processed += processed
         self.items_successful += successful
@@ -182,8 +183,7 @@ class RunSummary:
 
         # Calculate success rate
         success_rate = (
-            (total_items_successful / max(1, total_items_processed)) * 100
-            if total_items_processed > 0 else 0
+            (total_items_successful / max(1, total_items_processed)) * 100 if total_items_processed > 0 else 0
         )
 
         # Calculate processing rate
@@ -196,8 +196,7 @@ class RunSummary:
             processing_rate = total_items_processed / elapsed if elapsed > 0 else 0
         else:
             processing_rate = (
-                total_items_processed / self.total_duration_seconds
-                if self.total_duration_seconds > 0 else 0
+                total_items_processed / self.total_duration_seconds if self.total_duration_seconds > 0 else 0
             )
 
         # Convert stages to dict
@@ -220,8 +219,7 @@ class RunSummary:
                 "progress_updates": stage.progress_updates,
                 "is_completed": stage.end_time is not None,
                 "success_rate_percent": (
-                    (stage.items_successful / max(1, stage.items_processed)) * 100
-                    if stage.items_processed > 0 else 0
+                    (stage.items_successful / max(1, stage.items_processed)) * 100 if stage.items_processed > 0 else 0
                 ),
             }
 
@@ -233,7 +231,6 @@ class RunSummary:
             "total_duration_seconds": self.total_duration_seconds,
             "interruption_count": self.interruption_count,
             "last_checkpoint_time": self.last_checkpoint_time,
-
             # Totals across all stages
             "total_items_processed": total_items_processed,
             "total_items_successful": total_items_successful,
@@ -243,19 +240,15 @@ class RunSummary:
             "total_error_count": total_errors,
             "overall_success_rate_percent": success_rate,
             "overall_processing_rate_per_second": processing_rate,
-
             # Per-stage details
             "stages": stages_dict,
-
             # Run status
             "is_completed": self.run_end_time is not None,
             "has_errors": total_errors > 0,
             "active_stages": [
-                name for name, stage in self.stages.items()
-                if stage.start_time is not None and stage.end_time is None
+                name for name, stage in self.stages.items() if stage.start_time is not None and stage.end_time is None
             ],
             "completed_stages": [name for name, stage in self.stages.items() if stage.end_time is not None],
-
             "generated_at": datetime.now(UTC).isoformat(),
         }
 

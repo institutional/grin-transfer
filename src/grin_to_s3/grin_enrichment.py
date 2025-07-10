@@ -531,8 +531,6 @@ class GRINEnrichmentPipeline:
                 print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name}")
 
 
-
-
 async def main() -> None:
     """Main CLI entry point."""
     import signal
@@ -574,7 +572,6 @@ Examples:
         "--secrets-dir", help="Directory containing GRIN secrets files (auto-detected from run config if not specified)"
     )
     enrich_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
-
 
     args = parser.parse_args()
 
@@ -624,6 +621,7 @@ Examples:
     if args.command == "enrich":
         # Create book storage for process summary uploads
         from grin_to_s3.process_summary import create_book_storage_for_uploads
+
         book_storage = await create_book_storage_for_uploads(args.run_name)
 
         run_summary = await create_process_summary(args.run_name, "enrich", book_storage)
@@ -655,7 +653,6 @@ Examples:
                     await pipeline.run_enrichment(limit=args.limit, reset=args.reset)
                     enrich_stage.add_progress_update("Enrichment pipeline completed successfully")
 
-
         except KeyboardInterrupt:
             if enrich_stage:
                 enrich_stage.add_progress_update("Operation cancelled by user")
@@ -681,9 +678,6 @@ async def enrich_main():
     # Insert 'enrich' as the subcommand
     sys.argv.insert(1, "enrich")
     await main()
-
-
-
 
 
 if __name__ == "__main__":

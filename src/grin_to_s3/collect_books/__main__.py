@@ -237,9 +237,7 @@ Examples:
         default=DEFAULT_SYNC_BATCH_SIZE,
         help=f"Batch size for sync operations (default: {DEFAULT_SYNC_BATCH_SIZE})",
     )
-    parser.add_argument(
-        "--sync-staging-dir", help="Custom staging directory path for sync operations (default: auto)"
-    )
+    parser.add_argument("--sync-staging-dir", help="Custom staging directory path for sync operations (default: auto)")
     parser.add_argument(
         "--sync-disk-space-threshold",
         type=float,
@@ -449,6 +447,7 @@ Examples:
     try:
         # Create book storage for process summary uploads
         from grin_to_s3.process_summary import create_book_storage_for_uploads
+
         book_storage = await create_book_storage_for_uploads(run_name)
 
         # Create or load process summary

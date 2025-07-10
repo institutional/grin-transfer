@@ -151,12 +151,13 @@ class TestSyncPipelineLocalOptimization:
             db_tracker = SQLiteProgressTracker(str(db_path))
 
             # Create RunConfig with local storage
-            config = (test_config_builder
-                     .with_db_path(str(db_path))
-                     .local_storage(temp_dir)
-                     .with_concurrent_downloads(1)
-                     .with_staging_dir(str(Path(temp_dir) / "staging"))  # Should not be used
-                     .build())
+            config = (
+                test_config_builder.with_db_path(str(db_path))
+                .local_storage(temp_dir)
+                .with_concurrent_downloads(1)
+                .with_staging_dir(str(Path(temp_dir) / "staging"))  # Should not be used
+                .build()
+            )
 
             # Create sync pipeline with local storage
             pipeline = SyncPipeline.from_run_config(

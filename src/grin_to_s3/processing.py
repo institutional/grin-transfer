@@ -994,6 +994,7 @@ async def cmd_request(args) -> None:
 
     # Create book storage for process summary uploads
     from grin_to_s3.process_summary import create_book_storage_for_uploads
+
     book_storage = await create_book_storage_for_uploads(run_name)
 
     # Create or load process summary

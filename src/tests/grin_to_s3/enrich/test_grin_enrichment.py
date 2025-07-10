@@ -167,7 +167,9 @@ class TestGRINEnrichmentPipeline:
         """Test fetching enrichment data for a single barcode"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage)
+        pipeline = GRINEnrichmentPipeline(
+            directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage
+        )
         pipeline.grin_client = mock_client
 
         # Test single barcode batch
@@ -184,7 +186,9 @@ class TestGRINEnrichmentPipeline:
         """Test fetching enrichment data for multiple barcodes"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage)
+        pipeline = GRINEnrichmentPipeline(
+            directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage
+        )
         pipeline.grin_client = mock_client
 
         # Test multiple barcode batch
@@ -200,7 +204,9 @@ class TestGRINEnrichmentPipeline:
         """Test handling of missing barcodes in batch response"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage)
+        pipeline = GRINEnrichmentPipeline(
+            directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage
+        )
         pipeline.grin_client = mock_client
 
         # Test with a barcode not in mock data
@@ -281,7 +287,9 @@ class TestGRINEnrichmentPipeline:
 
         mock_client.fetch_resource = mock_fetch_resource
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage)
+        pipeline = GRINEnrichmentPipeline(
+            directory="TestLibrary", db_path=":memory:", process_summary_stage=mock_process_stage
+        )
         pipeline.grin_client = mock_client
 
         # This should handle the mismatch gracefully by padding
@@ -299,7 +307,9 @@ class TestGRINEnrichmentPipeline:
         """Test enriching a batch of books"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage)
+        pipeline = GRINEnrichmentPipeline(
+            directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage
+        )
         pipeline.grin_client = mock_client
 
         # Enrich all books
@@ -328,7 +338,9 @@ class TestGRINEnrichmentPipeline:
         """Test resetting enrichment data"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage)
+        pipeline = GRINEnrichmentPipeline(
+            directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage
+        )
         pipeline.grin_client = mock_client
 
         # First enrich some books
@@ -366,7 +378,9 @@ class TestGRINEnrichmentPipeline:
 
         mock_client.fetch_resource = counting_fetch_resource
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage)
+        pipeline = GRINEnrichmentPipeline(
+            directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage
+        )
         pipeline.grin_client = mock_client
 
         # Process 3 books - with dynamic sizing, should fit in one request for small batches
@@ -405,7 +419,9 @@ class TestGRINEnrichmentPipeline:
 
         mock_client.fetch_resource = failing_fetch_resource
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage)
+        pipeline = GRINEnrichmentPipeline(
+            directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage
+        )
         pipeline.grin_client = mock_client
 
         # This should handle the error gracefully
@@ -424,7 +440,9 @@ class TestGRINEnrichmentPipeline:
 
         mock_client.fetch_resource = failing_fetch_resource
 
-        pipeline = GRINEnrichmentPipeline(directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage)
+        pipeline = GRINEnrichmentPipeline(
+            directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage
+        )
         pipeline.grin_client = mock_client
 
         # Should handle errors gracefully and still mark books as processed

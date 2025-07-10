@@ -979,7 +979,7 @@ class SQLiteProgressTracker:
                 AND status_value = 'completed'
                 AND timestamp >= ?
                 """,
-                (cutoff_iso,)
+                (cutoff_iso,),
             )
             row = await cursor.fetchone()
             completed_in_window = row[0] if row else 0

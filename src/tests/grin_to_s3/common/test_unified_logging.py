@@ -89,21 +89,20 @@ class TestRunConfigLogFile:
 
     def test_run_config_log_file_property(self, test_config_builder):
         """Test that RunConfig.log_file returns the correct path."""
-        run_config = (test_config_builder
-                     .local_storage()
-                     .with_run_name("test_run")
-                     .with_log_file("/path/to/logfile.log")
-                     .build())
+        run_config = (
+            test_config_builder.local_storage().with_run_name("test_run").with_log_file("/path/to/logfile.log").build()
+        )
 
         assert run_config.log_file == "/path/to/logfile.log"
 
     def test_run_config_log_file_with_run_name(self, test_config_builder):
         """Test log_file property with realistic run name format."""
-        run_config = (test_config_builder
-                     .local_storage()
-                     .with_run_name("my_test_run")
-                     .with_log_file("logs/grin_pipeline_my_test_run_20250626_105045.log")
-                     .build())
+        run_config = (
+            test_config_builder.local_storage()
+            .with_run_name("my_test_run")
+            .with_log_file("logs/grin_pipeline_my_test_run_20250626_105045.log")
+            .build()
+        )
 
         assert "grin_pipeline_my_test_run" in run_config.log_file
         assert run_config.log_file.endswith(".log")
@@ -122,11 +121,9 @@ class TestUnifiedLoggingIntegration:
             log_file = f"{log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
 
             # Create config dict as collect would
-            config_dict = (test_config_builder
-                          .local_storage()
-                          .with_run_name(run_name)
-                          .with_log_file(log_file)
-                          .build().config_dict)
+            config_dict = (
+                test_config_builder.local_storage().with_run_name(run_name).with_log_file(log_file).build().config_dict
+            )
 
             # Write config file
             config_path = Path(temp_dir) / "run_config.json"
@@ -147,11 +144,9 @@ class TestUnifiedLoggingIntegration:
             custom_log_dir = "custom_logs"
             log_file = f"{custom_log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
 
-            config_dict = (test_config_builder
-                          .local_storage()
-                          .with_run_name(run_name)
-                          .with_log_file(log_file)
-                          .build().config_dict)
+            config_dict = (
+                test_config_builder.local_storage().with_run_name(run_name).with_log_file(log_file).build().config_dict
+            )
 
             run_config = RunConfig(config_dict)
             assert run_config.log_file.startswith("custom_logs/")
@@ -162,11 +157,9 @@ class TestUnifiedLoggingIntegration:
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = str(Path(temp_dir) / "grin_pipeline_test_20250626_105045.log")
 
-            config_dict = (test_config_builder
-                          .local_storage()
-                          .with_run_name("test")
-                          .with_log_file(log_file)
-                          .build().config_dict)
+            config_dict = (
+                test_config_builder.local_storage().with_run_name("test").with_log_file(log_file).build().config_dict
+            )
 
             # First command (collect) creates log
             setup_logging("INFO", log_file)
