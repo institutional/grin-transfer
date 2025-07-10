@@ -67,11 +67,11 @@ Examples:
   # Export ALL books to CSV (works at any pipeline stage)
   python grin.py export --run-name harvard_2024 --output books.csv
 
-  # View process summary
-  python grin.py logs summary --run-name harvard_2024
+  # View process summary (human-readable)
+  python grin.py logs view --run-name harvard_2024
 
-  # Download process summary from storage
-  python grin.py logs summary --run-name harvard_2024 --download
+  # View raw JSON (can be piped to file)
+  python grin.py logs view --run-name harvard_2024 --raw > summary.json
 
 For more help on each command, use: python grin.py <command> --help
         """,

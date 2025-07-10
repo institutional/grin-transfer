@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.logs.__main__ import handle_summary
+from grin_to_s3.logs.__main__ import handle_view
 
 
 class TestLogsCommand:
@@ -51,13 +51,12 @@ class TestLogsCommand:
         }
 
     @pytest.mark.asyncio
-    async def test_view_local_summary_pretty(self, temp_dir, mock_run_name, sample_summary_data, capsys):
-        """Test viewing local summary in pretty format."""
+    async def test_view_local_summary_raw(self, temp_dir, mock_run_name, sample_summary_data, capsys):
+        """Test viewing local summary in raw format."""
         # Create mock args
         args = MagicMock()
         args.run_name = mock_run_name
-        args.download = None
-        args.pretty = True
+        args.raw = True
 
         # Create summary file
         with patch("grin_to_s3.logs.__main__.RunSummaryManager") as mock_manager_class:
@@ -70,8 +69,8 @@ class TestLogsCommand:
             with open(mock_manager.summary_file, "w") as f:
                 json.dump(sample_summary_data, f)
 
-            # Test viewing in pretty format
-            result = await handle_summary(args)
+            # Test viewing in raw format
+            result = await handle_view(args)
 
             # Capture output
             captured = capsys.readouterr()
@@ -89,8 +88,7 @@ class TestLogsCommand:
         # Create mock args
         args = MagicMock()
         args.run_name = mock_run_name
-        args.download = None
-        args.pretty = False
+        args.raw = False
 
         with patch("grin_to_s3.logs.__main__.RunSummaryManager") as mock_manager_class:
             mock_manager = MagicMock()
@@ -99,7 +97,7 @@ class TestLogsCommand:
             mock_manager_class.return_value = mock_manager
 
             # Test viewing non-existent file
-            result = await handle_summary(args)
+            result = await handle_view(args)
 
             # Capture output
             captured = capsys.readouterr()
@@ -108,53 +106,6 @@ class TestLogsCommand:
             assert result == 1
             assert "No local process summary found" in captured.out
 
-    @pytest.mark.asyncio
-    async def test_download_summary_from_storage(self, temp_dir, mock_run_name, sample_summary_data):
-        """Test downloading summary from storage."""
-        # Create mock args
-        args = MagicMock()
-        args.run_name = mock_run_name
-        args.download = str(temp_dir / "downloaded_summary.json")
-
-        # Mock book storage
-        mock_book_storage = MagicMock()
-        mock_book_storage._meta_path = MagicMock(return_value="test-meta/test_run/process_summary_test_logs_run.json")
-        mock_book_storage.storage.read_bytes = AsyncMock(return_value=json.dumps(sample_summary_data).encode())
-
-        with patch("grin_to_s3.logs.__main__.create_book_storage_for_uploads", return_value=mock_book_storage):
-            # Test downloading
-            result = await handle_summary(args)
-
-            # Verify success
-            assert result == 0
-
-            # Verify file was created
-            downloaded_file = Path(args.download)
-            assert downloaded_file.exists()
-
-            # Verify file content
-            with open(downloaded_file) as f:
-                file_data = json.load(f)
-            assert file_data["run_name"] == "test_logs_run"
-
-    @pytest.mark.asyncio
-    async def test_download_summary_no_storage_config(self, mock_run_name, capsys):
-        """Test downloading summary when no storage config is found."""
-        # Create mock args
-        args = MagicMock()
-        args.run_name = mock_run_name
-        args.download = "output.json"
-
-        with patch("grin_to_s3.logs.__main__.create_book_storage_for_uploads", return_value=None):
-            # Test downloading with no storage config
-            result = await handle_summary(args)
-
-            # Capture output
-            captured = capsys.readouterr()
-
-            # Verify error
-            assert result == 1
-            assert "No storage configuration found" in captured.out
 
     @pytest.mark.asyncio
     async def test_view_local_summary_readable_format(self, temp_dir, mock_run_name, sample_summary_data, capsys):
@@ -162,8 +113,7 @@ class TestLogsCommand:
         # Create mock args
         args = MagicMock()
         args.run_name = mock_run_name
-        args.download = None
-        args.pretty = False
+        args.raw = False
 
         # Create summary file
         with patch("grin_to_s3.logs.__main__.RunSummaryManager") as mock_manager_class:
@@ -177,7 +127,7 @@ class TestLogsCommand:
                 json.dump(sample_summary_data, f)
 
             # Test viewing in readable format
-            result = await handle_summary(args)
+            result = await handle_view(args)
 
             # Capture output
             captured = capsys.readouterr()
