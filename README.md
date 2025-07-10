@@ -162,20 +162,22 @@ python grin.py extract /path/to/book.tar.gz --extraction-dir /tmp/grin_work --ke
 - `--verbose`: Enable detailed progress output
 - `--summary`: Show extraction statistics
 
-### 6. GRIN Enrichment: `grin.py enrich/export-csv/status`
+### 6. GRIN Enrichment: `grin.py enrich/export-csv`
 
 Add detailed GRIN metadata to collected books and export to CSV.
 
 ```bash
-python grin.py status --run-name harvard_2024
 python grin.py enrich --run-name harvard_2024
 python grin.py export-csv --run-name harvard_2024 --output books.csv
+
+# View comprehensive pipeline status
+python grin.py reports view --run-name harvard_2024
 ```
 
 **Commands:**
-- `status`: Show enrichment progress and statistics
 - `enrich`: Add detailed GRIN metadata to collected books  
 - `export-csv`: Export enriched data to CSV file
+- `reports view`: Show comprehensive pipeline status and progress
 
 ## Storage Configuration
 
@@ -312,7 +314,7 @@ source ~/.zshrc
 
 **Examples:**
 ```bash
-python grin.py <TAB>                    # Shows: auth, collect, process, sync, extract, enrich, export-csv, status
+python grin.py <TAB>                    # Shows: auth, collect, process, sync, extract, enrich, export-csv, reports
 python grin.py sync <TAB>               # Shows: pipeline, status, catchup
 python grin.py process --run-name <TAB> # Shows available run names
 ```

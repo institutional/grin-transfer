@@ -551,7 +551,6 @@ async def main() -> None:
         epilog="""
 Examples:
   python grin.py enrich --run-name harvard_2024
-  python grin.py status --run-name harvard_2024
         """,
     )
 
@@ -576,9 +575,6 @@ Examples:
     )
     enrich_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
 
-    # Status command
-    status_parser = subparsers.add_parser("status", help="Show enrichment status")
-    status_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
 
     args = parser.parse_args()
 
@@ -659,25 +655,6 @@ Examples:
                     await pipeline.run_enrichment(limit=args.limit, reset=args.reset)
                     enrich_stage.add_progress_update("Enrichment pipeline completed successfully")
 
-                case "status":
-                    sqlite_tracker = SQLiteProgressTracker(args.db_path)
-                    try:
-                        total_books = await sqlite_tracker.get_book_count()
-                        enriched_books = await sqlite_tracker.get_enriched_book_count()
-
-                        print("Enrichment Status:")
-                        print(f"  Database: {args.db_path}")
-                        print(f"  Total books: {total_books:,}")
-                        print(f"  Enriched books: {enriched_books:,}")
-                        print(f"  Remaining: {total_books - enriched_books:,}")
-                        print(f"  Progress: {enriched_books / max(1, total_books) * 100:.1f}%")
-                    finally:
-                        # Clean up database connections
-                        try:
-                            if hasattr(sqlite_tracker, "_db") and sqlite_tracker._db:
-                                await sqlite_tracker._db.close()
-                        except Exception:
-                            pass
 
         except KeyboardInterrupt:
             if enrich_stage:
@@ -707,11 +684,6 @@ async def enrich_main():
 
 
 
-async def status_main():
-    """Entry point for 'grin status' command."""
-    # Insert 'status' as the subcommand
-    sys.argv.insert(1, "status")
-    await main()
 
 
 if __name__ == "__main__":
