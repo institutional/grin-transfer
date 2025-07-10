@@ -82,9 +82,10 @@ class TestBookUpload:
         self, mock_storage_config, mock_staging_manager, mock_progress_tracker
     ):
         """Test upload handling skip download scenario."""
-        result = await upload_book_from_staging(
-            "TEST123", "SKIP_DOWNLOAD", "minio", mock_storage_config, mock_staging_manager, mock_progress_tracker
-        )
+        with patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"):
+            result = await upload_book_from_staging(
+                "TEST123", "SKIP_DOWNLOAD", "minio", mock_storage_config, mock_staging_manager, mock_progress_tracker
+            )
 
         assert result["barcode"] == "TEST123"
         assert result["status"] == "completed"
@@ -286,6 +287,7 @@ class TestOCRExtractionIntegration:
             patch("grin_to_s3.sync.operations.decrypt_gpg_file"),
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
             patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract,
+            patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"),
             patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
         ):
             # Mock successful decryption and upload
@@ -334,6 +336,7 @@ class TestOCRExtractionIntegration:
             patch("grin_to_s3.sync.operations.decrypt_gpg_file"),
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
             patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract,
+            patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"),
             patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
         ):
             # Mock successful decryption and upload
@@ -379,6 +382,7 @@ class TestOCRExtractionIntegration:
             patch("grin_to_s3.sync.operations.decrypt_gpg_file"),
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
             patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract,
+            patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"),
             patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
         ):
             # Mock successful decryption but failed upload
@@ -450,6 +454,7 @@ class TestBookStorageIntegrationInSync:
             with (
                 patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
                 patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
+                patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"),
                 patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
             ):
                 # Mock successful decryption

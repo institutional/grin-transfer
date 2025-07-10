@@ -15,12 +15,10 @@ from typing import Any
 import aiofiles
 
 from grin_to_s3.client import GRINClient
-from grin_to_s3.collect_books.models import BookRecord
 from grin_to_s3.common import (
     create_http_session,
     decrypt_gpg_file,
 )
-from grin_to_s3.database import connect_async
 from grin_to_s3.extract.text_extraction import extract_ocr_pages
 from grin_to_s3.extract.tracking import ExtractionStatus, write_status
 from grin_to_s3.metadata.marc_extraction import extract_marc_metadata
@@ -374,44 +372,8 @@ async def extract_and_update_marc_metadata(
                     session_id=session_id,
                 )
 
-                # Prepare values for database update
-                marc_fields = [f.name for f in BookRecord.__dataclass_fields__.values() if f.name.startswith("marc_")]
-                values = []
-                for field_name in marc_fields:
-                    if field_name == "marc_extraction_timestamp":
-                        values.append(datetime.now(UTC).isoformat())
-                    else:
-                        # Map from old field names to new field names
-                        old_field_name = field_name.replace("marc_", "")
-                        if old_field_name == "author_personal":
-                            old_field_name = "author100"
-                        elif old_field_name == "author_corporate":
-                            old_field_name = "author110"
-                        elif old_field_name == "author_meeting":
-                            old_field_name = "author111"
-                        elif old_field_name == "lc_call_number":
-                            old_field_name = "loc_call_number"
-                        elif old_field_name == "lccn":
-                            old_field_name = "loc_control_number"
-                        elif old_field_name == "oclc_numbers":
-                            old_field_name = "oclc"
-                        elif old_field_name == "subjects":
-                            old_field_name = "subject"
-                        elif old_field_name == "genres":
-                            old_field_name = "genre"
-                        elif old_field_name == "general_note":
-                            old_field_name = "note"
-
-                        values.append(marc_metadata.get(old_field_name))
-
-                # Add updated_at timestamp and barcode for WHERE clause
-                values.append(datetime.now(UTC).isoformat())
-                values.append(barcode)
-
-                # Update database
-                async with connect_async(db_tracker.db_path) as db:
-                    await db.execute(BookRecord.build_update_marc_sql(), values)
-                    await db.commit()
+                # Update database using the tracker's method
+                await db_tracker.update_book_marc_metadata(barcode, marc_metadata)
 
                 logger.info(f"[{barcode}] Successfully updated database with MARC metadata ({len(marc_metadata)} fields)")
 
