@@ -14,7 +14,6 @@ Commands:
   enrich         Enrich books with GRIN metadata
   export         Export ALL books in collection to CSV with available metadata
   reports        View process summaries and reports
-  status         Show enrichment status
 """
 
 import argparse
@@ -61,9 +60,6 @@ Examples:
   # Enrich with detailed metadata
   python grin.py enrich --run-name harvard_2024
 
-  # Show enrichment status
-  python grin.py status --run-name harvard_2024
-
   # Export ALL books to CSV (works at any pipeline stage)
   python grin.py export --run-name harvard_2024 --output books.csv
 
@@ -89,7 +85,6 @@ For more help on each command, use: python grin.py <command> --help
     enrich_parser = subparsers.add_parser("enrich", help="Enrich books with GRIN metadata")
     export_parser = subparsers.add_parser("export", help="Export ALL books in collection to CSV")
     reports_parser = subparsers.add_parser("reports", help="View process summaries and reports")
-    status_parser = subparsers.add_parser("status", help="Show enrichment status")
 
     return parser, {
         "auth": auth_parser,
@@ -101,7 +96,6 @@ For more help on each command, use: python grin.py <command> --help
         "enrich": enrich_parser,
         "export": export_parser,
         "reports": reports_parser,
-        "status": status_parser,
     }
 
 
@@ -180,14 +174,6 @@ async def main():
         # Remove 'reports' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await reports_main()
-
-    # TODO make this an overall status command that can be used for all steps
-    elif command == "status":
-        from grin_to_s3.grin_enrichment import status_main
-
-        # Remove 'status' from args and pass the rest
-        sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await status_main()
 
     elif command in ["-h", "--help"]:
         parser.print_help()
