@@ -16,13 +16,14 @@ class TestSyncPipelineConcurrency:
     @pytest.fixture
     def mock_run_config(self, test_config_builder):
         """Create a mock RunConfig for testing."""
-        return (test_config_builder
-                .with_library_directory("TestLib")
-                .minio_storage(bucket_raw="test-raw")
-                .with_concurrent_downloads(2)  # Low limit for testing
-                .with_concurrent_uploads(1)
-                .with_batch_size(10)
-                .build())
+        return (
+            test_config_builder.with_library_directory("TestLib")
+            .minio_storage(bucket_raw="test-raw")
+            .with_concurrent_downloads(2)  # Low limit for testing
+            .with_concurrent_uploads(1)
+            .with_batch_size(10)
+            .build()
+        )
 
     @pytest.fixture
     def mock_pipeline_dependencies(self):
@@ -217,10 +218,7 @@ class TestSyncPipelineEnrichmentQueue:
     @pytest.fixture
     def mock_local_run_config(self, test_config_builder):
         """Create a mock RunConfig for local storage testing."""
-        return (test_config_builder
-                .with_library_directory("TestLib")
-                .local_storage()
-                .build())
+        return test_config_builder.with_library_directory("TestLib").local_storage().build()
 
     @pytest.fixture
     def mock_pipeline_dependencies(self):
@@ -241,7 +239,9 @@ class TestSyncPipelineEnrichmentQueue:
                 "client": mock_client.return_value,
             }
 
-    def test_enrichment_queue_enabled_by_default(self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config):
+    def test_enrichment_queue_enabled_by_default(
+        self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config
+    ):
         """Test that enrichment queue is enabled by default."""
         pipeline = SyncPipeline.from_run_config(
             config=mock_local_run_config,
@@ -257,7 +257,9 @@ class TestSyncPipelineEnrichmentQueue:
         assert pipeline.enrichment_queue is not None
         assert pipeline.enrichment_queue.qsize() == 0
 
-    def test_enrichment_queue_can_be_disabled(self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config):
+    def test_enrichment_queue_can_be_disabled(
+        self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config
+    ):
         """Test that enrichment queue can be disabled."""
         pipeline = SyncPipeline.from_run_config(
             config=mock_local_run_config,
@@ -271,7 +273,9 @@ class TestSyncPipelineEnrichmentQueue:
         # Queue should be None when disabled
         assert pipeline.enrichment_queue is None
 
-    def test_enrichment_configuration_options(self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config):
+    def test_enrichment_configuration_options(
+        self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config
+    ):
         """Test enrichment configuration options."""
         # Modify the config to test custom enrichment workers
         mock_local_run_config.config_dict["sync_config"]["enrichment_workers"] = 3
@@ -290,7 +294,9 @@ class TestSyncPipelineEnrichmentQueue:
         # Queue should still be initialized
         assert pipeline.enrichment_queue is not None
 
-    async def test_enrichment_queue_size_in_stats(self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config):
+    async def test_enrichment_queue_size_in_stats(
+        self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config
+    ):
         """Test that enrichment queue size is tracked in stats."""
         pipeline = SyncPipeline.from_run_config(
             config=mock_local_run_config,
@@ -313,7 +319,9 @@ class TestSyncPipelineEnrichmentQueue:
         status = await pipeline.get_sync_status()
         assert status["session_stats"]["enrichment_queue_size"] == 2
 
-    async def test_enrichment_queue_size_zero_when_disabled(self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config):
+    async def test_enrichment_queue_size_zero_when_disabled(
+        self, mock_pipeline_dependencies, mock_process_stage, mock_local_run_config
+    ):
         """Test that enrichment queue size is 0 when enrichment is disabled."""
         pipeline = SyncPipeline.from_run_config(
             config=mock_local_run_config,

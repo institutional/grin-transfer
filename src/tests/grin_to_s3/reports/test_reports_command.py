@@ -106,7 +106,6 @@ class TestReportsCommand:
             assert result == 1
             assert "No local process summary found" in captured.out
 
-
     @pytest.mark.asyncio
     async def test_view_local_summary_readable_format(self, temp_dir, mock_run_name, sample_summary_data, capsys):
         """Test viewing local summary in human-readable format."""

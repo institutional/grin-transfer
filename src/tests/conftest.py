@@ -15,11 +15,8 @@ class ConfigBuilder:
             "run_name": "test_run",
             "sqlite_db_path": "/tmp/test.db",
             "library_directory": "test_library",
-            "storage_config": {
-                "type": "local",
-                "config": {"base_path": "/tmp"}
-            },
-            "sync_config": {}
+            "storage_config": {"type": "local", "config": {"base_path": "/tmp"}},
+            "sync_config": {},
         }
 
     def with_run_name(self, run_name: str):
@@ -39,40 +36,28 @@ class ConfigBuilder:
 
     def local_storage(self, base_path: str = "/tmp"):
         """Configure local storage."""
-        self._config["storage_config"] = {
-            "type": "local",
-            "config": {"base_path": base_path}
-        }
+        self._config["storage_config"] = {"type": "local", "config": {"base_path": base_path}}
         return self
 
     def s3_storage(self, bucket_raw: str = "test-raw", **kwargs):
         """Configure S3 storage."""
         config = {"bucket_raw": bucket_raw}
         config.update(kwargs)
-        self._config["storage_config"] = {
-            "type": "s3",
-            "config": config
-        }
+        self._config["storage_config"] = {"type": "s3", "config": config}
         return self
 
     def r2_storage(self, bucket_raw: str = "test-raw", bucket_meta: str = "test-meta", **kwargs):
         """Configure R2 storage."""
         config = {"bucket_raw": bucket_raw, "bucket_meta": bucket_meta}
         config.update(kwargs)
-        self._config["storage_config"] = {
-            "type": "r2",
-            "config": config
-        }
+        self._config["storage_config"] = {"type": "r2", "config": config}
         return self
 
     def minio_storage(self, bucket_raw: str = "test-raw", **kwargs):
         """Configure MinIO storage."""
         config = {"bucket_raw": bucket_raw}
         config.update(kwargs)
-        self._config["storage_config"] = {
-            "type": "minio",
-            "config": config
-        }
+        self._config["storage_config"] = {"type": "minio", "config": config}
         return self
 
     def with_sync_config(self, **kwargs):

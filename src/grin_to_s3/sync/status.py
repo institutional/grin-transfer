@@ -81,10 +81,10 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
 
         # Calculate enrichment completion percentage
         books_needing_enrichment = (
-            enrichment_stats["enriched"] +
-            enrichment_stats["failed"] +
-            enrichment_stats["pending"] +
-            enrichment_stats["in_progress"]
+            enrichment_stats["enriched"]
+            + enrichment_stats["failed"]
+            + enrichment_stats["pending"]
+            + enrichment_stats["in_progress"]
         )
         if books_needing_enrichment > 0:
             enrichment_percentage = (enrichment_stats["enriched"] / books_needing_enrichment) * 100
@@ -101,7 +101,7 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
                 else:
                     eta_days = eta_hours / 24
                     print(f"  Estimated completion: {eta_days:.1f} days")
-                print(f"  Current enrichment rate: {rate_stats["rate_per_hour"]:.1f} books/hour")
+                print(f"  Current enrichment rate: {rate_stats['rate_per_hour']:.1f} books/hour")
 
         print()
 
@@ -162,18 +162,16 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
 
             if recent_enrichments:
                 for barcode, status, timestamp, metadata in recent_enrichments:
-                    status_icon = {
-                        "completed": "✅",
-                        "failed": "❌",
-                        "in_progress": "🔄",
-                        "pending": "⏳"
-                    }.get(status, "❓")
+                    status_icon = {"completed": "✅", "failed": "❌", "in_progress": "🔄", "pending": "⏳"}.get(
+                        status, "❓"
+                    )
                     print(f"  {status_icon} {barcode} - {status} at {timestamp}")
 
                     # Show error details for failed enrichments
                     if status == "failed" and metadata:
                         try:
                             import json
+
                             meta = json.loads(metadata)
                             if "error_message" in meta:
                                 error_msg = meta["error_message"][:100]  # Truncate long errors

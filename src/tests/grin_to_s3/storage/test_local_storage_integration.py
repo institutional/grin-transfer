@@ -26,11 +26,12 @@ class TestLocalStorageIntegration:
             await tracker.close()
 
             # Create sync pipeline with local storage
-            config = (test_config_builder
-                     .with_db_path(str(db_path))
-                     .local_storage(temp_dir)
-                     .with_concurrent_downloads(1)
-                     .build())
+            config = (
+                test_config_builder.with_db_path(str(db_path))
+                .local_storage(temp_dir)
+                .with_concurrent_downloads(1)
+                .build()
+            )
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -64,10 +65,7 @@ class TestLocalStorageIntegration:
             await tracker.close()
 
             # Test case 1: Valid storage config
-            config = (test_config_builder
-                     .with_db_path(str(db_path))
-                     .local_storage("/valid/path")
-                     .build())
+            config = test_config_builder.with_db_path(str(db_path)).local_storage("/valid/path").build()
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -111,10 +109,7 @@ class TestLocalStorageIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            config = (test_config_builder
-                     .with_db_path(str(db_path))
-                     .local_storage(temp_dir)
-                     .build())
+            config = test_config_builder.with_db_path(str(db_path)).local_storage(temp_dir).build()
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -148,10 +143,7 @@ class TestLocalStorageIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            config = (test_config_builder
-                     .with_db_path(str(db_path))
-                     .local_storage(temp_dir)
-                     .build())
+            config = test_config_builder.with_db_path(str(db_path)).local_storage(temp_dir).build()
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,

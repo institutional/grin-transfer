@@ -381,7 +381,6 @@ class SyncPipeline:
             logger.debug("Enrichment disabled, not starting workers")
             return
 
-
         logger.info(f"Starting {self.enrichment_workers} enrichment {pluralize(self.enrichment_workers, 'worker')}")
 
         for worker_id in range(self.enrichment_workers):
@@ -412,7 +411,6 @@ class SyncPipeline:
             logger.debug("CSV export skipped due to --skip-csv-export flag")
             return {"status": "skipped", "file_size": 0, "num_rows": 0, "export_time": 0.0}
 
-
         try:
             # Create book storage for CSV upload
 
@@ -440,7 +438,7 @@ class SyncPipeline:
                     db_path=self.db_path,
                     staging_manager=self.staging_manager,
                     book_storage=book_storage,
-                    skip_export=False
+                    skip_export=False,
                 )
 
             if result["status"] == "completed":
@@ -957,7 +955,6 @@ class SyncPipeline:
                 logger.debug(
                     f"[{barcode}] Upload task completed (active: {self._active_upload_count}/{self.concurrent_uploads})"
                 )
-
 
     async def run_sync(self, limit: int | None = None, specific_barcodes: list[str] | None = None) -> None:
         """Run the complete sync pipeline.

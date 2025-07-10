@@ -50,6 +50,7 @@ def mock_grin_enrichment_pipeline():
 @pytest.fixture
 def mock_test_config(test_config_builder):
     """Create a test RunConfig for pipeline testing."""
+
     def _create_config(db_path: str, **kwargs):
         builder = test_config_builder.with_db_path(db_path)
 
@@ -75,7 +76,9 @@ def mock_test_config(test_config_builder):
         builder = builder.with_sync_config(**sync_config)
 
         return builder.build()
+
     return _create_config
+
 
 @pytest.fixture
 def mock_pipeline_dependencies():
@@ -100,7 +103,9 @@ def mock_pipeline_dependencies():
 class TestAsyncEnrichmentQueueInfrastructure:
     """Test enrichment queue infrastructure and configuration."""
 
-    def test_enrichment_queue_enabled_by_default(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config):
+    def test_enrichment_queue_enabled_by_default(
+        self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config
+    ):
         """Test that enrichment queue is enabled by default."""
         tracker, db_path = temp_db_tracker
 
@@ -116,7 +121,9 @@ class TestAsyncEnrichmentQueueInfrastructure:
         assert pipeline.enrichment_queue is not None
         assert pipeline.enrichment_queue.qsize() == 0
 
-    def test_enrichment_queue_can_be_disabled(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config):
+    def test_enrichment_queue_can_be_disabled(
+        self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config
+    ):
         """Test that enrichment queue can be disabled."""
         tracker, db_path = temp_db_tracker
 
@@ -131,11 +138,15 @@ class TestAsyncEnrichmentQueueInfrastructure:
         assert pipeline.enrichment_enabled is False
         assert pipeline.enrichment_queue is None
 
-    def test_enrichment_queue_configuration_options(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config):
+    def test_enrichment_queue_configuration_options(
+        self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config
+    ):
         """Test enrichment queue configuration options."""
         tracker, db_path = temp_db_tracker
 
-        config = mock_test_config(db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=3)
+        config = mock_test_config(
+            db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=3
+        )
         pipeline = SyncPipeline.from_run_config(
             config=config,
             process_summary_stage=mock_process_stage,
@@ -149,7 +160,9 @@ class TestAsyncEnrichmentQueueInfrastructure:
         assert pipeline.enrichment_queue is not None
 
     @pytest.mark.asyncio
-    async def test_enrichment_queue_size_tracking_in_stats(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config):
+    async def test_enrichment_queue_size_tracking_in_stats(
+        self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config
+    ):
         """Test that enrichment queue size is tracked in pipeline statistics."""
         tracker, db_path = temp_db_tracker
 
@@ -176,7 +189,9 @@ class TestAsyncEnrichmentQueueInfrastructure:
         assert status["session_stats"]["enrichment_queue_size"] == 3
 
     @pytest.mark.asyncio
-    async def test_enrichment_queue_size_zero_when_disabled(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config):
+    async def test_enrichment_queue_size_zero_when_disabled(
+        self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config
+    ):
         """Test that enrichment queue size is 0 when enrichment is disabled."""
         tracker, db_path = temp_db_tracker
 
@@ -199,11 +214,20 @@ class TestAsyncEnrichmentWorkerLifecycle:
     """Test enrichment worker lifecycle management."""
 
     @pytest.mark.asyncio
-    async def test_enrichment_workers_start_correctly(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage, mock_test_config):
+    async def test_enrichment_workers_start_correctly(
+        self,
+        temp_db_tracker,
+        mock_pipeline_dependencies,
+        mock_grin_enrichment_pipeline,
+        mock_process_stage,
+        mock_test_config,
+    ):
         """Test that enrichment workers start correctly."""
         tracker, db_path = temp_db_tracker
 
-        config = mock_test_config(db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=2)
+        config = mock_test_config(
+            db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=2
+        )
         pipeline = SyncPipeline.from_run_config(
             config=config,
             process_summary_stage=mock_process_stage,
@@ -221,7 +245,9 @@ class TestAsyncEnrichmentWorkerLifecycle:
         await pipeline.stop_enrichment_workers()
 
     @pytest.mark.asyncio
-    async def test_enrichment_workers_not_started_when_disabled(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config):
+    async def test_enrichment_workers_not_started_when_disabled(
+        self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config
+    ):
         """Test that enrichment workers are not started when disabled."""
         tracker, db_path = temp_db_tracker
 
@@ -239,11 +265,20 @@ class TestAsyncEnrichmentWorkerLifecycle:
         assert len(pipeline._enrichment_workers) == 0
 
     @pytest.mark.asyncio
-    async def test_enrichment_workers_process_queued_books(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage, mock_test_config):
+    async def test_enrichment_workers_process_queued_books(
+        self,
+        temp_db_tracker,
+        mock_pipeline_dependencies,
+        mock_grin_enrichment_pipeline,
+        mock_process_stage,
+        mock_test_config,
+    ):
         """Test that enrichment workers process queued books."""
         tracker, db_path = temp_db_tracker
 
-        config = mock_test_config(db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1)
+        config = mock_test_config(
+            db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1
+        )
         pipeline = SyncPipeline.from_run_config(
             config=config,
             process_summary_stage=mock_process_stage,
@@ -270,11 +305,20 @@ class TestAsyncEnrichmentWorkerLifecycle:
         await pipeline.stop_enrichment_workers()
 
     @pytest.mark.asyncio
-    async def test_enrichment_workers_graceful_shutdown(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage, mock_test_config):
+    async def test_enrichment_workers_graceful_shutdown(
+        self,
+        temp_db_tracker,
+        mock_pipeline_dependencies,
+        mock_grin_enrichment_pipeline,
+        mock_process_stage,
+        mock_test_config,
+    ):
         """Test graceful shutdown of enrichment workers."""
         tracker, db_path = temp_db_tracker
 
-        config = mock_test_config(db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=2)
+        config = mock_test_config(
+            db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=2
+        )
         pipeline = SyncPipeline.from_run_config(
             config=config,
             process_summary_stage=mock_process_stage,
@@ -304,11 +348,20 @@ class TestAsyncEnrichmentWorkerLifecycle:
         assert len(pipeline._enrichment_workers) == 0
 
     @pytest.mark.asyncio
-    async def test_enrichment_workers_multiple_worker_configuration(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage, mock_test_config):
+    async def test_enrichment_workers_multiple_worker_configuration(
+        self,
+        temp_db_tracker,
+        mock_pipeline_dependencies,
+        mock_grin_enrichment_pipeline,
+        mock_process_stage,
+        mock_test_config,
+    ):
         """Test multiple enrichment workers working concurrently."""
         tracker, db_path = temp_db_tracker
 
-        config = mock_test_config(db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=3)
+        config = mock_test_config(
+            db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=3
+        )
         pipeline = SyncPipeline.from_run_config(
             config=config,
             process_summary_stage=mock_process_stage,
@@ -342,7 +395,9 @@ class TestAsyncEnrichmentEndToEndIntegration:
     """Test end-to-end integration of async enrichment with sync pipeline."""
 
     @pytest.mark.asyncio
-    async def test_book_queued_for_enrichment_after_successful_upload(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config):
+    async def test_book_queued_for_enrichment_after_successful_upload(
+        self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config
+    ):
         """Test that books are automatically queued for enrichment after successful upload."""
         tracker, db_path = temp_db_tracker
 
@@ -373,7 +428,9 @@ class TestAsyncEnrichmentEndToEndIntegration:
         assert result[0] == "pending"
 
     @pytest.mark.asyncio
-    async def test_enrichment_disabled_does_not_queue_books(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config):
+    async def test_enrichment_disabled_does_not_queue_books(
+        self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config
+    ):
         """Test that books are not queued when enrichment is disabled."""
         tracker, db_path = temp_db_tracker
 
@@ -403,7 +460,9 @@ class TestAsyncEnrichmentEndToEndIntegration:
         assert count == 0
 
     @pytest.mark.asyncio
-    async def test_enrichment_with_different_storage_types(self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config):
+    async def test_enrichment_with_different_storage_types(
+        self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config
+    ):
         """Test enrichment works with different storage types."""
         tracker, db_path = temp_db_tracker
 
@@ -435,11 +494,20 @@ class TestAsyncEnrichmentErrorHandling:
     """Test error handling and recovery in async enrichment."""
 
     @pytest.mark.asyncio
-    async def test_enrichment_worker_handles_grin_api_failures(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage, mock_test_config):
+    async def test_enrichment_worker_handles_grin_api_failures(
+        self,
+        temp_db_tracker,
+        mock_pipeline_dependencies,
+        mock_grin_enrichment_pipeline,
+        mock_process_stage,
+        mock_test_config,
+    ):
         """Test that enrichment workers handle GRIN API failures gracefully."""
         tracker, db_path = temp_db_tracker
 
-        config = mock_test_config(db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1)
+        config = mock_test_config(
+            db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1
+        )
         pipeline = SyncPipeline.from_run_config(
             config=config,
             process_summary_stage=mock_process_stage,
@@ -480,11 +548,20 @@ class TestAsyncEnrichmentErrorHandling:
         await pipeline.stop_enrichment_workers()
 
     @pytest.mark.asyncio
-    async def test_enrichment_worker_continues_after_single_failure(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage, mock_test_config):
+    async def test_enrichment_worker_continues_after_single_failure(
+        self,
+        temp_db_tracker,
+        mock_pipeline_dependencies,
+        mock_grin_enrichment_pipeline,
+        mock_process_stage,
+        mock_test_config,
+    ):
         """Test that enrichment workers continue processing after single failures."""
         tracker, db_path = temp_db_tracker
 
-        config = mock_test_config(db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1)
+        config = mock_test_config(
+            db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1
+        )
         pipeline = SyncPipeline.from_run_config(
             config=config,
             process_summary_stage=mock_process_stage,
@@ -492,6 +569,7 @@ class TestAsyncEnrichmentErrorHandling:
 
         # Configure mock to fail first call, succeed second
         call_count = 0
+
         def mock_enrichment(*args, **kwargs):
             nonlocal call_count
             call_count += 1
@@ -532,11 +610,20 @@ class TestAsyncEnrichmentErrorHandling:
         await pipeline.stop_enrichment_workers()
 
     @pytest.mark.asyncio
-    async def test_enrichment_worker_handles_database_errors(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage, mock_test_config):
+    async def test_enrichment_worker_handles_database_errors(
+        self,
+        temp_db_tracker,
+        mock_pipeline_dependencies,
+        mock_grin_enrichment_pipeline,
+        mock_process_stage,
+        mock_test_config,
+    ):
         """Test enrichment workers handle database errors gracefully."""
         tracker, db_path = temp_db_tracker
 
-        config = mock_test_config(db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1)
+        config = mock_test_config(
+            db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1
+        )
         pipeline = SyncPipeline.from_run_config(
             config=config,
             process_summary_stage=mock_process_stage,
@@ -569,11 +656,20 @@ class TestAsyncEnrichmentDatabaseIntegration:
     """Test database integration for async enrichment."""
 
     @pytest.mark.asyncio
-    async def test_enrichment_status_tracking(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage, mock_test_config):
+    async def test_enrichment_status_tracking(
+        self,
+        temp_db_tracker,
+        mock_pipeline_dependencies,
+        mock_grin_enrichment_pipeline,
+        mock_process_stage,
+        mock_test_config,
+    ):
         """Test that enrichment status is properly tracked in database."""
         tracker, db_path = temp_db_tracker
 
-        config = mock_test_config(db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1)
+        config = mock_test_config(
+            db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1
+        )
         pipeline = SyncPipeline.from_run_config(
             config=config,
             process_summary_stage=mock_process_stage,
@@ -612,11 +708,20 @@ class TestAsyncEnrichmentDatabaseIntegration:
         await pipeline.stop_enrichment_workers()
 
     @pytest.mark.asyncio
-    async def test_enrichment_metadata_storage(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage, mock_test_config):
+    async def test_enrichment_metadata_storage(
+        self,
+        temp_db_tracker,
+        mock_pipeline_dependencies,
+        mock_grin_enrichment_pipeline,
+        mock_process_stage,
+        mock_test_config,
+    ):
         """Test that enrichment metadata is properly stored."""
         tracker, db_path = temp_db_tracker
 
-        config = mock_test_config(db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1)
+        config = mock_test_config(
+            db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1
+        )
         pipeline = SyncPipeline.from_run_config(
             config=config,
             process_summary_stage=mock_process_stage,
@@ -654,11 +759,20 @@ class TestAsyncEnrichmentDatabaseIntegration:
         await pipeline.stop_enrichment_workers()
 
     @pytest.mark.asyncio
-    async def test_enrichment_no_data_handling(self, temp_db_tracker, mock_pipeline_dependencies, mock_grin_enrichment_pipeline, mock_process_stage, mock_test_config):
+    async def test_enrichment_no_data_handling(
+        self,
+        temp_db_tracker,
+        mock_pipeline_dependencies,
+        mock_grin_enrichment_pipeline,
+        mock_process_stage,
+        mock_test_config,
+    ):
         """Test handling of books with no enrichment data."""
         tracker, db_path = temp_db_tracker
 
-        config = mock_test_config(db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1)
+        config = mock_test_config(
+            db_path, storage_type="local", storage_config={"base_path": "/tmp"}, enrichment_workers=1
+        )
         pipeline = SyncPipeline.from_run_config(
             config=config,
             process_summary_stage=mock_process_stage,

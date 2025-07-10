@@ -29,12 +29,13 @@ class TestBlockStorageSyncIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            config = (test_config_builder
-                     .with_db_path(str(db_path))
-                     .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
-                     .with_concurrent_downloads(1)
-                     .with_staging_dir(str(staging_dir))
-                     .build())
+            config = (
+                test_config_builder.with_db_path(str(db_path))
+                .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                .with_concurrent_downloads(1)
+                .with_staging_dir(str(staging_dir))
+                .build()
+            )
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -96,10 +97,11 @@ class TestBlockStorageSyncIntegration:
             await tracker.close()
 
             # Test that cloud storage creates staging manager
-            cloud_config = (test_config_builder
-                           .with_db_path(str(db_path))
-                           .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
-                           .build())
+            cloud_config = (
+                test_config_builder.with_db_path(str(db_path))
+                .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                .build()
+            )
 
             cloud_pipeline = SyncPipeline.from_run_config(
                 config=cloud_config,
@@ -107,10 +109,7 @@ class TestBlockStorageSyncIntegration:
             )
 
             # Test that local storage doesn't create staging manager
-            local_config = (test_config_builder
-                           .with_db_path(str(db_path))
-                           .local_storage(temp_dir)
-                           .build())
+            local_config = test_config_builder.with_db_path(str(db_path)).local_storage(temp_dir).build()
 
             local_pipeline = SyncPipeline.from_run_config(
                 config=local_config,
@@ -134,13 +133,14 @@ class TestBlockStorageSyncIntegration:
             await tracker.close()
 
             # Create pipeline with specific concurrency limits
-            config = (test_config_builder
-                     .with_db_path(str(db_path))
-                     .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
-                     .with_concurrent_downloads(2)
-                     .with_concurrent_uploads(3)
-                     .with_staging_dir(str(staging_dir))
-                     .build())
+            config = (
+                test_config_builder.with_db_path(str(db_path))
+                .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                .with_concurrent_downloads(2)
+                .with_concurrent_uploads(3)
+                .with_staging_dir(str(staging_dir))
+                .build()
+            )
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -163,11 +163,12 @@ class TestBlockStorageSyncIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            config = (test_config_builder
-                     .with_db_path(str(db_path))
-                     .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
-                     .with_staging_dir(str(staging_dir))
-                     .build())
+            config = (
+                test_config_builder.with_db_path(str(db_path))
+                .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                .with_staging_dir(str(staging_dir))
+                .build()
+            )
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -192,12 +193,13 @@ class TestBlockStorageSyncIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            config = (test_config_builder
-                     .with_db_path(str(db_path))
-                     .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
-                     .with_concurrent_downloads(1)
-                     .with_staging_dir(str(staging_dir))
-                     .build())
+            config = (
+                test_config_builder.with_db_path(str(db_path))
+                .s3_storage(access_key="test", secret_key="test", bucket_raw="test")
+                .with_concurrent_downloads(1)
+                .with_staging_dir(str(staging_dir))
+                .build()
+            )
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,

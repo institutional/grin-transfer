@@ -49,7 +49,7 @@ class TestProcessSummaryIntegration:
             # The specific behavior depends on implementation, but should handle gracefully
             assert summary2.run_name == mock_run_name
             assert "collect" in summary2.stages  # Previous stage should be preserved
-            assert "sync" in summary2.stages     # New stage should be added
+            assert "sync" in summary2.stages  # New stage should be added
 
     @pytest.mark.asyncio
     async def test_command_specific_metrics(self, temp_dir, mock_run_name):
@@ -65,13 +65,15 @@ class TestProcessSummaryIntegration:
             sync_stage = summary.stages["sync"]
 
             # Set command-specific arguments
-            sync_stage.command_args.update({
-                "storage_type": "r2",
-                "concurrent_downloads": 5,
-                "concurrent_uploads": 10,
-                "batch_size": 100,
-                "force_mode": False
-            })
+            sync_stage.command_args.update(
+                {
+                    "storage_type": "r2",
+                    "concurrent_downloads": 5,
+                    "concurrent_uploads": 10,
+                    "batch_size": 100,
+                    "force_mode": False,
+                }
+            )
 
             sync_stage.increment_items(processed=50, successful=48, failed=2)
             sync_stage.add_progress_update("Sync pipeline completed")
@@ -142,11 +144,7 @@ class TestProcessSummaryIntegration:
             assert summary.run_name == mock_run_name
 
             sync_stage = summary.stages["sync"]
-            sync_stage.command_args.update({
-                "storage_type": "r2",
-                "concurrent_downloads": 5,
-                "force_mode": False
-            })
+            sync_stage.command_args.update({"storage_type": "r2", "concurrent_downloads": 5, "force_mode": False})
 
             sync_stage.add_progress_update("Starting sync pipeline")
             sync_stage.increment_items(processed=50, successful=48, failed=2, bytes_count=1048576)
@@ -172,12 +170,9 @@ class TestProcessSummaryIntegration:
             assert summary.run_name == mock_run_name
 
             process_stage = summary.stages["process"]
-            process_stage.command_args.update({
-                "grin_library_directory": "MIT",
-                "rate_limit": 0.2,
-                "batch_size": 1000,
-                "status_only": False
-            })
+            process_stage.command_args.update(
+                {"grin_library_directory": "MIT", "rate_limit": 0.2, "batch_size": 1000, "status_only": False}
+            )
 
             process_stage.add_progress_update("Starting processing requests")
             process_stage.increment_items(processed=500, successful=495, failed=5, retried=3)
@@ -204,12 +199,9 @@ class TestProcessSummaryIntegration:
             assert summary.run_name == mock_run_name
 
             enrich_stage = summary.stages["enrich"]
-            enrich_stage.command_args.update({
-                "grin_library_directory": "Columbia",
-                "rate_limit": 5.0,
-                "batch_size": 500,
-                "force_mode": True
-            })
+            enrich_stage.command_args.update(
+                {"grin_library_directory": "Columbia", "rate_limit": 5.0, "batch_size": 500, "force_mode": True}
+            )
 
             enrich_stage.add_progress_update("Starting enrichment")
             enrich_stage.increment_items(processed=300, successful=298, failed=2)
