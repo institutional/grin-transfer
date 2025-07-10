@@ -147,9 +147,11 @@ class TestProcessSummaryUpload:
         mock_run_config = MagicMock()
         mock_run_config.storage_type = "s3"
         mock_run_config.storage_config = {
-            "bucket_raw": "test-raw",
-            "bucket_meta": "test-meta",
-            "bucket_full": "test-full",
+            "config": {
+                "bucket_raw": "test-raw",
+                "bucket_meta": "test-meta",
+                "bucket_full": "test-full",
+            }
         }
 
         # Mock storage creation

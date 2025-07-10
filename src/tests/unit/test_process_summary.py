@@ -150,8 +150,14 @@ class TestProcessSummaryFunctions:
 
     async def test_save_process_summary(self, temp_dir):
         """Test save_process_summary function."""
-        with patch("grin_to_s3.process_summary.Path") as mock_path:
-            mock_path.return_value = temp_dir / "test_run"
+        import os
+
+        # Save current directory
+        original_cwd = os.getcwd()
+
+        try:
+            # Change to temp directory so relative paths work
+            os.chdir(temp_dir)
 
             summary = RunSummary(run_name="test_run")
             stage = summary.start_stage("test_stage")
@@ -161,5 +167,8 @@ class TestProcessSummaryFunctions:
             await save_process_summary(summary)
 
             # Check that file was created
-            summary_file = temp_dir / "test_run" / "process_summary.json"
+            summary_file = temp_dir / "output" / "test_run" / "process_summary.json"
             assert summary_file.exists()
+        finally:
+            # Restore original directory
+            os.chdir(original_cwd)

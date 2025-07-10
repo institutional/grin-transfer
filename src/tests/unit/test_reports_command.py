@@ -1,5 +1,5 @@
 """
-Simple tests for the logs command functionality.
+Simple tests for the reports command functionality.
 """
 
 import json
@@ -9,11 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.logs.__main__ import handle_view
+from grin_to_s3.reports.__main__ import handle_view
 
 
-class TestLogsCommand:
-    """Test logs command functionality."""
+class TestReportsCommand:
+    """Test reports command functionality."""
 
     @pytest.fixture
     def temp_dir(self):
@@ -59,7 +59,7 @@ class TestLogsCommand:
         args.raw = True
 
         # Create summary file
-        with patch("grin_to_s3.logs.__main__.RunSummaryManager") as mock_manager_class:
+        with patch("grin_to_s3.reports.__main__.RunSummaryManager") as mock_manager_class:
             mock_manager = MagicMock()
             mock_manager.summary_file = temp_dir / "process_summary.json"
             mock_manager._summary_file_exists = AsyncMock(return_value=True)
@@ -90,7 +90,7 @@ class TestLogsCommand:
         args.run_name = mock_run_name
         args.raw = False
 
-        with patch("grin_to_s3.logs.__main__.RunSummaryManager") as mock_manager_class:
+        with patch("grin_to_s3.reports.__main__.RunSummaryManager") as mock_manager_class:
             mock_manager = MagicMock()
             mock_manager.summary_file = Path("nonexistent/process_summary.json")
             mock_manager._summary_file_exists = AsyncMock(return_value=False)
@@ -116,7 +116,7 @@ class TestLogsCommand:
         args.raw = False
 
         # Create summary file
-        with patch("grin_to_s3.logs.__main__.RunSummaryManager") as mock_manager_class:
+        with patch("grin_to_s3.reports.__main__.RunSummaryManager") as mock_manager_class:
             mock_manager = MagicMock()
             mock_manager.summary_file = temp_dir / "process_summary.json"
             mock_manager._summary_file_exists = AsyncMock(return_value=True)

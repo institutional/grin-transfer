@@ -10,7 +10,7 @@ import asyncio
 import json
 import sys
 
-from grin_to_s3.process_summary import RunSummaryManager, create_book_storage_for_uploads
+from grin_to_s3.process_summary import RunSummaryManager
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -35,16 +35,16 @@ async def handle_view(args) -> int:
     try:
         # View local summary
         manager = RunSummaryManager(args.run_name)
-        
+
         if not await manager._summary_file_exists():
             print(f"No local process summary found for run '{args.run_name}'")
             print(f"Expected location: {manager.summary_file}")
             return 1
-        
+
         try:
             with open(manager.summary_file) as f:
                 summary = json.load(f)
-            
+
             if args.raw:
                 print(json.dumps(summary, indent=2))
             else:
@@ -63,7 +63,7 @@ async def handle_view(args) -> int:
                         print(f"  {status} {stage_name}: {stage_data['items_processed']} items")
 
             return 0
-            
+
         except Exception as e:
             print(f"Error reading process summary: {e}")
             return 1
