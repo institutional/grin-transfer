@@ -93,6 +93,7 @@ class TestSyncOCRPipelineIntegration:
         with (
             patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
+            patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"),
             patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
         ):
             # Mock successful decryption (already done above)
@@ -230,6 +231,7 @@ class TestSyncOCRPipelineIntegration:
         with (
             patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
+            patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"),
             patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
         ):
             mock_decrypt.return_value = None
@@ -300,6 +302,7 @@ class TestSyncOCRPipelineIntegration:
         with (
             patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
+            patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"),
             patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
         ):
             mock_decrypt.return_value = None

@@ -89,16 +89,18 @@ class TestBucketPrefixingBehavior:
                     mock_book_storage_class.return_value = mock_book_storage
 
                     # Call the function
-                    await upload_book_from_staging(
-                        barcode="TEST123",
-                        staging_file_path=str(staging_file),
-                        storage_type="local",
-                        storage_config=config,
-                        staging_manager=None,
-                        db_tracker=None,
-                        encrypted_etag="test-etag",
-                        skip_extract_ocr=True,
-                    )
+                    with patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"):
+                        await upload_book_from_staging(
+                            barcode="TEST123",
+                            staging_file_path=str(staging_file),
+                            storage_type="local",
+                            storage_config=config,
+                            staging_manager=None,
+                            db_tracker=None,
+                            encrypted_etag="test-etag",
+                            skip_extract_ocr=True,
+                            skip_extract_marc=True,
+                        )
 
                     # Verify BookStorage was created with correct parameters
                     mock_book_storage_class.assert_called_once()
@@ -130,16 +132,18 @@ class TestBucketPrefixingBehavior:
                 mock_book_storage_class.return_value = mock_book_storage
 
                 # Call the function
-                await upload_book_from_staging(
-                    barcode="TEST123",
-                    staging_file_path=str(staging_file),
-                    storage_type="s3",
-                    storage_config=config,
-                    staging_manager=None,
-                    db_tracker=None,
-                    encrypted_etag="test-etag",
-                    skip_extract_ocr=True,
-                )
+                with patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"):
+                    await upload_book_from_staging(
+                        barcode="TEST123",
+                        staging_file_path=str(staging_file),
+                        storage_type="s3",
+                        storage_config=config,
+                        staging_manager=None,
+                        db_tracker=None,
+                        encrypted_etag="test-etag",
+                        skip_extract_ocr=True,
+                        skip_extract_marc=True,
+                    )
 
                 # Verify BookStorage was created with correct parameters
                 mock_book_storage_class.assert_called_once()
@@ -173,16 +177,18 @@ class TestBucketPrefixingBehavior:
                     mock_book_storage_class.return_value = AsyncMock()
 
                     # Call the function
-                    await upload_book_from_staging(
-                        barcode="TEST123",
-                        staging_file_path=str(staging_file),
-                        storage_type=storage_type,
-                        storage_config=config,
-                        staging_manager=None,
-                        db_tracker=None,
-                        encrypted_etag="test-etag",
-                        skip_extract_ocr=True,
-                    )
+                    with patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"):
+                        await upload_book_from_staging(
+                            barcode="TEST123",
+                            staging_file_path=str(staging_file),
+                            storage_type=storage_type,
+                            storage_config=config,
+                            staging_manager=None,
+                            db_tracker=None,
+                            encrypted_etag="test-etag",
+                            skip_extract_ocr=True,
+                            skip_extract_marc=True,
+                        )
 
                     # Get the base_prefix passed to BookStorage
                     call_args = mock_book_storage_class.call_args
