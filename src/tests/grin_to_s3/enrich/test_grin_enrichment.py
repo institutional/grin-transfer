@@ -13,7 +13,7 @@ import pytest_asyncio
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
-from grin_to_s3.grin_enrichment import GRINEnrichmentPipeline
+from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from tests.mocks import MockGRINClient
 
 
