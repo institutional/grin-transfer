@@ -369,8 +369,8 @@ async def extract_and_update_marc_metadata(
                 await write_status(
                     db_tracker.db_path,
                     barcode,
-                    ExtractionStatus.UPLOADING,
-                    metadata={"extraction_type": "marc", "fields_count": len(marc_metadata)},
+                    ExtractionStatus.EXTRACTING,
+                    metadata={"extraction_type": "marc", "fields_count": len(marc_metadata), "stage": "database_update"},
                     session_id=session_id,
                 )
 
