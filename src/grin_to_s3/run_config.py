@@ -20,6 +20,7 @@ DEFAULT_SYNC_DISK_SPACE_THRESHOLD = 0.9
 DEFAULT_SYNC_ENRICHMENT_WORKERS = 1
 
 
+
 class RunConfig:
     """Configuration for a specific collection run."""
 
@@ -350,7 +351,10 @@ def setup_run_database_path(args: Any, run_name: str) -> str:
     Returns:
         Database path that was set
     """
-    db_path = f"output/{run_name}/books.db"
+    # Resolve path relative to grin.py location (project root)
+    # Go up from src/grin_to_s3/run_config.py to project root
+    project_root = Path(__file__).parent.parent.parent
+    db_path = str(project_root / "output" / run_name / "books.db")
     args.db_path = db_path
     apply_run_config_to_args(args, db_path)
     return db_path
