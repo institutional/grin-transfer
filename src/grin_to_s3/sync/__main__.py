@@ -126,11 +126,11 @@ async def cmd_pipeline(args) -> None:
     logger.info(f"Command: {' '.join(sys.argv)}")
 
     # Import and create pipeline
-    from grin_to_s3.process_summary import create_book_storage_for_uploads
+    from grin_to_s3.process_summary import create_book_manager_for_uploads
     from grin_to_s3.sync.pipeline import SyncPipeline
 
     # Create book storage for process summary uploads
-    book_storage = await create_book_storage_for_uploads(args.run_name)
+    book_storage = await create_book_manager_for_uploads(args.run_name)
 
     # Create or load process summary
     run_summary = await create_process_summary(args.run_name, "sync", book_storage)
