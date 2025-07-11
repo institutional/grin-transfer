@@ -16,6 +16,7 @@ from grin_to_s3.sync.operations import (
     sync_book_to_local_storage,
     upload_book_from_staging,
 )
+from tests.test_utils.parametrize_helpers import extraction_scenarios_parametrize, meaningful_storage_parametrize
 from tests.test_utils.sync_mocks import mock_minimal_upload, mock_upload_operations
 
 
@@ -280,10 +281,11 @@ class TestOCRExtractionIntegration:
             mock_book_storage.save_ocr_text_jsonl_from_file.assert_called_once()
 
     @pytest.mark.asyncio
+    @meaningful_storage_parametrize()
     async def test_upload_book_from_staging_with_ocr_extraction(
-        self, mock_storage_config, mock_staging_manager, mock_progress_tracker
+        self, storage_type, mock_storage_config, mock_staging_manager, mock_progress_tracker
     ):
-        """Test upload_book_from_staging with OCR extraction enabled."""
+        """Test upload_book_from_staging with OCR extraction enabled across local vs cloud storage."""
         # Set up properly configured mock staging manager
         mock_staging_manager.cleanup_files.return_value = 1024 * 1024  # Return int, not MagicMock
 
@@ -291,7 +293,7 @@ class TestOCRExtractionIntegration:
             result = await upload_book_from_staging(
                 "TEST123",
                 "/staging/TEST123.tar.gz.gpg",
-                "minio",
+                storage_type,
                 mock_storage_config,
                 mock_staging_manager,
                 mock_progress_tracker,
@@ -309,14 +311,15 @@ class TestOCRExtractionIntegration:
             assert result["barcode"] == "TEST123"
 
     @pytest.mark.asyncio
-    async def test_upload_book_from_staging_skip_ocr_extraction(
-        self, mock_storage_config, mock_staging_manager, mock_progress_tracker
+    @extraction_scenarios_parametrize()
+    async def test_upload_book_from_staging_extraction_scenarios(
+        self, skip_ocr, skip_marc, mock_storage_config, mock_staging_manager, mock_progress_tracker
     ):
-        """Test upload_book_from_staging with OCR extraction disabled."""
+        """Test upload_book_from_staging with different extraction scenarios."""
         # Set up properly configured mock staging manager
         mock_staging_manager.cleanup_files.return_value = 1024 * 1024  # Return int, not MagicMock
 
-        with mock_upload_operations(skip_ocr=True, skip_marc=True) as mocks:
+        with mock_upload_operations(skip_ocr=skip_ocr, skip_marc=skip_marc) as mocks:
             result = await upload_book_from_staging(
                 "TEST123",
                 "/staging/TEST123.tar.gz.gpg",
@@ -327,13 +330,22 @@ class TestOCRExtractionIntegration:
                 "encrypted_etag_123",
                 "gpg_key_file",
                 "secrets_dir",
-                skip_extract_ocr=True,  # OCR extraction disabled
+                skip_extract_ocr=skip_ocr,
+                skip_extract_marc=skip_marc,
             )
 
-            # Verify OCR extraction was NOT called
-            mocks.extract_ocr.assert_not_called()
+            # Verify extraction behavior based on parameters
+            if skip_ocr:
+                mocks.extract_ocr.assert_not_called()
+            else:
+                mocks.extract_ocr.assert_called_once()
 
-            # Verify successful result
+            if skip_marc:
+                mocks.extract_marc.assert_not_called()
+            else:
+                mocks.extract_marc.assert_called_once()
+
+            # Verify successful result regardless of extraction scenario
             assert result["status"] == "completed"
             assert result["barcode"] == "TEST123"
 
@@ -377,18 +389,35 @@ class TestBookStorageIntegrationInSync:
     """Test real BookStorage initialization in sync operations."""
 
     @pytest.mark.asyncio
-    async def test_upload_book_from_staging_real_book_storage_initialization(self):
-        """Test that upload_book_from_staging correctly initializes BookStorage."""
+    @meaningful_storage_parametrize()
+    async def test_upload_book_from_staging_real_book_storage_initialization(self, storage_type):
+        """Test that upload_book_from_staging correctly initializes BookStorage across local vs cloud storage."""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create proper storage config with bucket information
-            storage_config = {
-                "type": "local",
-                "bucket_raw": "test-raw",
-                "bucket_meta": "test-meta",
-                "bucket_full": "test-full",
-                "config": {"base_path": temp_dir},
-                "prefix": "",
-            }
+            if storage_type == "local":
+                storage_config = {
+                    "type": storage_type,
+                    "bucket_raw": "test-raw",
+                    "bucket_meta": "test-meta",
+                    "bucket_full": "test-full",
+                    "config": {"base_path": temp_dir},
+                    "prefix": "",
+                }
+            else:
+                # For cloud storage types (s3, r2, minio)
+                storage_config = {
+                    "type": storage_type,
+                    "bucket_raw": "test-raw",
+                    "bucket_meta": "test-meta",
+                    "bucket_full": "test-full",
+                    "config": {
+                        "endpoint_url": f"https://test-{storage_type}.example.com",
+                        "access_key_id": "test-key",
+                        "secret_access_key": "test-secret",
+                        "region": "test-region",
+                    },
+                    "prefix": "",
+                }
 
             # Mock other dependencies but let BookStorage initialize normally
             mock_staging_manager = MagicMock()
@@ -416,7 +445,7 @@ class TestBookStorageIntegrationInSync:
                 result = await upload_book_from_staging(
                     "TEST123",
                     str(encrypted_file),
-                    "local",
+                    storage_type,
                     storage_config,
                     mock_staging_manager,
                     mock_progress_tracker,

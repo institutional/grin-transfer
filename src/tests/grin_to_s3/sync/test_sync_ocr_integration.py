@@ -19,6 +19,10 @@ import pytest
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.extract.tracking import TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus
 from grin_to_s3.sync.operations import upload_book_from_staging
+from tests.test_utils.parametrize_helpers import (
+    combined_scenarios_parametrize,
+    meaningful_storage_parametrize,
+)
 from tests.test_utils.sync_mocks import mock_upload_operations
 from tests.utils import create_test_archive
 
@@ -77,10 +81,11 @@ class TestSyncOCRPipelineIntegration:
     """Integration tests for OCR extraction in sync pipeline."""
 
     @pytest.mark.asyncio
+    @meaningful_storage_parametrize()
     async def test_sync_pipeline_with_ocr_extraction_success(
-        self, temp_db_tracker, mock_staging_manager, test_archive_with_ocr
+        self, storage_type, temp_db_tracker, mock_staging_manager, test_archive_with_ocr
     ):
-        """Test complete sync pipeline with successful OCR extraction."""
+        """Test complete sync pipeline with successful OCR extraction across local vs cloud storage."""
         barcode = "TEST123456789"
 
         # Copy test archive to staging as if it was decrypted
@@ -111,11 +116,17 @@ class TestSyncOCRPipelineIntegration:
             mock_extract_marc.return_value = None
 
             # Execute upload with OCR extraction (using real OCR extraction, not mocked)
+            storage_config = {"base_path": "/tmp/storage"} if storage_type == "local" else {
+                "endpoint_url": f"https://test-{storage_type}.example.com",
+                "access_key_id": "test-key",
+                "secret_access_key": "test-secret",
+            }
+
             result = await upload_book_from_staging(
                 barcode,
                 str(decrypted_file) + ".gpg",  # Simulate encrypted filename
-                "local",
-                {"base_path": "/tmp/storage"},
+                storage_type,
+                storage_config,
                 mock_staging_manager,
                 temp_db_tracker,
                 "encrypted_etag_123",
@@ -150,10 +161,11 @@ class TestSyncOCRPipelineIntegration:
             assert "_ocr_temp.jsonl" in str(uploaded_file_path)
 
     @pytest.mark.asyncio
+    @meaningful_storage_parametrize()
     async def test_sync_pipeline_with_ocr_extraction_disabled(
-        self, temp_db_tracker, mock_staging_manager, test_archive_with_ocr
+        self, storage_type, temp_db_tracker, mock_staging_manager, test_archive_with_ocr
     ):
-        """Test sync pipeline with OCR extraction disabled."""
+        """Test sync pipeline with OCR extraction disabled across local vs cloud storage."""
         barcode = "TEST123456789"
 
         # Copy test archive to staging
@@ -177,11 +189,17 @@ class TestSyncOCRPipelineIntegration:
             mock_book_storage_class.return_value = mock_storage
 
             # Execute upload with OCR extraction DISABLED
+            storage_config = {"base_path": "/tmp/storage"} if storage_type == "local" else {
+                "endpoint_url": f"https://test-{storage_type}.example.com",
+                "access_key_id": "test-key",
+                "secret_access_key": "test-secret",
+            }
+
             result = await upload_book_from_staging(
                 barcode,
                 str(decrypted_file) + ".gpg",
-                "local",
-                {"base_path": "/tmp/storage"},
+                storage_type,
+                storage_config,
                 mock_staging_manager,
                 temp_db_tracker,
                 "encrypted_etag_123",
@@ -292,6 +310,66 @@ class TestSyncOCRPipelineIntegration:
             # The extraction task should have been cancelled, but we can't easily verify
             # the cancellation without more complex mocking. The important thing is that
             # the upload failure is handled correctly and the function returns.
+
+    @pytest.mark.asyncio
+    @combined_scenarios_parametrize()
+    async def test_sync_pipeline_comprehensive_scenarios(
+        self, storage_type, skip_ocr, skip_marc, temp_db_tracker, mock_staging_manager, test_archive_with_ocr
+    ):
+        """Test sync pipeline with all combinations of storage types and extraction scenarios."""
+        barcode = "TEST123456789"
+
+        # Copy test archive to staging as if it was decrypted
+        decrypted_file = mock_staging_manager.get_decrypted_file_path(barcode)
+        decrypted_file.parent.mkdir(parents=True, exist_ok=True)
+
+        # Copy archive content
+        with open(test_archive_with_ocr, "rb") as src, open(decrypted_file, "wb") as dst:
+            dst.write(src.read())
+
+        with mock_upload_operations(skip_ocr=skip_ocr, skip_marc=skip_marc) as mocks:
+            # Configure storage config based on storage type
+            if storage_type == "local":
+                storage_config = {"base_path": "/tmp/storage"}
+            else:
+                storage_config = {
+                    "endpoint_url": f"https://test-{storage_type}.example.com",
+                    "access_key_id": "test-key",
+                    "secret_access_key": "test-secret",
+                }
+
+            # Execute upload with the specified extraction and storage configuration
+            result = await upload_book_from_staging(
+                barcode,
+                str(decrypted_file) + ".gpg",  # Simulate encrypted filename
+                storage_type,
+                storage_config,
+                mock_staging_manager,
+                temp_db_tracker,
+                "encrypted_etag_123",
+                None,  # gpg_key_file
+                None,  # secrets_dir
+                skip_extract_ocr=skip_ocr,
+                skip_extract_marc=skip_marc,
+            )
+
+            # Verify successful sync regardless of configuration
+            assert result["status"] == "completed"
+            assert result["barcode"] == barcode
+
+            # Verify archive upload was always called
+            mocks.book_storage.save_decrypted_archive_from_file.assert_called_once()
+
+            # Verify extraction behavior based on parameters
+            if skip_ocr:
+                mocks.extract_ocr.assert_not_called()
+            else:
+                mocks.extract_ocr.assert_called_once()
+
+            if skip_marc:
+                mocks.extract_marc.assert_not_called()
+            else:
+                mocks.extract_marc.assert_called_once()
 
 
 class TestOCRExtractionDatabaseTracking:

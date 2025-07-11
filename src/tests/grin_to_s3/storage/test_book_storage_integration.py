@@ -389,3 +389,47 @@ class TestBookStorageIntegration:
             # Verify returned paths use custom filename
             assert latest_path == "meta/custom_books.csv"
             assert timestamped_path.startswith("meta/timestamped/books_")  # Timestamped always uses books_ prefix
+
+    def test_save_ocr_text_jsonl_cloud_storage_integration(self):
+        """Test OCR text JSONL saving with S3-compatible cloud storage (mocked)."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Create mock storage for cloud backends
+            mock_storage = MagicMock()
+            mock_storage.is_s3_compatible.return_value = True
+
+            # Mock the async storage methods
+            mock_storage.write_file = AsyncMock(return_value=None)
+            mock_storage.write_bytes_with_metadata = AsyncMock(return_value="test-full/test12345.jsonl")
+
+            bucket_config = {"bucket_raw": "test-raw", "bucket_meta": "test-meta", "bucket_full": "test-full"}
+            book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config)
+
+            text_pages = ["First page content", "Second page content", "Third page content"]
+            barcode = "test12345"
+
+            # Create temp JSONL file
+            jsonl_file = Path(temp_dir) / f"{barcode}.jsonl"
+            with open(jsonl_file, "w", encoding="utf-8") as f:
+                for page in text_pages:
+                    f.write(json.dumps(page, ensure_ascii=False) + "\n")
+
+            import asyncio
+
+            async def test_save():
+                return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
+
+            # Run the async test
+            result_path = asyncio.run(test_save())
+
+            # Verify the storage write method was called
+            mock_storage.write_file.assert_called_once()
+
+            # Verify the call arguments
+            call_args = mock_storage.write_file.call_args
+            assert call_args[0][0] == f"test-full/{barcode}.jsonl"  # path argument
+            assert str(jsonl_file) in str(call_args[0][1])  # file path argument
+
+            # Verify returned path (should include bucket prefix)
+            assert result_path == f"test-full/{barcode}.jsonl"

@@ -4,6 +4,7 @@ import pytest
 
 # Common test parameters
 STORAGE_TYPES = ["s3", "r2", "minio", "local"]
+MEANINGFUL_STORAGE_TYPES = ["s3", "local"]  # Representative cloud + local for meaningful testing
 
 EXTRACTION_SCENARIOS = [
     pytest.param(False, False, id="both_enabled"),
@@ -29,8 +30,13 @@ STORAGE_CONFIGS = [
 
 
 def storage_type_parametrize():
-    """Decorator for testing across storage types."""
+    """Decorator for testing across all storage types."""
     return pytest.mark.parametrize("storage_type", STORAGE_TYPES)
+
+
+def meaningful_storage_parametrize():
+    """Decorator for testing meaningful storage differences (local vs cloud)."""
+    return pytest.mark.parametrize("storage_type", MEANINGFUL_STORAGE_TYPES)
 
 
 def extraction_scenarios_parametrize():
@@ -44,12 +50,12 @@ def storage_configs_parametrize():
 
 
 def combined_scenarios_parametrize():
-    """Decorator for testing combinations of storage types and extraction scenarios."""
+    """Decorator for testing combinations of meaningful storage types and extraction scenarios."""
     return pytest.mark.parametrize(
         "storage_type,skip_ocr,skip_marc",
         [
             pytest.param(storage, ocr, marc, id=f"{storage}_{extraction_id}")
-            for storage in STORAGE_TYPES
+            for storage in MEANINGFUL_STORAGE_TYPES  # Use meaningful storage types only
             for (ocr, marc), extraction_id in zip(
                 [(False, False), (True, False), (False, True), (True, True)],
                 ["both_enabled", "skip_ocr", "skip_marc", "skip_both"], strict=False
