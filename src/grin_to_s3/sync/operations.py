@@ -127,7 +127,7 @@ async def download_book_to_staging(
     if space_warned:
         logger.info(f"[{barcode}] Disk space available, resuming download")
 
-    client = GRINClient(secrets_dir=secrets_dir)
+    client = grin_client
     grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
 
     logger.info(f"[{barcode}] Starting download from {grin_url}")
@@ -648,7 +648,7 @@ async def sync_book_to_local_storage(
         final_encrypted_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Download directly to final location
-        client = GRINClient(secrets_dir=secrets_dir)
+        client = grin_client
         grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
 
         logger.info(f"[{barcode}] Downloading directly to {final_encrypted_path}")

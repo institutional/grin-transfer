@@ -120,22 +120,16 @@ class TestBookDownload:
         mock_staging_file = MagicMock()
         mock_staging_manager.get_encrypted_file_path.return_value = mock_staging_file
 
-        # Mock HTTP failure using aioresponses
-        with aioresponses() as mock_http:
-            # Mock 404 error
-            mock_http.get(
-                "https://books.google.com/libraries/Harvard/TEST123.tar.gz.gpg",
-                status=404,
-                payload={"error": "Not Found"}
+        # Override the mock to simulate HTTP failure
+        mock_grin_client.auth.make_authenticated_request.side_effect = Exception("HTTP 404 Not Found")
+
+        with pytest.raises(Exception) as exc_info:
+            await download_book_to_staging(
+                "TEST123", mock_grin_client, "Harvard", mock_staging_manager, "abc123"
             )
 
-            with pytest.raises(Exception) as exc_info:
-                await download_book_to_staging(
-                    "TEST123", mock_grin_client, "Harvard", mock_staging_manager, "abc123"
-                )
-
-            # The error should be related to HTTP status or authentication
-            assert "404" in str(exc_info.value) or "Not Found" in str(exc_info.value)
+        # The error should be related to HTTP status or authentication
+        assert "404" in str(exc_info.value) or "Not Found" in str(exc_info.value)
 
 
 class TestBookUpload:

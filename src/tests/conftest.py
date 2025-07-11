@@ -200,7 +200,20 @@ def mock_grin_client():
     client = MagicMock()
     client.fetch_resource = AsyncMock()
     client.auth = MagicMock()
-    client.auth.make_authenticated_request = AsyncMock()
+
+    # Create a mock response that properly handles async iteration
+    mock_response = MagicMock()
+    mock_response.content = MagicMock()
+
+    # Create an async iterator for iter_chunked
+    async def mock_iter_chunked(size):
+        yield b"test archive content"
+
+    mock_response.content.iter_chunked = mock_iter_chunked
+    mock_response.status = 200
+    mock_response.headers = {"content-length": "20"}
+
+    client.auth.make_authenticated_request = AsyncMock(return_value=mock_response)
     client.session = MagicMock()
     client.session.close = AsyncMock()
     return client
