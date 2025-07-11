@@ -17,7 +17,7 @@ from grin_to_s3.sync.operations import (
     upload_book_from_staging,
 )
 from tests.test_utils.parametrize_helpers import extraction_scenarios_parametrize, meaningful_storage_parametrize
-from tests.test_utils.sync_mocks import mock_minimal_upload, mock_upload_operations
+from tests.test_utils.unified_mocks import mock_minimal_upload, mock_upload_operations
 
 
 class TestETagSkipHandling:

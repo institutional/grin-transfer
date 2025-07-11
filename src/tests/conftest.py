@@ -116,7 +116,7 @@ def mock_process_stage():
 @pytest.fixture
 def mock_upload_deps():
     """Fixture providing mocked upload dependencies."""
-    from tests.test_utils.sync_mocks import mock_upload_operations
+    from tests.test_utils.unified_mocks import mock_upload_operations
 
     with mock_upload_operations() as mocks:
         yield mocks
@@ -125,17 +125,15 @@ def mock_upload_deps():
 @pytest.fixture
 def mock_staging_manager():
     """Fixture providing a configured mock staging manager."""
-    from tests.test_utils.sync_mocks import create_mock_staging_manager
-
-    return create_mock_staging_manager()
+    from tests.test_utils.unified_mocks import MockStorageFactory
+    return MockStorageFactory.create_staging_manager()
 
 
 @pytest.fixture
 def mock_progress_tracker():
     """Fixture providing a configured mock progress tracker."""
-    from tests.test_utils.sync_mocks import create_mock_progress_tracker
-
-    return create_mock_progress_tracker()
+    from tests.test_utils.unified_mocks import MockStorageFactory
+    return MockStorageFactory.create_progress_tracker()
 
 
 @pytest.fixture
