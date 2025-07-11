@@ -4,23 +4,14 @@ DEPRECATED: Progress tracker mocking moved to unified_mocks.py
 Database-specific utilities remain here.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from .unified_mocks import MockStorageFactory
 
 
 def create_mock_progress_tracker(db_path: str = "/tmp/test.db") -> MagicMock:
-    """Create a fully configured mock progress tracker with database-specific methods."""
-    # Use unified factory and add database-specific functionality
-    mock_tracker = MockStorageFactory.create_progress_tracker(db_path)
-
-    # Add database-specific methods not in unified version
-    mock_tracker._db = MagicMock()
-    mock_tracker._db.close = AsyncMock()
-    mock_tracker.close = AsyncMock()
-    mock_tracker.init_db = AsyncMock()
-
-    return mock_tracker
+    """DEPRECATED: Use MockStorageFactory.create_progress_tracker() instead."""
+    return MockStorageFactory.create_progress_tracker(db_path)
 
 
 def create_mock_book_for_sync(barcode: str = "TEST123", **kwargs) -> dict:

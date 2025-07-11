@@ -110,18 +110,14 @@ class TestSyncOCRPipelineIntegration:
             # Set up storage mocks using unified factory
             from tests.test_utils.unified_mocks import MockStorageFactory
             mock_storage = MockStorageFactory.create_storage(storage_type=storage_type)
-            mock_book_storage = MockStorageFactory.create_book_storage()
+            # BookStorage properly wraps the storage mock (no more manual linking!)
+            mock_book_storage = MockStorageFactory.create_book_storage(storage=mock_storage)
 
             # Configure specific return values for this test
             mock_storage.save_ocr_text_jsonl_from_file.return_value = "bucket_full/TEST123456789/TEST123456789.jsonl"
-            mock_book_storage.save_ocr_text_jsonl_from_file.return_value = "bucket_full/TEST123456789/TEST123456789.jsonl"
 
             mock_create_storage.return_value = mock_storage
             mock_book_storage_class.return_value = mock_book_storage
-
-            # Link the methods for compatibility (same as unified mock does)
-            mock_book_storage.save_decrypted_archive_from_file = mock_storage.save_decrypted_archive_from_file
-            mock_book_storage.save_ocr_text_jsonl_from_file = mock_storage.save_ocr_text_jsonl_from_file
 
             # Execute upload with OCR extraction (using real OCR extraction, not mocked)
             storage_config = {"base_path": "/tmp/storage"} if storage_type == "local" else {
@@ -152,10 +148,11 @@ class TestSyncOCRPipelineIntegration:
             mock_book_storage.save_decrypted_archive_from_file.assert_called_once()
 
             # Verify OCR upload was called (indicates real OCR extraction happened)
-            mock_storage.save_ocr_text_jsonl_from_file.assert_called_once()
+            # Since book_storage wraps storage, we can check either one
+            mock_book_storage.save_ocr_text_jsonl_from_file.assert_called_once()
 
             # Verify the OCR text file was actually created and uploaded
-            upload_call_args = mock_storage.save_ocr_text_jsonl_from_file.call_args
+            upload_call_args = mock_book_storage.save_ocr_text_jsonl_from_file.call_args
             assert upload_call_args is not None
 
             # The function signature is save_ocr_text_jsonl_from_file(barcode, jsonl_file_path, metadata=None)
@@ -196,14 +193,11 @@ class TestSyncOCRPipelineIntegration:
             # Set up storage mocks using unified factory
             from tests.test_utils.unified_mocks import MockStorageFactory
             mock_storage = MockStorageFactory.create_storage(storage_type=storage_type)
-            mock_book_storage = MockStorageFactory.create_book_storage()
+            # BookStorage properly wraps the storage mock (no more manual linking!)
+            mock_book_storage = MockStorageFactory.create_book_storage(storage=mock_storage)
 
             mock_create_storage.return_value = mock_storage
             mock_book_storage_class.return_value = mock_book_storage
-
-            # Link the methods for compatibility
-            mock_book_storage.save_decrypted_archive_from_file = mock_storage.save_decrypted_archive_from_file
-            mock_book_storage.save_ocr_text_jsonl_from_file = mock_storage.save_ocr_text_jsonl_from_file
 
             # Execute upload with OCR extraction DISABLED
             storage_config = {"base_path": "/tmp/storage"} if storage_type == "local" else {
@@ -234,7 +228,7 @@ class TestSyncOCRPipelineIntegration:
             mock_book_storage.save_decrypted_archive_from_file.assert_called_once()
 
             # Verify OCR upload was NOT called
-            mock_storage.save_ocr_text_jsonl_from_file.assert_not_called()
+            mock_book_storage.save_ocr_text_jsonl_from_file.assert_not_called()
 
             # Verify NO OCR extraction database entries
             with sqlite3.connect(temp_db_tracker.db_path) as conn:

@@ -19,7 +19,10 @@ def create_mock_storage(s3_compatible: bool = False, should_fail: bool = False):
 
 def create_mock_book_storage(bucket_config=None, should_fail: bool = False, base_prefix: str = ""):
     """DEPRECATED: Use MockStorageFactory.create_book_storage() instead."""
+    # Create storage first, then book_storage that wraps it
+    storage = MockStorageFactory.create_storage(should_fail=should_fail)
     return MockStorageFactory.create_book_storage(
+        storage=storage,
         bucket_config=bucket_config,
         base_prefix=base_prefix,
         should_fail=should_fail
