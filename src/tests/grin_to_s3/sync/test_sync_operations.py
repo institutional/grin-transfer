@@ -9,9 +9,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from aioresponses import aioresponses
 
 from grin_to_s3.sync.operations import (
     check_and_handle_etag_skip,
+    download_book_to_staging,
     extract_and_upload_ocr_text,
     sync_book_to_local_storage,
     upload_book_from_staging,
@@ -72,8 +74,68 @@ class TestETagSkipHandling:
 class TestBookDownload:
     """Test book download functionality."""
 
-    # TODO: Fix async mocking issues with GRIN client
-    # These tests need proper async mocking setup for the GRIN client's HTTP session
+    @pytest.mark.asyncio
+    async def test_download_book_to_staging_success(self, mock_grin_client, mock_staging_manager):
+        """Test successful book download to staging."""
+        # Mock staging manager
+        mock_staging_manager.check_disk_space.return_value = True
+
+        # Create a mock Path object for the staging file
+        mock_staging_file = MagicMock()
+        mock_staging_file.stat.return_value.st_size = 20  # Match the body size below
+        mock_staging_manager.get_encrypted_file_path.return_value = mock_staging_file
+
+        # Mock the HTTP response using aioresponses
+        with (
+            aioresponses() as mock_http,
+            patch("aiofiles.open", create=True) as mock_aiofiles,
+        ):
+            # Mock the GRIN download URL
+            mock_http.get(
+                "https://books.google.com/libraries/Harvard/TEST123.tar.gz.gpg",
+                body=b"test archive content",  # This is 20 bytes
+                headers={"content-length": "20"}
+            )
+
+            # Mock file writing
+            mock_file = AsyncMock()
+            mock_aiofiles.return_value.__aenter__.return_value = mock_file
+            mock_aiofiles.return_value.__aexit__.return_value = None
+
+            barcode, staging_file_path, metadata = await download_book_to_staging(
+                "TEST123", mock_grin_client, "Harvard", mock_staging_manager, "abc123"
+            )
+
+            assert barcode == "TEST123"
+            assert staging_file_path == str(mock_staging_file)
+            assert metadata["google_etag"] == "abc123"
+
+    @pytest.mark.asyncio
+    async def test_download_book_to_staging_failure(self, mock_grin_client, mock_staging_manager):
+        """Test book download failure handling."""
+        # Mock staging manager
+        mock_staging_manager.check_disk_space.return_value = True
+
+        # Create a mock Path object for the staging file
+        mock_staging_file = MagicMock()
+        mock_staging_manager.get_encrypted_file_path.return_value = mock_staging_file
+
+        # Mock HTTP failure using aioresponses
+        with aioresponses() as mock_http:
+            # Mock 404 error
+            mock_http.get(
+                "https://books.google.com/libraries/Harvard/TEST123.tar.gz.gpg",
+                status=404,
+                payload={"error": "Not Found"}
+            )
+
+            with pytest.raises(Exception) as exc_info:
+                await download_book_to_staging(
+                    "TEST123", mock_grin_client, "Harvard", mock_staging_manager, "abc123"
+                )
+
+            # The error should be related to HTTP status or authentication
+            assert "404" in str(exc_info.value) or "Not Found" in str(exc_info.value)
 
 
 class TestBookUpload:
@@ -93,25 +155,88 @@ class TestBookUpload:
         assert result["status"] == "completed"
         assert result["skipped"] is True
 
-    # TODO: Fix async mocking issues
-    # @pytest.mark.asyncio
-    # async def test_upload_book_from_staging_success(
-    #     self, mock_storage_config, mock_staging_manager, mock_progress_tracker
-    # ):
-    #     """Test successful book upload from staging."""
-    #     # This test needs fixing for async mocking
-    #     pass
+    @pytest.mark.asyncio
+    async def test_upload_book_from_staging_success(
+        self, mock_storage_config, mock_staging_manager, mock_progress_tracker
+    ):
+        """Test successful book upload from staging."""
+        # Set up properly configured mock staging manager
+        mock_staging_manager.cleanup_files.return_value = 1024 * 1024  # Return int, not MagicMock
+
+        with mock_upload_operations() as mocks:
+            result = await upload_book_from_staging(
+                "TEST123",
+                "/staging/TEST123.tar.gz.gpg",
+                "minio",
+                mock_storage_config,
+                mock_staging_manager,
+                mock_progress_tracker,
+                "encrypted_etag_123",
+                "gpg_key_file",
+                "secrets_dir",
+                skip_extract_ocr=True,
+                skip_extract_marc=True,
+            )
+
+            # Verify successful upload
+            assert result["status"] == "completed"
+            assert result["barcode"] == "TEST123"
+            assert result["decrypted_success"] is True
+
+            # Verify storage operations were called
+            mocks.storage.save_decrypted_archive_from_file.assert_called_once()
+            mocks.decrypt.assert_called_once()
 
 
 class TestLocalStorageSync:
     """Test local storage sync functionality."""
 
-    # TODO: Fix async mocking issues
-    # @pytest.mark.asyncio
-    # async def test_sync_book_to_local_storage_success(self, mock_grin_client, mock_progress_tracker):
-    #     """Test successful local storage sync."""
-    #     # This test needs fixing for async mocking
-    #     pass
+    @pytest.mark.asyncio
+    async def test_sync_book_to_local_storage_success(self, mock_grin_client, mock_progress_tracker):
+        """Test successful local storage sync."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_config = {
+                "base_path": temp_dir,
+                "bucket_raw": "test-raw",
+                "bucket_meta": "test-meta",
+                "bucket_full": "test-full",
+                "prefix": ""
+            }
+
+            # Mock the HTTP call and GPG decryption
+            with (
+                aioresponses() as mock_http,
+                patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
+                patch("aiofiles.open", create=True) as mock_aiofiles,
+                patch("pathlib.Path.mkdir"),
+                patch("pathlib.Path.unlink"),
+            ):
+                # Mock the GRIN download URL
+                mock_http.get(
+                    "https://books.google.com/libraries/Harvard/TEST123.tar.gz.gpg",
+                    body=b"test archive content",
+                    headers={"content-length": "20"}
+                )
+
+                # Mock file writing
+                mock_file = AsyncMock()
+                mock_aiofiles.return_value.__aenter__.return_value = mock_file
+                mock_aiofiles.return_value.__aexit__.return_value = None
+
+                result = await sync_book_to_local_storage(
+                    "TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker
+                )
+
+                assert result["barcode"] == "TEST123"
+                assert result["status"] == "completed"
+                assert result["decrypted_success"] is True
+
+                # Verify operations were called
+                mock_decrypt.assert_called_once()
+                mock_file.write.assert_called()
+                mock_file.flush.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_sync_book_to_local_storage_missing_base_path(self, mock_grin_client, mock_progress_tracker):

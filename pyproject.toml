@@ -52,6 +52,7 @@ dev = [
     "boto3-stubs[s3]>=1.38.0",
     "mypy-boto3-s3>=1.38.0",
     "moto[s3]>=5.0.0",
+    "aioresponses>=0.7.0",
     "pre-commit>=3.0.0",
 ]
 test = [
