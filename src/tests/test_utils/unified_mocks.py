@@ -430,11 +430,6 @@ def mock_minimal_upload():
 # Test Data Utilities
 # =============================================================================
 
-def create_temp_staging_dir():
-    """Create a temporary staging directory for testing."""
-    return tempfile.mkdtemp(prefix="grin_test_staging_")
-
-
 def create_progress_tracker_with_db_mock(db_path: str) -> MagicMock:
     """Create a progress tracker mock with actual database backing."""
     tracker = MagicMock()
@@ -450,26 +445,6 @@ def create_progress_tracker_with_db_mock(db_path: str) -> MagicMock:
     tracker.get_enriched_book_count = AsyncMock(return_value=0)
     tracker.get_converted_books_count = AsyncMock(return_value=0)
     return tracker
-
-
-def create_database_validation_mock(
-    exists: bool = True,
-    has_tables: bool = True,
-    has_books: bool = True
-) -> MagicMock:
-    """Create a database validation mock with configurable behavior.
-
-    The real database validation functions call sys.exit(1) on failure,
-    so we use SystemExit to simulate these error conditions in tests.
-    """
-    mock = MagicMock()
-    if not exists:
-        mock.side_effect = SystemExit(1)
-    elif not has_tables:
-        mock.side_effect = SystemExit(1)
-    elif not has_books:
-        mock.side_effect = SystemExit(1)
-    return mock
 
 
 def standard_bucket_config() -> dict[str, str]:
