@@ -15,6 +15,7 @@ from grin_to_s3.sync.status import (
     show_sync_status,
     validate_database_file,
 )
+from tests.test_utils.database_mocks import create_mock_progress_tracker
 
 
 class TestValidateDatabaseFile:
@@ -65,10 +66,10 @@ class TestSyncStatistics:
     async def test_get_sync_statistics(self, temp_db_path):
         """Test getting sync statistics."""
         with patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class:
-            mock_tracker = MagicMock()
+            mock_tracker = create_mock_progress_tracker(temp_db_path)
             mock_tracker_class.return_value = mock_tracker
 
-            # Mock the various count methods
+            # Configure specific return values for this test
             mock_tracker.get_book_count = AsyncMock(return_value=100)
             mock_tracker.get_enriched_book_count = AsyncMock(return_value=80)
             mock_tracker.get_converted_books_count = AsyncMock(return_value=50)
@@ -82,8 +83,6 @@ class TestSyncStatistics:
                     "decrypted": 25,
                 }
             )
-            mock_tracker._db = MagicMock()
-            mock_tracker._db.close = AsyncMock()
 
             stats = await get_sync_statistics(temp_db_path)
 
@@ -99,9 +98,10 @@ class TestSyncStatistics:
     async def test_get_sync_statistics_with_storage_filter(self, temp_db_path):
         """Test getting sync statistics with storage type filter."""
         with patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class:
-            mock_tracker = MagicMock()
+            mock_tracker = create_mock_progress_tracker(temp_db_path)
             mock_tracker_class.return_value = mock_tracker
 
+            # Configure specific return values for this test
             mock_tracker.get_book_count = AsyncMock(return_value=100)
             mock_tracker.get_enriched_book_count = AsyncMock(return_value=80)
             mock_tracker.get_converted_books_count = AsyncMock(return_value=50)
@@ -115,8 +115,6 @@ class TestSyncStatistics:
                     "decrypted": 18,
                 }
             )
-            mock_tracker._db = MagicMock()
-            mock_tracker._db.close = AsyncMock()
 
             stats = await get_sync_statistics(temp_db_path, "minio")
 
@@ -143,10 +141,10 @@ class TestShowSyncStatus:
             patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class,
             patch("grin_to_s3.sync.status.connect_async") as mock_connect,
         ):
-            mock_tracker = MagicMock()
+            mock_tracker = create_mock_progress_tracker(temp_db_path)
             mock_tracker_class.return_value = mock_tracker
 
-            # Mock tracker methods
+            # Configure specific return values for this test
             mock_tracker.get_book_count = AsyncMock(return_value=100)
             mock_tracker.get_enriched_book_count = AsyncMock(return_value=80)
             mock_tracker.get_converted_books_count = AsyncMock(return_value=50)
@@ -178,8 +176,6 @@ class TestShowSyncStatus:
                     "rate_per_day": 24.0,
                 }
             )
-            mock_tracker._db = MagicMock()
-            mock_tracker._db.close = AsyncMock()
 
             # Mock database connection for storage breakdown and recent activity
             mock_db = MagicMock()

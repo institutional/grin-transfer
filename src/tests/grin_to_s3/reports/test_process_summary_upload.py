@@ -5,7 +5,7 @@ Integration tests for process summary upload functionality.
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -16,7 +16,7 @@ from grin_to_s3.process_summary import (
     create_process_summary,
     save_process_summary,
 )
-from grin_to_s3.storage.book_storage import BookStorage, BucketConfig
+from tests.test_utils.storage_mocks import create_mock_book_storage, create_mock_storage
 
 
 class TestProcessSummaryUpload:
@@ -36,22 +36,12 @@ class TestProcessSummaryUpload:
     @pytest.fixture
     def mock_storage(self):
         """Create a mock storage instance."""
-        storage = MagicMock()
-        storage.write_file = AsyncMock()
-        storage.read_bytes = AsyncMock()
-        storage.is_s3_compatible = MagicMock(return_value=True)
-        return storage
+        return create_mock_storage(s3_compatible=True)
 
     @pytest.fixture
     def mock_book_storage(self, mock_storage):
         """Create a mock BookStorage instance."""
-        bucket_config: BucketConfig = {
-            "bucket_raw": "test-raw",
-            "bucket_meta": "test-meta",
-            "bucket_full": "test-full",
-        }
-        book_storage = BookStorage(mock_storage, bucket_config=bucket_config, base_prefix="test_run")
-        return book_storage
+        return create_mock_book_storage(base_prefix="test_run")
 
     @pytest.mark.asyncio
     async def test_run_summary_manager_storage_upload(self, temp_dir, mock_run_name, mock_book_storage):
