@@ -10,6 +10,9 @@ import json
 import logging
 from typing import Any
 
+import boto3
+from botocore.exceptions import ClientError
+
 from ..database import connect_async
 
 logger = logging.getLogger(__name__)
@@ -48,8 +51,7 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
     try:
         # Use boto3 directly for bucket operations (fsspec doesn't support bucket creation)
         if storage_type in ("s3", "minio", "r2"):
-            import boto3
-            from botocore.exceptions import ClientError
+
 
             # Create boto3 client with same credentials
             s3_config = {
