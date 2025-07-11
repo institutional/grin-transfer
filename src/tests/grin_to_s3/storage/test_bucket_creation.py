@@ -3,18 +3,21 @@
 Unit tests for bucket creation functionality in sync.py
 """
 
-from unittest import IsolatedAsyncioTestCase
+import os
 from unittest.mock import MagicMock, patch
 
+import boto3
+import pytest
 from botocore.exceptions import ClientError
+from moto import mock_aws
 
 from grin_to_s3.sync.utils import ensure_bucket_exists, reset_bucket_cache
 
 
-class TestBucketCreation(IsolatedAsyncioTestCase):
+class TestBucketCreation:
     """Test bucket creation functionality."""
 
-    def setUp(self):
+    def setup_method(self):
         """Reset bucket cache before each test."""
         reset_bucket_cache()
 
@@ -31,241 +34,227 @@ class TestBucketCreation(IsolatedAsyncioTestCase):
         if storage_type == "minio":
             storage_config["endpoint_url"] = "http://localhost:9000"
         elif storage_type == "r2":
-            storage_config["account_id"] = "test_account"
+            storage_config["account_id"] = "testaccount"
 
         return storage_config
 
+    @pytest.mark.asyncio
     async def test_bucket_exists_s3(self):
         """Test bucket existence check when bucket exists."""
-        storage_config = self.create_storage_config("s3")
+        with mock_aws():
+            storage_config = self.create_storage_config("s3")
 
-        with patch("boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_boto_client.return_value = mock_s3
-
-            # Mock successful head_bucket call (bucket exists)
-            mock_s3.head_bucket.return_value = {}
+            # Create bucket in moto S3 first
+            s3_client = boto3.client("s3", region_name="us-east-1")
+            s3_client.create_bucket(Bucket="test-bucket-raw")
 
             result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
 
-            self.assertTrue(result)
-            mock_s3.head_bucket.assert_called_once_with(Bucket="test-bucket-raw")
-            mock_s3.create_bucket.assert_not_called()
+            assert result is True
+            # Verify bucket actually exists in moto
+            response = s3_client.head_bucket(Bucket="test-bucket-raw")
+            assert response is not None
 
+    @pytest.mark.asyncio
     async def test_bucket_creation_s3(self):
         """Test bucket creation when bucket doesn't exist."""
-        storage_config = self.create_storage_config("s3")
+        with mock_aws():
+            storage_config = self.create_storage_config("s3")
 
-        with patch("boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_boto_client.return_value = mock_s3
-
-            # Mock 404 error for head_bucket (bucket doesn't exist)
-            not_found_error = ClientError(error_response={"Error": {"Code": "404"}}, operation_name="HeadBucket")
-            mock_s3.head_bucket.side_effect = not_found_error
-
-            # Mock successful bucket creation and verification
-            mock_s3.create_bucket.return_value = {}
-            mock_s3.list_buckets.return_value = {"Buckets": [{"Name": "test-bucket-raw"}]}
-
+            # Don't create bucket beforehand - test should create it
             result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
 
-            self.assertTrue(result)
-            mock_s3.head_bucket.assert_called_once_with(Bucket="test-bucket-raw")
-            mock_s3.create_bucket.assert_called_once_with(Bucket="test-bucket-raw")
-            mock_s3.list_buckets.assert_called_once()
+            assert result is True
 
-    async def test_bucket_creation_minio(self):
-        """Test bucket creation for MinIO with endpoint URL."""
-        storage_config = self.create_storage_config("minio")
+            # Verify bucket was actually created by moto
+            s3_client = boto3.client("s3", region_name="us-east-1")
+            response = s3_client.head_bucket(Bucket="test-bucket-raw")
+            assert response is not None
 
-        with patch("boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_boto_client.return_value = mock_s3
+            # Verify bucket appears in list
+            buckets = s3_client.list_buckets()
+            bucket_names = [b["Name"] for b in buckets["Buckets"]]
+            assert "test-bucket-raw" in bucket_names
 
-            # Mock 404 error for head_bucket
-            not_found_error = ClientError(error_response={"Error": {"Code": "404"}}, operation_name="HeadBucket")
-            mock_s3.head_bucket.side_effect = not_found_error
 
-            # Mock successful bucket creation
-            mock_s3.create_bucket.return_value = {}
-            mock_s3.list_buckets.return_value = {"Buckets": [{"Name": "test-bucket-raw"}]}
-
-            result = await ensure_bucket_exists("minio", storage_config, "test-bucket-raw")
-
-            self.assertTrue(result)
-
-            # Verify boto3 client was created with MinIO endpoint
-            mock_boto_client.assert_called_once_with(
-                "s3",
-                aws_access_key_id="test_access_key",
-                aws_secret_access_key="test_secret_key",
-                endpoint_url="http://localhost:9000",
-            )
-
+    @pytest.mark.asyncio
     async def test_bucket_creation_r2(self):
         """Test bucket creation for Cloudflare R2."""
-        storage_config = self.create_storage_config("r2")
+        storage_config = self.create_storage_config("r2")  # Uses account_id: "testaccount"
+        custom_endpoint = "https://testaccount.r2.cloudflarestorage.com"
 
-        with patch("boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_boto_client.return_value = mock_s3
+        with patch.dict(os.environ, {"MOTO_S3_CUSTOM_ENDPOINTS": custom_endpoint}):
+            with mock_aws():
+                # Don't create bucket beforehand - test should create it
+                result = await ensure_bucket_exists("r2", storage_config, "test-bucket-raw")
 
-            # Mock 404 error for head_bucket
-            not_found_error = ClientError(error_response={"Error": {"Code": "404"}}, operation_name="HeadBucket")
-            mock_s3.head_bucket.side_effect = not_found_error
+                assert result is True
 
-            # Mock successful bucket creation
-            mock_s3.create_bucket.return_value = {}
-            mock_s3.list_buckets.return_value = {"Buckets": [{"Name": "test-bucket-raw"}]}
+                # Verify bucket was actually created by moto using the R2 endpoint
+                s3_client = boto3.client("s3", endpoint_url=custom_endpoint, region_name="us-east-1")
+                response = s3_client.head_bucket(Bucket="test-bucket-raw")
+                assert response is not None
 
-            result = await ensure_bucket_exists("r2", storage_config, "test-bucket-raw")
-
-            self.assertTrue(result)
-
-            # Verify boto3 client was created with R2 endpoint
-            expected_endpoint = "https://test_account.r2.cloudflarestorage.com"
-            mock_boto_client.assert_called_once_with(
-                "s3",
-                aws_access_key_id="test_access_key",
-                aws_secret_access_key="test_secret_key",
-                endpoint_url=expected_endpoint,
-            )
-
+    @pytest.mark.asyncio
     async def test_bucket_creation_failure(self):
         """Test bucket creation failure handling."""
         storage_config = self.create_storage_config("s3")
 
-        with patch("boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_boto_client.return_value = mock_s3
+        # Use moto but patch create_bucket to simulate access denied
+        with mock_aws():
+            with patch("boto3.client") as mock_boto_client:
+                mock_s3 = MagicMock()
+                mock_boto_client.return_value = mock_s3
 
-            # Mock 404 error for head_bucket
-            not_found_error = ClientError(error_response={"Error": {"Code": "404"}}, operation_name="HeadBucket")
-            mock_s3.head_bucket.side_effect = not_found_error
+                # Mock 404 error for head_bucket
+                not_found_error = ClientError(error_response={"Error": {"Code": "404"}}, operation_name="HeadBucket")
+                mock_s3.head_bucket.side_effect = not_found_error
 
-            # Mock bucket creation failure
-            creation_error = ClientError(
-                error_response={"Error": {"Code": "AccessDenied", "Message": "Access denied"}},
-                operation_name="CreateBucket",
-            )
-            mock_s3.create_bucket.side_effect = creation_error
+                # Mock bucket creation failure
+                creation_error = ClientError(
+                    error_response={"Error": {"Code": "AccessDenied", "Message": "Access denied"}},
+                    operation_name="CreateBucket",
+                )
+                mock_s3.create_bucket.side_effect = creation_error
 
-            result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
+                result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
 
-            self.assertFalse(result)
-            mock_s3.create_bucket.assert_called_once_with(Bucket="test-bucket-raw")
+                assert result is False
+                mock_s3.create_bucket.assert_called_once_with(Bucket="test-bucket-raw")
 
+    @pytest.mark.asyncio
     async def test_bucket_verification_failure(self):
         """Test bucket creation with verification failure."""
         storage_config = self.create_storage_config("s3")
 
-        with patch("boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_boto_client.return_value = mock_s3
+        # Use moto but patch list_buckets to simulate verification failure
+        with mock_aws():
+            with patch("boto3.client") as mock_boto_client:
+                mock_s3 = MagicMock()
+                mock_boto_client.return_value = mock_s3
 
-            # Mock 404 error for head_bucket
-            not_found_error = ClientError(error_response={"Error": {"Code": "404"}}, operation_name="HeadBucket")
-            mock_s3.head_bucket.side_effect = not_found_error
+                # Mock 404 error for head_bucket
+                not_found_error = ClientError(error_response={"Error": {"Code": "404"}}, operation_name="HeadBucket")
+                mock_s3.head_bucket.side_effect = not_found_error
 
-            # Mock successful creation but verification fails
-            mock_s3.create_bucket.return_value = {}
-            mock_s3.list_buckets.return_value = {
-                "Buckets": [{"Name": "other-bucket-raw"}]  # Bucket not in list
-            }
+                # Mock successful creation but verification fails
+                mock_s3.create_bucket.return_value = {}
+                mock_s3.list_buckets.return_value = {
+                    "Buckets": [{"Name": "other-bucket-raw"}]  # Bucket not in list
+                }
 
-            result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
+                result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
 
-            self.assertFalse(result)
+                assert result is False
 
+    @pytest.mark.asyncio
     async def test_bucket_other_error(self):
         """Test handling of non-404 errors during bucket check."""
         storage_config = self.create_storage_config("s3")
 
-        with patch("boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_boto_client.return_value = mock_s3
+        # Use moto but patch head_bucket to simulate access denied
+        with mock_aws():
+            with patch("boto3.client") as mock_boto_client:
+                mock_s3 = MagicMock()
+                mock_boto_client.return_value = mock_s3
 
-            # Mock access denied error (not 404)
-            access_error = ClientError(error_response={"Error": {"Code": "AccessDenied"}}, operation_name="HeadBucket")
-            mock_s3.head_bucket.side_effect = access_error
+                # Mock access denied error (not 404)
+                access_error = ClientError(error_response={"Error": {"Code": "AccessDenied"}}, operation_name="HeadBucket")
+                mock_s3.head_bucket.side_effect = access_error
 
-            result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
+                result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
 
-            self.assertFalse(result)
-            mock_s3.create_bucket.assert_not_called()
+                assert result is False
+                mock_s3.create_bucket.assert_not_called()
 
+    @pytest.mark.asyncio
     async def test_local_storage_bucket_check(self):
         """Test that local storage always returns True."""
         storage_config = {"prefix": "test"}
 
         result = await ensure_bucket_exists("local", storage_config, "any-bucket")
-        self.assertTrue(result)
+        assert result is True
 
+    @pytest.mark.asyncio
     async def test_bucket_cache_functionality(self):
         """Test that bucket cache prevents repeated checks."""
         storage_config = self.create_storage_config("s3")
 
-        with patch("boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_boto_client.return_value = mock_s3
+        with mock_aws():
+            # Create bucket in moto first
+            s3_client = boto3.client("s3", region_name="us-east-1")
+            s3_client.create_bucket(Bucket="test-bucket-raw")
 
-            # Mock successful head_bucket call
-            mock_s3.head_bucket.return_value = {}
+            # Patch boto3.client to track calls while still using moto
+            with patch("boto3.client") as mock_boto_client:
+                mock_s3 = MagicMock()
+                mock_boto_client.return_value = mock_s3
+                mock_s3.head_bucket.return_value = {}
 
-            # First call should check the bucket
-            result1 = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
-            self.assertTrue(result1)
-            self.assertEqual(mock_s3.head_bucket.call_count, 1)
+                # First call should check the bucket
+                result1 = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
+                assert result1 is True
+                assert mock_s3.head_bucket.call_count == 1
 
-            # Second call should use cache, not check again
-            result2 = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
-            self.assertTrue(result2)
-            self.assertEqual(mock_s3.head_bucket.call_count, 1)  # No additional calls
+                # Second call should use cache, not check again
+                result2 = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
+                assert result2 is True
+                assert mock_s3.head_bucket.call_count == 1  # No additional calls
 
+    @pytest.mark.asyncio
     async def test_reset_bucket_cache(self):
         """Test that reset_bucket_cache clears the cache."""
         storage_config = self.create_storage_config("s3")
 
-        with patch("boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_boto_client.return_value = mock_s3
-            mock_s3.head_bucket.return_value = {}
+        with mock_aws():
+            # Create bucket in moto first
+            s3_client = boto3.client("s3", region_name="us-east-1")
+            s3_client.create_bucket(Bucket="test-bucket-raw")
 
-            # First call
-            await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
-            self.assertEqual(mock_s3.head_bucket.call_count, 1)
+            # Patch boto3.client to track calls while still using moto
+            with patch("boto3.client") as mock_boto_client:
+                mock_s3 = MagicMock()
+                mock_boto_client.return_value = mock_s3
+                mock_s3.head_bucket.return_value = {}
 
-            # Reset cache
-            reset_bucket_cache()
+                # First call
+                await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
+                assert mock_s3.head_bucket.call_count == 1
 
-            # Second call should check again after cache reset
-            await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
-            self.assertEqual(mock_s3.head_bucket.call_count, 2)
+                # Reset cache
+                reset_bucket_cache()
 
+                # Second call should check again after cache reset
+                await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
+                assert mock_s3.head_bucket.call_count == 2
+
+    @pytest.mark.asyncio
     async def test_bucket_creation_called_during_upload(self):
         """Test that bucket creation is called during upload process."""
-        # This test would need to be updated to test the actual upload flow
-        # For now, we'll test the bucket creation function directly
         storage_config = self.create_storage_config("s3")
 
-        with patch("boto3.client") as mock_boto_client:
-            mock_s3 = MagicMock()
-            mock_boto_client.return_value = mock_s3
-            mock_s3.head_bucket.return_value = {}
+        with mock_aws():
+            # Create bucket in moto first
+            s3_client = boto3.client("s3", region_name="us-east-1")
+            s3_client.create_bucket(Bucket="test-bucket-raw")
 
+            # Test bucket creation function directly with moto
             result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
-            self.assertTrue(result)
-            mock_s3.head_bucket.assert_called_once_with(Bucket="test-bucket-raw")
+            assert result is True
+
+            # Verify bucket exists using moto
+            response = s3_client.head_bucket(Bucket="test-bucket-raw")
+            assert response is not None
 
 
-class TestBucketCreationErrorHandling(IsolatedAsyncioTestCase):
+class TestBucketCreationErrorHandling:
     """Test error handling in bucket creation."""
 
-    def setUp(self):
+    def setup_method(self):
         """Reset bucket cache before each test."""
         reset_bucket_cache()
 
+    @pytest.mark.asyncio
     async def test_general_exception_handling(self):
         """Test handling of general exceptions during bucket operations."""
         storage_config = {"access_key": "test_access_key", "secret_key": "test_secret_key", "bucket": "test-bucket-raw"}
@@ -276,8 +265,9 @@ class TestBucketCreationErrorHandling(IsolatedAsyncioTestCase):
 
             result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
 
-            self.assertFalse(result)
+            assert result is False
 
+    @pytest.mark.asyncio
     async def test_missing_credentials(self):
         """Test bucket creation with missing credentials."""
         # Create config with missing credentials

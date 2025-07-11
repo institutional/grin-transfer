@@ -23,7 +23,7 @@ class BucketConfig(TypedDict):
     bucket_full: str
 
 
-class BookStorage:
+class BookManager:
     """
     Storage abstraction specifically for book archive operations.
 

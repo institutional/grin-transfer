@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import Storage, StorageConfig
-from .book_storage import BookStorage, BucketConfig
+from .book_manager import BookManager, BucketConfig
 
 logger = logging.getLogger(__name__)
 
@@ -220,9 +220,9 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
             raise ValueError(f"Storage type {storage_type} does not support bucket-based storage")
 
 
-def create_book_storage_with_full_text(storage_type: str, config: dict, base_prefix: str = "") -> BookStorage:
+def create_book_manager_with_full_text(storage_type: str, config: dict, base_prefix: str = "") -> BookManager:
     """
-    Create BookStorage instance with full-text bucket support.
+    Create BookManager instance with full-text bucket support.
 
     Args:
         storage_type: Storage backend type (minio, r2, s3)
@@ -230,7 +230,7 @@ def create_book_storage_with_full_text(storage_type: str, config: dict, base_pre
         base_prefix: Optional prefix for storage paths
 
     Returns:
-        BookStorage: Configured BookStorage instance with full-text support
+        BookManager: Configured BookManager instance with full-text support
 
     Raises:
         ValueError: If required buckets are not configured
@@ -245,4 +245,4 @@ def create_book_storage_with_full_text(storage_type: str, config: dict, base_pre
         "bucket_full": config["bucket_full"],
     }
 
-    return BookStorage(storage=storage, bucket_config=bucket_config, base_prefix=base_prefix)
+    return BookManager(storage=storage, bucket_config=bucket_config, base_prefix=base_prefix)

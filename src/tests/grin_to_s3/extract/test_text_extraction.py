@@ -4,7 +4,6 @@ Tests for OCR text extraction functionality.
 """
 
 import json
-import sqlite3
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -21,34 +20,6 @@ from grin_to_s3.extract.text_extraction import (
     get_barcode_from_path,
 )
 from tests.utils import create_test_archive
-
-
-@pytest.fixture
-def temp_db():
-    """Create a temporary database for testing."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = f.name
-
-    # Initialize database with required schema
-    conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS book_status_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            barcode TEXT NOT NULL,
-            status_type TEXT NOT NULL,
-            status_value TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            session_id TEXT,
-            metadata TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-    yield db_path
-
-    # Cleanup
-    Path(db_path).unlink(missing_ok=True)
 
 
 class TestPageNumberParsing:

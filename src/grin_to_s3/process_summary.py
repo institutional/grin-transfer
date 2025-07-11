@@ -412,10 +412,10 @@ def get_current_stage(summary: RunSummary, stage_name: str) -> ProcessStageMetri
     return summary.get_or_create_stage(stage_name)
 
 
-async def create_book_storage_for_uploads(run_name: str):
-    """Create a BookStorage instance for process summary uploads."""
+async def create_book_manager_for_uploads(run_name: str):
+    """Create a BookManager instance for process summary uploads."""
     from .run_config import find_run_config
-    from .storage.book_storage import BookStorage, BucketConfig
+    from .storage.book_manager import BookManager, BucketConfig
     from .storage.factories import create_storage_from_config
 
     try:
@@ -450,7 +450,7 @@ async def create_book_storage_for_uploads(run_name: str):
         }
 
         # Create BookStorage with run name as prefix
-        book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix=run_name)
+        book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=run_name)
         return book_storage
 
     except Exception as e:

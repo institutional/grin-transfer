@@ -4,15 +4,18 @@ Integration tests for BookStorage full-text functionality.
 Tests actual file writing to storage backends to ensure files reach correct bucket paths.
 """
 
+import asyncio
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from grin_to_s3.storage.base import Storage, StorageConfig
-from grin_to_s3.storage.book_storage import BookStorage
-from grin_to_s3.storage.factories import create_book_storage_with_full_text
+from grin_to_s3.storage.book_manager import BookManager
+from grin_to_s3.storage.factories import create_book_manager_with_full_text, create_storage_from_config
+from tests.test_utils.unified_mocks import mock_cloud_storage_backend
 
 
 class TestBookStorageIntegration:
@@ -31,7 +34,7 @@ class TestBookStorageIntegration:
             raw_storage = Storage(StorageConfig.local(str(raw_dir)))
 
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config)
+            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
             text_pages = ["First page content", "Second page content", "Third page content"]
             barcode = "test12345"
@@ -43,8 +46,6 @@ class TestBookStorageIntegration:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
 
             # This would be async in real usage, but we'll test the sync version
-            import asyncio
-
             async def test_save():
                 return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
@@ -86,7 +87,7 @@ class TestBookStorageIntegration:
 
             base_prefix = "test-collection"
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config, base_prefix=base_prefix)
+            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
             text_pages = ["Page with prefix content"]
             barcode = "prefix12345"
@@ -96,8 +97,6 @@ class TestBookStorageIntegration:
             with open(jsonl_file, "w", encoding="utf-8") as f:
                 for page in text_pages:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
-
-            import asyncio
 
             async def test_save():
                 return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
@@ -126,7 +125,7 @@ class TestBookStorageIntegration:
             raw_storage = Storage(StorageConfig.local(temp_dir))
 
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config)
+            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
             text_pages = [
                 "English text",
@@ -142,8 +141,6 @@ class TestBookStorageIntegration:
             with open(jsonl_file, "w", encoding="utf-8") as f:
                 for page in text_pages:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
-
-            import asyncio
 
             async def test_save():
                 return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
@@ -174,7 +171,7 @@ class TestBookStorageIntegration:
             raw_storage = Storage(StorageConfig.local(temp_dir))
 
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config)
+            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
             text_pages = []
             barcode = "empty12345"
@@ -184,8 +181,6 @@ class TestBookStorageIntegration:
             with open(jsonl_file, "w", encoding="utf-8") as f:
                 for page in text_pages:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
-
-            import asyncio
 
             async def test_save():
                 return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
@@ -215,7 +210,7 @@ class TestBookStorageIntegration:
             raw_storage = Storage(StorageConfig.local(str(raw_dir)))
 
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config)
+            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
             barcode = "multi12345"
             text_pages = ["Page 1", "Page 2"]
@@ -225,8 +220,6 @@ class TestBookStorageIntegration:
             with open(jsonl_file, "w", encoding="utf-8") as f:
                 for page in text_pages:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
-
-            import asyncio
 
             async def test_multiple_saves():
                 # Save OCR text to full bucket
@@ -280,22 +273,21 @@ class TestBookStorageIntegration:
             ),
         ],
     )
-    def test_create_book_storage_factory_integration(self, storage_type, config):
+    def test_create_book_manager_factory_integration(self, storage_type, config):
         """Test creating BookStorage with factory functions (mocked for CI)."""
         # This test validates the factory function works but uses mocks for CI compatibility
-        from unittest.mock import MagicMock, patch
 
         with patch("grin_to_s3.storage.factories.create_storage_from_config") as mock_create:
             mock_storage = MagicMock()
             mock_create.return_value = mock_storage
 
-            book_storage = create_book_storage_with_full_text(storage_type, config, "test-prefix")
+            book_storage = create_book_manager_with_full_text(storage_type, config, "test-prefix")
 
             # Verify factory was called correctly (now uses single storage)
             mock_create.assert_called_once_with(storage_type, config)
 
             # Verify BookStorage was configured correctly
-            assert isinstance(book_storage, BookStorage)
+            assert isinstance(book_storage, BookManager)
             assert book_storage.storage == mock_storage
             assert book_storage.bucket_raw == "test-raw-bucket"
             assert book_storage.bucket_meta == "test-meta-bucket"
@@ -315,15 +307,13 @@ class TestBookStorageIntegration:
 
             raw_storage = Storage(StorageConfig.local(temp_dir))
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config)
+            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
             # Create a test CSV file
             csv_content = "barcode,title,author\nTEST001,Test Book,Test Author\nTEST002,Another Book,Another Author\n"
             csv_file = Path(temp_dir) / "test_books.csv"
             with open(csv_file, "w", encoding="utf-8") as f:
                 f.write(csv_content)
-
-            import asyncio
 
             async def test_upload():
                 return await book_storage.upload_csv_file(str(csv_file))
@@ -363,15 +353,13 @@ class TestBookStorageIntegration:
 
             raw_storage = Storage(StorageConfig.local(temp_dir))
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookStorage(storage=raw_storage, bucket_config=bucket_config)
+            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
             # Create a test CSV file
             csv_content = "barcode,title\nTEST001,Custom Export\n"
             csv_file = Path(temp_dir) / "custom_export.csv"
             with open(csv_file, "w", encoding="utf-8") as f:
                 f.write(csv_content)
-
-            import asyncio
 
             async def test_upload():
                 return await book_storage.upload_csv_file(str(csv_file), "custom_books.csv")
@@ -389,3 +377,46 @@ class TestBookStorageIntegration:
             # Verify returned paths use custom filename
             assert latest_path == "meta/custom_books.csv"
             assert timestamped_path.startswith("meta/timestamped/books_")  # Timestamped always uses books_ prefix
+
+    def test_save_ocr_text_jsonl_cloud_storage_integration(self):
+        """Test OCR text JSONL saving with cloud storage backend using text operations."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with mock_cloud_storage_backend("s3", ["test-raw", "test-meta", "test-full"]) as storage_config:
+                # Create real storage instance but patch write_file to avoid aiohttp/moto issues
+                storage = create_storage_from_config(storage_config["type"], storage_config["config"])
+
+                # Patch just the write_file method to avoid file upload complexity
+                with patch.object(storage, "write_file", new_callable=AsyncMock) as mock_write:
+                    mock_write.return_value = None
+
+                    bucket_config = {
+                        "bucket_raw": storage_config["bucket_raw"],
+                        "bucket_meta": storage_config["bucket_meta"],
+                        "bucket_full": storage_config["bucket_full"]
+                    }
+                    book_storage = BookManager(storage=storage, bucket_config=bucket_config)
+
+                    text_pages = ["First page content", "Second page content", "Third page content"]
+                    barcode = "test12345"
+
+                    # Create temp JSONL file
+                    jsonl_file = Path(temp_dir) / f"{barcode}.jsonl"
+                    with open(jsonl_file, "w", encoding="utf-8") as f:
+                        for page in text_pages:
+                            f.write(json.dumps(page, ensure_ascii=False) + "\n")
+
+                    async def test_save():
+                        return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
+
+                    # Run the async test with real storage backend
+                    result_path = asyncio.run(test_save())
+
+                    # Verify the storage write method was called correctly
+                    mock_write.assert_called_once()
+                    call_args = mock_write.call_args
+                    assert call_args[0][0] == f"test-full/{barcode}.jsonl"  # correct path
+                    assert str(jsonl_file) in str(call_args[0][1])  # correct file
+
+                    # Verify returned path includes bucket prefix
+                    assert result_path == f"test-full/{barcode}.jsonl"

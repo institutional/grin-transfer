@@ -42,6 +42,7 @@ dependencies = [
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.10.0",
     "pytest-xdist>=3.0.0",
     "mypy>=1.0.0",
     "ruff>=0.1.0",
@@ -50,11 +51,14 @@ dev = [
     "types-PyYAML>=6.0.0",
     "boto3-stubs[s3]>=1.38.0",
     "mypy-boto3-s3>=1.38.0",
+    "moto[s3]>=5.0.0",
+    "aioresponses>=0.7.0",
     "pre-commit>=3.0.0",
 ]
 test = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.10.0",
     "pytest-xdist>=3.0.0",
 ]
 

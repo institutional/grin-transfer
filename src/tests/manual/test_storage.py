@@ -11,7 +11,7 @@ import tempfile
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from grin_to_s3.storage import BookStorage, StorageConfig, StorageNotFoundError, create_storage_from_config
+from grin_to_s3.storage import BookManager, StorageConfig, StorageNotFoundError, create_storage_from_config
 
 
 async def test_local_storage():
@@ -72,7 +72,7 @@ async def test_book_storage():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         storage = create_storage_from_config("local", {"base_path": temp_dir})
-        book_storage = BookStorage(storage, base_prefix="books")
+        book_storage = BookManager(storage, base_prefix="books")
 
         barcode = "TEST123"
 
@@ -153,7 +153,7 @@ async def test_integration_example():
     with tempfile.TemporaryDirectory() as temp_dir:
         # Create storage for downloaded files
         storage = create_storage_from_config("local", {"base_path": temp_dir})
-        book_storage = BookStorage(storage, base_prefix="downloads")
+        book_storage = BookManager(storage, base_prefix="downloads")
 
         # Simulate download_single.py workflow
         barcode = "EXAMPLE456"

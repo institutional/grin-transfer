@@ -10,7 +10,7 @@ import time
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from grin_to_s3.storage import BookStorage, create_storage_from_config
+from grin_to_s3.storage import BookManager, create_storage_from_config
 
 # MinIO configuration (adjust if needed)
 MINIO_CONFIG = {
@@ -99,7 +99,7 @@ async def test_minio_book_storage():
     print("=" * 26)
 
     storage = create_storage_from_config("minio", MINIO_CONFIG)
-    book_storage = BookStorage(storage, base_prefix=f"{BUCKET_NAME}/books")
+    book_storage = BookManager(storage, base_prefix=f"{BUCKET_NAME}/books")
 
     barcode = "MINIO_TEST_456"
 
@@ -183,7 +183,7 @@ async def demo_integration_with_download():
     print("=" * 34)
 
     storage = create_storage_from_config("minio", MINIO_CONFIG)
-    book_storage = BookStorage(storage, base_prefix=f"{BUCKET_NAME}/downloads")
+    book_storage = BookManager(storage, base_prefix=f"{BUCKET_NAME}/downloads")
 
     # Simulate download_single.py workflow
     barcode = "INTEGRATION_TEST"

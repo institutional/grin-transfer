@@ -1,5 +1,5 @@
 """
-Unit tests for BookStorage full-text functionality.
+Unit tests for BookManager full-text functionality.
 
 Tests the three-bucket storage system with full-text OCR storage capabilities.
 """
@@ -8,65 +8,63 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.storage.book_storage import BookStorage
+from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.factories import (
-    create_book_storage_with_full_text,
+    create_book_manager_with_full_text,
     create_storage_for_bucket,
 )
+from tests.test_utils.unified_mocks import create_book_manager_mock, standard_bucket_config
 
 
-def create_test_bucket_config():
-    """Helper to create test bucket configuration."""
-    return {"bucket_raw": "test-raw", "bucket_meta": "test-meta", "bucket_full": "test-full"}
-
-
-class TestBookStorageFullText:
-    """Test BookStorage with full-text storage functionality."""
+class TestBookManagerFullText:
+    """Test BookManager with full-text storage functionality."""
 
     def test_init_with_bucket_config(self):
-        """Test BookStorage initialization with bucket configuration."""
-        mock_storage = MagicMock()
-        bucket_config = create_test_bucket_config()
+        """Test BookManager initialization with bucket configuration."""
+        book_manager = create_book_manager_mock(
+            bucket_config=standard_bucket_config(),
+            base_prefix="test-prefix"
+        )
 
-        book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config, base_prefix="test-prefix")
-
-        assert book_storage.storage == mock_storage
-        assert book_storage.bucket_raw == "test-raw"
-        assert book_storage.bucket_meta == "test-meta"
-        assert book_storage.bucket_full == "test-full"
-        assert book_storage.base_prefix == "test-prefix"
+        assert book_manager.storage is not None
+        assert book_manager.bucket_raw == "test-raw"
+        assert book_manager.bucket_meta == "test-meta"
+        assert book_manager.bucket_full == "test-full"
+        assert book_manager.base_prefix == "test-prefix"
 
     def test_init_minimal_config(self):
-        """Test BookStorage initialization with minimal configuration."""
-        mock_storage = MagicMock()
-        bucket_config = create_test_bucket_config()
+        """Test BookManager initialization with minimal configuration."""
+        book_manager = create_book_manager_mock(
+            bucket_config=standard_bucket_config()
+        )
 
-        book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config)
-
-        assert book_storage.storage == mock_storage
-        assert book_storage.bucket_raw == "test-raw"
-        assert book_storage.bucket_meta == "test-meta"
-        assert book_storage.bucket_full == "test-full"
-        assert book_storage.base_prefix == ""
+        assert book_manager.storage is not None
+        assert book_manager.bucket_raw == "test-raw"
+        assert book_manager.bucket_meta == "test-meta"
+        assert book_manager.bucket_full == "test-full"
+        assert book_manager.base_prefix == ""
 
     def test_full_text_path_with_prefix(self):
         """Test _full_text_path method with base prefix."""
         mock_storage = MagicMock()
-        bucket_config = create_test_bucket_config()
+        book_manager = BookManager(
+            storage=mock_storage,
+            bucket_config=standard_bucket_config(),
+            base_prefix="test-prefix"
+        )
 
-        book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config, base_prefix="test-prefix")
-
-        path = book_storage._full_text_path("12345", "test.jsonl")
+        path = book_manager._full_text_path("12345", "test.jsonl")
         assert path == "test-full/test-prefix/test.jsonl"
 
     def test_full_text_path_without_prefix(self):
         """Test _full_text_path method without base prefix."""
         mock_storage = MagicMock()
-        bucket_config = create_test_bucket_config()
+        book_manager = BookManager(
+            storage=mock_storage,
+            bucket_config=standard_bucket_config()
+        )
 
-        book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config)
-
-        path = book_storage._full_text_path("12345", "test.jsonl")
+        path = book_manager._full_text_path("12345", "test.jsonl")
         assert path == "test-full/test.jsonl"
 
     @pytest.mark.asyncio
@@ -76,11 +74,11 @@ class TestBookStorageFullText:
         mock_storage = AsyncMock()
         mock_storage.is_s3_compatible = MagicMock(return_value=False)
 
-        book_storage = BookStorage(storage=mock_storage, bucket_config=create_test_bucket_config())
+        book_manager = BookManager(storage=mock_storage, bucket_config=standard_bucket_config())
 
         jsonl_file_path = "/path/to/12345.jsonl"
 
-        result = await book_storage.save_ocr_text_jsonl_from_file("12345", jsonl_file_path)
+        result = await book_manager.save_ocr_text_jsonl_from_file("12345", jsonl_file_path)
 
         # Verify correct path generated
         assert result == "test-full/12345.jsonl"
@@ -95,7 +93,7 @@ class TestBookStorageFullText:
         mock_storage = AsyncMock()
         mock_storage.is_s3_compatible = MagicMock(return_value=True)
 
-        book_storage = BookStorage(storage=mock_storage, bucket_config=create_test_bucket_config())
+        book_manager = BookManager(storage=mock_storage, bucket_config=standard_bucket_config())
 
         jsonl_file_path = "/path/to/12345.jsonl"
         metadata = {"page_count": 2, "extraction_time_ms": 1500}
@@ -106,7 +104,7 @@ class TestBookStorageFullText:
             mock_file.read.return_value = b'"Page 1 content"\n"Page 2 content"\n'
             mock_open.return_value.__aenter__.return_value = mock_file
 
-            result = await book_storage.save_ocr_text_jsonl_from_file("12345", jsonl_file_path, metadata)
+            result = await book_manager.save_ocr_text_jsonl_from_file("12345", jsonl_file_path, metadata)
 
         # Verify correct path generated
         assert result == "test-full/12345.jsonl"
@@ -122,9 +120,9 @@ class TestBookStorageFullText:
         """Test OCR text JSONL upload fails when full-text storage not configured."""
         mock_storage = MagicMock()
 
-        # This should fail because BookStorage requires bucket_config
+        # This should fail because BookManager requires bucket_config
         with pytest.raises(TypeError):
-            BookStorage(storage=mock_storage)  # Missing bucket_config
+            BookManager(storage=mock_storage)  # Missing bucket_config
 
 
 class TestStorageFactories:
@@ -188,20 +186,20 @@ class TestStorageFactories:
             create_storage_for_bucket("local", config, "test-bucket")
 
     @patch("grin_to_s3.storage.factories.create_storage_from_config")
-    def test_create_book_storage_with_full_text(self, mock_create_storage):
-        """Test creating BookStorage with full-text support."""
+    def test_create_book_manager_with_full_text(self, mock_create_storage):
+        """Test creating BookManager with full-text support."""
         mock_storage = MagicMock()
         mock_create_storage.return_value = mock_storage
 
         config = {"bucket_raw": "raw-bucket", "bucket_meta": "meta-bucket", "bucket_full": "full-bucket"}
 
-        book_storage = create_book_storage_with_full_text("s3", config, "test-prefix")
+        book_manager = create_book_manager_with_full_text("s3", config, "test-prefix")
 
         mock_create_storage.assert_called_once_with("s3", config)
 
-        assert isinstance(book_storage, BookStorage)
-        assert book_storage.storage == mock_storage
-        assert book_storage.bucket_raw == "raw-bucket"
-        assert book_storage.bucket_meta == "meta-bucket"
-        assert book_storage.bucket_full == "full-bucket"
-        assert book_storage.base_prefix == "test-prefix"
+        assert isinstance(book_manager, BookManager)
+        assert book_manager.storage == mock_storage
+        assert book_manager.bucket_raw == "raw-bucket"
+        assert book_manager.bucket_meta == "meta-bucket"
+        assert book_manager.bucket_full == "full-bucket"
+        assert book_manager.base_prefix == "test-prefix"

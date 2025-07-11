@@ -6,6 +6,7 @@ Unit tests for book collection functionality
 import asyncio
 import csv
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -14,6 +15,7 @@ import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from grin_to_s3.collect_books.config import ExportConfig
 from grin_to_s3.collect_books.exporter import BookCollector, RateLimiter
 from grin_to_s3.collect_books.models import BookRecord
 from tests.mocks import get_test_data, setup_mock_exporter
@@ -207,14 +209,12 @@ class TestBookCollector:
     def setup_method(self):
         """Set up test fixtures."""
         # Use temporary directory for test progress files
-        import tempfile
 
         self.temp_dir = tempfile.mkdtemp()
         self.exporter = setup_mock_exporter(self.temp_dir)
 
     def teardown_method(self):
         """Clean up test fixtures."""
-        import shutil
 
         # Remove temporary directory
         shutil.rmtree(self.temp_dir, ignore_errors=True)
@@ -342,7 +342,6 @@ class TestBookCollector:
             test_db_path = Path(temp_dir) / "test_books.db"
 
             # Create config with test database path
-            from grin_to_s3.collect_books.config import ExportConfig
 
             config = ExportConfig(
                 library_directory="TestLibrary", resume_file=str(progress_file), sqlite_db_path=str(test_db_path)

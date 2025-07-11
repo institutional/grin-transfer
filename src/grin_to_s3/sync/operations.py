@@ -22,8 +22,8 @@ from grin_to_s3.common import (
 from grin_to_s3.extract.text_extraction import extract_ocr_pages
 from grin_to_s3.extract.tracking import ExtractionStatus, write_status
 from grin_to_s3.metadata.marc_extraction import extract_marc_metadata
-from grin_to_s3.storage import BookStorage, create_storage_from_config
-from grin_to_s3.storage.book_storage import BucketConfig
+from grin_to_s3.storage import BookManager, create_storage_from_config
+from grin_to_s3.storage.book_manager import BucketConfig
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .models import BookSyncResult, create_book_sync_result
@@ -127,7 +127,7 @@ async def download_book_to_staging(
     if space_warned:
         logger.info(f"[{barcode}] Disk space available, resuming download")
 
-    client = GRINClient(secrets_dir=secrets_dir)
+    client = grin_client
     grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
 
     logger.info(f"[{barcode}] Starting download from {grin_url}")
@@ -179,7 +179,7 @@ async def download_book_to_staging(
 async def extract_and_upload_ocr_text(
     barcode: str,
     decrypted_file: Path,
-    book_storage: BookStorage,
+    book_storage: BookManager,
     db_tracker,
     staging_manager: StagingDirectoryManager | None,
     logger: logging.Logger,
@@ -484,7 +484,7 @@ async def upload_book_from_staging(
             "bucket_full": storage_config.get("bucket_full", ""),
         }
 
-        book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix=base_prefix)
+        book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
         # Get staging file paths
         encrypted_file = Path(staging_file_path)
@@ -632,7 +632,7 @@ async def sync_book_to_local_storage(
             "bucket_meta": "",
             "bucket_full": "",
         }
-        book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix="")
+        book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix="")
 
         # Generate final file paths
         encrypted_filename = f"{barcode}.tar.gz.gpg"
@@ -648,7 +648,7 @@ async def sync_book_to_local_storage(
         final_encrypted_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Download directly to final location
-        client = GRINClient(secrets_dir=secrets_dir)
+        client = grin_client
         grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
 
         logger.info(f"[{barcode}] Downloading directly to {final_encrypted_path}")

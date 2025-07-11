@@ -9,13 +9,17 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from aioresponses import aioresponses
 
 from grin_to_s3.sync.operations import (
     check_and_handle_etag_skip,
+    download_book_to_staging,
     extract_and_upload_ocr_text,
     sync_book_to_local_storage,
     upload_book_from_staging,
 )
+from tests.test_utils.parametrize_helpers import extraction_scenarios_parametrize, meaningful_storage_parametrize
+from tests.test_utils.unified_mocks import mock_minimal_upload, mock_upload_operations
 
 
 class TestETagSkipHandling:
@@ -70,8 +74,62 @@ class TestETagSkipHandling:
 class TestBookDownload:
     """Test book download functionality."""
 
-    # TODO: Fix async mocking issues with GRIN client
-    # These tests need proper async mocking setup for the GRIN client's HTTP session
+    @pytest.mark.asyncio
+    async def test_download_book_to_staging_success(self, mock_grin_client, mock_staging_manager):
+        """Test successful book download to staging."""
+        # Mock staging manager
+        mock_staging_manager.check_disk_space.return_value = True
+
+        # Create a mock Path object for the staging file
+        mock_staging_file = MagicMock()
+        mock_staging_file.stat.return_value.st_size = 20  # Match the body size below
+        mock_staging_manager.get_encrypted_file_path.return_value = mock_staging_file
+
+        # Mock the HTTP response using aioresponses
+        with (
+            aioresponses() as mock_http,
+            patch("aiofiles.open", create=True) as mock_aiofiles,
+        ):
+            # Mock the GRIN download URL
+            mock_http.get(
+                "https://books.google.com/libraries/Harvard/TEST123.tar.gz.gpg",
+                body=b"test archive content",  # This is 20 bytes
+                headers={"content-length": "20"}
+            )
+
+            # Mock file writing
+            mock_file = AsyncMock()
+            mock_aiofiles.return_value.__aenter__.return_value = mock_file
+            mock_aiofiles.return_value.__aexit__.return_value = None
+
+            barcode, staging_file_path, metadata = await download_book_to_staging(
+                "TEST123", mock_grin_client, "Harvard", mock_staging_manager, "abc123"
+            )
+
+            assert barcode == "TEST123"
+            assert staging_file_path == str(mock_staging_file)
+            assert metadata["google_etag"] == "abc123"
+
+    @pytest.mark.asyncio
+    async def test_download_book_to_staging_failure(self, mock_grin_client, mock_staging_manager):
+        """Test book download failure handling."""
+        # Mock staging manager
+        mock_staging_manager.check_disk_space.return_value = True
+
+        # Create a mock Path object for the staging file
+        mock_staging_file = MagicMock()
+        mock_staging_manager.get_encrypted_file_path.return_value = mock_staging_file
+
+        # Override the mock to simulate HTTP failure
+        mock_grin_client.auth.make_authenticated_request.side_effect = Exception("HTTP 404 Not Found")
+
+        with pytest.raises(Exception) as exc_info:
+            await download_book_to_staging(
+                "TEST123", mock_grin_client, "Harvard", mock_staging_manager, "abc123"
+            )
+
+        # The error should be related to HTTP status or authentication
+        assert "404" in str(exc_info.value) or "Not Found" in str(exc_info.value)
 
 
 class TestBookUpload:
@@ -82,7 +140,7 @@ class TestBookUpload:
         self, mock_storage_config, mock_staging_manager, mock_progress_tracker
     ):
         """Test upload handling skip download scenario."""
-        with patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"):
+        with mock_minimal_upload():
             result = await upload_book_from_staging(
                 "TEST123", "SKIP_DOWNLOAD", "minio", mock_storage_config, mock_staging_manager, mock_progress_tracker
             )
@@ -91,25 +149,88 @@ class TestBookUpload:
         assert result["status"] == "completed"
         assert result["skipped"] is True
 
-    # TODO: Fix async mocking issues
-    # @pytest.mark.asyncio
-    # async def test_upload_book_from_staging_success(
-    #     self, mock_storage_config, mock_staging_manager, mock_progress_tracker
-    # ):
-    #     """Test successful book upload from staging."""
-    #     # This test needs fixing for async mocking
-    #     pass
+    @pytest.mark.asyncio
+    async def test_upload_book_from_staging_success(
+        self, mock_storage_config, mock_staging_manager, mock_progress_tracker
+    ):
+        """Test successful book upload from staging."""
+        # Set up properly configured mock staging manager
+        mock_staging_manager.cleanup_files.return_value = 1024 * 1024  # Return int, not MagicMock
+
+        with mock_upload_operations() as mocks:
+            result = await upload_book_from_staging(
+                "TEST123",
+                "/staging/TEST123.tar.gz.gpg",
+                "minio",
+                mock_storage_config,
+                mock_staging_manager,
+                mock_progress_tracker,
+                "encrypted_etag_123",
+                "gpg_key_file",
+                "secrets_dir",
+                skip_extract_ocr=True,
+                skip_extract_marc=True,
+            )
+
+            # Verify successful upload
+            assert result["status"] == "completed"
+            assert result["barcode"] == "TEST123"
+            assert result["decrypted_success"] is True
+
+            # Verify storage operations were called
+            mocks.storage.save_decrypted_archive_from_file.assert_called_once()
+            mocks.decrypt.assert_called_once()
 
 
 class TestLocalStorageSync:
     """Test local storage sync functionality."""
 
-    # TODO: Fix async mocking issues
-    # @pytest.mark.asyncio
-    # async def test_sync_book_to_local_storage_success(self, mock_grin_client, mock_progress_tracker):
-    #     """Test successful local storage sync."""
-    #     # This test needs fixing for async mocking
-    #     pass
+    @pytest.mark.asyncio
+    async def test_sync_book_to_local_storage_success(self, mock_grin_client, mock_progress_tracker):
+        """Test successful local storage sync."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_config = {
+                "base_path": temp_dir,
+                "bucket_raw": "test-raw",
+                "bucket_meta": "test-meta",
+                "bucket_full": "test-full",
+                "prefix": ""
+            }
+
+            # Mock the HTTP call and GPG decryption
+            with (
+                aioresponses() as mock_http,
+                patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
+                patch("aiofiles.open", create=True) as mock_aiofiles,
+                patch("pathlib.Path.mkdir"),
+                patch("pathlib.Path.unlink"),
+            ):
+                # Mock the GRIN download URL
+                mock_http.get(
+                    "https://books.google.com/libraries/Harvard/TEST123.tar.gz.gpg",
+                    body=b"test archive content",
+                    headers={"content-length": "20"}
+                )
+
+                # Mock file writing
+                mock_file = AsyncMock()
+                mock_aiofiles.return_value.__aenter__.return_value = mock_file
+                mock_aiofiles.return_value.__aexit__.return_value = None
+
+                result = await sync_book_to_local_storage(
+                    "TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker
+                )
+
+                assert result["barcode"] == "TEST123"
+                assert result["status"] == "completed"
+                assert result["decrypted_success"] is True
+
+                # Verify operations were called
+                mock_decrypt.assert_called_once()
+                mock_file.write.assert_called()
+                mock_file.flush.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_sync_book_to_local_storage_missing_base_path(self, mock_grin_client, mock_progress_tracker):
@@ -133,26 +254,6 @@ class TestOCRExtractionIntegration:
         """Create a mock logger."""
         return MagicMock()
 
-    @pytest.fixture
-    def mock_book_storage(self):
-        """Create a mock BookStorage instance."""
-        storage = MagicMock()
-        storage.save_ocr_text_jsonl_from_file = AsyncMock(return_value="bucket_full/TEST123/TEST123.jsonl")
-        return storage
-
-    @pytest.fixture
-    def mock_db_tracker(self):
-        """Create a mock database tracker."""
-        tracker = MagicMock()
-        tracker.db_path = "/tmp/test.db"
-        return tracker
-
-    @pytest.fixture
-    def mock_staging_manager(self):
-        """Create a mock staging manager."""
-        manager = MagicMock()
-        manager.staging_dir = Path("/tmp/staging")
-        return manager
 
     @pytest.fixture
     def test_decrypted_file(self):
@@ -164,7 +265,7 @@ class TestOCRExtractionIntegration:
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_success(
-        self, mock_book_storage, mock_db_tracker, mock_staging_manager, mock_logger, test_decrypted_file
+        self, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger, test_decrypted_file
     ):
         """Test successful OCR extraction and upload."""
         with (
@@ -182,7 +283,7 @@ class TestOCRExtractionIntegration:
             jsonl_file.write_text('{"page": 1, "text": "Test content"}\n')
 
             await extract_and_upload_ocr_text(
-                "TEST123", test_decrypted_file, mock_book_storage, mock_db_tracker, mock_staging_manager, mock_logger
+                "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger
             )
 
             # Verify extraction was called
@@ -192,7 +293,7 @@ class TestOCRExtractionIntegration:
             assert mock_write_status.call_count == 3  # starting, extracting, completed
 
             # Verify upload was called
-            mock_book_storage.save_ocr_text_jsonl_from_file.assert_called_once()
+            mock_book_manager.save_ocr_text_jsonl_from_file.assert_called_once()
 
             # Verify success logging
             mock_logger.info.assert_any_call("[TEST123] Starting OCR text extraction from decrypted archive")
@@ -200,7 +301,7 @@ class TestOCRExtractionIntegration:
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_extraction_failure(
-        self, mock_book_storage, mock_db_tracker, mock_staging_manager, mock_logger, test_decrypted_file
+        self, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger, test_decrypted_file
     ):
         """Test OCR extraction failure handling (non-blocking)."""
         with (
@@ -212,7 +313,7 @@ class TestOCRExtractionIntegration:
 
             # This should not raise an exception (non-blocking)
             await extract_and_upload_ocr_text(
-                "TEST123", test_decrypted_file, mock_book_storage, mock_db_tracker, mock_staging_manager, mock_logger
+                "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger
             )
 
             # Verify failure was tracked in database
@@ -231,7 +332,7 @@ class TestOCRExtractionIntegration:
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_upload_failure(
-        self, mock_book_storage, mock_db_tracker, mock_staging_manager, mock_logger, test_decrypted_file
+        self, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger, test_decrypted_file
     ):
         """Test OCR upload failure handling (non-blocking)."""
         with (
@@ -240,7 +341,7 @@ class TestOCRExtractionIntegration:
         ):
             # Mock extraction success but upload failure
             mock_extract.return_value = 100
-            mock_book_storage.save_ocr_text_jsonl_from_file.side_effect = Exception("Network timeout")
+            mock_book_manager.save_ocr_text_jsonl_from_file.side_effect = Exception("Network timeout")
 
             # Create mock JSONL file
             jsonl_file = mock_staging_manager.staging_dir / "TEST123_ocr_temp.jsonl"
@@ -249,7 +350,7 @@ class TestOCRExtractionIntegration:
 
             # This should not raise an exception (non-blocking)
             await extract_and_upload_ocr_text(
-                "TEST123", test_decrypted_file, mock_book_storage, mock_db_tracker, mock_staging_manager, mock_logger
+                "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger
             )
 
             # Verify failure was logged
@@ -258,7 +359,7 @@ class TestOCRExtractionIntegration:
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_no_db_tracker(
-        self, mock_book_storage, mock_staging_manager, mock_logger, test_decrypted_file
+        self, mock_book_manager, mock_staging_manager, mock_logger, test_decrypted_file
     ):
         """Test OCR extraction without database tracker."""
         with patch("grin_to_s3.sync.operations.extract_ocr_pages") as mock_extract:
@@ -271,46 +372,27 @@ class TestOCRExtractionIntegration:
 
             # Should work without database tracker
             await extract_and_upload_ocr_text(
-                "TEST123", test_decrypted_file, mock_book_storage, None, mock_staging_manager, mock_logger
+                "TEST123", test_decrypted_file, mock_book_manager, None, mock_staging_manager, mock_logger
             )
 
             # Verify extraction and upload still happened
             mock_extract.assert_called_once()
-            mock_book_storage.save_ocr_text_jsonl_from_file.assert_called_once()
+            mock_book_manager.save_ocr_text_jsonl_from_file.assert_called_once()
 
     @pytest.mark.asyncio
+    @meaningful_storage_parametrize()
     async def test_upload_book_from_staging_with_ocr_extraction(
-        self, mock_storage_config, mock_staging_manager, mock_progress_tracker
+        self, storage_type, mock_storage_config, mock_staging_manager, mock_progress_tracker
     ):
-        """Test upload_book_from_staging with OCR extraction enabled."""
-        with (
-            patch("grin_to_s3.sync.operations.decrypt_gpg_file"),
-            patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
-            patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract,
-            patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"),
-            patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
-        ):
-            # Mock successful decryption and upload
-            mock_storage = MagicMock()
-            mock_storage.save_decrypted_archive_from_file = AsyncMock(return_value="path/to/archive")
-            mock_create_storage.return_value = mock_storage
-            mock_book_storage_class.return_value = mock_storage
+        """Test upload_book_from_staging with OCR extraction enabled across local vs cloud storage."""
+        # Set up properly configured mock staging manager
+        mock_staging_manager.cleanup_files.return_value = 1024 * 1024  # Return int, not MagicMock
 
-            # Mock progress tracker methods
-            mock_progress_tracker.add_status_change = AsyncMock()
-            mock_progress_tracker.update_sync_data = AsyncMock()
-
-            # Mock staging manager
-            mock_staging_manager.get_decrypted_file_path.return_value = Path("/staging/TEST123.tar.gz")
-            mock_staging_manager.cleanup_files.return_value = 1024 * 1024  # 1MB
-
-            # Mock extract function as async
-            mock_extract.return_value = None
-
+        with mock_upload_operations(skip_marc=True) as mocks:
             result = await upload_book_from_staging(
                 "TEST123",
                 "/staging/TEST123.tar.gz.gpg",
-                "minio",
+                storage_type,
                 mock_storage_config,
                 mock_staging_manager,
                 mock_progress_tracker,
@@ -321,38 +403,22 @@ class TestOCRExtractionIntegration:
             )
 
             # Verify OCR extraction was called
-            mock_extract.assert_called_once()
+            mocks.extract_ocr.assert_called_once()
 
             # Verify successful result
             assert result["status"] == "completed"
             assert result["barcode"] == "TEST123"
 
     @pytest.mark.asyncio
-    async def test_upload_book_from_staging_skip_ocr_extraction(
-        self, mock_storage_config, mock_staging_manager, mock_progress_tracker
+    @extraction_scenarios_parametrize()
+    async def test_upload_book_from_staging_extraction_scenarios(
+        self, skip_ocr, skip_marc, mock_storage_config, mock_staging_manager, mock_progress_tracker
     ):
-        """Test upload_book_from_staging with OCR extraction disabled."""
-        with (
-            patch("grin_to_s3.sync.operations.decrypt_gpg_file"),
-            patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
-            patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract,
-            patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"),
-            patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
-        ):
-            # Mock successful decryption and upload
-            mock_storage = MagicMock()
-            mock_storage.save_decrypted_archive_from_file = AsyncMock(return_value="path/to/archive")
-            mock_create_storage.return_value = mock_storage
-            mock_book_storage_class.return_value = mock_storage
+        """Test upload_book_from_staging with different extraction scenarios."""
+        # Set up properly configured mock staging manager
+        mock_staging_manager.cleanup_files.return_value = 1024 * 1024  # Return int, not MagicMock
 
-            # Mock progress tracker methods
-            mock_progress_tracker.add_status_change = AsyncMock()
-            mock_progress_tracker.update_sync_data = AsyncMock()
-
-            # Mock staging manager
-            mock_staging_manager.get_decrypted_file_path.return_value = Path("/staging/TEST123.tar.gz")
-            mock_staging_manager.cleanup_files.return_value = 1024 * 1024
-
+        with mock_upload_operations(skip_ocr=skip_ocr, skip_marc=skip_marc) as mocks:
             result = await upload_book_from_staging(
                 "TEST123",
                 "/staging/TEST123.tar.gz.gpg",
@@ -363,13 +429,22 @@ class TestOCRExtractionIntegration:
                 "encrypted_etag_123",
                 "gpg_key_file",
                 "secrets_dir",
-                skip_extract_ocr=True,  # OCR extraction disabled
+                skip_extract_ocr=skip_ocr,
+                skip_extract_marc=skip_marc,
             )
 
-            # Verify OCR extraction was NOT called
-            mock_extract.assert_not_called()
+            # Verify extraction behavior based on parameters
+            if skip_ocr:
+                mocks.extract_ocr.assert_not_called()
+            else:
+                mocks.extract_ocr.assert_called_once()
 
-            # Verify successful result
+            if skip_marc:
+                mocks.extract_marc.assert_not_called()
+            else:
+                mocks.extract_marc.assert_called_once()
+
+            # Verify successful result regardless of extraction scenario
             assert result["status"] == "completed"
             assert result["barcode"] == "TEST123"
 
@@ -378,27 +453,18 @@ class TestOCRExtractionIntegration:
         self, mock_storage_config, mock_staging_manager, mock_progress_tracker
     ):
         """Test that OCR extraction task is cancelled when upload fails."""
-        with (
-            patch("grin_to_s3.sync.operations.decrypt_gpg_file"),
-            patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
-            patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract,
-            patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"),
-            patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
-        ):
-            # Mock successful decryption but failed upload
-            mock_storage = MagicMock()
-            mock_storage.save_decrypted_archive_from_file = AsyncMock(side_effect=Exception("Upload failed"))
-            mock_create_storage.return_value = mock_storage
-            mock_book_storage_class.return_value = mock_storage
+        # Set up properly configured mock staging manager
+        mock_staging_manager.cleanup_files.return_value = 1024 * 1024  # Return int, not MagicMock
 
-            # Mock staging manager
-            mock_staging_manager.get_decrypted_file_path.return_value = Path("/staging/TEST123.tar.gz")
+        with mock_upload_operations(should_fail=False) as mocks:
+            # Configure storage to fail after decryption succeeds
+            mocks.storage.save_decrypted_archive_from_file.side_effect = Exception("Storage upload failed")
 
             # Mock extract function to simulate long-running task
             async def mock_extract_func(*args, **kwargs):
                 await asyncio.sleep(0.1)  # Simulate work
 
-            mock_extract.side_effect = mock_extract_func
+            mocks.extract_ocr.side_effect = mock_extract_func
 
             result = await upload_book_from_staging(
                 "TEST123",
@@ -415,25 +481,42 @@ class TestOCRExtractionIntegration:
 
             # Verify upload failed
             assert result["status"] == "failed"
-            assert "Upload failed" in result["error"]
+            assert "Storage upload failed" in result["error"]
 
 
 class TestBookStorageIntegrationInSync:
     """Test real BookStorage initialization in sync operations."""
 
     @pytest.mark.asyncio
-    async def test_upload_book_from_staging_real_book_storage_initialization(self):
-        """Test that upload_book_from_staging correctly initializes BookStorage."""
+    @meaningful_storage_parametrize()
+    async def test_upload_book_from_staging_real_book_storage_initialization(self, storage_type):
+        """Test that upload_book_from_staging correctly initializes BookStorage across local vs cloud storage."""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create proper storage config with bucket information
-            storage_config = {
-                "type": "local",
-                "bucket_raw": "test-raw",
-                "bucket_meta": "test-meta",
-                "bucket_full": "test-full",
-                "config": {"base_path": temp_dir},
-                "prefix": "",
-            }
+            if storage_type == "local":
+                storage_config = {
+                    "type": storage_type,
+                    "bucket_raw": "test-raw",
+                    "bucket_meta": "test-meta",
+                    "bucket_full": "test-full",
+                    "config": {"base_path": temp_dir},
+                    "prefix": "",
+                }
+            else:
+                # For cloud storage types (s3, r2, minio)
+                storage_config = {
+                    "type": storage_type,
+                    "bucket_raw": "test-raw",
+                    "bucket_meta": "test-meta",
+                    "bucket_full": "test-full",
+                    "config": {
+                        "endpoint_url": f"https://test-{storage_type}.example.com",
+                        "access_key_id": "test-key",
+                        "secret_access_key": "test-secret",
+                        "region": "test-region",
+                    },
+                    "prefix": "",
+                }
 
             # Mock other dependencies but let BookStorage initialize normally
             mock_staging_manager = MagicMock()
@@ -451,31 +534,17 @@ class TestBookStorageIntegrationInSync:
             decrypted_file = Path(temp_dir) / "TEST123.tar.gz"
             decrypted_file.write_text("dummy decrypted content")
 
-            with (
-                patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
-                patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
-                patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"),
-                patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
-            ):
-                # Mock successful decryption
-                mock_decrypt.return_value = None
-
-                # Mock storage creation to return a mock storage
-                mock_storage = MagicMock()
-                mock_create_storage.return_value = mock_storage
-
-                # Mock BookStorage instance
-                mock_book_storage = MagicMock()
-                mock_book_storage.save_decrypted_archive_from_file = AsyncMock(
+            with mock_upload_operations() as mocks:
+                # Configure specific storage behavior for this test
+                mocks.book_storage_class.return_value.save_decrypted_archive_from_file = AsyncMock(
                     return_value="bucket_raw/TEST123/TEST123.tar.gz"
                 )
-                mock_book_storage_class.return_value = mock_book_storage
 
                 # This should NOT raise "missing bucket_config argument" error
                 result = await upload_book_from_staging(
                     "TEST123",
                     str(encrypted_file),
-                    "local",
+                    storage_type,
                     storage_config,
                     mock_staging_manager,
                     mock_progress_tracker,

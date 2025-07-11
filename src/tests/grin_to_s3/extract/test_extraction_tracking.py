@@ -5,13 +5,9 @@ Tests for OCR text extraction database tracking functionality.
 
 import json
 import sqlite3
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.extract.tracking import (
     TEXT_EXTRACTION_STATUS_TYPE,
     ExtractionMethod,
@@ -21,48 +17,13 @@ from grin_to_s3.extract.tracking import (
     get_status_summary,
     track_start,
 )
-
-
-@pytest.fixture
-async def temp_db():
-    """Create a temporary database for testing."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = f.name
-
-    # Initialize with basic schema
-    conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS book_status_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            barcode TEXT NOT NULL,
-            status_type TEXT NOT NULL,
-            status_value TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            session_id TEXT,
-            metadata TEXT
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS books (
-            barcode TEXT PRIMARY KEY,
-            updated_at TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-
-    yield db_path
-
-    # Cleanup
-    Path(db_path).unlink(missing_ok=True)
+from tests.test_utils.unified_mocks import create_progress_tracker_with_db_mock
 
 
 @pytest.fixture
 async def mock_db_tracker():
     """Create a mock SQLiteProgressTracker for testing."""
-    tracker = MagicMock(spec=SQLiteProgressTracker)
-    tracker.add_status_change = AsyncMock(return_value=True)
-    return tracker
+    return create_progress_tracker_with_db_mock("/tmp/test.db")
 
 
 class TestTrackingFunctions:

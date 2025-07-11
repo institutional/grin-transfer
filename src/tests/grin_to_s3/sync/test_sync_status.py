@@ -15,6 +15,7 @@ from grin_to_s3.sync.status import (
     show_sync_status,
     validate_database_file,
 )
+from tests.test_utils.unified_mocks import create_progress_tracker_with_db_mock
 
 
 class TestValidateDatabaseFile:
@@ -40,11 +41,11 @@ class TestValidateDatabaseFile:
         with pytest.raises(SystemExit):
             validate_database_file(db_path)
 
-    def test_validate_correct_database(self, temp_db_path):
+    def test_validate_correct_database(self, temp_db):
         """Test validation of correct database."""
-        # The temp_db_path fixture creates a database with required tables
+        # The temp_db fixture creates a database with required tables
         # This should pass without raising an exception
-        validate_database_file(temp_db_path)
+        validate_database_file(temp_db)
 
     def test_validate_corrupted_database(self, tmp_path):
         """Test validation of corrupted database file."""
@@ -62,13 +63,13 @@ class TestSyncStatistics:
     """Test sync statistics functionality."""
 
     @pytest.mark.asyncio
-    async def test_get_sync_statistics(self, temp_db_path):
+    async def test_get_sync_statistics(self, temp_db):
         """Test getting sync statistics."""
         with patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class:
-            mock_tracker = MagicMock()
+            mock_tracker = create_progress_tracker_with_db_mock(temp_db)
             mock_tracker_class.return_value = mock_tracker
 
-            # Mock the various count methods
+            # Configure specific return values for this test
             mock_tracker.get_book_count = AsyncMock(return_value=100)
             mock_tracker.get_enriched_book_count = AsyncMock(return_value=80)
             mock_tracker.get_converted_books_count = AsyncMock(return_value=50)
@@ -82,10 +83,8 @@ class TestSyncStatistics:
                     "decrypted": 25,
                 }
             )
-            mock_tracker._db = MagicMock()
-            mock_tracker._db.close = AsyncMock()
 
-            stats = await get_sync_statistics(temp_db_path)
+            stats = await get_sync_statistics(temp_db)
 
             assert stats["total_books"] == 100
             assert stats["enriched_books"] == 80
@@ -96,12 +95,13 @@ class TestSyncStatistics:
             assert stats["pending"] == 15
 
     @pytest.mark.asyncio
-    async def test_get_sync_statistics_with_storage_filter(self, temp_db_path):
+    async def test_get_sync_statistics_with_storage_filter(self, temp_db):
         """Test getting sync statistics with storage type filter."""
         with patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class:
-            mock_tracker = MagicMock()
+            mock_tracker = create_progress_tracker_with_db_mock(temp_db)
             mock_tracker_class.return_value = mock_tracker
 
+            # Configure specific return values for this test
             mock_tracker.get_book_count = AsyncMock(return_value=100)
             mock_tracker.get_enriched_book_count = AsyncMock(return_value=80)
             mock_tracker.get_converted_books_count = AsyncMock(return_value=50)
@@ -115,10 +115,8 @@ class TestSyncStatistics:
                     "decrypted": 18,
                 }
             )
-            mock_tracker._db = MagicMock()
-            mock_tracker._db.close = AsyncMock()
 
-            stats = await get_sync_statistics(temp_db_path, "minio")
+            stats = await get_sync_statistics(temp_db, "minio")
 
             # Should call get_sync_stats with storage type filter
             mock_tracker.get_sync_stats.assert_called_once_with("minio")
@@ -137,16 +135,16 @@ class TestShowSyncStatus:
         assert "❌ Error: Database file does not exist" in captured.out
 
     @pytest.mark.asyncio
-    async def test_show_sync_status_success(self, temp_db_path, capsys):
+    async def test_show_sync_status_success(self, temp_db, capsys):
         """Test successful sync status display."""
         with (
             patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class,
             patch("grin_to_s3.sync.status.connect_async") as mock_connect,
         ):
-            mock_tracker = MagicMock()
+            mock_tracker = create_progress_tracker_with_db_mock(temp_db)
             mock_tracker_class.return_value = mock_tracker
 
-            # Mock tracker methods
+            # Configure specific return values for this test
             mock_tracker.get_book_count = AsyncMock(return_value=100)
             mock_tracker.get_enriched_book_count = AsyncMock(return_value=80)
             mock_tracker.get_converted_books_count = AsyncMock(return_value=50)
@@ -178,8 +176,6 @@ class TestShowSyncStatus:
                     "rate_per_day": 24.0,
                 }
             )
-            mock_tracker._db = MagicMock()
-            mock_tracker._db.close = AsyncMock()
 
             # Mock database connection for storage breakdown and recent activity
             mock_db = MagicMock()
@@ -214,7 +210,7 @@ class TestShowSyncStatus:
 
             mock_db.execute = AsyncMock(side_effect=[mock_cursor1, mock_cursor2, mock_cursor3])
 
-            await show_sync_status(temp_db_path)
+            await show_sync_status(temp_db)
 
             captured = capsys.readouterr()
             assert "Sync Status Report" in captured.out
@@ -231,7 +227,7 @@ class TestExportSyncStatusCsv:
     """Test CSV export functionality."""
 
     @pytest.mark.asyncio
-    async def test_export_sync_status_csv(self, temp_db_path, tmp_path, capsys):
+    async def test_export_sync_status_csv(self, temp_db, tmp_path, capsys):
         """Test exporting sync status to CSV."""
         output_path = str(tmp_path / "sync_status.csv")
 
@@ -266,7 +262,7 @@ class TestExportSyncStatusCsv:
             )
             mock_db.execute = AsyncMock(return_value=mock_cursor)
 
-            await export_sync_status_csv(temp_db_path, output_path)
+            await export_sync_status_csv(temp_db, output_path)
 
             # Check that CSV file was created
             assert Path(output_path).exists()
@@ -283,7 +279,7 @@ class TestExportSyncStatusCsv:
                 assert "TEST456,r2" in content
 
     @pytest.mark.asyncio
-    async def test_export_sync_status_csv_with_filter(self, temp_db_path, tmp_path):
+    async def test_export_sync_status_csv_with_filter(self, temp_db, tmp_path):
         """Test exporting sync status to CSV with storage type filter."""
         output_path = str(tmp_path / "sync_status_filtered.csv")
 
@@ -308,7 +304,7 @@ class TestExportSyncStatusCsv:
             )
             mock_db.execute = AsyncMock(return_value=mock_cursor)
 
-            await export_sync_status_csv(temp_db_path, output_path, "minio")
+            await export_sync_status_csv(temp_db, output_path, "minio")
 
             # Verify that the query was called with storage type filter
             call_args = mock_db.execute.call_args

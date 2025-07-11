@@ -1,10 +1,20 @@
 """Shared test configuration utilities and fixtures."""
 
-from unittest.mock import MagicMock
+import sqlite3
+import tempfile
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from grin_to_s3.run_config import RunConfig
+from tests.test_utils.unified_mocks import (
+    create_book_manager_mock,
+    create_progress_tracker_mock,
+    create_staging_manager_mock,
+    create_storage_mock,
+    mock_upload_operations,
+)
 
 
 class ConfigBuilder:
@@ -110,3 +120,100 @@ def test_config_builder():
 def mock_process_stage():
     """Mock process stage for testing."""
     return MagicMock()
+
+
+# Enhanced fixtures for sync operation testing
+@pytest.fixture
+def mock_upload_deps():
+    """Fixture providing mocked upload dependencies."""
+    with mock_upload_operations() as mocks:
+        yield mocks
+
+
+@pytest.fixture
+def mock_staging_manager():
+    """Fixture providing a configured mock staging manager."""
+    return create_staging_manager_mock()
+
+
+@pytest.fixture
+def mock_progress_tracker():
+    """Fixture providing a configured mock progress tracker."""
+    return create_progress_tracker_mock()
+
+
+class DatabaseSchemaFactory:
+    """Factory for creating standardized test database schemas."""
+
+    @staticmethod
+    def create_full_schema(db_path: str) -> None:
+        """Create the complete database schema used by the application."""
+        # Read the actual schema from docs/schema.sql
+        schema_file = Path(__file__).parent.parent.parent / "docs" / "schema.sql"
+        schema_sql = schema_file.read_text()
+
+        conn = sqlite3.connect(db_path)
+        conn.executescript(schema_sql)
+        conn.commit()
+        conn.close()
+
+
+@pytest.fixture
+def temp_db():
+    """Create a temporary database with full schema."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    DatabaseSchemaFactory.create_full_schema(db_path)
+
+    yield db_path
+
+    Path(db_path).unlink(missing_ok=True)
+
+
+@pytest.fixture
+def mock_storage_config():
+    """Fixture providing a standard mock storage configuration."""
+    return {
+        "bucket_raw": "test-raw",
+        "bucket_full": "test-full",
+        "bucket_meta": "test-meta",
+        "base_path": "/tmp/storage",
+    }
+
+
+@pytest.fixture
+def mock_storage():
+    """Standard storage mock used across multiple tests."""
+    return create_storage_mock()
+
+
+@pytest.fixture
+def mock_book_manager():
+    """Standard book manager mock used across multiple tests."""
+    return create_book_manager_mock()
+
+
+@pytest.fixture
+def mock_grin_client():
+    """Mock GRIN client for testing."""
+    client = MagicMock()
+    client.fetch_resource = AsyncMock()
+    client.auth = MagicMock()
+
+    # Create a mock response that properly handles async iteration
+    mock_response = MagicMock()
+    mock_response.content = MagicMock()
+
+    # Create an async iterator for iter_chunked
+    async def mock_iter_chunked(size):
+        yield b"test archive content"
+
+    mock_response.content.iter_chunked = mock_iter_chunked
+    mock_response.status = 200
+    mock_response.headers = {"content-length": "20"}
+
+    client.auth.make_authenticated_request = AsyncMock(return_value=mock_response)
+    client.session = MagicMock()
+    client.session.close = AsyncMock()
+    return client

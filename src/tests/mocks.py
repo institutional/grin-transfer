@@ -3,6 +3,12 @@
 Shared mock classes for testing CSV export functionality without network calls
 """
 
+from pathlib import Path
+
+from grin_to_s3.collect_books.config import ExportConfig
+from grin_to_s3.collect_books.exporter import BookCollector
+from grin_to_s3.process_summary import ProcessStageMetrics
+
 
 class MockAuth:
     """Mock authentication for testing"""
@@ -155,10 +161,6 @@ def get_large_html_test_data():
 
 def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
     """Create a properly mocked BookCollector for testing"""
-    from pathlib import Path
-
-    from grin_to_s3.collect_books.config import ExportConfig
-    from grin_to_s3.collect_books.exporter import BookCollector
 
     if test_data is None:
         test_data = get_test_data()
@@ -175,7 +177,6 @@ def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
     )
 
     # Create a mock process summary stage if not provided
-    from grin_to_s3.process_summary import ProcessStageMetrics
 
     mock_stage = ProcessStageMetrics("test")
 

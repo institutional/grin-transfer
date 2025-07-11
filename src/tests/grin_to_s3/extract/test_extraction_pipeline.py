@@ -7,6 +7,7 @@ ensuring that the text extraction and database operations work together
 correctly in realistic scenarios.
 """
 
+import asyncio
 import json
 import sqlite3
 import tempfile
@@ -16,7 +17,9 @@ import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.extract.text_extraction import (
+    TextExtractionError,
     extract_ocr_pages,
+    get_barcode_from_path,
 )
 from grin_to_s3.extract.tracking import (
     TEXT_EXTRACTION_STATUS_TYPE,
@@ -72,7 +75,6 @@ class TestExtractionWithTracking:
     async def test_successful_extraction_with_tracking(self, temp_db_tracker, test_archive_with_content):
         """Test successful text extraction with complete status tracking."""
         # Get the actual barcode from the archive path
-        from grin_to_s3.extract.text_extraction import get_barcode_from_path
 
         barcode = get_barcode_from_path(test_archive_with_content)
         session_id = "test_session_123"
@@ -95,7 +97,6 @@ class TestExtractionWithTracking:
 
         # Verify database tracking was recorded
         # Allow some time for async tasks to complete
-        import asyncio
 
         await asyncio.sleep(0.1)
 
@@ -131,7 +132,6 @@ class TestExtractionWithTracking:
     async def test_jsonl_extraction_with_tracking(self, temp_db_tracker, test_archive_with_content):
         """Test JSONL extraction with database tracking."""
         # Get the actual barcode from the archive path
-        from grin_to_s3.extract.text_extraction import get_barcode_from_path
 
         barcode = get_barcode_from_path(test_archive_with_content)
         session_id = "test_session_456"
@@ -168,7 +168,6 @@ class TestExtractionWithTracking:
             assert page6 == "Conclusion\n\nFinal thoughts and summary."
 
             # Allow time for async tasks
-            import asyncio
 
             await asyncio.sleep(0.1)
 
@@ -205,7 +204,6 @@ class TestExtractionWithTracking:
         session_id = "test_session_789"
 
         # Try to extract from nonexistent file
-        from grin_to_s3.extract.text_extraction import TextExtractionError
 
         with pytest.raises(TextExtractionError):
             await extract_ocr_pages(
@@ -215,7 +213,6 @@ class TestExtractionWithTracking:
             )
 
         # Allow time for async tasks
-        import asyncio
 
         await asyncio.sleep(0.1)
 
@@ -278,7 +275,6 @@ class TestQueryFunctionsIntegration:
         )
 
         # Allow time for async tasks
-        import asyncio
 
         await asyncio.sleep(0.1)
 
@@ -405,7 +401,6 @@ class TestSessionTracking:
         )
 
         # Allow time for async tasks
-        import asyncio
 
         await asyncio.sleep(0.1)
 

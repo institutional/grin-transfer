@@ -4,6 +4,7 @@ Unit tests for CSV export integration into sync pipeline.
 Tests the CLI flag parsing and basic pipeline integration for CSV export.
 """
 
+import tempfile
 from unittest.mock import patch
 
 import pytest
@@ -70,8 +71,6 @@ class TestCSVExportIntegration:
     @pytest.mark.asyncio
     async def test_csv_export_success(self, mock_process_stage, test_config_builder):
         """Test successful CSV export when enabled and books were synced."""
-        import tempfile
-
         with tempfile.TemporaryDirectory() as temp_dir:
             config = (
                 test_config_builder.with_db_path(f"{temp_dir}/db.sqlite")
@@ -97,7 +96,7 @@ class TestCSVExportIntegration:
 
                 # Mock storage creation
                 with patch("grin_to_s3.sync.pipeline.create_storage_from_config"):
-                    with patch("grin_to_s3.sync.pipeline.BookStorage"):
+                    with patch("grin_to_s3.sync.pipeline.BookManager"):
                         result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "completed"
@@ -111,8 +110,6 @@ class TestCSVExportIntegration:
     @pytest.mark.asyncio
     async def test_csv_export_error_handling(self, mock_process_stage, test_config_builder):
         """Test that CSV export errors are handled properly."""
-        import tempfile
-
         with tempfile.TemporaryDirectory() as temp_dir:
             config = (
                 test_config_builder.with_db_path(f"{temp_dir}/db.sqlite")
@@ -133,10 +130,13 @@ class TestCSVExportIntegration:
 
                 # Mock storage creation
                 with patch("grin_to_s3.sync.pipeline.create_storage_from_config"):
-                    with patch("grin_to_s3.sync.pipeline.BookStorage"):
+                    with patch("grin_to_s3.sync.pipeline.BookManager"):
                         result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "failed"
+                        assert result["file_size"] == 0
+                        assert result["num_rows"] == 0
+                        assert result["export_time"] == 0.0
                         assert result["file_size"] == 0
                         assert result["num_rows"] == 0
                         assert result["export_time"] == 0.0

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.extract.__main__ import write_to_bucket
+from grin_to_s3.extract.__main__ import extract_single_archive, main, write_to_bucket
 
 # Storage configuration validation is now handled by run_config utilities
 
@@ -46,12 +46,11 @@ class TestWriteToBucket:
 class TestExtractCLIIntegration:
     """Test CLI integration with bucket functionality."""
 
-    @patch("grin_to_s3.storage.factories.create_book_storage_with_full_text")
+    @patch("grin_to_s3.storage.factories.create_book_manager_with_full_text")
     @patch("grin_to_s3.extract.__main__.extract_ocr_pages", new_callable=AsyncMock)
     @pytest.mark.asyncio
     async def test_extract_single_archive_with_bucket(self, mock_extract_to_file, mock_create_storage):
         """Test extract_single_archive with bucket storage only."""
-        from grin_to_s3.extract.__main__ import extract_single_archive
 
         mock_book_storage = AsyncMock()
         mock_book_storage.save_ocr_text_jsonl_from_file = AsyncMock(return_value="book12345.jsonl")
@@ -88,9 +87,6 @@ class TestExtractCLIIntegration:
     @pytest.mark.asyncio
     async def test_extract_single_archive_bucket_and_file(self, mock_extract_to_file):
         """Test that file output takes priority when both file and run config are specified."""
-        from unittest.mock import MagicMock
-
-        from grin_to_s3.extract.__main__ import main
 
         # Mock arguments for both file and run configuration output
         with patch("argparse.ArgumentParser.parse_args") as mock_parse_args:
@@ -110,7 +106,7 @@ class TestExtractCLIIntegration:
                 patch("grin_to_s3.extract.__main__.apply_run_config_to_args"),
                 patch("pathlib.Path.exists") as mock_path_exists,
                 patch("json.load") as mock_json_load,
-                patch("grin_to_s3.storage.factories.create_book_storage_with_full_text") as mock_create_storage,
+                patch("grin_to_s3.storage.factories.create_book_manager_with_full_text") as mock_create_storage,
                 patch("builtins.print"),
             ):
                 mock_setup_db.return_value = "/path/to/db"
@@ -137,7 +133,6 @@ class TestExtractCLIIntegration:
     @pytest.mark.asyncio
     async def test_extract_single_archive_bucket_only_no_stdout(self, mock_extract_to_file):
         """Test that stdout output is suppressed when using bucket storage."""
-        from grin_to_s3.extract.__main__ import extract_single_archive
 
         mock_extract_to_file.return_value = 1  # Return page count
         mock_book_storage = AsyncMock()
@@ -162,7 +157,7 @@ class TestExtractCLIIntegration:
     @patch("pathlib.Path.exists")
     @patch("builtins.open", create=True)
     @patch("json.load")
-    @patch("grin_to_s3.storage.factories.create_book_storage_with_full_text")
+    @patch("grin_to_s3.storage.factories.create_book_manager_with_full_text")
     @patch("grin_to_s3.extract.__main__.extract_single_archive")
     @pytest.mark.asyncio
     async def test_main_with_run_config(
@@ -177,7 +172,6 @@ class TestExtractCLIIntegration:
         mock_parse_args,
     ):
         """Test main function with run configuration."""
-        from grin_to_s3.extract.__main__ import main
 
         # Mock arguments
         mock_args = MagicMock()
@@ -231,7 +225,6 @@ class TestExtractCLIIntegration:
     @pytest.mark.asyncio
     async def test_main_missing_output_method(self, mock_parse_args):
         """Test main function fails when no output method is specified."""
-        from grin_to_s3.extract.__main__ import main
 
         mock_args = MagicMock()
         mock_args.run_name = None
