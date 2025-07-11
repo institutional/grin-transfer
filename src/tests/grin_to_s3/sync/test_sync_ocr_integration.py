@@ -47,10 +47,10 @@ async def temp_db_tracker():
 @pytest.fixture
 def mock_staging_manager():
     """Create a mock staging manager with real directory operations."""
-    from tests.test_utils.unified_mocks import MockStorageFactory
+    from tests.test_utils.unified_mocks import create_staging_manager_mock
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        manager = MockStorageFactory.create_staging_manager(staging_path=temp_dir)
+        manager = create_staging_manager_mock(staging_path=temp_dir)
         staging_dir = Path(temp_dir)
         manager.staging_dir = staging_dir
         manager.staging_path = staging_dir  # Add staging_path attribute to prevent mock file creation
@@ -108,10 +108,10 @@ class TestSyncOCRPipelineIntegration:
             mock_extract_marc.return_value = None
 
             # Set up storage mocks using unified factory
-            from tests.test_utils.unified_mocks import MockStorageFactory
-            mock_storage = MockStorageFactory.create_storage(storage_type=storage_type)
+            from tests.test_utils.unified_mocks import create_book_manager_mock, create_storage_mock
+            mock_storage = create_storage_mock(storage_type=storage_type)
             # BookStorage properly wraps the storage mock (no more manual linking!)
-            mock_book_storage = MockStorageFactory.create_book_manager(storage=mock_storage)
+            mock_book_storage = create_book_manager_mock(storage=mock_storage)
 
             # Configure specific return values for this test
             mock_storage.save_ocr_text_jsonl_from_file.return_value = "bucket_full/TEST123456789/TEST123456789.jsonl"
@@ -191,10 +191,10 @@ class TestSyncOCRPipelineIntegration:
             mock_extract_marc.return_value = None
 
             # Set up storage mocks using unified factory
-            from tests.test_utils.unified_mocks import MockStorageFactory
-            mock_storage = MockStorageFactory.create_storage(storage_type=storage_type)
+            from tests.test_utils.unified_mocks import create_book_manager_mock, create_storage_mock
+            mock_storage = create_storage_mock(storage_type=storage_type)
             # BookStorage properly wraps the storage mock (no more manual linking!)
-            mock_book_storage = MockStorageFactory.create_book_manager(storage=mock_storage)
+            mock_book_storage = create_book_manager_mock(storage=mock_storage)
 
             mock_create_storage.return_value = mock_storage
             mock_book_storage_class.return_value = mock_book_storage

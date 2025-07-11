@@ -17,13 +17,13 @@ from grin_to_s3.extract.tracking import (
     get_status_summary,
     track_start,
 )
-from tests.test_utils.unified_mocks import DatabaseMockFactory
+from tests.test_utils.unified_mocks import create_progress_tracker_with_db_mock
 
 
 @pytest.fixture
 async def mock_db_tracker():
     """Create a mock SQLiteProgressTracker for testing."""
-    return DatabaseMockFactory.create_progress_tracker_with_db("/tmp/test.db")
+    return create_progress_tracker_with_db_mock("/tmp/test.db")
 
 
 class TestTrackingFunctions:

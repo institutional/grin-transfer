@@ -135,26 +135,6 @@ class TestOCRExtractionIntegration:
         """Create a mock logger."""
         return MagicMock()
 
-    @pytest.fixture
-    def mock_book_storage(self):
-        """Create a mock BookStorage instance."""
-        storage = MagicMock()
-        storage.save_ocr_text_jsonl_from_file = AsyncMock(return_value="bucket_full/TEST123/TEST123.jsonl")
-        return storage
-
-    @pytest.fixture
-    def mock_db_tracker(self):
-        """Create a mock database tracker."""
-        tracker = MagicMock()
-        tracker.db_path = "/tmp/test.db"
-        return tracker
-
-    @pytest.fixture
-    def mock_staging_manager(self):
-        """Create a mock staging manager."""
-        manager = MagicMock()
-        manager.staging_dir = Path("/tmp/staging")
-        return manager
 
     @pytest.fixture
     def test_decrypted_file(self):
@@ -166,7 +146,7 @@ class TestOCRExtractionIntegration:
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_success(
-        self, mock_book_storage, mock_db_tracker, mock_staging_manager, mock_logger, test_decrypted_file
+        self, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger, test_decrypted_file
     ):
         """Test successful OCR extraction and upload."""
         with (
@@ -184,7 +164,7 @@ class TestOCRExtractionIntegration:
             jsonl_file.write_text('{"page": 1, "text": "Test content"}\n')
 
             await extract_and_upload_ocr_text(
-                "TEST123", test_decrypted_file, mock_book_storage, mock_db_tracker, mock_staging_manager, mock_logger
+                "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger
             )
 
             # Verify extraction was called
@@ -194,7 +174,7 @@ class TestOCRExtractionIntegration:
             assert mock_write_status.call_count == 3  # starting, extracting, completed
 
             # Verify upload was called
-            mock_book_storage.save_ocr_text_jsonl_from_file.assert_called_once()
+            mock_book_manager.save_ocr_text_jsonl_from_file.assert_called_once()
 
             # Verify success logging
             mock_logger.info.assert_any_call("[TEST123] Starting OCR text extraction from decrypted archive")
@@ -202,7 +182,7 @@ class TestOCRExtractionIntegration:
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_extraction_failure(
-        self, mock_book_storage, mock_db_tracker, mock_staging_manager, mock_logger, test_decrypted_file
+        self, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger, test_decrypted_file
     ):
         """Test OCR extraction failure handling (non-blocking)."""
         with (
@@ -214,7 +194,7 @@ class TestOCRExtractionIntegration:
 
             # This should not raise an exception (non-blocking)
             await extract_and_upload_ocr_text(
-                "TEST123", test_decrypted_file, mock_book_storage, mock_db_tracker, mock_staging_manager, mock_logger
+                "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger
             )
 
             # Verify failure was tracked in database
@@ -233,7 +213,7 @@ class TestOCRExtractionIntegration:
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_upload_failure(
-        self, mock_book_storage, mock_db_tracker, mock_staging_manager, mock_logger, test_decrypted_file
+        self, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger, test_decrypted_file
     ):
         """Test OCR upload failure handling (non-blocking)."""
         with (
@@ -242,7 +222,7 @@ class TestOCRExtractionIntegration:
         ):
             # Mock extraction success but upload failure
             mock_extract.return_value = 100
-            mock_book_storage.save_ocr_text_jsonl_from_file.side_effect = Exception("Network timeout")
+            mock_book_manager.save_ocr_text_jsonl_from_file.side_effect = Exception("Network timeout")
 
             # Create mock JSONL file
             jsonl_file = mock_staging_manager.staging_dir / "TEST123_ocr_temp.jsonl"
@@ -251,7 +231,7 @@ class TestOCRExtractionIntegration:
 
             # This should not raise an exception (non-blocking)
             await extract_and_upload_ocr_text(
-                "TEST123", test_decrypted_file, mock_book_storage, mock_db_tracker, mock_staging_manager, mock_logger
+                "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger
             )
 
             # Verify failure was logged
@@ -260,7 +240,7 @@ class TestOCRExtractionIntegration:
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_no_db_tracker(
-        self, mock_book_storage, mock_staging_manager, mock_logger, test_decrypted_file
+        self, mock_book_manager, mock_staging_manager, mock_logger, test_decrypted_file
     ):
         """Test OCR extraction without database tracker."""
         with patch("grin_to_s3.sync.operations.extract_ocr_pages") as mock_extract:
@@ -273,12 +253,12 @@ class TestOCRExtractionIntegration:
 
             # Should work without database tracker
             await extract_and_upload_ocr_text(
-                "TEST123", test_decrypted_file, mock_book_storage, None, mock_staging_manager, mock_logger
+                "TEST123", test_decrypted_file, mock_book_manager, None, mock_staging_manager, mock_logger
             )
 
             # Verify extraction and upload still happened
             mock_extract.assert_called_once()
-            mock_book_storage.save_ocr_text_jsonl_from_file.assert_called_once()
+            mock_book_manager.save_ocr_text_jsonl_from_file.assert_called_once()
 
     @pytest.mark.asyncio
     @meaningful_storage_parametrize()

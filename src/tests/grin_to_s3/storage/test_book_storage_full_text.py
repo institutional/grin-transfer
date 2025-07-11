@@ -13,7 +13,7 @@ from grin_to_s3.storage.factories import (
     create_book_manager_with_full_text,
     create_storage_for_bucket,
 )
-from tests.test_utils.unified_mocks import MockStorageFactory, standard_bucket_config
+from tests.test_utils.unified_mocks import create_book_manager_mock, standard_bucket_config
 
 
 class TestBookManagerFullText:
@@ -21,7 +21,7 @@ class TestBookManagerFullText:
 
     def test_init_with_bucket_config(self):
         """Test BookManager initialization with bucket configuration."""
-        book_manager = MockStorageFactory.create_book_manager(
+        book_manager = create_book_manager_mock(
             bucket_config=standard_bucket_config(),
             base_prefix="test-prefix"
         )
@@ -34,7 +34,7 @@ class TestBookManagerFullText:
 
     def test_init_minimal_config(self):
         """Test BookManager initialization with minimal configuration."""
-        book_manager = MockStorageFactory.create_book_manager(
+        book_manager = create_book_manager_mock(
             bucket_config=standard_bucket_config()
         )
 

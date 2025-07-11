@@ -16,7 +16,7 @@ from grin_to_s3.process_summary import (
     create_process_summary,
     save_process_summary,
 )
-from tests.test_utils.unified_mocks import MockStorageFactory
+from tests.test_utils.unified_mocks import create_book_manager_mock, create_storage_mock
 
 
 class TestProcessSummaryUpload:
@@ -36,12 +36,12 @@ class TestProcessSummaryUpload:
     @pytest.fixture
     def mock_storage(self):
         """Create a mock storage instance."""
-        return MockStorageFactory.create_storage(storage_type="s3")
+        return create_storage_mock(storage_type="s3")
 
     @pytest.fixture
     def mock_book_storage(self, mock_storage):
         """Create a mock BookStorage instance."""
-        return MockStorageFactory.create_book_manager(base_prefix="test_run")
+        return create_book_manager_mock(base_prefix="test_run")
 
     @pytest.mark.asyncio
     async def test_run_summary_manager_storage_upload(self, temp_dir, mock_run_name, mock_book_storage):

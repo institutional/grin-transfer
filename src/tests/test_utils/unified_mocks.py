@@ -1,16 +1,14 @@
 """
 Unified mock architecture for grin-to-s3 tests.
 
-This module consolidates all mocking patterns and provides:
-- Parametrized fixtures for different storage types
-- Factory functions for custom mock creation
+This module provides:
 - Context managers for complex patching scenarios
 - Integration with moto for realistic cloud storage testing
+- Simple mock creation functions
 """
 
 import tempfile
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,48 +17,10 @@ import pytest
 from moto import mock_aws
 
 # =============================================================================
-# Data Classes for Organized Mock Bundles
+# Mock Creation Functions
 # =============================================================================
 
-@dataclass
-class StorageMockBundle:
-    """Bundle of storage-related mocks."""
-    storage: MagicMock
-    book_storage: MagicMock
-    staging_manager: MagicMock
-    bucket_config: dict[str, str]
-
-
-@dataclass
-class SyncOperationMocks:
-    """Bundle of mocks for sync operations."""
-    decrypt: MagicMock
-    create_storage: MagicMock
-    extract_ocr: MagicMock
-    extract_marc: MagicMock
-    book_storage_class: MagicMock
-    storage: MagicMock
-    book_storage: MagicMock
-
-
-@dataclass
-class PipelineMocks:
-    """Bundle of mocks for pipeline operations."""
-    tracker: MagicMock
-    reporter: MagicMock
-    client: MagicMock
-    staging: MagicMock
-
-
-# =============================================================================
-# Core Mock Factories
-# =============================================================================
-
-class MockStorageFactory:
-    """Factory for creating storage mocks with various configurations."""
-
-    @staticmethod
-    def create_storage(
+def create_storage_mock(
         storage_type: str = "local",
         s3_compatible: bool | None = None,
         should_fail: bool = False,
@@ -120,8 +80,8 @@ class MockStorageFactory:
 
         return mock_storage
 
-    @staticmethod
-    def create_book_manager(
+
+def create_book_manager_mock(
         storage: MagicMock | None = None,
         bucket_config: dict[str, str] | None = None,
         base_prefix: str = "",
@@ -150,7 +110,7 @@ class MockStorageFactory:
 
         # Create or use provided storage mock
         if storage is None:
-            storage = MockStorageFactory.create_storage(should_fail=should_fail, custom_config=custom_config)
+            storage = create_storage_mock(should_fail=should_fail, custom_config=custom_config)
 
         config = custom_config or {}
         mock_book_manager = MagicMock()
@@ -200,66 +160,66 @@ class MockStorageFactory:
 
         return mock_book_manager
 
-    @staticmethod
-    def create_staging_manager(staging_path: str = "/tmp/staging") -> MagicMock:
-        """
-        Create a unified staging manager mock.
 
-        Args:
-            staging_path: Base path for staging operations
+def create_staging_manager_mock(staging_path: str = "/tmp/staging") -> MagicMock:
+    """
+    Create a unified staging manager mock.
 
-        Returns:
-            Configured staging manager mock
-        """
-        mock_staging = MagicMock()
-        path_obj = Path(staging_path)
+    Args:
+        staging_path: Base path for staging operations
 
-        # Set path attributes
-        mock_staging.staging_path = path_obj
-        mock_staging.staging_dir = path_obj
+    Returns:
+        Configured staging manager mock
+    """
+    mock_staging = MagicMock()
+    path_obj = Path(staging_path)
 
-        # Configure path methods
-        mock_staging.get_staging_path = MagicMock(return_value=path_obj / "test_file")
-        mock_staging.get_decrypted_file_path = lambda barcode: path_obj / f"{barcode}.tar.gz"
+    # Set path attributes
+    mock_staging.staging_path = path_obj
+    mock_staging.staging_dir = path_obj
 
-        # Configure async methods
-        mock_staging.cleanup_file = AsyncMock(return_value=1024)
-        mock_staging.check_and_wait_for_space = AsyncMock()
+    # Configure path methods
+    mock_staging.get_staging_path = MagicMock(return_value=path_obj / "test_file")
+    mock_staging.get_decrypted_file_path = lambda barcode: path_obj / f"{barcode}.tar.gz"
 
-        # Configure sync methods
-        mock_staging.cleanup_files = MagicMock(return_value=1024 * 1024)  # 1MB
-        mock_staging.available_space = MagicMock(return_value=10 * 1024 * 1024 * 1024)  # 10GB
+    # Configure async methods
+    mock_staging.cleanup_file = AsyncMock(return_value=1024)
+    mock_staging.check_and_wait_for_space = AsyncMock()
 
-        # Set space attributes
-        mock_staging.staging_free_space_gb = 10.0
-        mock_staging.min_free_space_gb = 1.0
+    # Configure sync methods
+    mock_staging.cleanup_files = MagicMock(return_value=1024 * 1024)  # 1MB
+    mock_staging.available_space = MagicMock(return_value=10 * 1024 * 1024 * 1024)  # 10GB
 
-        return mock_staging
+    # Set space attributes
+    mock_staging.staging_free_space_gb = 10.0
+    mock_staging.min_free_space_gb = 1.0
 
-    @staticmethod
-    def create_progress_tracker(db_path: str = "/tmp/test.db") -> MagicMock:
-        """
-        Create a unified progress tracker mock.
+    return mock_staging
 
-        Args:
-            db_path: Database path for the tracker
 
-        Returns:
-            Configured progress tracker mock
-        """
-        tracker = MagicMock()
-        tracker.db_path = db_path
+def create_progress_tracker_mock(db_path: str = "/tmp/test.db") -> MagicMock:
+    """
+    Create a unified progress tracker mock.
 
-        # Configure async methods
-        tracker.add_status_change = AsyncMock()
-        tracker.update_sync_data = AsyncMock()
-        tracker.get_books_for_sync = AsyncMock(return_value=[])
-        tracker.get_sync_stats = AsyncMock(
-            return_value={"total_converted": 0, "synced": 0, "failed": 0, "pending": 0}
-        )
-        tracker.update_book_marc_metadata = AsyncMock()
+    Args:
+        db_path: Database path for the tracker
 
-        return tracker
+    Returns:
+        Configured progress tracker mock
+    """
+    tracker = MagicMock()
+    tracker.db_path = db_path
+
+    # Configure async methods
+    tracker.add_status_change = AsyncMock()
+    tracker.update_sync_data = AsyncMock()
+    tracker.get_books_for_sync = AsyncMock(return_value=[])
+    tracker.get_sync_stats = AsyncMock(
+        return_value={"total_converted": 0, "synced": 0, "failed": 0, "pending": 0}
+    )
+    tracker.update_book_marc_metadata = AsyncMock()
+
+    return tracker
 
 
 def create_fresh_tracker():
@@ -320,22 +280,6 @@ def storage_config(storage_type):
     return configs[storage_type]
 
 
-@pytest.fixture
-def mock_storage_bundle(storage_type, bucket_config):
-    """Complete storage mock bundle for testing."""
-    # Create storage first, then book_manager that wraps it
-    storage = MockStorageFactory.create_storage(storage_type)
-    book_manager = MockStorageFactory.create_book_manager(
-        storage=storage,
-        bucket_config=bucket_config
-    )
-
-    return StorageMockBundle(
-        storage=storage,
-        book_storage=book_manager,
-        staging_manager=MockStorageFactory.create_staging_manager(),
-        bucket_config=bucket_config
-    )
 
 
 # =============================================================================
@@ -371,7 +315,7 @@ def mock_upload_operations(
         patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class,
     ):
         # Create storage mock first
-        mock_storage = MockStorageFactory.create_storage(
+        mock_storage = create_storage_mock(
             storage_type=storage_type,
             should_fail=should_fail,
             custom_config=storage_config
@@ -379,7 +323,7 @@ def mock_upload_operations(
         mock_create_storage.return_value = mock_storage
 
         # Create book manager mock that properly wraps the storage mock
-        mock_book_manager = MockStorageFactory.create_book_manager(
+        mock_book_manager = create_book_manager_mock(
             storage=mock_storage,  # Pass the storage mock to be wrapped
             should_fail=should_fail
         )
@@ -395,52 +339,18 @@ def mock_upload_operations(
             mock_extract_ocr.return_value = None if not skip_ocr else None
             mock_extract_marc.return_value = None if not skip_marc else None
 
-        yield SyncOperationMocks(
-            decrypt=mock_decrypt,
-            create_storage=mock_create_storage,
-            extract_ocr=mock_extract_ocr,
-            extract_marc=mock_extract_marc,
-            book_storage_class=mock_book_storage_class,
-            storage=mock_storage,
-            book_storage=mock_book_manager
-        )
+        # Return a simple namespace object instead of dataclass
+        class MockBundle:
+            def __init__(self):
+                self.decrypt = mock_decrypt
+                self.create_storage = mock_create_storage
+                self.extract_ocr = mock_extract_ocr
+                self.extract_marc = mock_extract_marc
+                self.book_storage_class = mock_book_storage_class
+                self.storage = mock_storage
+                self.book_storage = mock_book_manager
 
-
-@contextmanager
-def mock_pipeline_operations():
-    """Context manager for mocking sync pipeline dependencies."""
-    with (
-        patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker_class,
-        patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter_class,
-        patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client_class,
-        patch("grin_to_s3.storage.StagingDirectoryManager") as mock_staging_class,
-    ):
-        # Create instances
-        tracker = MockStorageFactory.create_progress_tracker()
-        mock_tracker_class.return_value = tracker
-
-        reporter = MagicMock()
-        mock_reporter_class.return_value = reporter
-
-        client = MagicMock()
-        mock_client_class.return_value = client
-
-        staging = MockStorageFactory.create_staging_manager()
-        mock_staging_class.return_value = staging
-
-        yield PipelineMocks(
-            tracker=tracker,
-            reporter=reporter,
-            client=client,
-            staging=staging
-        )
-
-
-@contextmanager
-def mock_aws_services():
-    """Context manager for mocking AWS services using moto."""
-    with mock_aws():
-        yield
+        yield MockBundle()
 
 
 @contextmanager
@@ -519,53 +429,7 @@ def mock_minimal_upload():
 
 
 # =============================================================================
-# Pytest-Mock Integration
-# =============================================================================
-
-def setup_storage_mocks_with_mocker(mocker, storage_type: str = "local", should_fail: bool = False):
-    """
-    Setup storage mocks using pytest-mock mocker fixture.
-
-    Args:
-        mocker: pytest-mock mocker fixture
-        storage_type: Type of storage to mock
-        should_fail: Configure mocks to fail
-
-    Returns:
-        StorageMockBundle with configured mocks
-    """
-    bucket_config = {
-        "bucket_raw": "test-raw",
-        "bucket_meta": "test-meta",
-        "bucket_full": "test-full"
-    }
-
-    # Create storage mock first
-    mock_storage = MockStorageFactory.create_storage(storage_type, should_fail=should_fail)
-    mocker.patch("grin_to_s3.storage.create_storage_from_config", return_value=mock_storage)
-
-    # Create book manager that wraps the storage mock
-    mock_book_manager = MockStorageFactory.create_book_manager(
-        storage=mock_storage,
-        bucket_config=bucket_config,
-        should_fail=should_fail
-    )
-    mocker.patch("grin_to_s3.storage.BookManager", return_value=mock_book_manager)
-
-    # Mock staging manager
-    mock_staging = MockStorageFactory.create_staging_manager()
-    mocker.patch("grin_to_s3.storage.StagingDirectoryManager", return_value=mock_staging)
-
-    return StorageMockBundle(
-        storage=mock_storage,
-        book_storage=mock_book_manager,
-        staging_manager=mock_staging,
-        bucket_config=bucket_config
-    )
-
-
-# =============================================================================
-# Realistic Test Data Factories
+# Test Data Utilities
 # =============================================================================
 
 def create_temp_staging_dir():
@@ -573,65 +437,41 @@ def create_temp_staging_dir():
     return tempfile.mkdtemp(prefix="grin_test_staging_")
 
 
-def create_mock_book_data(barcode: str = "TEST123"):
-    """Create realistic mock book data for testing."""
-    return {
-        "barcode": barcode,
-        "title": f"Test Book {barcode}",
-        "author": "Test Author",
-        "pages": ["Page 1 content", "Page 2 content", "Page 3 content"]
-    }
+def create_progress_tracker_with_db_mock(db_path: str) -> MagicMock:
+    """Create a progress tracker mock with actual database backing."""
+    tracker = MagicMock()
+    tracker.db_path = db_path
+    tracker.add_status_change = AsyncMock(return_value=True)
+    tracker.update_sync_data = AsyncMock()
+    tracker.get_books_for_sync = AsyncMock(return_value=[])
+    tracker.get_sync_stats = AsyncMock(
+        return_value={"total_converted": 0, "synced": 0, "failed": 0, "pending": 0}
+    )
+    tracker.update_book_marc_metadata = AsyncMock()
+    tracker.get_book_count = AsyncMock(return_value=0)
+    tracker.get_enriched_book_count = AsyncMock(return_value=0)
+    tracker.get_converted_books_count = AsyncMock(return_value=0)
+    return tracker
 
 
-# =============================================================================
-# Migration Helpers (for backward compatibility)
-# =============================================================================
+def create_database_validation_mock(
+    exists: bool = True,
+    has_tables: bool = True,
+    has_books: bool = True
+) -> MagicMock:
+    """Create a database validation mock with configurable behavior.
 
-# Aliases for backward compatibility during migration
-create_mock_storage = MockStorageFactory.create_storage
-create_mock_book_storage = MockStorageFactory.create_book_manager
-create_mock_staging_manager = MockStorageFactory.create_staging_manager
-create_mock_progress_tracker = MockStorageFactory.create_progress_tracker
-
-class DatabaseMockFactory:
-    """Factory for creating database-related mocks."""
-
-    @staticmethod
-    def create_progress_tracker_with_db(db_path: str) -> MagicMock:
-        """Create a progress tracker mock with actual database backing."""
-        tracker = MagicMock()
-        tracker.db_path = db_path
-        tracker.add_status_change = AsyncMock(return_value=True)
-        tracker.update_sync_data = AsyncMock()
-        tracker.get_books_for_sync = AsyncMock(return_value=[])
-        tracker.get_sync_stats = AsyncMock(
-            return_value={"total_converted": 0, "synced": 0, "failed": 0, "pending": 0}
-        )
-        tracker.update_book_marc_metadata = AsyncMock()
-        tracker.get_book_count = AsyncMock(return_value=0)
-        tracker.get_enriched_book_count = AsyncMock(return_value=0)
-        tracker.get_converted_books_count = AsyncMock(return_value=0)
-        return tracker
-
-    @staticmethod
-    def create_database_validation_mock(
-        exists: bool = True,
-        has_tables: bool = True,
-        has_books: bool = True
-    ) -> MagicMock:
-        """Create a database validation mock with configurable behavior.
-
-        The real database validation functions call sys.exit(1) on failure,
-        so we use SystemExit to simulate these error conditions in tests.
-        """
-        mock = MagicMock()
-        if not exists:
-            mock.side_effect = SystemExit(1)
-        elif not has_tables:
-            mock.side_effect = SystemExit(1)
-        elif not has_books:
-            mock.side_effect = SystemExit(1)
-        return mock
+    The real database validation functions call sys.exit(1) on failure,
+    so we use SystemExit to simulate these error conditions in tests.
+    """
+    mock = MagicMock()
+    if not exists:
+        mock.side_effect = SystemExit(1)
+    elif not has_tables:
+        mock.side_effect = SystemExit(1)
+    elif not has_books:
+        mock.side_effect = SystemExit(1)
+    return mock
 
 
 def standard_bucket_config() -> dict[str, str]:

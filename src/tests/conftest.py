@@ -1,6 +1,7 @@
 """Shared test configuration utilities and fixtures."""
 
-from unittest.mock import MagicMock
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -125,15 +126,15 @@ def mock_upload_deps():
 @pytest.fixture
 def mock_staging_manager():
     """Fixture providing a configured mock staging manager."""
-    from tests.test_utils.unified_mocks import MockStorageFactory
-    return MockStorageFactory.create_staging_manager()
+    from tests.test_utils.unified_mocks import create_staging_manager_mock
+    return create_staging_manager_mock()
 
 
 @pytest.fixture
 def mock_progress_tracker():
     """Fixture providing a configured mock progress tracker."""
-    from tests.test_utils.unified_mocks import MockStorageFactory
-    return MockStorageFactory.create_progress_tracker()
+    from tests.test_utils.unified_mocks import create_progress_tracker_mock
+    return create_progress_tracker_mock()
 
 
 class DatabaseSchemaFactory:
@@ -143,7 +144,6 @@ class DatabaseSchemaFactory:
     def create_full_schema(db_path: str) -> None:
         """Create the complete database schema used by the application."""
         import sqlite3
-        from pathlib import Path
 
         # Read the actual schema from docs/schema.sql
         schema_file = Path(__file__).parent.parent.parent / "docs" / "schema.sql"
@@ -159,7 +159,6 @@ class DatabaseSchemaFactory:
 def temp_db():
     """Create a temporary database with full schema."""
     import tempfile
-    from pathlib import Path
 
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
@@ -180,3 +179,29 @@ def mock_storage_config():
         "bucket_meta": "test-meta",
         "base_path": "/tmp/storage",
     }
+
+
+@pytest.fixture
+def mock_storage():
+    """Standard storage mock used across multiple tests."""
+    from tests.test_utils.unified_mocks import create_storage_mock
+    return create_storage_mock()
+
+
+@pytest.fixture
+def mock_book_manager():
+    """Standard book manager mock used across multiple tests."""
+    from tests.test_utils.unified_mocks import create_book_manager_mock
+    return create_book_manager_mock()
+
+
+@pytest.fixture
+def mock_grin_client():
+    """Mock GRIN client for testing."""
+    client = MagicMock()
+    client.fetch_resource = AsyncMock()
+    client.auth = MagicMock()
+    client.auth.make_authenticated_request = AsyncMock()
+    client.session = MagicMock()
+    client.session.close = AsyncMock()
+    return client
