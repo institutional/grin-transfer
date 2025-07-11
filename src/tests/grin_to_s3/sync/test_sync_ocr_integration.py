@@ -23,7 +23,12 @@ from tests.test_utils.parametrize_helpers import (
     combined_scenarios_parametrize,
     meaningful_storage_parametrize,
 )
-from tests.test_utils.unified_mocks import mock_upload_operations
+from tests.test_utils.unified_mocks import (
+    create_book_manager_mock,
+    create_staging_manager_mock,
+    create_storage_mock,
+    mock_upload_operations,
+)
 from tests.utils import create_test_archive
 
 
@@ -47,7 +52,6 @@ async def temp_db_tracker():
 @pytest.fixture
 def mock_staging_manager():
     """Create a mock staging manager with real directory operations."""
-    from tests.test_utils.unified_mocks import create_staging_manager_mock
 
     with tempfile.TemporaryDirectory() as temp_dir:
         manager = create_staging_manager_mock(staging_path=temp_dir)
@@ -108,7 +112,6 @@ class TestSyncOCRPipelineIntegration:
             mock_extract_marc.return_value = None
 
             # Set up storage mocks using unified factory
-            from tests.test_utils.unified_mocks import create_book_manager_mock, create_storage_mock
             mock_storage = create_storage_mock(storage_type=storage_type)
             # BookStorage properly wraps the storage mock (no more manual linking!)
             mock_book_storage = create_book_manager_mock(storage=mock_storage)
@@ -191,7 +194,6 @@ class TestSyncOCRPipelineIntegration:
             mock_extract_marc.return_value = None
 
             # Set up storage mocks using unified factory
-            from tests.test_utils.unified_mocks import create_book_manager_mock, create_storage_mock
             mock_storage = create_storage_mock(storage_type=storage_type)
             # BookStorage properly wraps the storage mock (no more manual linking!)
             mock_book_storage = create_book_manager_mock(storage=mock_storage)

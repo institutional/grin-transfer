@@ -3,6 +3,7 @@
 import io
 import tarfile
 import tempfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from grin_to_s3.metadata.marc_extraction import (
@@ -10,6 +11,7 @@ from grin_to_s3.metadata.marc_extraction import (
     _extract_date2_from_008,
     _extract_date_type_from_008,
     _extract_language_from_008,
+    _extract_marc_fields,
     _extract_mets_from_archive,
     _get_controlfield,
     _get_datafield_subfield,
@@ -296,8 +298,6 @@ class TestHelperFunctions:
 
     def test_get_controlfield_existing(self):
         """Test getting existing controlfield."""
-        import xml.etree.ElementTree as ET
-
         xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
             <slim:controlfield tag="001">123456</slim:controlfield>
         </slim:record>"""
@@ -308,8 +308,6 @@ class TestHelperFunctions:
 
     def test_get_controlfield_missing(self):
         """Test getting non-existent controlfield."""
-        import xml.etree.ElementTree as ET
-
         xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
             <slim:controlfield tag="001">123456</slim:controlfield>
         </slim:record>"""
@@ -320,8 +318,6 @@ class TestHelperFunctions:
 
     def test_get_datafield_subfield_existing(self):
         """Test getting existing datafield subfield."""
-        import xml.etree.ElementTree as ET
-
         xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
             <slim:datafield tag="245" ind1="0" ind2="0">
                 <slim:subfield code="a">Test Title</slim:subfield>
@@ -334,8 +330,6 @@ class TestHelperFunctions:
 
     def test_get_datafield_subfield_missing(self):
         """Test getting non-existent datafield subfield."""
-        import xml.etree.ElementTree as ET
-
         xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
             <slim:datafield tag="245" ind1="0" ind2="0">
                 <slim:subfield code="a">Test Title</slim:subfield>
@@ -348,8 +342,6 @@ class TestHelperFunctions:
 
     def test_get_datafield_subfield_list_multiple(self):
         """Test getting multiple datafield subfields."""
-        import xml.etree.ElementTree as ET
-
         xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
             <slim:datafield tag="650" ind1=" " ind2="0">
                 <slim:subfield code="a">Physics</slim:subfield>
@@ -365,8 +357,6 @@ class TestHelperFunctions:
 
     def test_get_datafield_subfield_list_empty(self):
         """Test getting empty datafield subfield list."""
-        import xml.etree.ElementTree as ET
-
         xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
             <slim:controlfield tag="001">123456</slim:controlfield>
         </slim:record>"""
@@ -377,8 +367,6 @@ class TestHelperFunctions:
 
     def test_get_datafield_subfield_list_with_period_stripping(self):
         """Test getting multiple datafield subfields with period stripping."""
-        import xml.etree.ElementTree as ET
-
         xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
             <slim:datafield tag="650" ind1=" " ind2="0">
                 <slim:subfield code="a">Physics.</slim:subfield>
@@ -394,8 +382,6 @@ class TestHelperFunctions:
 
     def test_get_datafield_subfield_list_without_period_stripping(self):
         """Test getting multiple datafield subfields without period stripping."""
-        import xml.etree.ElementTree as ET
-
         xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
             <slim:datafield tag="500" ind1=" " ind2=" ">
                 <slim:subfield code="a">First note.</slim:subfield>
@@ -415,10 +401,6 @@ class TestOCLCFiltering:
 
     def test_oclc_filtering_with_mixed_values(self):
         """Test that OCLC filtering only includes (OCoLC) prefixed values."""
-        import xml.etree.ElementTree as ET
-
-        from grin_to_s3.metadata.marc_extraction import _extract_marc_fields
-
         xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
             <slim:controlfield tag="001">123456</slim:controlfield>
             <slim:controlfield tag="008">750727c17909999gw br p       0   b1gerdd</slim:controlfield>
@@ -442,10 +424,6 @@ class TestOCLCFiltering:
 
     def test_oclc_filtering_no_oclc_values(self):
         """Test OCLC filtering when no (OCoLC) values present."""
-        import xml.etree.ElementTree as ET
-
-        from grin_to_s3.metadata.marc_extraction import _extract_marc_fields
-
         xml_content = """<slim:record xmlns:slim="http://www.loc.gov/MARC21/slim">
             <slim:controlfield tag="001">123456</slim:controlfield>
             <slim:controlfield tag="008">750727c17909999gw br p       0   b1gerdd</slim:controlfield>
