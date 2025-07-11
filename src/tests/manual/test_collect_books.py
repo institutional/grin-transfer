@@ -13,6 +13,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from pathlib import Path
 
+import aiofiles
+
 from grin_to_s3.collect_books.exporter import BookCollector, RateLimiter
 from grin_to_s3.collect_books.models import BookRecord
 
@@ -155,7 +157,6 @@ async def test_csv_file_operations():
         ]
 
         # Write CSV manually to test format
-        import aiofiles
 
         async with aiofiles.open(csv_file, "w", newline="") as f:
             # Write headers

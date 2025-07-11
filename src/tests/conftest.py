@@ -1,11 +1,20 @@
 """Shared test configuration utilities and fixtures."""
 
+import sqlite3
+import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from grin_to_s3.run_config import RunConfig
+from tests.test_utils.unified_mocks import (
+    create_book_manager_mock,
+    create_progress_tracker_mock,
+    create_staging_manager_mock,
+    create_storage_mock,
+    mock_upload_operations,
+)
 
 
 class ConfigBuilder:
@@ -117,8 +126,6 @@ def mock_process_stage():
 @pytest.fixture
 def mock_upload_deps():
     """Fixture providing mocked upload dependencies."""
-    from tests.test_utils.unified_mocks import mock_upload_operations
-
     with mock_upload_operations() as mocks:
         yield mocks
 
@@ -126,14 +133,12 @@ def mock_upload_deps():
 @pytest.fixture
 def mock_staging_manager():
     """Fixture providing a configured mock staging manager."""
-    from tests.test_utils.unified_mocks import create_staging_manager_mock
     return create_staging_manager_mock()
 
 
 @pytest.fixture
 def mock_progress_tracker():
     """Fixture providing a configured mock progress tracker."""
-    from tests.test_utils.unified_mocks import create_progress_tracker_mock
     return create_progress_tracker_mock()
 
 
@@ -143,8 +148,6 @@ class DatabaseSchemaFactory:
     @staticmethod
     def create_full_schema(db_path: str) -> None:
         """Create the complete database schema used by the application."""
-        import sqlite3
-
         # Read the actual schema from docs/schema.sql
         schema_file = Path(__file__).parent.parent.parent / "docs" / "schema.sql"
         schema_sql = schema_file.read_text()
@@ -158,8 +161,6 @@ class DatabaseSchemaFactory:
 @pytest.fixture
 def temp_db():
     """Create a temporary database with full schema."""
-    import tempfile
-
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
 
@@ -184,14 +185,12 @@ def mock_storage_config():
 @pytest.fixture
 def mock_storage():
     """Standard storage mock used across multiple tests."""
-    from tests.test_utils.unified_mocks import create_storage_mock
     return create_storage_mock()
 
 
 @pytest.fixture
 def mock_book_manager():
     """Standard book manager mock used across multiple tests."""
-    from tests.test_utils.unified_mocks import create_book_manager_mock
     return create_book_manager_mock()
 
 

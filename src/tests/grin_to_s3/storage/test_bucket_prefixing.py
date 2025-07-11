@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from grin_to_s3.storage import BookManager
 from grin_to_s3.sync.operations import upload_book_from_staging
 from tests.test_utils.unified_mocks import mock_minimal_upload
 
@@ -34,7 +35,6 @@ class TestBucketPrefixingBehavior:
 
     def test_s3_compatible_storage_path_construction(self):
         """Test that S3-compatible storage (S3, R2, MinIO) doesn't include bucket names in file paths."""
-        from grin_to_s3.storage import BookManager
 
         storage_configs = [
             ("s3", {"bucket_raw": "my-s3-raw", "bucket_full": "my-s3-full", "prefix": ""}),

@@ -8,6 +8,7 @@ import asyncio
 import json
 import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -275,7 +276,6 @@ class TestBookStorageIntegration:
     def test_create_book_manager_factory_integration(self, storage_type, config):
         """Test creating BookStorage with factory functions (mocked for CI)."""
         # This test validates the factory function works but uses mocks for CI compatibility
-        from unittest.mock import MagicMock, patch
 
         with patch("grin_to_s3.storage.factories.create_storage_from_config") as mock_create:
             mock_storage = MagicMock()
@@ -380,7 +380,6 @@ class TestBookStorageIntegration:
 
     def test_save_ocr_text_jsonl_cloud_storage_integration(self):
         """Test OCR text JSONL saving with cloud storage backend using text operations."""
-        from unittest.mock import AsyncMock, patch
 
         with tempfile.TemporaryDirectory() as temp_dir:
             with mock_cloud_storage_backend("s3", ["test-raw", "test-meta", "test-full"]) as storage_config:

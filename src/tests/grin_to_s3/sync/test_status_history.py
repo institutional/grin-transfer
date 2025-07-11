@@ -16,6 +16,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
 
+import aiosqlite
+
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 
 
@@ -83,7 +85,6 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         self.assertTrue(result)
 
         # Verify the metadata was stored correctly
-        import aiosqlite
 
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
@@ -126,7 +127,6 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         self.assertEqual(latest_status, "converted")
 
         # Verify all history is preserved
-        import aiosqlite
 
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(

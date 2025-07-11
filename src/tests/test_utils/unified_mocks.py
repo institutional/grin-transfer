@@ -13,8 +13,11 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import boto3
 import pytest
 from moto import mock_aws
+
+from grin_to_s3.collect_books.models import SQLiteProgressTracker
 
 # =============================================================================
 # Mock Creation Functions
@@ -224,10 +227,6 @@ def create_progress_tracker_mock(db_path: str = "/tmp/test.db") -> MagicMock:
 
 def create_fresh_tracker():
     """Create a fresh tracker with empty database for testing."""
-    import tempfile
-    from pathlib import Path
-
-    from grin_to_s3.collect_books.models import SQLiteProgressTracker
 
     temp_dir = tempfile.mkdtemp()
     db_path = Path(temp_dir) / "fresh_test.db"
@@ -369,7 +368,6 @@ def mock_cloud_storage_backend(storage_type: str = "s3", bucket_names: list[str]
         bucket_names = ["test-raw", "test-meta", "test-full"]
 
     with mock_aws():
-        import boto3
 
         # Create S3 client and buckets
         if storage_type == "r2":

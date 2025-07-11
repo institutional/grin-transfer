@@ -5,7 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from grin_to_s3.storage import StorageConfig, create_local_storage, create_storage_from_config
+from grin_to_s3.collect_books.models import SQLiteProgressTracker
+from grin_to_s3.storage import BookManager, Storage, StorageConfig, create_local_storage, create_storage_from_config
+from grin_to_s3.sync.pipeline import SyncPipeline
 
 
 class TestLocalStorageValidation:
@@ -60,7 +62,6 @@ class TestLocalStorageValidation:
         """Test that _normalize_path validates base_path."""
         # Create storage with missing base_path in options
         config = StorageConfig(protocol="file")
-        from grin_to_s3.storage import Storage
 
         storage = Storage(config)
 
@@ -79,7 +80,6 @@ class TestLocalStorageDirectWrite:
     @pytest.mark.asyncio
     async def test_book_storage_direct_paths(self):
         """Test that BookStorage generates correct paths for local storage."""
-        from grin_to_s3.storage import BookManager
 
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = create_storage_from_config("local", {"base_path": temp_dir})
@@ -97,7 +97,6 @@ class TestLocalStorageDirectWrite:
     @pytest.mark.asyncio
     async def test_local_storage_file_operations(self):
         """Test file operations work correctly with local storage."""
-        from grin_to_s3.storage import BookManager
 
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = create_storage_from_config("local", {"base_path": temp_dir})
@@ -142,8 +141,6 @@ class TestSyncPipelineLocalOptimization:
     @pytest.mark.asyncio
     async def test_no_staging_for_local_storage(self, mock_process_stage, test_config_builder):
         """Test that local storage skips staging directory."""
-        from grin_to_s3.collect_books.models import SQLiteProgressTracker
-        from grin_to_s3.sync.pipeline import SyncPipeline
 
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create test database
@@ -189,7 +186,6 @@ class TestLocalStorageErrorHandling:
     @pytest.mark.asyncio
     async def test_permission_error_handling(self):
         """Test handling of permission errors for local storage."""
-        from grin_to_s3.storage import BookManager
 
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create a read-only directory

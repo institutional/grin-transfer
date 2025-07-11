@@ -3,7 +3,8 @@
 Tests for sync utility functions.
 """
 
-from unittest.mock import MagicMock, patch
+import tempfile
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -67,7 +68,6 @@ class TestETagOperations:
     @pytest.mark.asyncio
     async def test_should_skip_download_force_flag(self, mock_storage_config):
         """Test that force flag prevents skipping."""
-        from unittest.mock import AsyncMock
 
         mock_tracker = AsyncMock()
         should_skip, reason = await should_skip_download("TEST123", "abc123", "local", {}, mock_tracker, force=True)
@@ -77,7 +77,6 @@ class TestETagOperations:
     @pytest.mark.asyncio
     async def test_should_skip_download_no_etag(self, mock_storage_config):
         """Test that missing ETag prevents skipping."""
-        from unittest.mock import AsyncMock
 
         mock_tracker = AsyncMock()
         should_skip, reason = await should_skip_download("TEST123", None, "local", {}, mock_tracker, force=False)
@@ -87,7 +86,6 @@ class TestETagOperations:
     @pytest.mark.asyncio
     async def test_should_skip_download_database_error(self, mock_storage_config):
         """Test that database errors are handled gracefully."""
-        from unittest.mock import AsyncMock, patch
 
         mock_tracker = AsyncMock()
         mock_tracker.db_path = "/fake/path"
@@ -156,8 +154,6 @@ class TestBookStorageInitializationInUtils:
     @pytest.mark.asyncio
     async def test_should_skip_download_book_storage_initialization(self):
         """Test that should_skip_download correctly initializes BookStorage."""
-        import tempfile
-        from unittest.mock import AsyncMock, MagicMock
 
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create proper storage config with bucket information

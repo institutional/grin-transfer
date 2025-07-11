@@ -490,7 +490,6 @@ class TestEnrichmentDataExtraction:
         data_map = dict(zip(headers, values, strict=False))
 
         # Test the field extraction logic using BookRecord's GRIN TSV mapping
-        from grin_to_s3.collect_books.models import BookRecord
 
         grin_tsv_mapping = BookRecord.get_grin_tsv_column_mapping()
 

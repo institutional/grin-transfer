@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.extract.tracking import TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus
+from grin_to_s3.extract.tracking import TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus, write_status
 from grin_to_s3.sync.operations import upload_book_from_staging
 from tests.test_utils.parametrize_helpers import (
     combined_scenarios_parametrize,
@@ -394,7 +394,6 @@ class TestOCRExtractionDatabaseTracking:
         barcode = "TEST123456789"
 
         # Simulate the tracking that happens during extraction
-        from grin_to_s3.extract.tracking import write_status
 
         session_id = "test_session_123"
 
@@ -457,8 +456,6 @@ class TestOCRExtractionDatabaseTracking:
     async def test_extraction_failure_tracking(self, temp_db_tracker):
         """Test that extraction failures are properly tracked."""
         barcode = "TEST123456789"
-
-        from grin_to_s3.extract.tracking import write_status
 
         session_id = "test_session_123"
 
