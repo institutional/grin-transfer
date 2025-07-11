@@ -3,31 +3,22 @@
 Tests for ETag storage metadata functionality with fresh database scenarios.
 """
 
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.sync.utils import should_skip_download
+from tests.test_utils.unified_mocks import create_fresh_tracker
 
 
 class TestStorageMetadataETagTracking:
     """Test ETag tracking with storage metadata (S3/R2/MinIO scenarios)."""
 
-    async def make_fresh_tracker(self):
-        """Create a fresh tracker with empty database."""
-        temp_dir = tempfile.mkdtemp()
-        db_path = Path(temp_dir) / "fresh_test.db"
-        tracker = SQLiteProgressTracker(str(db_path))
-        await tracker.init_db()
-        return tracker
-
     @pytest.mark.asyncio
     async def test_fresh_database_with_storage_metadata_match(self):
         """Test that storage metadata check works even with fresh database."""
-        tracker = await self.make_fresh_tracker()
+        tracker = create_fresh_tracker()
+        await tracker.init_db()
 
         storage_config = {
             "bucket_raw": "test-bucket",
@@ -66,7 +57,8 @@ class TestStorageMetadataETagTracking:
     @pytest.mark.asyncio
     async def test_fresh_database_with_storage_metadata_mismatch(self):
         """Test that storage metadata mismatch triggers download even with fresh database."""
-        tracker = await self.make_fresh_tracker()
+        tracker = create_fresh_tracker()
+        await tracker.init_db()
 
         storage_config = {
             "bucket_raw": "test-bucket",
@@ -101,7 +93,8 @@ class TestStorageMetadataETagTracking:
     @pytest.mark.asyncio
     async def test_fresh_database_no_decrypted_archive(self):
         """Test that missing decrypted archive triggers download with fresh database."""
-        tracker = await self.make_fresh_tracker()
+        tracker = create_fresh_tracker()
+        await tracker.init_db()
 
         storage_config = {
             "bucket_raw": "test-bucket",
@@ -139,7 +132,8 @@ class TestStorageMetadataETagTracking:
     @pytest.mark.asyncio
     async def test_fresh_database_fallback_to_database_check(self):
         """Test fallback to database check when storage metadata fails."""
-        tracker = await self.make_fresh_tracker()
+        tracker = create_fresh_tracker()
+        await tracker.init_db()
 
         storage_config = {
             "bucket_raw": "test-bucket",
@@ -174,7 +168,8 @@ class TestStorageMetadataETagTracking:
     @pytest.mark.asyncio
     async def test_s3_protocol_storage_configuration(self):
         """Test that S3 protocol storage uses metadata approach."""
-        tracker = await self.make_fresh_tracker()
+        tracker = create_fresh_tracker()
+        await tracker.init_db()
 
         # Test with S3 protocol (covers AWS S3, MinIO, R2 which all use 's3' protocol)
         storage_config = {"bucket_raw": "test-bucket"}
@@ -223,7 +218,8 @@ class TestStorageMetadataETagTracking:
     @pytest.mark.asyncio
     async def test_local_storage_uses_database_approach(self):
         """Test that local storage still uses database approach with fresh database."""
-        tracker = await self.make_fresh_tracker()
+        tracker = create_fresh_tracker()
+        await tracker.init_db()
 
         storage_config = {"base_path": "/tmp/test"}
 
@@ -241,24 +237,16 @@ class TestStorageMetadataETagTracking:
 class TestHybridETagApproach:
     """Test the hybrid ETag approach with different scenarios."""
 
-    async def make_tracker_with_metadata(self):
-        """Create a tracker with some ETag metadata."""
-        temp_dir = tempfile.mkdtemp()
-        db_path = Path(temp_dir) / "test_with_metadata.db"
-        tracker = SQLiteProgressTracker(str(db_path))
+    @pytest.mark.asyncio
+    async def test_block_storage_bypasses_database_when_available(self):
+        """Test that block storage uses metadata even when database has data."""
+        tracker = create_fresh_tracker()
         await tracker.init_db()
 
         # Add some test metadata
         await tracker.add_status_change(
             "BOOK_WITH_ETAG", "sync", "completed", metadata={"encrypted_etag": '"stored_etag"'}
         )
-
-        return tracker
-
-    @pytest.mark.asyncio
-    async def test_block_storage_bypasses_database_when_available(self):
-        """Test that block storage uses metadata even when database has data."""
-        tracker = await self.make_tracker_with_metadata()
 
         storage_config = {"bucket_raw": "test-bucket"}
 
@@ -293,7 +281,13 @@ class TestHybridETagApproach:
     @pytest.mark.asyncio
     async def test_local_storage_uses_database_when_available(self):
         """Test that local storage uses database when data is available."""
-        tracker = await self.make_tracker_with_metadata()
+        tracker = create_fresh_tracker()
+        await tracker.init_db()
+
+        # Add some test metadata
+        await tracker.add_status_change(
+            "BOOK_WITH_ETAG", "sync", "completed", metadata={"encrypted_etag": '"stored_etag"'}
+        )
 
         storage_config = {"base_path": "/tmp/test"}
 

@@ -241,9 +241,9 @@ async def main() -> int:
                 storage_config = credentials_config.copy()
                 storage_config.update(existing_storage_config.get("config", {}))
 
-                from ..storage.factories import create_book_storage_with_full_text
+                from ..storage.factories import create_book_manager_with_full_text
 
-                book_storage = create_book_storage_with_full_text(storage_type, storage_config, storage_prefix)
+                book_storage = create_book_manager_with_full_text(storage_type, storage_config, storage_prefix)
             else:
                 raise FileNotFoundError(f"Run configuration not found: {config_path}")
             if args.verbose:

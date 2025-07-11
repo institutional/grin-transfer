@@ -262,6 +262,18 @@ class MockStorageFactory:
         return tracker
 
 
+def create_fresh_tracker():
+    """Create a fresh tracker with empty database for testing."""
+    import tempfile
+    from pathlib import Path
+
+    from grin_to_s3.collect_books.models import SQLiteProgressTracker
+
+    temp_dir = tempfile.mkdtemp()
+    db_path = Path(temp_dir) / "fresh_test.db"
+    return SQLiteProgressTracker(str(db_path))
+
+
 # =============================================================================
 # Parametrized Fixtures for Common Scenarios
 # =============================================================================
@@ -429,6 +441,66 @@ def mock_aws_services():
     """Context manager for mocking AWS services using moto."""
     with mock_aws():
         yield
+
+
+@contextmanager
+def mock_cloud_storage_backend(storage_type: str = "s3", bucket_names: list[str] | None = None):
+    """
+    Context manager for testing with realistic cloud storage backend.
+
+    Args:
+        storage_type: Storage type (s3, r2, minio)
+        bucket_names: List of bucket names to create (defaults to standard test buckets)
+
+    Yields:
+        dict: Configuration for cloud storage backend
+    """
+    if bucket_names is None:
+        bucket_names = ["test-raw", "test-meta", "test-full"]
+
+    with mock_aws():
+        import boto3
+
+        # Create S3 client and buckets
+        if storage_type == "r2":
+            # R2 needs custom endpoint setup
+            endpoint_url = "https://testaccount.r2.cloudflarestorage.com"
+            s3_client = boto3.client("s3", endpoint_url=endpoint_url, region_name="us-east-1")
+        elif storage_type == "minio":
+            # MinIO needs custom endpoint setup
+            endpoint_url = "http://localhost:9000"
+            s3_client = boto3.client("s3", endpoint_url=endpoint_url, region_name="us-east-1")
+        else:
+            # Standard S3
+            s3_client = boto3.client("s3", region_name="us-east-1")
+
+        # Create all buckets
+        for bucket_name in bucket_names:
+            s3_client.create_bucket(Bucket=bucket_name)
+
+        # Build storage config for use with real Storage classes
+        storage_config = {
+            "type": storage_type,
+            "bucket_raw": bucket_names[0] if len(bucket_names) > 0 else "test-raw",
+            "bucket_meta": bucket_names[1] if len(bucket_names) > 1 else "test-meta",
+            "bucket_full": bucket_names[2] if len(bucket_names) > 2 else "test-full",
+            "config": {
+                "bucket": bucket_names[0] if len(bucket_names) > 0 else "test-raw",  # Required for S3 storage
+                "bucket_raw": bucket_names[0] if len(bucket_names) > 0 else "test-raw",
+                "bucket_meta": bucket_names[1] if len(bucket_names) > 1 else "test-meta",
+                "bucket_full": bucket_names[2] if len(bucket_names) > 2 else "test-full",
+                "access_key": "test_access_key",
+                "secret_key": "test_secret_key",
+                "region": "us-east-1"
+            }
+        }
+
+        if storage_type == "r2":
+            storage_config["config"]["account_id"] = "testaccount"
+        elif storage_type == "minio":
+            storage_config["config"]["endpoint_url"] = "http://localhost:9000"
+
+        yield storage_config
 
 
 @contextmanager

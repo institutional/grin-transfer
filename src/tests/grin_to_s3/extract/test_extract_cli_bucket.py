@@ -46,7 +46,7 @@ class TestWriteToBucket:
 class TestExtractCLIIntegration:
     """Test CLI integration with bucket functionality."""
 
-    @patch("grin_to_s3.storage.factories.create_book_storage_with_full_text")
+    @patch("grin_to_s3.storage.factories.create_book_manager_with_full_text")
     @patch("grin_to_s3.extract.__main__.extract_ocr_pages", new_callable=AsyncMock)
     @pytest.mark.asyncio
     async def test_extract_single_archive_with_bucket(self, mock_extract_to_file, mock_create_storage):
@@ -110,7 +110,7 @@ class TestExtractCLIIntegration:
                 patch("grin_to_s3.extract.__main__.apply_run_config_to_args"),
                 patch("pathlib.Path.exists") as mock_path_exists,
                 patch("json.load") as mock_json_load,
-                patch("grin_to_s3.storage.factories.create_book_storage_with_full_text") as mock_create_storage,
+                patch("grin_to_s3.storage.factories.create_book_manager_with_full_text") as mock_create_storage,
                 patch("builtins.print"),
             ):
                 mock_setup_db.return_value = "/path/to/db"
@@ -162,7 +162,7 @@ class TestExtractCLIIntegration:
     @patch("pathlib.Path.exists")
     @patch("builtins.open", create=True)
     @patch("json.load")
-    @patch("grin_to_s3.storage.factories.create_book_storage_with_full_text")
+    @patch("grin_to_s3.storage.factories.create_book_manager_with_full_text")
     @patch("grin_to_s3.extract.__main__.extract_single_archive")
     @pytest.mark.asyncio
     async def test_main_with_run_config(
