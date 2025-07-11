@@ -593,6 +593,47 @@ create_mock_book_storage = MockStorageFactory.create_book_manager
 create_mock_staging_manager = MockStorageFactory.create_staging_manager
 create_mock_progress_tracker = MockStorageFactory.create_progress_tracker
 
+class DatabaseMockFactory:
+    """Factory for creating database-related mocks."""
+
+    @staticmethod
+    def create_progress_tracker_with_db(db_path: str) -> MagicMock:
+        """Create a progress tracker mock with actual database backing."""
+        tracker = MagicMock()
+        tracker.db_path = db_path
+        tracker.add_status_change = AsyncMock(return_value=True)
+        tracker.update_sync_data = AsyncMock()
+        tracker.get_books_for_sync = AsyncMock(return_value=[])
+        tracker.get_sync_stats = AsyncMock(
+            return_value={"total_converted": 0, "synced": 0, "failed": 0, "pending": 0}
+        )
+        tracker.update_book_marc_metadata = AsyncMock()
+        tracker.get_book_count = AsyncMock(return_value=0)
+        tracker.get_enriched_book_count = AsyncMock(return_value=0)
+        tracker.get_converted_books_count = AsyncMock(return_value=0)
+        return tracker
+
+    @staticmethod
+    def create_database_validation_mock(
+        exists: bool = True,
+        has_tables: bool = True,
+        has_books: bool = True
+    ) -> MagicMock:
+        """Create a database validation mock with configurable behavior.
+
+        The real database validation functions call sys.exit(1) on failure,
+        so we use SystemExit to simulate these error conditions in tests.
+        """
+        mock = MagicMock()
+        if not exists:
+            mock.side_effect = SystemExit(1)
+        elif not has_tables:
+            mock.side_effect = SystemExit(1)
+        elif not has_books:
+            mock.side_effect = SystemExit(1)
+        return mock
+
+
 def standard_bucket_config() -> dict[str, str]:
     """Standard bucket configuration for tests."""
     return {

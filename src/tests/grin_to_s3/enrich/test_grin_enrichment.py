@@ -5,7 +5,6 @@ Unit tests for GRIN enrichment functionality
 
 import os
 import sys
-import tempfile
 
 import pytest
 import pytest_asyncio
@@ -107,13 +106,9 @@ class TestGRINEnrichmentPipeline:
     """Test GRIN enrichment pipeline functionality."""
 
     @pytest_asyncio.fixture
-    async def temp_db(self):
+    async def temp_db_with_books(self, temp_db):
         """Create a temporary database with test books"""
-        temp_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-        temp_file.close()
-
-        db_path = temp_file.name
-        tracker = SQLiteProgressTracker(db_path)
+        tracker = SQLiteProgressTracker(temp_db)
 
         # Initialize database
         await tracker.init_db()
@@ -130,13 +125,7 @@ class TestGRINEnrichmentPipeline:
             # Add processing status using status history
             await tracker.add_status_change(book.barcode, "processing_request", "converted")
 
-        yield db_path
-
-        # Cleanup
-        try:
-            os.unlink(db_path)
-        except Exception:
-            pass
+        yield temp_db
 
     @pytest.fixture
     def mock_enrichment_data(self):
@@ -303,12 +292,12 @@ class TestGRINEnrichmentPipeline:
         assert result["TEST001"]["grin_ocr_analysis_score"] == ""
 
     @pytest.mark.asyncio
-    async def test_enrich_books_batch(self, temp_db, mock_enrichment_data, mock_process_stage):
+    async def test_enrich_books_batch(self, temp_db_with_books, mock_enrichment_data, mock_process_stage):
         """Test enriching a batch of books"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
         pipeline = GRINEnrichmentPipeline(
-            directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage
+            directory="TestLibrary", db_path=temp_db_with_books, process_summary_stage=mock_process_stage
         )
         pipeline.grin_client = mock_client
 
@@ -319,7 +308,7 @@ class TestGRINEnrichmentPipeline:
         assert enriched_count == 3
 
         # Verify books were updated in database
-        tracker = SQLiteProgressTracker(temp_db)
+        tracker = SQLiteProgressTracker(temp_db_with_books)
 
         book1 = await tracker.get_book("TEST001")
         assert book1.grin_viewability == "VIEW_FULL"
@@ -334,12 +323,12 @@ class TestGRINEnrichmentPipeline:
         assert book3.enrichment_timestamp is not None
 
     @pytest.mark.asyncio
-    async def test_reset_enrichment_data(self, temp_db, mock_enrichment_data, mock_process_stage):
+    async def test_reset_enrichment_data(self, temp_db_with_books, mock_enrichment_data, mock_process_stage):
         """Test resetting enrichment data"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
         pipeline = GRINEnrichmentPipeline(
-            directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage
+            directory="TestLibrary", db_path=temp_db_with_books, process_summary_stage=mock_process_stage
         )
         pipeline.grin_client = mock_client
 
@@ -348,7 +337,7 @@ class TestGRINEnrichmentPipeline:
         await pipeline.enrich_books_batch(barcodes)
 
         # Verify enrichment data exists
-        tracker = SQLiteProgressTracker(temp_db)
+        tracker = SQLiteProgressTracker(temp_db_with_books)
         book1 = await tracker.get_book("TEST001")
         assert book1.enrichment_timestamp is not None
         assert book1.grin_viewability == "VIEW_FULL"
@@ -363,7 +352,7 @@ class TestGRINEnrichmentPipeline:
         assert book1_after.grin_viewability is None
 
     @pytest.mark.asyncio
-    async def test_dynamic_batch_size_splitting(self, temp_db, mock_enrichment_data, mock_process_stage):
+    async def test_dynamic_batch_size_splitting(self, temp_db_with_books, mock_enrichment_data, mock_process_stage):
         """Test that batches use dynamic sizing based on URL length"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)
 
@@ -379,7 +368,7 @@ class TestGRINEnrichmentPipeline:
         mock_client.fetch_resource = counting_fetch_resource
 
         pipeline = GRINEnrichmentPipeline(
-            directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage
+            directory="TestLibrary", db_path=temp_db_with_books, process_summary_stage=mock_process_stage
         )
         pipeline.grin_client = mock_client
 
@@ -409,7 +398,7 @@ class TestGRINEnrichmentPipeline:
         assert pipeline.timeout == 30
 
     @pytest.mark.asyncio
-    async def test_error_handling_in_batch_fetch(self, temp_db, mock_process_stage):
+    async def test_error_handling_in_batch_fetch(self, temp_db_with_books, mock_process_stage):
         """Test error handling when GRIN request fails"""
         mock_client = MockGRINEnrichmentClient()
 
@@ -420,7 +409,7 @@ class TestGRINEnrichmentPipeline:
         mock_client.fetch_resource = failing_fetch_resource
 
         pipeline = GRINEnrichmentPipeline(
-            directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage
+            directory="TestLibrary", db_path=temp_db_with_books, process_summary_stage=mock_process_stage
         )
         pipeline.grin_client = mock_client
 
@@ -430,7 +419,7 @@ class TestGRINEnrichmentPipeline:
         assert result["TEST001"] is None
 
     @pytest.mark.asyncio
-    async def test_error_handling_in_enrich_batch(self, temp_db, mock_process_stage):
+    async def test_error_handling_in_enrich_batch(self, temp_db_with_books, mock_process_stage):
         """Test error handling when enrichment processing fails"""
         mock_client = MockGRINEnrichmentClient({"TEST001": {"grin_viewability": "VIEW_FULL"}})
 
@@ -441,7 +430,7 @@ class TestGRINEnrichmentPipeline:
         mock_client.fetch_resource = failing_fetch_resource
 
         pipeline = GRINEnrichmentPipeline(
-            directory="TestLibrary", db_path=temp_db, process_summary_stage=mock_process_stage
+            directory="TestLibrary", db_path=temp_db_with_books, process_summary_stage=mock_process_stage
         )
         pipeline.grin_client = mock_client
 
@@ -451,7 +440,7 @@ class TestGRINEnrichmentPipeline:
         assert enriched_count == 0  # No successful enrichments
 
         # But book should still be marked as processed (with empty enrichment)
-        tracker = SQLiteProgressTracker(temp_db)
+        tracker = SQLiteProgressTracker(temp_db_with_books)
         book = await tracker.get_book("TEST001")
         assert book.enrichment_timestamp is not None  # Marked as processed
 

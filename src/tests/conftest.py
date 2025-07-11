@@ -136,6 +136,41 @@ def mock_progress_tracker():
     return MockStorageFactory.create_progress_tracker()
 
 
+class DatabaseSchemaFactory:
+    """Factory for creating standardized test database schemas."""
+
+    @staticmethod
+    def create_full_schema(db_path: str) -> None:
+        """Create the complete database schema used by the application."""
+        import sqlite3
+        from pathlib import Path
+
+        # Read the actual schema from docs/schema.sql
+        schema_file = Path(__file__).parent.parent.parent / "docs" / "schema.sql"
+        schema_sql = schema_file.read_text()
+
+        conn = sqlite3.connect(db_path)
+        conn.executescript(schema_sql)
+        conn.commit()
+        conn.close()
+
+
+@pytest.fixture
+def temp_db():
+    """Create a temporary database with full schema."""
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+
+    DatabaseSchemaFactory.create_full_schema(db_path)
+
+    yield db_path
+
+    Path(db_path).unlink(missing_ok=True)
+
+
 @pytest.fixture
 def mock_storage_config():
     """Fixture providing a standard mock storage configuration."""
