@@ -15,7 +15,7 @@ from grin_to_s3.sync.status import (
     show_sync_status,
     validate_database_file,
 )
-from tests.test_utils.database_mocks import create_mock_progress_tracker
+from tests.test_utils.unified_mocks import MockStorageFactory
 
 
 class TestValidateDatabaseFile:
@@ -66,7 +66,7 @@ class TestSyncStatistics:
     async def test_get_sync_statistics(self, temp_db_path):
         """Test getting sync statistics."""
         with patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class:
-            mock_tracker = create_mock_progress_tracker(temp_db_path)
+            mock_tracker = MockStorageFactory.create_progress_tracker(temp_db_path)
             mock_tracker_class.return_value = mock_tracker
 
             # Configure specific return values for this test
@@ -98,7 +98,7 @@ class TestSyncStatistics:
     async def test_get_sync_statistics_with_storage_filter(self, temp_db_path):
         """Test getting sync statistics with storage type filter."""
         with patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class:
-            mock_tracker = create_mock_progress_tracker(temp_db_path)
+            mock_tracker = MockStorageFactory.create_progress_tracker(temp_db_path)
             mock_tracker_class.return_value = mock_tracker
 
             # Configure specific return values for this test
@@ -141,7 +141,7 @@ class TestShowSyncStatus:
             patch("grin_to_s3.sync.status.SQLiteProgressTracker") as mock_tracker_class,
             patch("grin_to_s3.sync.status.connect_async") as mock_connect,
         ):
-            mock_tracker = create_mock_progress_tracker(temp_db_path)
+            mock_tracker = MockStorageFactory.create_progress_tracker(temp_db_path)
             mock_tracker_class.return_value = mock_tracker
 
             # Configure specific return values for this test

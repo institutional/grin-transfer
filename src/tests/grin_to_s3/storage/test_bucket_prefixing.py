@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from grin_to_s3.sync.operations import upload_book_from_staging
-from tests.test_utils.sync_mocks import mock_minimal_upload
+from tests.test_utils.unified_mocks import mock_minimal_upload
 
 
 class TestBucketPrefixingBehavior:

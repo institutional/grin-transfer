@@ -12,7 +12,7 @@ import json
 import sqlite3
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -23,7 +23,7 @@ from tests.test_utils.parametrize_helpers import (
     combined_scenarios_parametrize,
     meaningful_storage_parametrize,
 )
-from tests.test_utils.sync_mocks import mock_upload_operations
+from tests.test_utils.unified_mocks import mock_upload_operations
 from tests.utils import create_test_archive
 
 
@@ -47,13 +47,14 @@ async def temp_db_tracker():
 @pytest.fixture
 def mock_staging_manager():
     """Create a mock staging manager with real directory operations."""
+    from tests.test_utils.unified_mocks import MockStorageFactory
+
     with tempfile.TemporaryDirectory() as temp_dir:
-        manager = MagicMock()
+        manager = MockStorageFactory.create_staging_manager(staging_path=temp_dir)
         staging_dir = Path(temp_dir)
         manager.staging_dir = staging_dir
         manager.staging_path = staging_dir  # Add staging_path attribute to prevent mock file creation
         manager.get_decrypted_file_path = lambda barcode: staging_dir / f"{barcode}.tar.gz"
-        manager.cleanup_files = MagicMock(return_value=1024 * 1024)  # 1MB freed
         yield manager
 
 
@@ -96,6 +97,7 @@ class TestSyncOCRPipelineIntegration:
         with open(test_archive_with_ocr, "rb") as src, open(decrypted_file, "wb") as dst:
             dst.write(src.read())
 
+        # Use targeted mocks instead of full mock_upload_operations to allow real OCR extraction
         with (
             patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
@@ -103,17 +105,23 @@ class TestSyncOCRPipelineIntegration:
             patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
         ):
             mock_decrypt.return_value = None
-
-            # Set up storage mocks
-            mock_storage = MagicMock()
-            mock_storage.save_decrypted_archive_from_file = AsyncMock(return_value="path/to/archive")
-            mock_storage.save_ocr_text_jsonl_from_file = AsyncMock(
-                return_value="bucket_full/TEST123456789/TEST123456789.jsonl"
-            )
-            mock_create_storage.return_value = mock_storage
-            mock_book_storage_class.return_value = mock_storage
-
             mock_extract_marc.return_value = None
+
+            # Set up storage mocks using unified factory
+            from tests.test_utils.unified_mocks import MockStorageFactory
+            mock_storage = MockStorageFactory.create_storage(storage_type=storage_type)
+            mock_book_storage = MockStorageFactory.create_book_storage()
+
+            # Configure specific return values for this test
+            mock_storage.save_ocr_text_jsonl_from_file.return_value = "bucket_full/TEST123456789/TEST123456789.jsonl"
+            mock_book_storage.save_ocr_text_jsonl_from_file.return_value = "bucket_full/TEST123456789/TEST123456789.jsonl"
+
+            mock_create_storage.return_value = mock_storage
+            mock_book_storage_class.return_value = mock_book_storage
+
+            # Link the methods for compatibility (same as unified mock does)
+            mock_book_storage.save_decrypted_archive_from_file = mock_storage.save_decrypted_archive_from_file
+            mock_book_storage.save_ocr_text_jsonl_from_file = mock_storage.save_ocr_text_jsonl_from_file
 
             # Execute upload with OCR extraction (using real OCR extraction, not mocked)
             storage_config = {"base_path": "/tmp/storage"} if storage_type == "local" else {
@@ -141,7 +149,7 @@ class TestSyncOCRPipelineIntegration:
             assert result["barcode"] == barcode
 
             # Verify archive upload was called
-            mock_storage.save_decrypted_archive_from_file.assert_called_once()
+            mock_book_storage.save_decrypted_archive_from_file.assert_called_once()
 
             # Verify OCR upload was called (indicates real OCR extraction happened)
             mock_storage.save_ocr_text_jsonl_from_file.assert_called_once()
@@ -175,18 +183,27 @@ class TestSyncOCRPipelineIntegration:
         with open(test_archive_with_ocr, "rb") as src, open(decrypted_file, "wb") as dst:
             dst.write(src.read())
 
+        # Use targeted mocks to allow OCR function to not be called
         with (
             patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
             patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
+            patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
         ):
             mock_decrypt.return_value = None
+            mock_extract_marc.return_value = None
 
-            mock_storage = MagicMock()
-            mock_storage.save_decrypted_archive_from_file = AsyncMock(return_value="path/to/archive")
-            mock_storage.save_ocr_text_jsonl_from_file = AsyncMock()
+            # Set up storage mocks using unified factory
+            from tests.test_utils.unified_mocks import MockStorageFactory
+            mock_storage = MockStorageFactory.create_storage(storage_type=storage_type)
+            mock_book_storage = MockStorageFactory.create_book_storage()
+
             mock_create_storage.return_value = mock_storage
-            mock_book_storage_class.return_value = mock_storage
+            mock_book_storage_class.return_value = mock_book_storage
+
+            # Link the methods for compatibility
+            mock_book_storage.save_decrypted_archive_from_file = mock_storage.save_decrypted_archive_from_file
+            mock_book_storage.save_ocr_text_jsonl_from_file = mock_storage.save_ocr_text_jsonl_from_file
 
             # Execute upload with OCR extraction DISABLED
             storage_config = {"base_path": "/tmp/storage"} if storage_type == "local" else {
@@ -214,7 +231,7 @@ class TestSyncOCRPipelineIntegration:
             assert result["barcode"] == barcode
 
             # Verify archive upload was called
-            mock_storage.save_decrypted_archive_from_file.assert_called_once()
+            mock_book_storage.save_decrypted_archive_from_file.assert_called_once()
 
             # Verify OCR upload was NOT called
             mock_storage.save_ocr_text_jsonl_from_file.assert_not_called()
