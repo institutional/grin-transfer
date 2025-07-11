@@ -4,6 +4,7 @@ Integration tests for BookStorage full-text functionality.
 Tests actual file writing to storage backends to ensure files reach correct bucket paths.
 """
 
+import asyncio
 import json
 import tempfile
 from pathlib import Path
@@ -43,8 +44,6 @@ class TestBookStorageIntegration:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
 
             # This would be async in real usage, but we'll test the sync version
-            import asyncio
-
             async def test_save():
                 return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
@@ -97,8 +96,6 @@ class TestBookStorageIntegration:
                 for page in text_pages:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
 
-            import asyncio
-
             async def test_save():
                 return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
@@ -143,8 +140,6 @@ class TestBookStorageIntegration:
                 for page in text_pages:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
 
-            import asyncio
-
             async def test_save():
                 return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
@@ -185,8 +180,6 @@ class TestBookStorageIntegration:
                 for page in text_pages:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
 
-            import asyncio
-
             async def test_save():
                 return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
@@ -225,8 +218,6 @@ class TestBookStorageIntegration:
             with open(jsonl_file, "w", encoding="utf-8") as f:
                 for page in text_pages:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
-
-            import asyncio
 
             async def test_multiple_saves():
                 # Save OCR text to full bucket
@@ -323,8 +314,6 @@ class TestBookStorageIntegration:
             with open(csv_file, "w", encoding="utf-8") as f:
                 f.write(csv_content)
 
-            import asyncio
-
             async def test_upload():
                 return await book_storage.upload_csv_file(str(csv_file))
 
@@ -371,8 +360,6 @@ class TestBookStorageIntegration:
             with open(csv_file, "w", encoding="utf-8") as f:
                 f.write(csv_content)
 
-            import asyncio
-
             async def test_upload():
                 return await book_storage.upload_csv_file(str(csv_file), "custom_books.csv")
 
@@ -414,8 +401,6 @@ class TestBookStorageIntegration:
             with open(jsonl_file, "w", encoding="utf-8") as f:
                 for page in text_pages:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
-
-            import asyncio
 
             async def test_save():
                 return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))

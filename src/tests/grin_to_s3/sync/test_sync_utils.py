@@ -9,87 +9,9 @@ import pytest
 
 from grin_to_s3.sync.utils import (
     check_encrypted_etag,
-    ensure_bucket_exists,
     get_converted_books,
-    reset_bucket_cache,
     should_skip_download,
 )
-
-
-class TestBucketOperations:
-    """Test bucket creation and management utilities."""
-
-    def test_reset_bucket_cache(self):
-        """Test that bucket cache can be reset."""
-        # Add something to cache
-        from grin_to_s3.sync.utils import _bucket_checked_cache
-
-        _bucket_checked_cache.add("test:bucket")
-        assert len(_bucket_checked_cache) > 0
-
-        # Reset and verify empty
-        reset_bucket_cache()
-        assert len(_bucket_checked_cache) == 0
-
-    @pytest.mark.asyncio
-    async def test_ensure_bucket_exists_local_storage(self, mock_storage_config):
-        """Test bucket existence check for local storage."""
-        result = await ensure_bucket_exists("local", mock_storage_config, "test-bucket")
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_ensure_bucket_exists_cached(self, mock_storage_config):
-        """Test bucket existence check with cached result."""
-        # Add to cache
-        from grin_to_s3.sync.utils import _bucket_checked_cache
-
-        _bucket_checked_cache.add("minio:test-bucket")
-
-        result = await ensure_bucket_exists("minio", mock_storage_config, "test-bucket")
-        assert result is True
-
-    @pytest.mark.asyncio
-    @patch("boto3.client")
-    async def test_ensure_bucket_exists_s3_success(self, mock_boto3_client, mock_storage_config):
-        """Test successful bucket creation for S3-compatible storage."""
-        # Mock S3 client
-        mock_s3 = MagicMock()
-        mock_boto3_client.return_value = mock_s3
-        mock_s3.head_bucket.return_value = None  # Bucket exists
-
-        reset_bucket_cache()  # Clear cache
-        result = await ensure_bucket_exists("s3", mock_storage_config, "test-bucket")
-        assert result is True
-
-        # Verify correct client configuration (S3 without custom endpoint)
-        mock_boto3_client.assert_called_once_with(
-            "s3",
-            aws_access_key_id="test-access",
-            aws_secret_access_key="test-secret",
-        )
-
-    @pytest.mark.asyncio
-    @patch("boto3.client")
-    async def test_ensure_bucket_exists_create_bucket(self, mock_boto3_client, mock_storage_config):
-        """Test bucket creation when bucket doesn't exist."""
-        from botocore.exceptions import ClientError
-
-        # Mock S3 client
-        mock_s3 = MagicMock()
-        mock_boto3_client.return_value = mock_s3
-
-        # Mock bucket doesn't exist, then creation succeeds
-        mock_s3.head_bucket.side_effect = ClientError(
-            error_response={"Error": {"Code": "404"}}, operation_name="HeadBucket"
-        )
-        mock_s3.create_bucket.return_value = None
-        mock_s3.list_buckets.return_value = {"Buckets": [{"Name": "test-bucket"}]}
-
-        reset_bucket_cache()  # Clear cache
-        result = await ensure_bucket_exists("s3", mock_storage_config, "test-bucket")
-        assert result is True
-
-        mock_s3.create_bucket.assert_called_once_with(Bucket="test-bucket")
 
 
 class TestETagOperations:
