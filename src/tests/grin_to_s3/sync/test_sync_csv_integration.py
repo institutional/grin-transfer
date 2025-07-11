@@ -97,7 +97,7 @@ class TestCSVExportIntegration:
 
                 # Mock storage creation
                 with patch("grin_to_s3.sync.pipeline.create_storage_from_config"):
-                    with patch("grin_to_s3.sync.pipeline.BookStorage"):
+                    with patch("grin_to_s3.sync.pipeline.BookManager"):
                         result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "completed"
@@ -133,7 +133,7 @@ class TestCSVExportIntegration:
 
                 # Mock storage creation
                 with patch("grin_to_s3.sync.pipeline.create_storage_from_config"):
-                    with patch("grin_to_s3.sync.pipeline.BookStorage"):
+                    with patch("grin_to_s3.sync.pipeline.BookManager"):
                         result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "failed"

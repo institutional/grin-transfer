@@ -34,7 +34,7 @@ class TestBucketPrefixingBehavior:
 
     def test_s3_compatible_storage_path_construction(self):
         """Test that S3-compatible storage (S3, R2, MinIO) doesn't include bucket names in file paths."""
-        from grin_to_s3.storage import BookStorage
+        from grin_to_s3.storage import BookManager
 
         storage_configs = [
             ("s3", {"bucket_raw": "my-s3-raw", "bucket_full": "my-s3-full", "prefix": ""}),
@@ -64,7 +64,7 @@ class TestBucketPrefixingBehavior:
                 }
 
                 # This is how BookStorage should be created
-                book_storage = BookStorage(mock_storage, bucket_config=bucket_config, base_prefix=base_prefix)
+                book_storage = BookManager(mock_storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
                 # CRITICAL: Check that base_prefix does NOT include bucket names
                 assert base_prefix == ""  # Should be empty, not contain bucket name
@@ -80,7 +80,7 @@ class TestBucketPrefixingBehavior:
             config = {"base_path": temp_dir, "bucket_raw": "local-raw", "bucket_full": "local-full", "prefix": ""}
 
             with patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage:
-                with patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class:
+                with patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class:
                     # Setup mocks
                     mock_storage = AsyncMock()
                     mock_create_storage.return_value = mock_storage
@@ -123,7 +123,7 @@ class TestBucketPrefixingBehavior:
         config = {"bucket_raw": "test-raw", "bucket_full": "test-full", "prefix": "my-custom-prefix"}
 
         with patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage:
-            with patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class:
+            with patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class:
                 # Setup mocks
                 mock_storage = AsyncMock()
                 mock_create_storage.return_value = mock_storage
@@ -171,7 +171,7 @@ class TestBucketPrefixingBehavior:
 
         for storage_type, config in problematic_configs:
             with patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage:
-                with patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class:
+                with patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class:
                     # Setup mocks
                     mock_storage = AsyncMock()
                     mock_create_storage.return_value = mock_storage

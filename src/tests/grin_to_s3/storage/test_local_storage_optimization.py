@@ -79,12 +79,12 @@ class TestLocalStorageDirectWrite:
     @pytest.mark.asyncio
     async def test_book_storage_direct_paths(self):
         """Test that BookStorage generates correct paths for local storage."""
-        from grin_to_s3.storage import BookStorage
+        from grin_to_s3.storage import BookManager
 
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = create_storage_from_config("local", {"base_path": temp_dir})
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix="")
+            book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix="")
 
             # Test path generation
             barcode = "TEST123"
@@ -97,12 +97,12 @@ class TestLocalStorageDirectWrite:
     @pytest.mark.asyncio
     async def test_local_storage_file_operations(self):
         """Test file operations work correctly with local storage."""
-        from grin_to_s3.storage import BookStorage
+        from grin_to_s3.storage import BookManager
 
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = create_storage_from_config("local", {"base_path": temp_dir})
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix="")
+            book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix="")
 
             # Test saving archive
             barcode = "TEST456"
@@ -189,7 +189,7 @@ class TestLocalStorageErrorHandling:
     @pytest.mark.asyncio
     async def test_permission_error_handling(self):
         """Test handling of permission errors for local storage."""
-        from grin_to_s3.storage import BookStorage
+        from grin_to_s3.storage import BookManager
 
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create a read-only directory
@@ -200,7 +200,7 @@ class TestLocalStorageErrorHandling:
             try:
                 storage = create_storage_from_config("local", {"base_path": str(readonly_dir)})
                 bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-                book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix="")
+                book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix="")
 
                 # Should fail with permission error
                 with pytest.raises((PermissionError, OSError)):

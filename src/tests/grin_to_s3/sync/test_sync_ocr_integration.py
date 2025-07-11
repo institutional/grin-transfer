@@ -101,7 +101,7 @@ class TestSyncOCRPipelineIntegration:
         with (
             patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
-            patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
+            patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class,
             patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
         ):
             mock_decrypt.return_value = None
@@ -111,7 +111,7 @@ class TestSyncOCRPipelineIntegration:
             from tests.test_utils.unified_mocks import MockStorageFactory
             mock_storage = MockStorageFactory.create_storage(storage_type=storage_type)
             # BookStorage properly wraps the storage mock (no more manual linking!)
-            mock_book_storage = MockStorageFactory.create_book_storage(storage=mock_storage)
+            mock_book_storage = MockStorageFactory.create_book_manager(storage=mock_storage)
 
             # Configure specific return values for this test
             mock_storage.save_ocr_text_jsonl_from_file.return_value = "bucket_full/TEST123456789/TEST123456789.jsonl"
@@ -184,7 +184,7 @@ class TestSyncOCRPipelineIntegration:
         with (
             patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
-            patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
+            patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class,
             patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
         ):
             mock_decrypt.return_value = None
@@ -194,7 +194,7 @@ class TestSyncOCRPipelineIntegration:
             from tests.test_utils.unified_mocks import MockStorageFactory
             mock_storage = MockStorageFactory.create_storage(storage_type=storage_type)
             # BookStorage properly wraps the storage mock (no more manual linking!)
-            mock_book_storage = MockStorageFactory.create_book_storage(storage=mock_storage)
+            mock_book_storage = MockStorageFactory.create_book_manager(storage=mock_storage)
 
             mock_create_storage.return_value = mock_storage
             mock_book_storage_class.return_value = mock_book_storage

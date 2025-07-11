@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.storage.book_storage import BookStorage
+from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.factories import (
     create_book_storage_with_full_text,
     create_storage_for_bucket,
@@ -28,7 +28,7 @@ class TestBookStorageFullText:
         mock_storage = MagicMock()
         bucket_config = create_test_bucket_config()
 
-        book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config, base_prefix="test-prefix")
+        book_storage = BookManager(storage=mock_storage, bucket_config=bucket_config, base_prefix="test-prefix")
 
         assert book_storage.storage == mock_storage
         assert book_storage.bucket_raw == "test-raw"
@@ -41,7 +41,7 @@ class TestBookStorageFullText:
         mock_storage = MagicMock()
         bucket_config = create_test_bucket_config()
 
-        book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config)
+        book_storage = BookManager(storage=mock_storage, bucket_config=bucket_config)
 
         assert book_storage.storage == mock_storage
         assert book_storage.bucket_raw == "test-raw"
@@ -54,7 +54,7 @@ class TestBookStorageFullText:
         mock_storage = MagicMock()
         bucket_config = create_test_bucket_config()
 
-        book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config, base_prefix="test-prefix")
+        book_storage = BookManager(storage=mock_storage, bucket_config=bucket_config, base_prefix="test-prefix")
 
         path = book_storage._full_text_path("12345", "test.jsonl")
         assert path == "test-full/test-prefix/test.jsonl"
@@ -64,7 +64,7 @@ class TestBookStorageFullText:
         mock_storage = MagicMock()
         bucket_config = create_test_bucket_config()
 
-        book_storage = BookStorage(storage=mock_storage, bucket_config=bucket_config)
+        book_storage = BookManager(storage=mock_storage, bucket_config=bucket_config)
 
         path = book_storage._full_text_path("12345", "test.jsonl")
         assert path == "test-full/test.jsonl"
@@ -76,7 +76,7 @@ class TestBookStorageFullText:
         mock_storage = AsyncMock()
         mock_storage.is_s3_compatible = MagicMock(return_value=False)
 
-        book_storage = BookStorage(storage=mock_storage, bucket_config=create_test_bucket_config())
+        book_storage = BookManager(storage=mock_storage, bucket_config=create_test_bucket_config())
 
         jsonl_file_path = "/path/to/12345.jsonl"
 
@@ -95,7 +95,7 @@ class TestBookStorageFullText:
         mock_storage = AsyncMock()
         mock_storage.is_s3_compatible = MagicMock(return_value=True)
 
-        book_storage = BookStorage(storage=mock_storage, bucket_config=create_test_bucket_config())
+        book_storage = BookManager(storage=mock_storage, bucket_config=create_test_bucket_config())
 
         jsonl_file_path = "/path/to/12345.jsonl"
         metadata = {"page_count": 2, "extraction_time_ms": 1500}
@@ -124,7 +124,7 @@ class TestBookStorageFullText:
 
         # This should fail because BookStorage requires bucket_config
         with pytest.raises(TypeError):
-            BookStorage(storage=mock_storage)  # Missing bucket_config
+            BookManager(storage=mock_storage)  # Missing bucket_config
 
 
 class TestStorageFactories:
@@ -199,7 +199,7 @@ class TestStorageFactories:
 
         mock_create_storage.assert_called_once_with("s3", config)
 
-        assert isinstance(book_storage, BookStorage)
+        assert isinstance(book_storage, BookManager)
         assert book_storage.storage == mock_storage
         assert book_storage.bucket_raw == "raw-bucket"
         assert book_storage.bucket_meta == "meta-bucket"

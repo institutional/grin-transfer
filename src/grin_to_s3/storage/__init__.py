@@ -9,7 +9,7 @@ Eliminates circular import dependencies by consolidating storage functionality.
 from .base import Storage, StorageConfig, StorageError, StorageNotFoundError
 
 # Book-specific storage operations
-from .book_storage import BookStorage
+from .book_manager import BookManager
 
 # Storage creation and management
 from .factories import (
@@ -38,7 +38,7 @@ __all__ = [
     "create_minio_storage",
     "create_local_storage",
     # Storage operations
-    "BookStorage",
+    "BookManager",
     # Staging
     "StagingDirectoryManager",
 ]

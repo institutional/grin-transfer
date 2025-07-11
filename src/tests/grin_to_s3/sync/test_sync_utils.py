@@ -174,7 +174,7 @@ class TestBookStorageInitializationInUtils:
 
             with (
                 patch("grin_to_s3.storage.create_storage_from_config") as mock_create_storage,
-                patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
+                patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
             ):
                 # Mock storage creation
                 mock_storage = MagicMock()

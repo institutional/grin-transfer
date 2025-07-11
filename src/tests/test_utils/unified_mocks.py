@@ -121,7 +121,7 @@ class MockStorageFactory:
         return mock_storage
 
     @staticmethod
-    def create_book_storage(
+    def create_book_manager(
         storage: MagicMock | None = None,
         bucket_config: dict[str, str] | None = None,
         base_prefix: str = "",
@@ -129,7 +129,7 @@ class MockStorageFactory:
         custom_config: dict[str, Any] | None = None
     ) -> MagicMock:
         """
-        Create a unified BookStorage mock that properly wraps a Storage mock.
+        Create a unified BookManager mock that properly wraps a Storage mock.
 
         Args:
             storage: Storage mock to wrap (if None, creates one automatically)
@@ -139,7 +139,7 @@ class MockStorageFactory:
             custom_config: Custom configuration for return values
 
         Returns:
-            Configured BookStorage mock that wraps the storage mock
+            Configured BookManager mock that wraps the storage mock
         """
         if bucket_config is None:
             bucket_config = {
@@ -153,16 +153,16 @@ class MockStorageFactory:
             storage = MockStorageFactory.create_storage(should_fail=should_fail, custom_config=custom_config)
 
         config = custom_config or {}
-        mock_book_storage = MagicMock()
+        mock_book_manager = MagicMock()
 
         # Store the underlying storage mock (this is the key fix!)
-        mock_book_storage.storage = storage
+        mock_book_manager.storage = storage
 
         # Set bucket attributes
-        mock_book_storage.bucket_raw = bucket_config["bucket_raw"]
-        mock_book_storage.bucket_meta = bucket_config["bucket_meta"]
-        mock_book_storage.bucket_full = bucket_config["bucket_full"]
-        mock_book_storage.base_prefix = base_prefix
+        mock_book_manager.bucket_raw = bucket_config["bucket_raw"]
+        mock_book_manager.bucket_meta = bucket_config["bucket_meta"]
+        mock_book_manager.bucket_full = bucket_config["bucket_full"]
+        mock_book_manager.base_prefix = base_prefix
 
         # Add path generation helper
         def meta_path(filename: str) -> str:
@@ -170,35 +170,35 @@ class MockStorageFactory:
                 return f"{bucket_config['bucket_meta']}/{base_prefix}/{filename}"
             return f"{bucket_config['bucket_meta']}/{filename}"
 
-        mock_book_storage._meta_path = meta_path
+        mock_book_manager._meta_path = meta_path
 
-        # BookStorage methods delegate to the underlying storage
-        # This reflects the real BookStorage architecture where it wraps a Storage object
-        mock_book_storage.save_decrypted_archive_from_file = storage.save_decrypted_archive_from_file
-        mock_book_storage.save_ocr_text_jsonl_from_file = storage.save_ocr_text_jsonl_from_file
+        # BookManager methods delegate to the underlying storage
+        # This reflects the real BookManager architecture where it wraps a Storage object
+        mock_book_manager.save_decrypted_archive_from_file = storage.save_decrypted_archive_from_file
+        mock_book_manager.save_ocr_text_jsonl_from_file = storage.save_ocr_text_jsonl_from_file
 
-        # BookStorage-specific methods (not in Storage interface)
+        # BookManager-specific methods (not in Storage interface)
         if should_fail:
-            mock_book_storage.upload_csv_file = AsyncMock(
+            mock_book_manager.upload_csv_file = AsyncMock(
                 side_effect=Exception("CSV upload failed")
             )
-            mock_book_storage.save_timestamp = AsyncMock(
+            mock_book_manager.save_timestamp = AsyncMock(
                 side_effect=Exception("Timestamp save failed")
             )
         else:
-            mock_book_storage.upload_csv_file = AsyncMock(
+            mock_book_manager.upload_csv_file = AsyncMock(
                 return_value=config.get("csv_paths", ("latest.csv", "timestamped.csv"))
             )
-            mock_book_storage.save_timestamp = AsyncMock(
+            mock_book_manager.save_timestamp = AsyncMock(
                 return_value=config.get("timestamp_path", f"{bucket_config['bucket_raw']}/TEST123/TEST123.tar.gz.gpg.retrieval")
             )
 
-        mock_book_storage.archive_exists = AsyncMock(return_value=config.get("archive_exists", False))
-        mock_book_storage.save_text_jsonl = AsyncMock(
+        mock_book_manager.archive_exists = AsyncMock(return_value=config.get("archive_exists", False))
+        mock_book_manager.save_text_jsonl = AsyncMock(
             return_value=config.get("text_jsonl_path", f"{bucket_config['bucket_raw']}/TEST123/TEST123.jsonl")
         )
 
-        return mock_book_storage
+        return mock_book_manager
 
     @staticmethod
     def create_staging_manager(staging_path: str = "/tmp/staging") -> MagicMock:
@@ -311,16 +311,16 @@ def storage_config(storage_type):
 @pytest.fixture
 def mock_storage_bundle(storage_type, bucket_config):
     """Complete storage mock bundle for testing."""
-    # Create storage first, then book_storage that wraps it
+    # Create storage first, then book_manager that wraps it
     storage = MockStorageFactory.create_storage(storage_type)
-    book_storage = MockStorageFactory.create_book_storage(
+    book_manager = MockStorageFactory.create_book_manager(
         storage=storage,
         bucket_config=bucket_config
     )
 
     return StorageMockBundle(
         storage=storage,
-        book_storage=book_storage,
+        book_storage=book_manager,
         staging_manager=MockStorageFactory.create_staging_manager(),
         bucket_config=bucket_config
     )
@@ -356,7 +356,7 @@ def mock_upload_operations(
         patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
         patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract_ocr,
         patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
-        patch("grin_to_s3.sync.operations.BookStorage") as mock_book_storage_class,
+        patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class,
     ):
         # Create storage mock first
         mock_storage = MockStorageFactory.create_storage(
@@ -366,12 +366,12 @@ def mock_upload_operations(
         )
         mock_create_storage.return_value = mock_storage
 
-        # Create book storage mock that properly wraps the storage mock
-        mock_book_storage = MockStorageFactory.create_book_storage(
+        # Create book manager mock that properly wraps the storage mock
+        mock_book_manager = MockStorageFactory.create_book_manager(
             storage=mock_storage,  # Pass the storage mock to be wrapped
             should_fail=should_fail
         )
-        mock_book_storage_class.return_value = mock_book_storage
+        mock_book_storage_class.return_value = mock_book_manager
 
         # Configure operation mocks
         if should_fail:
@@ -390,7 +390,7 @@ def mock_upload_operations(
             extract_marc=mock_extract_marc,
             book_storage_class=mock_book_storage_class,
             storage=mock_storage,
-            book_storage=mock_book_storage
+            book_storage=mock_book_manager
         )
 
 
@@ -472,13 +472,13 @@ def setup_storage_mocks_with_mocker(mocker, storage_type: str = "local", should_
     mock_storage = MockStorageFactory.create_storage(storage_type, should_fail=should_fail)
     mocker.patch("grin_to_s3.storage.create_storage_from_config", return_value=mock_storage)
 
-    # Create book storage that wraps the storage mock
-    mock_book_storage = MockStorageFactory.create_book_storage(
+    # Create book manager that wraps the storage mock
+    mock_book_manager = MockStorageFactory.create_book_manager(
         storage=mock_storage,
         bucket_config=bucket_config,
         should_fail=should_fail
     )
-    mocker.patch("grin_to_s3.storage.BookStorage", return_value=mock_book_storage)
+    mocker.patch("grin_to_s3.storage.BookManager", return_value=mock_book_manager)
 
     # Mock staging manager
     mock_staging = MockStorageFactory.create_staging_manager()
@@ -486,7 +486,7 @@ def setup_storage_mocks_with_mocker(mocker, storage_type: str = "local", should_
 
     return StorageMockBundle(
         storage=mock_storage,
-        book_storage=mock_book_storage,
+        book_storage=mock_book_manager,
         staging_manager=mock_staging,
         bucket_config=bucket_config
     )
@@ -517,7 +517,7 @@ def create_mock_book_data(barcode: str = "TEST123"):
 
 # Aliases for backward compatibility during migration
 create_mock_storage = MockStorageFactory.create_storage
-create_mock_book_storage = MockStorageFactory.create_book_storage
+create_mock_book_storage = MockStorageFactory.create_book_manager
 create_mock_staging_manager = MockStorageFactory.create_staging_manager
 create_mock_progress_tracker = MockStorageFactory.create_progress_tracker
 

@@ -37,7 +37,7 @@ class TestStorageMetadataETagTracking:
 
         with (
             patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
+            patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
@@ -76,7 +76,7 @@ class TestStorageMetadataETagTracking:
 
         with (
             patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
+            patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
@@ -111,7 +111,7 @@ class TestStorageMetadataETagTracking:
 
         with (
             patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
+            patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
@@ -149,7 +149,7 @@ class TestStorageMetadataETagTracking:
 
         with (
             patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
+            patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
@@ -181,7 +181,7 @@ class TestStorageMetadataETagTracking:
 
         with (
             patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
+            patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
@@ -264,7 +264,7 @@ class TestHybridETagApproach:
 
         with (
             patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookStorage") as mock_book_storage_class,
+            patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()

@@ -26,7 +26,7 @@ from grin_to_s3.common import (
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config, get_storage_protocol
-from grin_to_s3.storage.book_storage import BookStorage, BucketConfig
+from grin_to_s3.storage.book_manager import BookManager, BucketConfig
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .csv_export import CSVExportResult, export_and_upload_csv
@@ -428,7 +428,7 @@ class SyncPipeline:
                 "bucket_full": self.storage_config.get("bucket_full", "") if self.storage_config else "",
             }
 
-            book_storage = BookStorage(storage, bucket_config=bucket_config, base_prefix=base_prefix)
+            book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
             # Export CSV
             logger.info("Exporting CSV after sync completion")

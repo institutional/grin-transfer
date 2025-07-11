@@ -16,7 +16,7 @@ from ..run_config import (
     apply_run_config_to_args,
     setup_run_database_path,
 )
-from ..storage.book_storage import BookStorage
+from ..storage.book_manager import BookManager
 from .text_extraction import (
     CorruptedArchiveError,
     InvalidPageFormatError,
@@ -28,7 +28,7 @@ from .text_extraction import (
 logger = logging.getLogger(__name__)
 
 
-async def write_to_bucket(book_storage: BookStorage, barcode: str, jsonl_file_path: str, verbose: bool = False) -> None:
+async def write_to_bucket(book_storage: BookManager, barcode: str, jsonl_file_path: str, verbose: bool = False) -> None:
     """Upload JSONL file to full-text bucket."""
     try:
         path = await book_storage.save_ocr_text_jsonl_from_file(barcode, jsonl_file_path)
@@ -125,7 +125,7 @@ async def extract_single_archive(
     db_path: str,
     session_id: str,
     output_path: str | None = None,
-    book_storage: BookStorage | None = None,
+    book_storage: BookManager | None = None,
     verbose: bool = False,
 ) -> dict:
     """Extract text from single archive and return stats."""
