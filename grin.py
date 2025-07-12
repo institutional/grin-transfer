@@ -21,9 +21,19 @@ import asyncio
 import sys
 from pathlib import Path
 
-# Add src directory to Python path
-src_path = Path(__file__).parent / "src"
-sys.path.insert(0, str(src_path))
+# Add src directory to Python path before any local imports
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+# Import all subcommand modules at startup to catch import errors early
+from grin_to_s3.auth import main as auth_main
+from grin_to_s3.collect_books.__main__ import main as collect_main
+from grin_to_s3.export import main as export_main
+from grin_to_s3.extract import main as extract_main
+from grin_to_s3.metadata.grin_enrichment import enrich_main
+from grin_to_s3.processing import main as process_main
+from grin_to_s3.reports import main as reports_main
+from grin_to_s3.storage import main as storage_main
+from grin_to_s3.sync import main as sync_main
 
 
 def create_parser():
@@ -112,65 +122,47 @@ async def main():
 
     # Route to appropriate module based on command
     if command == "auth":
-        from grin_to_s3.auth import main as auth_main
-
         # Remove 'auth' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         auth_main()
         return 0
 
     elif command == "collect":
-        from grin_to_s3.collect_books.__main__ import main as collect_main
-
         # Remove 'collect' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await collect_main()
 
     elif command == "process":
-        from grin_to_s3.processing import main as process_main
-
         # Remove 'process' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await process_main()
 
     elif command == "sync":
-        from grin_to_s3.sync import main as sync_main
-
         # Remove 'sync' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await sync_main()
 
     elif command == "storage":
-        from grin_to_s3.storage import main as storage_main
-
         # Remove 'storage' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await storage_main()
 
     elif command == "extract":
-        from grin_to_s3.extract import main as extract_main
-
         # Remove 'extract' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await extract_main()
 
     elif command == "enrich":
-        from grin_to_s3.metadata.grin_enrichment import enrich_main
-
         # Remove 'enrich' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await enrich_main()
 
     elif command == "export":
-        from grin_to_s3.export import main as export_main
-
         # Remove 'export' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await export_main()
 
     elif command == "reports":
-        from grin_to_s3.reports import main as reports_main
-
         # Remove 'reports' from args and pass the rest
         sys.argv = [sys.argv[0]] + sys.argv[2:]
         return await reports_main()

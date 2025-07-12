@@ -619,9 +619,9 @@ Examples:
     book_storage = None
     if args.command == "enrich":
         # Create book storage for process summary uploads
-        from grin_to_s3.process_summary import create_book_storage_for_uploads
+        from grin_to_s3.process_summary import create_book_manager_for_uploads
 
-        book_storage = await create_book_storage_for_uploads(args.run_name)
+        book_storage = await create_book_manager_for_uploads(args.run_name)
 
         run_summary = await create_process_summary(args.run_name, "enrich", book_storage)
         enrich_stage = get_current_stage(run_summary, "enrich")

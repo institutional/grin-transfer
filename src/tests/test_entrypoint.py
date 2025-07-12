@@ -52,6 +52,8 @@ def test_subcommand_help(subcommand):
     assert "usage:" in result.stdout.lower()
 
 
+
+
 def test_invalid_command():
     """Test that invalid commands are handled gracefully."""
     result = subprocess.run(
