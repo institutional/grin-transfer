@@ -15,8 +15,8 @@ import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+from grin_to_s3.collect_books.collector import BookCollector, RateLimiter
 from grin_to_s3.collect_books.config import ExportConfig
-from grin_to_s3.collect_books.exporter import BookCollector, RateLimiter
 from grin_to_s3.collect_books.models import BookRecord
 from tests.mocks import get_test_data, setup_mock_exporter
 

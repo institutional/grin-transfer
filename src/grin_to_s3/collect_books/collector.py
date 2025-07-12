@@ -19,6 +19,7 @@ import time
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypedDict
 
 import aiofiles
 
@@ -39,6 +40,13 @@ from .models import BookRecord, BoundedSet, SQLiteProgressTracker
 
 # Set up module logger
 logger = logging.getLogger(__name__)
+
+
+class PaginationState(TypedDict):
+    """Type for pagination state dictionary."""
+    current_page: int
+    next_url: str | None
+    page_size: int
 
 
 class BookCollector:
@@ -93,7 +101,7 @@ class BookCollector:
 
         # Pagination state for resume functionality
         pagination_config = self.config.pagination or PaginationConfig()
-        self.pagination_state = {
+        self.pagination_state: PaginationState = {
             "current_page": pagination_config.start_page,
             "next_url": None,
             "page_size": pagination_config.page_size,
@@ -543,7 +551,7 @@ class BookCollector:
 
         return states
 
-    async def save_pagination_state(self, pagination_state: dict):
+    async def save_pagination_state(self, pagination_state: PaginationState):
         """Save pagination state for resume functionality."""
         self.pagination_state.update(pagination_state)
         # Save progress immediately to persist pagination state
@@ -556,8 +564,6 @@ class BookCollector:
         # Determine starting point for pagination
         start_page = self.pagination_state.get("current_page", 1)
         start_url = self.pagination_state.get("next_url")
-        if start_url is not None and not isinstance(start_url, str):
-            start_url = None  # Reset invalid start_url
         pagination_config = self.config.pagination or PaginationConfig()
         page_size = self.pagination_state.get("page_size", pagination_config.page_size)
 
@@ -565,54 +571,29 @@ class BookCollector:
             print(f"Resuming pagination from page {start_page}")
 
         book_count = 0
-        # Use prefetch version if enabled
-        if self.config.enable_prefetch:
-            stream_method = self.client.stream_book_list_html_prefetch
-            async for book_line, known_barcodes in stream_method(
-                self.directory,
-                list_type="_all_books",
-                page_size=page_size or pagination_config.page_size,
-                max_pages=pagination_config.max_pages,
-                start_page=start_page or 1,
-                start_url=start_url,
-                pagination_callback=self.save_pagination_state,
-                sqlite_tracker=self.sqlite_tracker,
-            ):
-                yield book_line.strip(), known_barcodes
-                book_count += 1
+        async for book_line, known_barcodes in self.client.stream_book_list_html_prefetch(
+            self.directory,
+            list_type="_all_books",
+            page_size=page_size or pagination_config.page_size,
+            max_pages=pagination_config.max_pages,
+            start_page=start_page or 1,
+            start_url=start_url,
+            pagination_callback=self.save_pagination_state,
+            sqlite_tracker=self.sqlite_tracker,
+        ):
+            yield book_line.strip(), known_barcodes
+            book_count += 1
 
-                # Update total estimate as we stream
-                if not self.total_books_estimate or book_count > self.total_books_estimate:
-                    self.total_books_estimate = book_count + 50000  # Conservative estimate
+            # Update total estimate as we stream
+            if not self.total_books_estimate or book_count > self.total_books_estimate:
+                self.total_books_estimate = book_count + 50000  # Conservative estimate
 
-                if book_count % 5000 == 0:
-                    logger.info(f"Streamed {book_count:,} {pluralize(book_count, 'book')}...")
-                    # Update total estimate more aggressively during large streams
-                    if book_count > 50000:
-                        self.total_books_estimate = book_count + 100000
-        else:
-            # Fall back to non-prefetch version - yield with empty known set
-            async for book_line in self.client.stream_book_list_html(
-                self.directory,
-                list_type="_all_books",
-                page_size=page_size or pagination_config.page_size,
-                max_pages=pagination_config.max_pages,
-                start_page=start_page or 1,
-                start_url=start_url,
-                pagination_callback=self.save_pagination_state,
-            ):
-                yield book_line.strip(), set()
-                book_count += 1
+            if book_count % 5000 == 0:
+                logger.info(f"Streamed {book_count:,} {pluralize(book_count, 'book')}...")
+                # Update total estimate more aggressively during large streams
+                if book_count > 50000:
+                    self.total_books_estimate = book_count + 100000
 
-                # Update total estimate as we stream
-                if not self.total_books_estimate or book_count > self.total_books_estimate:
-                    self.total_books_estimate = book_count + 50000  # Conservative estimate
-
-                if book_count % 5000 == 0:
-                    logger.info(f"Streamed {book_count:,} {pluralize(book_count, 'book')}...")
-                    # Update total estimate more aggressively during large streams
-                    if book_count > 50000:
-                        self.total_books_estimate = book_count + 100000
 
     async def get_converted_books(self) -> AsyncGenerator[tuple[str, set[str]], None]:
         """Stream books from GRIN's _converted list."""

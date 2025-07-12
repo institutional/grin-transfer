@@ -1,20 +1,26 @@
 repos:
   - repo: local
     hooks:
+      - id: ruff-fix
+        name: ruff check and fix
+        entry: ruff check --fix .
+        language: system
+        pass_filenames: false
+        always_run: true
       - id: ruff-check
         name: ruff check
         entry: ruff check .
         language: system
         pass_filenames: false
         always_run: true
-        
+
       - id: mypy
         name: mypy type checking
         entry: mypy src/grin_to_s3/ --explicit-package-bases
         language: system
         pass_filenames: false
         always_run: true
-        
+
       - id: pytest
         name: pytest
         entry: python -m pytest src/tests/ -v --tb=short -n auto

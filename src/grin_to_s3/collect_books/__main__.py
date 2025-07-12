@@ -11,8 +11,8 @@ import asyncio
 import logging
 import sys
 
+from .collector import BookCollector
 from .config import ConfigManager
-from .exporter import BookCollector
 
 sys.path.append("..")
 from grin_to_s3.common import (
@@ -353,10 +353,6 @@ Examples:
             sqlite_db_path=sqlite_db,
         )
 
-        # Apply performance overrides
-        if args.disable_prefetch:
-            config.enable_prefetch = False
-
         # Build sync configuration from CLI arguments
         sync_config = {
             "concurrent_downloads": args.sync_concurrent_downloads,
@@ -472,9 +468,6 @@ Examples:
                 sqlite_db_path=sqlite_db,  # Use generated SQLite path
             )
 
-            # Apply performance overrides
-            if args.disable_prefetch:
-                config.enable_prefetch = False
 
             # Build sync configuration from CLI arguments
             sync_config = {
