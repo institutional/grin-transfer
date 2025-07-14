@@ -504,8 +504,8 @@ class TestEnrichmentDataExtraction:
         assert enrichment_data["grin_ocr_analysis_score"] == "95"
         assert enrichment_data["grin_digitization_method"] == "NON_DESTRUCTIVE"
 
-        # Verify all 18 enrichment fields are present in the mapping
-        assert len(enrichment_data) == 18
+        # Verify all 24 enrichment fields are present in the mapping (18 GRIN fields + 6 date fields)
+        assert len(enrichment_data) == 24
 
 
 if __name__ == "__main__":
