@@ -620,17 +620,8 @@ class BookCollector:
             # Continue without converted books rather than failing
 
     async def get_all_books(self) -> AsyncGenerator[tuple[str, set[str]], None]:
-        """Stream all book data from GRIN using HTML pagination, plus converted books."""
-        # First, yield books from the _converted list
-        converted_count = 0
-        async for book_line, known_barcodes in self.get_converted_books():
-            converted_count += 1
-            yield book_line, known_barcodes
-
-        if converted_count > 0:
-            print(f"Finished processing {converted_count:,} converted books, now continuing with full catalog...")
-
-        # Then, yield books from the main _all_books catalog
+        """Stream all book data from GRIN using HTML pagination with all available metadata."""
+        # Use only the _all_books endpoint to capture complete metadata for all books
         async for book_line, known_barcodes in self.get_all_books_html():
             yield book_line, known_barcodes
 
@@ -657,7 +648,7 @@ class BookCollector:
             barcode = fields[0]
             return {
                 "barcode": barcode,
-                "title": "",  # Will be enriched later if needed
+                "title": "",
                 "scanned_date": None,
                 "converted_date": None,
                 "downloaded_date": None,
@@ -667,8 +658,8 @@ class BookCollector:
                 "google_books_link": "",
             }
 
-        # Pad fields to ensure we have at least 9 elements
-        while len(fields) < 9:
+        # Pad fields to ensure we have at least 11 elements (based on debug output)
+        while len(fields) < 11:
             fields.append("")
 
         def parse_date(date_str: str) -> str | None:
@@ -681,43 +672,44 @@ class BookCollector:
             except ValueError:
                 return date_str  # Return as-is if parsing fails
 
-        # GRIN HTML output format (from GRINTableParser):
-        # fields[0] = barcode (from input checkbox value)
-        # fields[1] = barcode (duplicate from table cell)
+        # GRIN HTML output format (based on debug output with 11 cells):
+        # fields[0] = empty
+        # fields[1] = barcode
         # fields[2] = title
-        # fields[3] = unknown/empty field
+        # fields[3] = status (e.g., "PREVIOUSLY_DOWNLOADED")
         # fields[4] = scanned_date
         # fields[5] = analyzed_date
         # fields[6] = converted_date
         # fields[7] = downloaded_date
-        # fields[8+] = additional fields if present (might include Google Books link)
+        # fields[8] = additional processing date
+        # fields[9] = another processing date
+        # fields[10] = Google Books link
 
         # Check if this is HTML format (has title in field 2) vs test format (has date in field 2)
         if len(fields) > 2 and fields[2] and not self._looks_like_date(fields[2]):
             # HTML table format - title in field[2]
-            # Look for Google Books link in additional fields
+            # Extract Google Books link from field 10
             google_link = ""
-            for i in range(8, len(fields)):
-                if fields[i] and ("books.google.com" in fields[i] or fields[i].startswith("http")):
-                    google_link = fields[i]
-                    break
+            if len(fields) > 10 and fields[10] and ("books.google.com" in fields[10] or fields[10].startswith("http")):
+                google_link = fields[10]
 
             return {
-                "barcode": fields[0],
+                "barcode": fields[0],  # Barcode from checkbox input
                 "title": fields[2],
+                "grin_state": fields[3] if len(fields) > 3 else None,  # Status field
                 "scanned_date": parse_date(fields[4]) if len(fields) > 4 else None,
+                "analyzed_date": parse_date(fields[5]) if len(fields) > 5 else None,
                 "converted_date": parse_date(fields[6]) if len(fields) > 6 else None,
                 "downloaded_date": parse_date(fields[7]) if len(fields) > 7 else None,
-                "processed_date": None,  # Not available in HTML format
-                "analyzed_date": parse_date(fields[5]) if len(fields) > 5 else None,
-                "ocr_date": None,  # Not available in HTML format
+                "processed_date": parse_date(fields[8]) if len(fields) > 8 else None,  # Additional processing date
+                "ocr_date": parse_date(fields[9]) if len(fields) > 9 else None,  # Another processing date
                 "google_books_link": google_link,
             }
         else:
             # Test/legacy text format
             return {
                 "barcode": fields[0],
-                "title": "",  # Title not available in text format
+                "title": "",
                 "scanned_date": parse_date(fields[1]),
                 "converted_date": parse_date(fields[2]),
                 "downloaded_date": parse_date(fields[3]),
@@ -809,8 +801,7 @@ class BookCollector:
             else:
                 self.accumulated_runtime = 0.0
 
-            # Get processing states
-            processing_states = await self.get_processing_states()
+            # Book conversion status is determined from converted_date field in all_books data
 
             # Prepare CSV file
             output_path = Path(output_file)
@@ -889,7 +880,7 @@ class BookCollector:
 
                     # Process the book
                     try:
-                        record = await self.process_book(grin_line, processing_states)
+                        record = await self.process_book(grin_line)
                         if record:
                             # Write to CSV immediately
                             csv_line = ",".join(f'"{field}"' for field in record.to_csv_row()) + "\n"
@@ -997,7 +988,7 @@ class BookCollector:
         # Return completion status
         return completed_successfully
 
-    async def process_book(self, grin_line: str, processing_states: dict[str, set[str]]) -> BookRecord | None:
+    async def process_book(self, grin_line: str) -> BookRecord | None:
         """Process a single book line from GRIN and return its record."""
 
         # Parse GRIN data directly from the line
@@ -1014,9 +1005,7 @@ class BookCollector:
             # Create record
             record = BookRecord(**parsed_data)
 
-            # Determine processing state
-            # Processing state is now tracked in status history table
-            # No need to set processing_state field
+            # Book conversion status is available in converted_date field
 
             # Enrich record with timestamps and storage info
             record = await self.enrich_book_record(record)

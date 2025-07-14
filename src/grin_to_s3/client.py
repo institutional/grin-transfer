@@ -240,10 +240,20 @@ class GRINClient:
         try:
             # Parse with selectolax using the fastest parser
             tree = LexborHTMLParser(html_content)
-            books = []
+            books: list[str] = []
 
             # Find all table rows with barcode inputs
             rows = tree.css("tr")
+
+            # Log table headers if present for debugging
+            header_row = tree.css_first("thead tr") or tree.css_first("tr")
+            if header_row and not header_row.css_first('input[name="barcodes"]'):
+                headers = []
+                for th in header_row.css("th, td"):
+                    header_text = th.text(strip=True) if th.text() else ""
+                    headers.append(header_text)
+                if headers:
+                    logger.debug(f"HTML table headers found: {headers}")
 
             for row in rows:
                 # Look for checkbox input with barcode
@@ -256,15 +266,27 @@ class GRINClient:
                         cell_texts = []
 
                         for cell in cells:
-                            # Get clean text content
-                            text = cell.text(strip=True) if cell.text() else ""
-                            # Clean up extra whitespace
-                            text = " ".join(text.split())
+                            # Check if cell contains a link and extract the URL
+                            link = cell.css_first("a[href]")
+                            if link and link.attributes.get("href"):
+                                # Use the href attribute as the cell content
+                                text = link.attributes["href"]
+                            else:
+                                # Get clean text content
+                                text = cell.text(strip=True) if cell.text() else ""
+                                # Clean up extra whitespace
+                                text = " ".join(text.split())
                             cell_texts.append(text)
+
+                        # Log the complete cell structure for first few books for debugging
+                        if len(books) < 3:
+                            logger.debug(f"Book {barcode} has {len(cell_texts)} cells: {cell_texts}")
 
                         # Create tab-separated line: barcode + cells (skip first checkbox cell)
                         if len(cell_texts) > 1:
-                            book_line = barcode + "\t" + "\t".join(cell_texts[1:])
+                            # Ensure all cell values are strings (convert None to empty string)
+                            cell_strings = [cell or "" for cell in cell_texts[1:]]
+                            book_line = barcode + "\t" + "\t".join(cell_strings)
                             books.append(book_line)
 
             return books

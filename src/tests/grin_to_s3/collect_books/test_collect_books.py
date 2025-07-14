@@ -406,9 +406,8 @@ class TestBookCollector:
     async def test_process_book(self):
         """Test individual book processing."""
         grin_line = "PROC001\t2024/01/01 10:00\t2024/01/02 11:00\t\t\t\t\t\thttps://books.google.com/books?id=test"
-        processing_states = {"converted": {"PROC001"}, "failed": set(), "all_books": {"PROC001"}}
 
-        record = await self.exporter.process_book(grin_line, processing_states)
+        record = await self.exporter.process_book(grin_line)
 
         assert record is not None
         assert record.barcode == "PROC001"
@@ -424,9 +423,8 @@ class TestBookCollector:
     async def test_process_book_invalid_line(self):
         """Test processing invalid GRIN line."""
         grin_line = ""  # Empty line
-        processing_states = {"converted": set(), "failed": set(), "all_books": set()}
 
-        record = await self.exporter.process_book(grin_line, processing_states)
+        record = await self.exporter.process_book(grin_line)
 
         assert record is None
 
@@ -434,12 +432,11 @@ class TestBookCollector:
     async def test_process_book_already_processed(self):
         """Test skipping already processed book."""
         grin_line = "SKIP001\t2024/01/01 10:00\t\t\t\t\t\t\t"
-        processing_states = {"converted": set(), "failed": set(), "all_books": set()}
 
         # Mark as already processed in SQLite
         await self.exporter.sqlite_tracker.mark_processed("SKIP001")
 
-        record = await self.exporter.process_book(grin_line, processing_states)
+        record = await self.exporter.process_book(grin_line)
 
         assert record is None
 
