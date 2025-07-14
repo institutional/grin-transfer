@@ -245,8 +245,12 @@ class SyncPipeline:
 
         return last_progress_report, initial_reports_count
 
-    async def cleanup(self) -> None:
-        """Clean up resources and close connections safely."""
+    async def cleanup(self, sync_successful: bool = False) -> None:
+        """Clean up resources and close connections safely.
+
+        Args:
+            sync_successful: Whether the sync completed successfully
+        """
         if self._shutdown_requested:
             return
 
@@ -256,17 +260,16 @@ class SyncPipeline:
         # Stop enrichment workers first
         await self.stop_enrichment_workers()
 
-        # Final staging cleanup (unless skipped)
-        if not self.skip_staging_cleanup and self.staging_manager is not None:
+        # Final staging cleanup (only if sync was successful and not skipped)
+        if sync_successful and not self.skip_staging_cleanup and self.staging_manager is not None:
             try:
                 logger.info("Performing final staging directory cleanup...")
-                orphaned_count = self.staging_manager.cleanup_orphaned_files()
-                if orphaned_count > 0:
-                    logger.info(f"Cleaned up {orphaned_count} orphaned files from staging directory")
-                else:
-                    logger.debug("No orphaned files found in staging directory")
+                shutil.rmtree(self.staging_manager.staging_path, ignore_errors=True)
+                logger.info("Staging directory cleaned up")
             except Exception as e:
                 logger.warning(f"Error during final staging cleanup: {e}")
+        elif not sync_successful and self.staging_manager is not None:
+            logger.info("Staging directory preserved due to sync failure")
 
         try:
             if hasattr(self.db_tracker, "_db") and self.db_tracker._db:
@@ -1026,6 +1029,7 @@ class SyncPipeline:
         # Reset bucket cache at start of sync
         reset_bucket_cache()
 
+        sync_successful = False
         try:
             # Get list of converted books from GRIN
             print("Fetching list of converted books from GRIN...")
@@ -1088,6 +1092,7 @@ class SyncPipeline:
                         f"{Path(self.db_path).parent.name}' to check processing progress"
                     )
 
+                sync_successful = True  # No books to process is considered successful
                 return
 
             # Set up progress tracking
@@ -1098,6 +1103,7 @@ class SyncPipeline:
             # For local storage, use direct processing without staging
             if self.storage_protocol == "local":
                 await self._run_local_storage_sync(available_to_sync, books_to_process, specific_barcodes)
+                sync_successful = True
                 return
 
             # For cloud storage, use the existing staging-based pipeline
@@ -1112,10 +1118,13 @@ class SyncPipeline:
             # Run block storage pipeline for cloud storage
             await self._run_block_storage_sync(available_to_sync, books_to_process, specific_barcodes)
 
+            # If we get here, sync completed successfully
+            sync_successful = True
+
         except KeyboardInterrupt:
             print("\nOperation cancelled by user")
         except Exception as e:
             print(f"Pipeline failed: {e}")
             logger.error(f"Pipeline failed: {e}", exc_info=True)
         finally:
-            await self.cleanup()
+            await self.cleanup(sync_successful)
