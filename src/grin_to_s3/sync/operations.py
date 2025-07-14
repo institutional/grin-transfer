@@ -440,6 +440,7 @@ async def upload_book_from_staging(
     secrets_dir: str | None = None,
     skip_extract_ocr: bool = False,
     skip_extract_marc: bool = False,
+    skip_staging_cleanup: bool = False,
 ) -> dict[str, Any]:
     """Upload book from staging directory to storage.
 
@@ -497,6 +498,10 @@ async def upload_book_from_staging(
             await decrypt_gpg_file(str(encrypted_file), str(decrypted_file), gpg_key_file, secrets_dir)
         except Exception as e:
             logger.error(f"[{barcode}] Decryption failed: {e}")
+            # Clean up staging files on decryption failure
+            if not skip_staging_cleanup:
+                freed_bytes = staging_manager.cleanup_files(barcode)
+                logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB from staging after failure")
             raise Exception(f"GPG decryption failed for {barcode}: {e}") from e
 
         # Start extractions (OCR and MARC) if enabled (non-blocking)
@@ -558,7 +563,14 @@ async def upload_book_from_staging(
                 # Log extraction failure but don't fail the sync
                 logger.warning(f"[{barcode}] Extraction tasks failed: {e}")
 
-        logger.info(f"[{barcode}] ✅ Upload completed: decrypted=True")
+        # Clean up staging files after successful uploads
+        if not skip_staging_cleanup:
+            freed_bytes = staging_manager.cleanup_files(barcode)
+            logger.info(f"[{barcode}] ✅ Upload completed: decrypted=True")
+            if freed_bytes > 0:
+                logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB disk space from staging directory")
+        else:
+            logger.info(f"[{barcode}] ✅ Upload completed: decrypted=True (staging cleanup skipped)")
 
         return {
             "barcode": barcode,

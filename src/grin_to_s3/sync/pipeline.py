@@ -964,6 +964,7 @@ class SyncPipeline:
                     self.secrets_dir,
                     self.skip_extract_ocr,
                     self.skip_extract_marc,
+                    self.skip_staging_cleanup,
                 )
 
                 return {
