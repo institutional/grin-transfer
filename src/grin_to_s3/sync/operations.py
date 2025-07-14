@@ -182,6 +182,7 @@ async def extract_and_upload_ocr_text(
     book_storage: BookManager,
     db_tracker,
     staging_manager: StagingDirectoryManager | None,
+    skip_staging_cleanup: bool = False,
 ) -> None:
     """
     Extract OCR text from decrypted archive and upload to full-text bucket (non-blocking).
@@ -274,7 +275,7 @@ async def extract_and_upload_ocr_text(
 
         finally:
             # Clean up temporary JSONL file
-            if jsonl_file.exists():
+            if not skip_staging_cleanup and jsonl_file.exists():
                 try:
                     jsonl_file.unlink()
                 except OSError as e:
@@ -434,6 +435,7 @@ async def upload_book_from_staging(
     secrets_dir: str | None = None,
     skip_extract_ocr: bool = False,
     skip_extract_marc: bool = False,
+    skip_staging_cleanup: bool = False,
 ) -> dict[str, Any]:
     """Upload book from staging directory to storage.
 
@@ -492,8 +494,9 @@ async def upload_book_from_staging(
         except Exception as e:
             logger.error(f"[{barcode}] Decryption failed: {e}")
             # Clean up staging files on decryption failure
-            freed_bytes = staging_manager.cleanup_files(barcode)
-            logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB from staging after failure")
+            if not skip_staging_cleanup:
+                freed_bytes = staging_manager.cleanup_files(barcode)
+                logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB from staging after failure")
             raise Exception(f"GPG decryption failed for {barcode}: {e}") from e
 
         # Start extractions (OCR and MARC) if enabled (non-blocking)
@@ -501,7 +504,7 @@ async def upload_book_from_staging(
         if not skip_extract_ocr:
             # Run OCR extraction concurrently with upload for better performance
             ocr_task = asyncio.create_task(
-                extract_and_upload_ocr_text(barcode, decrypted_file, book_storage, db_tracker, staging_manager)
+                extract_and_upload_ocr_text(barcode, decrypted_file, book_storage, db_tracker, staging_manager, skip_staging_cleanup)
             )
             extraction_tasks.append(ocr_task)
 
@@ -556,10 +559,13 @@ async def upload_book_from_staging(
                 logger.warning(f"[{barcode}] Extraction tasks failed: {e}")
 
         # Clean up staging files after successful uploads
-        freed_bytes = staging_manager.cleanup_files(barcode)
-        logger.info(f"[{barcode}] ✅ Upload completed: decrypted=True")
-        if freed_bytes > 0:
-            logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB disk space from staging directory")
+        if not skip_staging_cleanup:
+            freed_bytes = staging_manager.cleanup_files(barcode)
+            logger.info(f"[{barcode}] ✅ Upload completed: decrypted=True")
+            if freed_bytes > 0:
+                logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB disk space from staging directory")
+        else:
+            logger.info(f"[{barcode}] ✅ Upload completed: decrypted=True (staging cleanup skipped)")
 
         return {
             "barcode": barcode,

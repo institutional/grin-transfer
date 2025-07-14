@@ -162,6 +162,7 @@ async def cmd_pipeline(args) -> None:
                 skip_extract_marc=args.skip_extract_marc,
                 skip_enrichment=args.skip_enrichment,
                 skip_csv_export=args.skip_csv_export,
+                skip_staging_cleanup=args.skip_staging_cleanup,
             )
 
             # Set up signal handlers for graceful shutdown
@@ -215,6 +216,7 @@ async def cmd_pipeline(args) -> None:
                     skip_extract_marc=args.skip_extract_marc,
                     skip_enrichment=args.skip_enrichment,
                     skip_csv_export=args.skip_csv_export,
+                    skip_staging_cleanup=args.skip_staging_cleanup,
                 )
                 print("  - Concurrent downloads: 1")
                 print("  - Concurrent uploads: 1")
@@ -360,6 +362,11 @@ Examples:
     # GRIN options
     pipeline_parser.add_argument(
         "--secrets-dir", help="Directory containing GRIN secrets (auto-detected from run config if not specified)"
+    )
+
+    # Staging cleanup
+    pipeline_parser.add_argument(
+        "--skip-staging-cleanup", action="store_true", help="Skip deletion of files in staging directory after sync"
     )
 
     # Logging

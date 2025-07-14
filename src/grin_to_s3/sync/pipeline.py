@@ -59,6 +59,7 @@ class SyncPipeline:
         skip_extract_marc: bool = False,
         skip_enrichment: bool = False,
         skip_csv_export: bool = False,
+        skip_staging_cleanup: bool = False,
     ) -> "SyncPipeline":
         """Create SyncPipeline from RunConfig.
 
@@ -70,6 +71,7 @@ class SyncPipeline:
             skip_extract_marc: Skip MARC metadata extraction
             skip_enrichment: Skip enrichment processing
             skip_csv_export: Skip CSV export after sync
+            skip_staging_cleanup: Skip deletion of files in staging directory
 
         Returns:
             Configured SyncPipeline instance
@@ -82,6 +84,7 @@ class SyncPipeline:
             skip_extract_marc=skip_extract_marc,
             skip_enrichment=skip_enrichment,
             skip_csv_export=skip_csv_export,
+            skip_staging_cleanup=skip_staging_cleanup,
         )
 
     def __init__(
@@ -93,6 +96,7 @@ class SyncPipeline:
         skip_extract_marc: bool = False,
         skip_enrichment: bool = False,
         skip_csv_export: bool = False,
+        skip_staging_cleanup: bool = False,
     ):
         # Store configuration and runtime parameters
         self.config = config
@@ -101,6 +105,7 @@ class SyncPipeline:
         self.skip_extract_marc = skip_extract_marc
         self.enrichment_enabled = not skip_enrichment
         self.skip_csv_export = skip_csv_export
+        self.skip_staging_cleanup = skip_staging_cleanup
         self.process_summary_stage = process_summary_stage
 
         # Extract commonly used config values
@@ -947,6 +952,7 @@ class SyncPipeline:
                     self.secrets_dir,
                     self.skip_extract_ocr,
                     self.skip_extract_marc,
+                    self.skip_staging_cleanup,
                 )
 
                 return {
