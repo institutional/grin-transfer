@@ -256,6 +256,18 @@ class SyncPipeline:
         # Stop enrichment workers first
         await self.stop_enrichment_workers()
 
+        # Final staging cleanup (unless skipped)
+        if not self.skip_staging_cleanup and self.staging_manager is not None:
+            try:
+                logger.info("Performing final staging directory cleanup...")
+                orphaned_count = self.staging_manager.cleanup_orphaned_files()
+                if orphaned_count > 0:
+                    logger.info(f"Cleaned up {orphaned_count} orphaned files from staging directory")
+                else:
+                    logger.debug("No orphaned files found in staging directory")
+            except Exception as e:
+                logger.warning(f"Error during final staging cleanup: {e}")
+
         try:
             if hasattr(self.db_tracker, "_db") and self.db_tracker._db:
                 await self.db_tracker._db.close()
