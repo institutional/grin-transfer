@@ -182,7 +182,6 @@ async def extract_and_upload_ocr_text(
     book_storage: BookManager,
     db_tracker,
     staging_manager: StagingDirectoryManager | None,
-    logger: logging.Logger,
 ) -> None:
     """
     Extract OCR text from decrypted archive and upload to full-text bucket (non-blocking).
@@ -196,7 +195,6 @@ async def extract_and_upload_ocr_text(
         book_storage: BookStorage instance for uploading
         db_tracker: Database tracker for status updates
         staging_manager: Staging manager for temp file handling
-        logger: Logger instance for structured logging
     """
     session_id = f"sync_{int(time.time())}"
 
@@ -306,7 +304,6 @@ async def extract_and_update_marc_metadata(
     barcode: str,
     decrypted_file: Path,
     db_tracker,
-    logger: logging.Logger,
 ) -> None:
     """
     Extract MARC metadata from decrypted archive and update database (non-blocking).
@@ -318,7 +315,6 @@ async def extract_and_update_marc_metadata(
         barcode: Book barcode
         decrypted_file: Path to decrypted tar.gz archive
         db_tracker: Database tracker for status updates
-        logger: Logger instance for structured logging
     """
     session_id = f"marc_sync_{int(time.time())}"
 
@@ -505,14 +501,14 @@ async def upload_book_from_staging(
         if not skip_extract_ocr:
             # Run OCR extraction concurrently with upload for better performance
             ocr_task = asyncio.create_task(
-                extract_and_upload_ocr_text(barcode, decrypted_file, book_storage, db_tracker, staging_manager, logger)
+                extract_and_upload_ocr_text(barcode, decrypted_file, book_storage, db_tracker, staging_manager)
             )
             extraction_tasks.append(ocr_task)
 
         if not skip_extract_marc:
             # Run MARC extraction concurrently with upload for better performance
             marc_task = asyncio.create_task(
-                extract_and_update_marc_metadata(barcode, decrypted_file, db_tracker, logger)
+                extract_and_update_marc_metadata(barcode, decrypted_file, db_tracker)
             )
             extraction_tasks.append(marc_task)
 

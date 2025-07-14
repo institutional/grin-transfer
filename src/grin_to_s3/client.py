@@ -5,19 +5,16 @@ Async GRIN API client using aiohttp
 import asyncio
 import logging
 import time
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
-import aiofiles
-import aiohttp
-
-from grin_to_s3.auth import GRINAuth, GRINPermissionError
+from grin_to_s3.auth import GRINAuth
 from grin_to_s3.common import create_http_session
 
 logger = logging.getLogger(__name__)
 
+ALL_BOOKS_ENDPOINT = "_all_books"
 
 class GRINClient:
     """Async client for GRIN API operations."""
@@ -55,129 +52,12 @@ class GRINClient:
             response = await self.auth.make_authenticated_request(session, url, method=method)
             return await response.text()
 
-    async def get_book_list(
-        self, directory: str, list_type: str = "_all_books", result_count: int | None = None, mode_all: bool = False
-    ) -> list[str]:
-        """
-        Get list of book barcodes from GRIN.
 
-        Args:
-            directory: GRIN directory name
-            list_type: Type of list (_all_books, _converted, _failed)
-            result_count: Limit number of results
-            mode_all: Include all books regardless of status
-
-        Returns:
-            list[str]: Book barcodes
-        """
-        # Build query parameters
-        params = ["format=text"]
-        if mode_all:
-            params.append("mode=all")
-        if result_count and result_count > 0:
-            params.append(f"result_count={result_count}")
-
-        resource = f"{list_type}?{'&'.join(params)}"
-
-        # Get the response text
-        text = await self.fetch_resource(directory, resource)
-
-        # Parse barcodes from response
-        return [line.strip() for line in text.strip().split("\n") if line.strip()]
-
-    async def stream_book_list_html(
-        self,
-        directory: str,
-        list_type: str = "_all_books",
-        page_size: int = 1000,
-        max_pages: int = 100,
-        start_page: int = 1,
-        start_url: str | None = None,
-        pagination_callback: Callable | None = None,
-    ) -> AsyncIterator[str]:
-        """
-        Stream book barcodes using HTML view with Next button extraction.
-
-        Uses large page sizes and follows actual Next button URLs.
-
-        Args:
-            directory: GRIN directory name
-            list_type: Type of list (_all_books, _converted, _failed)
-            page_size: Number of books per page request (use large values like 1000)
-            max_pages: Maximum number of pages to fetch
-            start_page: Page number to start from (for resume functionality)
-            start_url: URL to start from (for resume functionality)
-            pagination_callback: Callback function to save pagination state
-
-        Yields:
-            str: Individual book barcode lines (tab-separated with full metadata)
-        """
-        page_count = start_page - 1  # Adjust for starting page
-        current_url: str | None = start_url or f"{self.base_url}/{directory}/{list_type}?result_count={page_size}"
-
-        while page_count < max_pages and current_url:
-            page_count += 1
-            print(f"Fetching page {page_count} (page_size={page_size})")
-            print(f"URL: {current_url}")
-
-            async with create_http_session(300) as session:
-                try:
-                    response = await self.auth.make_authenticated_request(session, current_url)
-                    html = await response.text()
-
-                    if "Your request is unavailable" in html:
-                        print(f"Page {page_count}: Request unavailable, stopping")
-                        break
-
-                    # Parse books using robust HTML parsing
-                    books = self._parse_books_from_html_robust(html)
-                    book_count = len(books)
-
-                    print(f"Page {page_count}: Found {book_count} books")
-
-                    if book_count == 0:
-                        print("No books found on page - stopping")
-                        break
-
-                    # Yield all books from this page
-                    for book_line in books:
-                        yield book_line
-
-                    # Extract Next button URL from HTML before clearing
-                    next_url = self._extract_next_button_url(html, directory)
-
-                    # Clear HTML content and parser state to prevent memory accumulation
-                    del html, books
-
-                    # Force garbage collection every 50 pages (approximately every 250K records)
-                    if page_count % 50 == 0:
-                        import gc
-
-                        gc.collect()
-                    if next_url:
-                        current_url = next_url
-                        print(f"Found Next button URL for page {page_count + 1}")
-
-                        # Save pagination state if callback provided
-                        if pagination_callback:
-                            pagination_state = {
-                                "current_page": page_count + 1,
-                                "next_url": next_url,
-                                "page_size": page_size,
-                            }
-                            await pagination_callback(pagination_state)
-                    else:
-                        print("No Next button found - end of collection")
-                        break
-
-                except Exception as e:
-                    print(f"Error on page {page_count}: {e}")
-                    break
 
     async def stream_book_list_html_prefetch(
         self,
         directory: str,
-        list_type: str = "_all_books",
+        list_type: str = ALL_BOOKS_ENDPOINT,
         page_size: int = 5000,
         max_pages: int = 1000,
         start_page: int = 1,
@@ -201,24 +81,16 @@ class GRINClient:
 
             # Wait for current page (or prefetch result)
             if prefetch_task:
-                try:
-                    wait_start = time.time()
-                    wait_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    logger.debug(f"Page {page_count}: Waiting for prefetched data at {wait_time}...")
-                    html, response_url = await prefetch_task
-                    wait_elapsed = time.time() - wait_start
-                    use_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    logger.debug(
-                        f"Page {page_count}: Using prefetched data after {wait_elapsed:.2f}s wait at {use_time}"
-                    )
-                except Exception as e:
-                    wait_elapsed = time.time() - wait_start
-                    logger.warning(f"Page {page_count}: Prefetch failed after {wait_elapsed:.2f}s: {e}")
-                    # Fall back to normal fetch
-                    logger.debug(f"Page {page_count}: Falling back to normal fetch...")
-                    async with create_http_session(300) as session:
-                        response = await self.auth.make_authenticated_request(session, current_url)
-                        html = await response.text()
+                wait_start = time.time()
+                wait_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                logger.debug(f"Page {page_count}: Waiting for prefetched data at {wait_time}...")
+                html, response_url = await prefetch_task
+                wait_elapsed = time.time() - wait_start
+                use_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                logger.debug(
+                    f"Page {page_count}: Using prefetched data after {wait_elapsed:.2f}s wait at {use_time}"
+                )
+
             else:
                 # First page - fetch normally
                 logger.debug(f"Page {page_count}: Normal fetch (no prefetch available)")
@@ -233,7 +105,7 @@ class GRINClient:
             # Parse books and extract next URL with timing
             parse_start = time.time()
             logger.debug(f"Page {page_count}: Starting HTML parsing at {datetime.now().strftime('%H:%M:%S.%f')[:-3]}")
-            books = self._parse_books_from_html_robust(html)
+            books = self._parse_books_from_html(html)
             parse_elapsed = time.time() - parse_start
             book_count = len(books)
             logger.debug(f"Page {page_count}: HTML parsing completed in {parse_elapsed:.2f}s, found {book_count} books")
@@ -264,7 +136,7 @@ class GRINClient:
                     f"{len(known_barcodes_on_page)}/{len(page_barcodes)} barcodes already known"
                 )
 
-            # Start prefetching next page EARLY in background
+            # Start prefetching next page in background
             if next_url and page_count < max_pages:
                 prefetch_task = asyncio.create_task(self._prefetch_page(next_url))
                 logger.debug(f"Started prefetch for page {page_count + 1}")
@@ -359,7 +231,7 @@ class GRINClient:
         )
         return html, url
 
-    def _parse_books_from_html_robust(self, html_content: str) -> list[str]:
+    def _parse_books_from_html(self, html_content: str) -> list[str]:
         """
         Parse book data from GRIN HTML using fast selectolax parser.
         """
@@ -435,51 +307,4 @@ class GRINClient:
             logger.warning(f"selectolax next button parsing failed: {e}")
             return None
 
-    async def download_file(
-        self, directory: str, filename: str, output_path: Path, chunk_size: int = 1024 * 1024
-    ) -> None:
-        """
-        Download a file from GRIN to local filesystem.
 
-        Args:
-            directory: GRIN directory name
-            filename: Name of file to download
-            output_path: Local path to save file
-            chunk_size: Size of chunks to download
-        """
-        url = f"{self.base_url}/{directory}/{filename}"
-
-        # Ensure output directory exists
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        async with create_http_session(self.timeout) as session:
-            response = await self.auth.make_authenticated_request(session, url)
-
-            async with aiofiles.open(output_path, "wb") as f:
-                async for chunk in response.content.iter_chunked(chunk_size):
-                    await f.write(chunk)
-
-    async def check_file_exists(self, directory: str, filename: str) -> bool:
-        """
-        Check if a file exists in GRIN directory.
-
-        Args:
-            directory: GRIN directory name
-            filename: Name of file to check
-
-        Returns:
-            bool: True if file exists
-        """
-        url = f"{self.base_url}/{directory}/{filename}"
-
-        try:
-            async with create_http_session(self.timeout) as session:
-                response = await self.auth.make_authenticated_request(session, url, method="HEAD")
-                return response.status == 200
-        except aiohttp.ClientResponseError as e:
-            if e.status == 404:
-                return False
-            raise
-        except GRINPermissionError:
-            # Permission denied might mean file exists but we can't access it
-            return False

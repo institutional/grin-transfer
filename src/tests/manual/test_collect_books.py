@@ -15,7 +15,7 @@ from pathlib import Path
 
 import aiofiles
 
-from grin_to_s3.collect_books.exporter import BookCollector, RateLimiter
+from grin_to_s3.collect_books.collector import BookCollector, RateLimiter
 from grin_to_s3.collect_books.models import BookRecord
 
 

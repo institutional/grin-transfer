@@ -55,7 +55,6 @@ class ExportConfig:
     # Performance settings
     burst_limit: int = 10  # Rate limiter burst capacity
     processing_chunk_size: int = 1000  # Records to process before progress save
-    enable_prefetch: bool = True  # Enable HTTP prefetching for next page
 
     # Memory management (now minimal with SQLite)
     recent_cache_size: int = 1000  # Small cache for recent items (performance optimization)

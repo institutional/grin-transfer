@@ -13,8 +13,8 @@ Public API:
 
 from grin_to_s3.common import RateLimiter
 
+from .collector import BookCollector
 from .config import ConfigManager, ExportConfig, PaginationConfig
-from .exporter import BookCollector
 from .models import BookRecord, BoundedSet
 
 # Public API exports

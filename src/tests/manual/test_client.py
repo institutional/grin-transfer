@@ -35,27 +35,6 @@ async def test_fetch_resource():
         return False
 
 
-async def test_book_list():
-    """Test book list functionality."""
-    print("Testing Book List")
-
-    client = GRINClient()
-
-    try:
-        # Test book list with limit
-        books = await client.get_book_list(directory="Harvard", result_count=5, mode_all=True)
-
-        print(f"✓ Retrieved {len(books)} books")
-
-        if books:
-            print(f"   Sample: {books[0]}")
-
-        return True
-
-    except Exception as e:
-        print(f"✗ Book list failed: {e}")
-        return False
-
 
 async def test_streaming():
     """Test streaming functionality."""
@@ -68,7 +47,7 @@ async def test_streaming():
         sample_books = []
 
         # Stream first few books using HTML streaming method
-        async for barcode in client.stream_book_list_html(
+        async for barcode in client.stream_book_list_html_prefetch(
             directory="Harvard", list_type="_all_books", page_size=10, max_pages=2
         ):
             count += 1
@@ -114,7 +93,6 @@ async def main():
     tests = [
         test_bearer_token(),
         test_fetch_resource(),
-        test_book_list(),
         test_streaming(),
     ]
 

@@ -250,12 +250,6 @@ class TestOCRExtractionIntegration:
     """Test OCR extraction integration in sync pipeline."""
 
     @pytest.fixture
-    def mock_logger(self):
-        """Create a mock logger."""
-        return MagicMock()
-
-
-    @pytest.fixture
     def test_decrypted_file(self):
         """Create a temporary test archive file."""
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as f:
@@ -265,7 +259,7 @@ class TestOCRExtractionIntegration:
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_success(
-        self, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger, test_decrypted_file
+        self, mock_book_manager, mock_progress_tracker, mock_staging_manager, test_decrypted_file, caplog
     ):
         """Test successful OCR extraction and upload."""
         with (
@@ -283,7 +277,7 @@ class TestOCRExtractionIntegration:
             jsonl_file.write_text('{"page": 1, "text": "Test content"}\n')
 
             await extract_and_upload_ocr_text(
-                "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger
+                "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager
             )
 
             # Verify extraction was called
@@ -296,12 +290,12 @@ class TestOCRExtractionIntegration:
             mock_book_manager.save_ocr_text_jsonl_from_file.assert_called_once()
 
             # Verify success logging
-            mock_logger.info.assert_any_call("[TEST123] Starting OCR text extraction from decrypted archive")
-            mock_logger.info.assert_any_call("[TEST123] Extracted 342 pages from archive")
+            assert "[TEST123] Starting OCR text extraction from decrypted archive" in caplog.text
+            assert "[TEST123] Extracted 342 pages from archive" in caplog.text
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_extraction_failure(
-        self, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger, test_decrypted_file
+        self, mock_book_manager, mock_progress_tracker, mock_staging_manager, test_decrypted_file, caplog
     ):
         """Test OCR extraction failure handling (non-blocking)."""
         with (
@@ -313,7 +307,7 @@ class TestOCRExtractionIntegration:
 
             # This should not raise an exception (non-blocking)
             await extract_and_upload_ocr_text(
-                "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger
+                "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager
             )
 
             # Verify failure was tracked in database
@@ -327,12 +321,11 @@ class TestOCRExtractionIntegration:
             assert len(failed_calls) > 0, f"Expected FAILED status call, but got: {calls}"
 
             # Verify error was logged but didn't raise
-            mock_logger.error.assert_called_once()
-            assert "OCR extraction failed but sync continues" in str(mock_logger.error.call_args)
+            assert "OCR extraction failed but sync continues" in caplog.text
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_upload_failure(
-        self, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger, test_decrypted_file
+        self, mock_book_manager, mock_progress_tracker, mock_staging_manager, test_decrypted_file, caplog
     ):
         """Test OCR upload failure handling (non-blocking)."""
         with (
@@ -350,16 +343,15 @@ class TestOCRExtractionIntegration:
 
             # This should not raise an exception (non-blocking)
             await extract_and_upload_ocr_text(
-                "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager, mock_logger
+                "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager
             )
 
             # Verify failure was logged
-            mock_logger.error.assert_called_once()
-            assert "OCR extraction failed but sync continues" in str(mock_logger.error.call_args)
+            assert "OCR extraction failed but sync continues" in caplog.text
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_no_db_tracker(
-        self, mock_book_manager, mock_staging_manager, mock_logger, test_decrypted_file
+        self, mock_book_manager, mock_staging_manager, test_decrypted_file
     ):
         """Test OCR extraction without database tracker."""
         with patch("grin_to_s3.sync.operations.extract_ocr_pages") as mock_extract:
@@ -372,7 +364,7 @@ class TestOCRExtractionIntegration:
 
             # Should work without database tracker
             await extract_and_upload_ocr_text(
-                "TEST123", test_decrypted_file, mock_book_manager, None, mock_staging_manager, mock_logger
+                "TEST123", test_decrypted_file, mock_book_manager, None, mock_staging_manager
             )
 
             # Verify extraction and upload still happened

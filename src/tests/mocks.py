@@ -5,8 +5,8 @@ Shared mock classes for testing CSV export functionality without network calls
 
 from pathlib import Path
 
+from grin_to_s3.collect_books.collector import BookCollector
 from grin_to_s3.collect_books.config import ExportConfig
-from grin_to_s3.collect_books.exporter import BookCollector
 from grin_to_s3.process_summary import ProcessStageMetrics
 
 
