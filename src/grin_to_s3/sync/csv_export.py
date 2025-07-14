@@ -9,7 +9,6 @@ to CSV format and uploading to storage.
 
 import csv
 import logging
-import tempfile
 import time
 from pathlib import Path
 
@@ -75,26 +74,25 @@ async def export_and_upload_csv(
     try:
         logger.debug(f"Using staging directory: {staging_manager.staging_path}")
 
-        # Create temporary CSV file in staging directory
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", dir=staging_manager.staging_path, delete=False, encoding="utf-8"
-        ) as temp_file:
-            temp_csv_path = temp_file.name
-            logger.debug(f"Created temporary CSV file: {temp_csv_path}")
+        # Create CSV file in staging directory with proper name
+        csv_filename = custom_filename or "books_export.csv"
+        csv_path = staging_manager.staging_path / csv_filename
+        temp_csv_path = str(csv_path)
+        logger.debug(f"Creating CSV file: {temp_csv_path}")
 
-            # Export to temporary file
-            sqlite_tracker = SQLiteProgressTracker(db_path)
-            books = await sqlite_tracker.get_all_books_csv_data()
-            logger.info(f"Exporting {len(books)} books to CSV")
+        # Export to CSV file
+        sqlite_tracker = SQLiteProgressTracker(db_path)
+        books = await sqlite_tracker.get_all_books_csv_data()
+        logger.info(f"Exporting {len(books)} books to CSV")
 
-            # Write CSV data to temporary file
-            writer = csv.writer(temp_file)
+        # Write CSV data to file
+        with open(csv_path, "w", encoding="utf-8", newline="") as csv_file:
+            writer = csv.writer(csv_file)
             writer.writerow(BookRecord.csv_headers())
             for book in books:
                 writer.writerow(book.to_csv_row())
 
-            temp_file.flush()
-            logger.debug(f"CSV data written to temporary file: {temp_csv_path}")
+        logger.debug(f"CSV data written to file: {temp_csv_path}")
 
         # Get file size and row count
         csv_file_size = Path(temp_csv_path).stat().st_size
