@@ -119,14 +119,5 @@ async def export_and_upload_csv(
         result["status"] = "failed"
         result["export_time"] = time.time() - start_time
 
-    finally:
-        # Clean up temporary file in all cases
-        if temp_csv_path and Path(temp_csv_path).exists():
-            try:
-                Path(temp_csv_path).unlink()
-                logger.debug(f"Cleaned up temporary file: {temp_csv_path}")
-            except Exception as cleanup_error:
-                logger.warning(f"Failed to cleanup temporary CSV file {temp_csv_path}: {cleanup_error}")
-                # Don't fail the overall operation due to cleanup failure
 
     return result
