@@ -59,6 +59,7 @@ class SyncPipeline:
         skip_extract_marc: bool = False,
         skip_enrichment: bool = False,
         skip_csv_export: bool = False,
+        skip_staging_cleanup: bool = False,
     ) -> "SyncPipeline":
         """Create SyncPipeline from RunConfig.
 
@@ -70,6 +71,7 @@ class SyncPipeline:
             skip_extract_marc: Skip MARC metadata extraction
             skip_enrichment: Skip enrichment processing
             skip_csv_export: Skip CSV export after sync
+            skip_staging_cleanup: Skip deletion of files in staging directory
 
         Returns:
             Configured SyncPipeline instance
@@ -82,6 +84,7 @@ class SyncPipeline:
             skip_extract_marc=skip_extract_marc,
             skip_enrichment=skip_enrichment,
             skip_csv_export=skip_csv_export,
+            skip_staging_cleanup=skip_staging_cleanup,
         )
 
     def __init__(
@@ -93,6 +96,7 @@ class SyncPipeline:
         skip_extract_marc: bool = False,
         skip_enrichment: bool = False,
         skip_csv_export: bool = False,
+        skip_staging_cleanup: bool = False,
     ):
         # Store configuration and runtime parameters
         self.config = config
@@ -101,6 +105,7 @@ class SyncPipeline:
         self.skip_extract_marc = skip_extract_marc
         self.enrichment_enabled = not skip_enrichment
         self.skip_csv_export = skip_csv_export
+        self.skip_staging_cleanup = skip_staging_cleanup
         self.process_summary_stage = process_summary_stage
 
         # Extract commonly used config values
@@ -240,8 +245,12 @@ class SyncPipeline:
 
         return last_progress_report, initial_reports_count
 
-    async def cleanup(self) -> None:
-        """Clean up resources and close connections safely."""
+    async def cleanup(self, sync_successful: bool = False) -> None:
+        """Clean up resources and close connections safely.
+
+        Args:
+            sync_successful: Whether the sync completed successfully
+        """
         if self._shutdown_requested:
             return
 
@@ -250,6 +259,17 @@ class SyncPipeline:
 
         # Stop enrichment workers first
         await self.stop_enrichment_workers()
+
+        # Final staging cleanup (only if sync was successful and not skipped)
+        if sync_successful and not self.skip_staging_cleanup and self.staging_manager is not None:
+            try:
+                logger.info("Performing final staging directory cleanup...")
+                shutil.rmtree(self.staging_manager.staging_path, ignore_errors=True)
+                logger.info("Staging directory cleaned up")
+            except Exception as e:
+                logger.warning(f"Error during final staging cleanup: {e}")
+        elif not sync_successful and self.staging_manager is not None:
+            logger.info("Staging directory preserved due to sync failure")
 
         try:
             if hasattr(self.db_tracker, "_db") and self.db_tracker._db:
@@ -947,6 +967,7 @@ class SyncPipeline:
                     self.secrets_dir,
                     self.skip_extract_ocr,
                     self.skip_extract_marc,
+                    self.skip_staging_cleanup,
                 )
 
                 return {
@@ -1008,6 +1029,7 @@ class SyncPipeline:
         # Reset bucket cache at start of sync
         reset_bucket_cache()
 
+        sync_successful = False
         try:
             # Get list of converted books from GRIN
             print("Fetching list of converted books from GRIN...")
@@ -1070,6 +1092,7 @@ class SyncPipeline:
                         f"{Path(self.db_path).parent.name}' to check processing progress"
                     )
 
+                sync_successful = True  # No books to process is considered successful
                 return
 
             # Set up progress tracking
@@ -1080,6 +1103,7 @@ class SyncPipeline:
             # For local storage, use direct processing without staging
             if self.storage_protocol == "local":
                 await self._run_local_storage_sync(available_to_sync, books_to_process, specific_barcodes)
+                sync_successful = True
                 return
 
             # For cloud storage, use the existing staging-based pipeline
@@ -1094,10 +1118,13 @@ class SyncPipeline:
             # Run block storage pipeline for cloud storage
             await self._run_block_storage_sync(available_to_sync, books_to_process, specific_barcodes)
 
+            # If we get here, sync completed successfully
+            sync_successful = True
+
         except KeyboardInterrupt:
             print("\nOperation cancelled by user")
         except Exception as e:
             print(f"Pipeline failed: {e}")
             logger.error(f"Pipeline failed: {e}", exc_info=True)
         finally:
-            await self.cleanup()
+            await self.cleanup(sync_successful)

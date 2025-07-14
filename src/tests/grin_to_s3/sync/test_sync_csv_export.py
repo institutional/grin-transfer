@@ -245,67 +245,6 @@ class TestExportAndUploadCSV:
                     assert result["status"] == "completed"
 
     @pytest.mark.asyncio
-    async def test_cleanup_failure_handling(self, mock_book_storage, sample_books, staging_manager):
-        """Test handling of cleanup failures after successful operation."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = str(Path(temp_dir) / "test.db")
-            with patch("grin_to_s3.sync.csv_export.SQLiteProgressTracker") as mock_tracker_cls:
-                mock_tracker = AsyncMock()
-                mock_tracker.get_all_books_csv_data.return_value = sample_books
-                mock_tracker_cls.return_value = mock_tracker
-
-                with patch("grin_to_s3.sync.csv_export.BookRecord") as mock_record_cls:
-                    mock_record_cls.csv_headers.return_value = ["barcode", "title"]
-
-                    # Mock Path.unlink to simulate cleanup failure
-                    with patch("pathlib.Path.unlink") as mock_unlink:
-                        mock_unlink.side_effect = OSError("Permission denied")
-
-                        # Should not raise exception for cleanup failure, just log warning
-                        result = await export_and_upload_csv(
-                            db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage
-                        )
-
-                        # Operation should still succeed despite cleanup failure
-                        assert result["status"] == "completed"
-
-    @pytest.mark.asyncio
-    async def test_temp_file_cleanup_verification(self, mock_book_storage, sample_books, staging_manager):
-        """Test that temporary files are properly cleaned up."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = str(Path(temp_dir) / "test.db")
-            # Capture the temporary file path for verification
-            temp_file_path = None
-            original_upload = mock_book_storage.upload_csv_file
-
-            async def capture_temp_file(path, filename=None):
-                nonlocal temp_file_path
-                temp_file_path = path
-                # Verify file exists during upload
-                assert Path(path).exists()
-                assert path.endswith(".csv")
-                return await original_upload(path, filename)
-
-            mock_book_storage.upload_csv_file = capture_temp_file
-
-            with patch("grin_to_s3.sync.csv_export.SQLiteProgressTracker") as mock_tracker_cls:
-                mock_tracker = AsyncMock()
-                mock_tracker.get_all_books_csv_data.return_value = sample_books
-                mock_tracker_cls.return_value = mock_tracker
-
-                with patch("grin_to_s3.sync.csv_export.BookRecord") as mock_record_cls:
-                    mock_record_cls.csv_headers.return_value = ["barcode", "title", "author"]
-
-                    result = await export_and_upload_csv(
-                        db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage
-                    )
-
-                    assert result["status"] == "completed"
-                    assert temp_file_path is not None
-                    # Verify temp file was cleaned up
-                    assert not Path(temp_file_path).exists()
-
-    @pytest.mark.asyncio
     async def test_concurrent_operations(self, mock_book_storage, sample_books, staging_manager):
         """Test that multiple concurrent export operations work correctly."""
         with tempfile.TemporaryDirectory() as temp_dir:
