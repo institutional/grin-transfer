@@ -68,7 +68,8 @@ Example:
 
 Note: This command exports ALL books in the database regardless of processing stage.
       Books will include whatever metadata is available (basic after collect,
-      enriched after enrich, sync status after sync).
+      enriched after enrich, sync status after sync, MARC metadata after
+      METS extraction).
         """,
     )
 
