@@ -570,6 +570,10 @@ Examples:
     enrich_parser.add_argument(
         "--secrets-dir", help="Directory containing GRIN secrets files (auto-detected from run config if not specified)"
     )
+    enrich_parser.add_argument(
+        "--library-directory", dest="grin_library_directory",
+        help="GRIN library directory name (auto-detected from run config if not specified)"
+    )
     enrich_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
 
     args = parser.parse_args()
