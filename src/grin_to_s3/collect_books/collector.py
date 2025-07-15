@@ -724,10 +724,10 @@ class BookCollector:
                 return date_str  # Return as-is if parsing fails
 
         # GRIN HTML output format (based on debug output with 11 cells):
-        # fields[0] = empty
-        # fields[1] = barcode
+        # fields[0] = barcode
+        # fields[1] = process link (not used)
         # fields[2] = title
-        # fields[3] = status (e.g., "PREVIOUSLY_DOWNLOADED")
+        # fields[3] = empty (not used)
         # fields[4] = scanned_date
         # fields[5] = analyzed_date
         # fields[6] = converted_date
@@ -745,6 +745,25 @@ class BookCollector:
             not self._looks_like_date(fields[1]) and
             len(fields[2]) > 0 and
             self._looks_like_date(fields[2])
+        )
+
+        # Check if this is _all_books format without checkbox (barcode in field 0, title in field 1, status in field 2)
+        is_all_books_no_checkbox_v1 = (
+            len(fields) >= 3 and
+            len(fields[1]) > 0 and
+            not self._looks_like_date(fields[1]) and
+            len(fields[2]) > 0 and
+            ("NOT_AVAILABLE" in fields[2] or "PREVIOUSLY_DOWNLOADED" in fields[2] or "AVAILABLE" in fields[2])
+        )
+
+        # Check if this is _all_books format with empty first cell (barcode in field 0, empty field 1, status in field 2)
+        is_all_books_no_checkbox_v2 = (
+            len(fields) >= 3 and
+            len(fields[0]) > 0 and
+            not self._looks_like_date(fields[0]) and
+            len(fields[1]) == 0 and  # Empty title field
+            len(fields[2]) > 0 and
+            ("NOT_AVAILABLE" in fields[2] or "PREVIOUSLY_DOWNLOADED" in fields[2] or "AVAILABLE" in fields[2])
         )
 
         if is_converted_format:
@@ -768,6 +787,51 @@ class BookCollector:
                 "converted_date": None,  # Not directly available in _converted format
                 "downloaded_date": None,
                 "ocr_date": None,
+                "google_books_link": fields[8] if len(fields) > 8 else "",
+            }
+
+        if is_all_books_no_checkbox_v1:
+            # _all_books HTML format without checkbox:
+            # fields[0] = barcode
+            # fields[1] = title
+            # fields[2] = status
+            # fields[3] = dates (if present)
+            # Limited date information available
+            return {
+                "barcode": fields[0],
+                "title": fields[1] if len(fields) > 1 else "",
+                "grin_state": fields[2] if len(fields) > 2 else None,
+                "scanned_date": parse_date(fields[3]) if len(fields) > 3 else None,
+                "analyzed_date": parse_date(fields[4]) if len(fields) > 4 else None,
+                "converted_date": parse_date(fields[5]) if len(fields) > 5 else None,
+                "downloaded_date": parse_date(fields[6]) if len(fields) > 6 else None,
+                "processed_date": parse_date(fields[7]) if len(fields) > 7 else None,
+                "ocr_date": parse_date(fields[8]) if len(fields) > 8 else None,
+                "google_books_link": fields[9] if len(fields) > 9 else "",
+            }
+
+        if is_all_books_no_checkbox_v2:
+            # _all_books HTML format without checkbox (corrected structure):
+            # fields[0] = barcode
+            # fields[1] = empty (title field)
+            # fields[2] = status
+            # fields[3] = empty (scanned_date field)
+            # fields[4] = empty (analyzed_date field)
+            # fields[5] = date (actual scanned_date)
+            # fields[6] = date (actual analyzed_date)
+            # fields[7] = empty
+            # fields[8] = link
+
+            return {
+                "barcode": fields[0],
+                "title": "",  # Empty in this format
+                "grin_state": fields[2] if len(fields) > 2 else None,
+                "scanned_date": parse_date(fields[5]) if len(fields) > 5 else None,
+                "analyzed_date": parse_date(fields[6]) if len(fields) > 6 else None,
+                "converted_date": None,  # Not available in this format
+                "downloaded_date": None,  # Not available in this format
+                "processed_date": None,  # Not available in this format
+                "ocr_date": None,  # Not available in this format
                 "google_books_link": fields[8] if len(fields) > 8 else "",
             }
 
