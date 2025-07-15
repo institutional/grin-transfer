@@ -557,9 +557,35 @@ class BookCollector:
         # Save progress immediately to persist pagination state
         await self.save_progress()
 
+    async def get_converted_books_html(self) -> AsyncGenerator[tuple[str, set[str]], None]:
+        """Stream converted books from GRIN using HTML pagination with full metadata."""
+        logger.info("Streaming converted books from GRIN...")
+
+        # Use same pagination settings as _all_books
+        pagination_config = self.config.pagination or PaginationConfig()
+
+        book_count = 0
+        async for book_line, known_barcodes in self.client.stream_book_list_html_prefetch(
+            self.directory,
+            list_type="_converted",
+            page_size=pagination_config.page_size,
+            max_pages=pagination_config.max_pages,
+            start_page=1,
+            pagination_callback=None,  # Don't save pagination state for converted books
+            sqlite_tracker=self.sqlite_tracker,
+        ):
+            yield book_line.strip(), known_barcodes
+            book_count += 1
+
+            if book_count % 1000 == 0:
+                logger.info(f"Streamed {book_count:,} converted {pluralize(book_count, 'book')}...")
+
     async def get_all_books_html(self) -> AsyncGenerator[tuple[str, set[str]], None]:
-        """Stream all book data from GRIN using HTML pagination with large page sizes."""
-        logger.info("Streaming all books from GRIN...")
+        """Stream non-converted books from GRIN using HTML pagination with large page sizes.
+
+        Note: _all_books endpoint actually returns 'all books except converted', not truly all books.
+        """
+        logger.info("Streaming non-converted books from GRIN...")
 
         # Determine starting point for pagination
         start_page = self.pagination_state.get("current_page", 1)
@@ -589,7 +615,7 @@ class BookCollector:
                 self.total_books_estimate = book_count + 50000  # Conservative estimate
 
             if book_count % 5000 == 0:
-                logger.info(f"Streamed {book_count:,} {pluralize(book_count, 'book')}...")
+                logger.info(f"Streamed {book_count:,} non-converted {pluralize(book_count, 'book')}...")
                 # Update total estimate more aggressively during large streams
                 if book_count > 50000:
                     self.total_books_estimate = book_count + 100000
@@ -620,10 +646,35 @@ class BookCollector:
             # Continue without converted books rather than failing
 
     async def get_all_books(self) -> AsyncGenerator[tuple[str, set[str]], None]:
-        """Stream all book data from GRIN using HTML pagination with all available metadata."""
-        # Use only the _all_books endpoint to capture complete metadata for all books
+        """Stream all book data from GRIN using two-pass collection with full metadata.
+
+        First pass: Collect converted books with full metadata from _converted endpoint
+        Second pass: Collect non-converted books from _all_books endpoint
+
+        Note: _all_books endpoint actually returns 'all books except converted', not truly all books.
+        """
+        # First pass: Get converted books with full metadata
+        print("Phase 1: Collecting converted books with full metadata...")
+        converted_count = 0
+        async for book_line, known_barcodes in self.get_converted_books_html():
+            yield book_line, known_barcodes
+            converted_count += 1
+
+        if converted_count > 0:
+            print(f"Phase 1 complete: {converted_count:,} converted books collected")
+
+        # Second pass: Get non-converted books from _all_books
+        print("Phase 2: Collecting non-converted books...")
+        non_converted_count = 0
         async for book_line, known_barcodes in self.get_all_books_html():
             yield book_line, known_barcodes
+            non_converted_count += 1
+
+        if non_converted_count > 0:
+            print(f"Phase 2 complete: {non_converted_count:,} non-converted books collected")
+
+        total_books = converted_count + non_converted_count
+        print(f"Two-pass collection complete: {total_books:,} total books ({converted_count:,} converted + {non_converted_count:,} non-converted)")
 
     def _looks_like_date(self, text: str) -> bool:
         """Check if text looks like a date string."""
@@ -685,7 +736,42 @@ class BookCollector:
         # fields[9] = another processing date
         # fields[10] = Google Books link
 
-        # Check if this is HTML format (has title in field 2) vs test format (has date in field 2)
+        # Check if this is _converted format (barcode in field 0, title in field 1)
+        # vs _all_books format (barcode in field 1, title in field 2)
+        # The _converted format has 9 fields, a non-empty title in field 1, and scanned_date in field 2
+        is_converted_format = (
+            len(fields) >= 9 and
+            len(fields[1]) > 0 and
+            not self._looks_like_date(fields[1]) and
+            len(fields[2]) > 0 and
+            self._looks_like_date(fields[2])
+        )
+
+        if is_converted_format:
+            # _converted HTML format:
+            # fields[0] = barcode
+            # fields[1] = title
+            # fields[2] = scanned_date
+            # fields[3] = processed_date
+            # fields[4] = analyzed_date
+            # fields[5] = ? (additional date)
+            # fields[6] = ? (additional date)
+            # fields[7] = ? (additional date)
+            # fields[8] = google_books_link
+
+            return {
+                "barcode": fields[0],
+                "title": fields[1] if len(fields) > 1 else "",
+                "scanned_date": parse_date(fields[2]) if len(fields) > 2 else None,
+                "processed_date": parse_date(fields[3]) if len(fields) > 3 else None,
+                "analyzed_date": parse_date(fields[4]) if len(fields) > 4 else None,
+                "converted_date": None,  # Not directly available in _converted format
+                "downloaded_date": None,
+                "ocr_date": None,
+                "google_books_link": fields[8] if len(fields) > 8 else "",
+            }
+
+        # _all_books HTML format (has title in field 2) vs test format (has date in field 2)
         if len(fields) > 2 and fields[2] and not self._looks_like_date(fields[2]):
             # HTML table format - title in field[2]
             # Extract Google Books link from field 10

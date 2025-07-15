@@ -256,7 +256,7 @@ class GRINClient:
                     logger.debug(f"HTML table headers found: {headers}")
 
             for row in rows:
-                # Look for checkbox input with barcode
+                # Look for checkbox input with barcode (for _all_books format)
                 barcode_input = row.css_first('input[name="barcodes"]')
                 if barcode_input:
                     barcode = barcode_input.attributes.get("value")
@@ -288,6 +288,38 @@ class GRINClient:
                             cell_strings = [cell or "" for cell in cell_texts[1:]]
                             book_line = barcode + "\t" + "\t".join(cell_strings)
                             books.append(book_line)
+                else:
+                    # Handle _converted format (no checkboxes, filename in first cell)
+                    cells = row.css("td")
+                    if len(cells) >= 5:  # Data rows have multiple cells
+                        filename = cells[0].text(strip=True) if cells[0].text() else ""
+                        if filename.endswith(".tar.gz.gpg"):
+                            # Extract barcode from filename
+                            barcode = filename.replace(".tar.gz.gpg", "")
+                            # Extract all cell text from this row
+                            cell_texts = []
+                            for cell in cells:
+                                # Check if cell contains a link and extract the URL
+                                link = cell.css_first("a[href]")
+                                if link and link.attributes.get("href"):
+                                    text = link.attributes["href"]
+                                else:
+                                    # Get clean text content
+                                    text = cell.text(strip=True) if cell.text() else ""
+                                    # Clean up extra whitespace
+                                    text = " ".join(text.split())
+                                cell_texts.append(text)
+
+                            # Log the complete cell structure for first few books for debugging
+                            if len(books) < 3:
+                                logger.debug(f"Book {barcode} has {len(cell_texts)} cells: {cell_texts}")
+
+                            # Create tab-separated line: barcode + cells (skip filename cell)
+                            if len(cell_texts) > 1:
+                                # Ensure all cell values are strings (convert None to empty string)
+                                cell_strings = [cell or "" for cell in cell_texts[1:]]
+                                book_line = barcode + "\t" + "\t".join(cell_strings)
+                                books.append(book_line)
 
             return books
 
