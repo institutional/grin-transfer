@@ -242,8 +242,8 @@ class GRINClient:
             tree = LexborHTMLParser(html_content)
             books: list[str] = []
 
-            # Find all table rows with barcode inputs
-            rows = tree.css("tr")
+            # Find all table rows in tbody (skips header rows)
+            rows = tree.css("tbody tr")
 
             # Log table headers if present for debugging
             header_row = tree.css_first("thead tr") or tree.css_first("tr")
@@ -289,13 +289,15 @@ class GRINClient:
                             book_line = barcode + "\t" + "\t".join(cell_strings)
                             books.append(book_line)
                 else:
-                    # Handle _converted format (no checkboxes, filename in first cell)
+                    # Handle rows without checkboxes
                     cells = row.css("td")
-                    if len(cells) >= 5:  # Data rows have multiple cells
-                        filename = cells[0].text(strip=True) if cells[0].text() else ""
-                        if filename.endswith(".tar.gz.gpg"):
-                            # Extract barcode from filename
-                            barcode = filename.replace(".tar.gz.gpg", "")
+                    if len(cells) >= 3:  # Need at least barcode, title, status
+                        first_cell = cells[0].text(strip=True) if cells[0].text() else ""
+
+                        # Check if this is _converted format (filename with .tar.gz.gpg)
+                        if first_cell.endswith(".tar.gz.gpg"):
+                            # Handle _converted format (no checkboxes, filename in first cell)
+                            barcode = first_cell.replace(".tar.gz.gpg", "")
                             # Extract all cell text from this row
                             cell_texts = []
                             for cell in cells:
@@ -320,6 +322,66 @@ class GRINClient:
                                 cell_strings = [cell or "" for cell in cell_texts[1:]]
                                 book_line = barcode + "\t" + "\t".join(cell_strings)
                                 books.append(book_line)
+
+                        # Check if this is _all_books format without checkbox (barcode as text)
+                        elif first_cell and not first_cell.startswith("_") and len(first_cell) > 3:
+                            # Handle _all_books format without checkbox (barcode in first cell as text)
+                            barcode = first_cell
+                            # Extract all cell text from this row
+                            cell_texts = []
+                            for cell in cells:
+                                # Check if cell contains a link and extract the URL
+                                link = cell.css_first("a[href]")
+                                if link and link.attributes.get("href"):
+                                    text = link.attributes["href"]
+                                else:
+                                    # Get clean text content
+                                    text = cell.text(strip=True) if cell.text() else ""
+                                    # Clean up extra whitespace
+                                    text = " ".join(text.split())
+                                cell_texts.append(text)
+
+                            # Log the complete cell structure for first few books for debugging
+                            if len(books) < 3:
+                                logger.debug(f"Book {barcode} has {len(cell_texts)} cells: {cell_texts}")
+
+                            # Create tab-separated line: barcode + cells (barcode already in first cell)
+                            if len(cell_texts) > 0:
+                                # Ensure all cell values are strings (convert None to empty string)
+                                cell_strings = [cell or "" for cell in cell_texts]
+                                book_line = "\t".join(cell_strings)
+                                books.append(book_line)
+
+                        # Check if this is _all_books format with empty first cell, barcode in second cell
+                        elif not first_cell and len(cells) > 1:
+                            second_cell = cells[1].text(strip=True) if cells[1].text() else ""
+                            if second_cell and len(second_cell) > 3 and not second_cell.startswith("_"):
+                                # Handle _all_books format with empty first cell (barcode in second cell)
+                                barcode = second_cell
+                                # Extract all cell text from this row
+                                cell_texts = []
+                                for cell in cells:
+                                    # Check if cell contains a link and extract the URL
+                                    link = cell.css_first("a[href]")
+                                    if link and link.attributes.get("href"):
+                                        text = link.attributes["href"]
+                                    else:
+                                        # Get clean text content
+                                        text = cell.text(strip=True) if cell.text() else ""
+                                        # Clean up extra whitespace
+                                        text = " ".join(text.split())
+                                    cell_texts.append(text)
+
+                                # Log the complete cell structure for first few books for debugging
+                                if len(books) < 3:
+                                    logger.debug(f"Book {barcode} has {len(cell_texts)} cells: {cell_texts}")
+
+                                # Create tab-separated line: barcode + cells (skip empty first cell and barcode cell)
+                                if len(cell_texts) > 2:
+                                    # Use barcode from second cell, then remaining cells (skip first two cells)
+                                    cell_strings = [cell or "" for cell in cell_texts[2:]]
+                                    book_line = barcode + "\t" + "\t".join(cell_strings)
+                                    books.append(book_line)
 
             return books
 
