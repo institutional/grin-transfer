@@ -687,6 +687,161 @@ class BookCollector:
             or text.lower().startswith("http")
         )  # URLs are not dates
 
+    def _parse_grin_date(self, date_str: str) -> str | None:
+        """Parse a date string from GRIN format to ISO format."""
+        if not date_str:
+            return None
+        try:
+            # GRIN format: YYYY/MM/DD HH:MM
+            dt = datetime.strptime(date_str, "%Y/%m/%d %H:%M")
+            return dt.isoformat()
+        except ValueError:
+            return date_str  # Return as-is if parsing fails
+
+    def _get_field_or_none(self, fields: list[str], index: int) -> str | None:
+        """Get field at index or None if index is out of bounds or field is empty."""
+        if index < len(fields) and fields[index]:
+            return fields[index]
+        return None
+
+    def _parse_date_field(self, fields: list[str], index: int) -> str | None:
+        """Parse date field at index or return None if missing/empty."""
+        field = self._get_field_or_none(fields, index)
+        return self._parse_grin_date(field) if field else None
+
+    def _has_status_field(self, text: str) -> bool:
+        """Check if text contains a GRIN status field."""
+        return any(status in text for status in ["NOT_AVAILABLE", "PREVIOUSLY_DOWNLOADED", "AVAILABLE"])
+
+    def _extract_google_books_link(self, text: str) -> str:
+        """Extract Google Books link if valid."""
+        if text and ("books.google.com" in text or text.startswith("http")):
+            return text
+        return ""
+
+    def _detect_grin_format(self, fields: list[str]) -> str:
+        """Detect the GRIN line format type."""
+        # Check if this is _converted format (barcode in field 0, title in field 1)
+        # The _converted format has 9 fields, a non-empty title in field 1, and scanned_date in field 2
+        if (
+            len(fields) >= 9 and
+            len(fields[1]) > 0 and
+            not self._looks_like_date(fields[1]) and
+            len(fields[2]) > 0 and
+            self._looks_like_date(fields[2])
+        ):
+            return "converted"
+
+        # Check if this is _all_books format without checkbox (barcode in field 0, title in field 1, status in field 2)
+        if (
+            len(fields) >= 3 and
+            len(fields[1]) > 0 and
+            not self._looks_like_date(fields[1]) and
+            len(fields[2]) > 0 and
+            self._has_status_field(fields[2])
+        ):
+            return "all_books_no_checkbox"
+
+        # Check if this is _all_books HTML format (has title in field 2)
+        if len(fields) > 2 and fields[2] and not self._looks_like_date(fields[2]):
+            return "html_table"
+
+        # Default to plain text format
+        return "text"
+
+    def _parse_converted_format(self, fields: list[str]) -> dict:
+        """Parse _converted HTML format."""
+        # _converted HTML format:
+        # fields[0] = barcode
+        # fields[1] = title
+        # fields[2] = scanned_date
+        # fields[3] = processed_date
+        # fields[4] = analyzed_date
+        # fields[5] = ? (additional date)
+        # fields[6] = ? (additional date)
+        # fields[7] = ? (additional date)
+        # fields[8] = google_books_link
+        return {
+            "barcode": fields[0],
+            "title": self._get_field_or_none(fields, 1) or "",
+            "scanned_date": self._parse_date_field(fields, 2),
+            "processed_date": self._parse_date_field(fields, 3),
+            "analyzed_date": self._parse_date_field(fields, 4),
+            "converted_date": None,  # Not directly available in _converted format
+            "downloaded_date": None,
+            "ocr_date": None,
+            "google_books_link": self._get_field_or_none(fields, 8) or "",
+        }
+
+    def _parse_all_books_no_checkbox(self, fields: list[str]) -> dict:
+        """Parse _all_books HTML format without checkbox."""
+        # _all_books HTML format without checkbox:
+        # fields[0] = barcode
+        # fields[1] = title
+        # fields[2] = status
+        # fields[3] = dates (if present)
+        # Limited date information available
+        return {
+            "barcode": fields[0],
+            "title": self._get_field_or_none(fields, 1) or "",
+            "grin_state": self._get_field_or_none(fields, 2),
+            "scanned_date": self._parse_date_field(fields, 3),
+            "analyzed_date": self._parse_date_field(fields, 4),
+            "converted_date": self._parse_date_field(fields, 5),
+            "downloaded_date": self._parse_date_field(fields, 6),
+            "processed_date": self._parse_date_field(fields, 7),
+            "ocr_date": self._parse_date_field(fields, 8),
+            "google_books_link": self._get_field_or_none(fields, 9) or "",
+        }
+
+    def _parse_html_table_format(self, fields: list[str]) -> dict:
+        """Parse HTML table format."""
+        # HTML table format - title in field[2]
+        # Extract Google Books link from field 10
+        google_link = self._extract_google_books_link(self._get_field_or_none(fields, 10) or "")
+
+        return {
+            "barcode": fields[0],  # Barcode from checkbox input
+            "title": fields[2],
+            "grin_state": self._get_field_or_none(fields, 3),  # Status field
+            "scanned_date": self._parse_date_field(fields, 4),
+            "analyzed_date": self._parse_date_field(fields, 5),
+            "converted_date": self._parse_date_field(fields, 6),
+            "downloaded_date": self._parse_date_field(fields, 7),
+            "processed_date": self._parse_date_field(fields, 8),
+            "ocr_date": self._parse_date_field(fields, 9),
+            "google_books_link": google_link,
+        }
+
+    def _parse_text_format(self, fields: list[str]) -> dict:
+        """Parse plain text format."""
+        return {
+            "barcode": fields[0],
+            "title": "",
+            "scanned_date": self._parse_date_field(fields, 1),
+            "converted_date": self._parse_date_field(fields, 2),
+            "downloaded_date": self._parse_date_field(fields, 3),
+            "processed_date": self._parse_date_field(fields, 4),
+            "analyzed_date": self._parse_date_field(fields, 5),
+            # field[6] is unknown/blank
+            "ocr_date": self._parse_date_field(fields, 7),
+            "google_books_link": self._get_field_or_none(fields, 8) or "",
+        }
+
+    def _create_barcode_only_record(self, barcode: str) -> dict:
+        """Create minimal record for barcode-only input."""
+        return {
+            "barcode": barcode,
+            "title": "",
+            "scanned_date": None,
+            "converted_date": None,
+            "downloaded_date": None,
+            "processed_date": None,
+            "analyzed_date": None,
+            "ocr_date": None,
+            "google_books_link": "",
+        }
+
     def parse_grin_line(self, line: str) -> dict:
         """Parse a line from GRIN _all_books output or a simple barcode."""
         fields = line.strip().split("\t")
@@ -695,180 +850,22 @@ class BookCollector:
 
         # Handle barcode-only input (from converted books list)
         if len(fields) == 1 and not any("\t" in line for line in [line]):
-            # This is just a barcode, create minimal record
-            barcode = fields[0]
-            return {
-                "barcode": barcode,
-                "title": "",
-                "scanned_date": None,
-                "converted_date": None,
-                "downloaded_date": None,
-                "processed_date": None,
-                "analyzed_date": None,
-                "ocr_date": None,
-                "google_books_link": "",
-            }
+            return self._create_barcode_only_record(fields[0])
 
         # Pad fields to ensure we have at least 11 elements (based on debug output)
         while len(fields) < 11:
             fields.append("")
 
-        def parse_date(date_str: str) -> str | None:
-            if not date_str:
-                return None
-            try:
-                # GRIN format: YYYY/MM/DD HH:MM
-                dt = datetime.strptime(date_str, "%Y/%m/%d %H:%M")
-                return dt.isoformat()
-            except ValueError:
-                return date_str  # Return as-is if parsing fails
-
-        # GRIN HTML output format (based on debug output with 11 cells):
-        # fields[0] = barcode
-        # fields[1] = process link (not used)
-        # fields[2] = title
-        # fields[3] = empty (not used)
-        # fields[4] = scanned_date
-        # fields[5] = analyzed_date
-        # fields[6] = converted_date
-        # fields[7] = downloaded_date
-        # fields[8] = additional processing date
-        # fields[9] = another processing date
-        # fields[10] = Google Books link
-
-        # Check if this is _converted format (barcode in field 0, title in field 1)
-        # vs _all_books format (barcode in field 1, title in field 2)
-        # The _converted format has 9 fields, a non-empty title in field 1, and scanned_date in field 2
-        is_converted_format = (
-            len(fields) >= 9 and
-            len(fields[1]) > 0 and
-            not self._looks_like_date(fields[1]) and
-            len(fields[2]) > 0 and
-            self._looks_like_date(fields[2])
-        )
-
-        # Check if this is _all_books format without checkbox (barcode in field 0, title in field 1, status in field 2)
-        is_all_books_no_checkbox_v1 = (
-            len(fields) >= 3 and
-            len(fields[1]) > 0 and
-            not self._looks_like_date(fields[1]) and
-            len(fields[2]) > 0 and
-            ("NOT_AVAILABLE" in fields[2] or "PREVIOUSLY_DOWNLOADED" in fields[2] or "AVAILABLE" in fields[2])
-        )
-
-        # Check if this is _all_books format with empty first cell (barcode in field 0, empty field 1, status in field 2)
-        is_all_books_no_checkbox_v2 = (
-            len(fields) >= 3 and
-            len(fields[0]) > 0 and
-            not self._looks_like_date(fields[0]) and
-            len(fields[1]) == 0 and  # Empty title field
-            len(fields[2]) > 0 and
-            ("NOT_AVAILABLE" in fields[2] or "PREVIOUSLY_DOWNLOADED" in fields[2] or "AVAILABLE" in fields[2])
-        )
-
-        if is_converted_format:
-            # _converted HTML format:
-            # fields[0] = barcode
-            # fields[1] = title
-            # fields[2] = scanned_date
-            # fields[3] = processed_date
-            # fields[4] = analyzed_date
-            # fields[5] = ? (additional date)
-            # fields[6] = ? (additional date)
-            # fields[7] = ? (additional date)
-            # fields[8] = google_books_link
-
-            return {
-                "barcode": fields[0],
-                "title": fields[1] if len(fields) > 1 else "",
-                "scanned_date": parse_date(fields[2]) if len(fields) > 2 else None,
-                "processed_date": parse_date(fields[3]) if len(fields) > 3 else None,
-                "analyzed_date": parse_date(fields[4]) if len(fields) > 4 else None,
-                "converted_date": None,  # Not directly available in _converted format
-                "downloaded_date": None,
-                "ocr_date": None,
-                "google_books_link": fields[8] if len(fields) > 8 else "",
-            }
-
-        if is_all_books_no_checkbox_v1:
-            # _all_books HTML format without checkbox:
-            # fields[0] = barcode
-            # fields[1] = title
-            # fields[2] = status
-            # fields[3] = dates (if present)
-            # Limited date information available
-            return {
-                "barcode": fields[0],
-                "title": fields[1] if len(fields) > 1 else "",
-                "grin_state": fields[2] if len(fields) > 2 else None,
-                "scanned_date": parse_date(fields[3]) if len(fields) > 3 else None,
-                "analyzed_date": parse_date(fields[4]) if len(fields) > 4 else None,
-                "converted_date": parse_date(fields[5]) if len(fields) > 5 else None,
-                "downloaded_date": parse_date(fields[6]) if len(fields) > 6 else None,
-                "processed_date": parse_date(fields[7]) if len(fields) > 7 else None,
-                "ocr_date": parse_date(fields[8]) if len(fields) > 8 else None,
-                "google_books_link": fields[9] if len(fields) > 9 else "",
-            }
-
-        if is_all_books_no_checkbox_v2:
-            # _all_books HTML format without checkbox (corrected structure):
-            # fields[0] = barcode
-            # fields[1] = empty (title field)
-            # fields[2] = status
-            # fields[3] = empty (scanned_date field)
-            # fields[4] = empty (analyzed_date field)
-            # fields[5] = date (actual scanned_date)
-            # fields[6] = date (actual analyzed_date)
-            # fields[7] = empty
-            # fields[8] = link
-
-            return {
-                "barcode": fields[0],
-                "title": "",  # Empty in this format
-                "grin_state": fields[2] if len(fields) > 2 else None,
-                "scanned_date": parse_date(fields[5]) if len(fields) > 5 else None,
-                "analyzed_date": parse_date(fields[6]) if len(fields) > 6 else None,
-                "converted_date": None,  # Not available in this format
-                "downloaded_date": None,  # Not available in this format
-                "processed_date": None,  # Not available in this format
-                "ocr_date": None,  # Not available in this format
-                "google_books_link": fields[8] if len(fields) > 8 else "",
-            }
-
-        # _all_books HTML format (has title in field 2) vs test format (has date in field 2)
-        if len(fields) > 2 and fields[2] and not self._looks_like_date(fields[2]):
-            # HTML table format - title in field[2]
-            # Extract Google Books link from field 10
-            google_link = ""
-            if len(fields) > 10 and fields[10] and ("books.google.com" in fields[10] or fields[10].startswith("http")):
-                google_link = fields[10]
-
-            return {
-                "barcode": fields[0],  # Barcode from checkbox input
-                "title": fields[2],
-                "grin_state": fields[3] if len(fields) > 3 else None,  # Status field
-                "scanned_date": parse_date(fields[4]) if len(fields) > 4 else None,
-                "analyzed_date": parse_date(fields[5]) if len(fields) > 5 else None,
-                "converted_date": parse_date(fields[6]) if len(fields) > 6 else None,
-                "downloaded_date": parse_date(fields[7]) if len(fields) > 7 else None,
-                "processed_date": parse_date(fields[8]) if len(fields) > 8 else None,  # Additional processing date
-                "ocr_date": parse_date(fields[9]) if len(fields) > 9 else None,  # Another processing date
-                "google_books_link": google_link,
-            }
-        else:
-            # Test/legacy text format
-            return {
-                "barcode": fields[0],
-                "title": "",
-                "scanned_date": parse_date(fields[1]),
-                "converted_date": parse_date(fields[2]),
-                "downloaded_date": parse_date(fields[3]),
-                "processed_date": parse_date(fields[4]),
-                "analyzed_date": parse_date(fields[5]),
-                # field[6] is unknown/blank
-                "ocr_date": parse_date(fields[7]) if len(fields) > 7 else None,
-                "google_books_link": fields[8] if len(fields) > 8 else "",
-            }
+        # Detect format and parse accordingly
+        format_type = self._detect_grin_format(fields)
+        if format_type == "converted":
+            return self._parse_converted_format(fields)
+        elif format_type == "all_books_no_checkbox":
+            return self._parse_all_books_no_checkbox(fields)
+        elif format_type == "html_table":
+            return self._parse_html_table_format(fields)
+        else:  # text
+            return self._parse_text_format(fields)
 
     async def enrich_book_record(self, record: BookRecord) -> BookRecord:
         """Enrich book record with storage and metadata information."""
