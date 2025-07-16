@@ -9,6 +9,8 @@ from collections.abc import AsyncGenerator, Callable
 from datetime import datetime
 from typing import Any
 
+from selectolax.lexbor import LexborHTMLParser
+
 from grin_to_s3.auth import GRINAuth
 from grin_to_s3.common import create_http_session
 
@@ -120,8 +122,7 @@ class GRINClient:
             # Extract all barcodes from this page for batch SQLite query
             page_barcodes = set()
             for book_line in books:
-                barcode = book_line.split("\t")[0] if book_line else ""
-                if barcode:
+                if barcode := (book_line.split("\t")[0] if book_line else ""):
                     page_barcodes.add(barcode)
 
             # Batch query SQLite for all barcodes on this page
@@ -255,12 +256,10 @@ class GRINClient:
 
     def _handle_checkbox_format(self, row, books_count: int) -> str | None:
         """Handle _all_books format with checkboxes. Returns book line or None."""
-        barcode_input = row.css_first('input[name="barcodes"]')
-        if not barcode_input:
+        if not (barcode_input := row.css_first('input[name="barcodes"]')):
             return None
 
-        barcode = barcode_input.attributes.get("value")
-        if not barcode:
+        if not (barcode := barcode_input.attributes.get("value")):
             return None
 
         cells = row.css("td")
@@ -286,8 +285,11 @@ class GRINClient:
             return "all_books_first", first_cell, 0
 
         if not first_cell and len(cells) > 1:
-            second_cell = cells[1].text(strip=True) if cells[1].text() else ""
-            if second_cell and len(second_cell) > 3 and not second_cell.startswith("_"):
+            if (
+                (second_cell := cells[1].text(strip=True) if cells[1].text() else "")
+                and len(second_cell) > 3
+                and not second_cell.startswith("_")
+            ):
                 return "all_books_second", second_cell, 2
 
         return "invalid", "", 0
@@ -313,7 +315,6 @@ class GRINClient:
         """
         Parse book data from GRIN HTML using fast selectolax parser.
         """
-        from selectolax.lexbor import LexborHTMLParser
 
         try:
             tree = LexborHTMLParser(html_content)
@@ -325,14 +326,13 @@ class GRINClient:
             if header_row and not header_row.css_first('input[name="barcodes"]'):
                 headers = []
                 for th in header_row.css("th, td"):
-                    header_text = th.text(strip=True) if th.text() else ""
-                    headers.append(header_text)
+                    if header_text := (th.text(strip=True) if th.text() else ""):
+                        headers.append(header_text)
                 if headers:
                     logger.debug(f"HTML table headers found: {headers}")
 
             for row in rows:
-                book_line = self._process_row(row, len(books))
-                if book_line:
+                if book_line := self._process_row(row, len(books)):
                     books.append(book_line)
 
             return books
@@ -345,7 +345,6 @@ class GRINClient:
         """
         Extract Next button URL from GRIN HTML response using selectolax.
         """
-        from selectolax.lexbor import LexborHTMLParser
 
         try:
             tree = LexborHTMLParser(html_content)
@@ -355,19 +354,20 @@ class GRINClient:
             next_links = tree.css('a[href*="first="], a[href*="ctoken="]')
 
             for link in next_links:
-                href = link.attributes.get("href", "")
+                if not (href := link.attributes.get("href", "")):
+                    continue
+
                 link_text = link.text(strip=True).lower() if link.text() else ""
 
                 # Check if this is a Next button by text content
                 if "next" in link_text or ">" in link_text or "&gt;" in (link.html or ""):
-                    if href:
-                        # Convert relative path to full URL
-                        if href.startswith("/"):
-                            return f"https://books.google.com{href}"
-                        elif href.startswith("http"):
-                            return href
-                        else:
-                            return f"{self.base_url}/{directory}/{href}"
+                    # Convert relative path to full URL
+                    if href.startswith("/"):
+                        return f"https://books.google.com{href}"
+                    elif href.startswith("http"):
+                        return href
+                    else:
+                        return f"{self.base_url}/{directory}/{href}"
 
             return None
 
