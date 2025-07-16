@@ -9,12 +9,15 @@ from collections.abc import AsyncGenerator, Callable
 from datetime import datetime
 from typing import Any
 
+from selectolax.lexbor import LexborHTMLParser
+
 from grin_to_s3.auth import GRINAuth
 from grin_to_s3.common import create_http_session
 
 logger = logging.getLogger(__name__)
 
 ALL_BOOKS_ENDPOINT = "_all_books"
+
 
 class GRINClient:
     """Async client for GRIN API operations."""
@@ -52,8 +55,6 @@ class GRINClient:
             response = await self.auth.make_authenticated_request(session, url, method=method)
             return await response.text()
 
-
-
     async def stream_book_list_html_prefetch(
         self,
         directory: str,
@@ -87,9 +88,7 @@ class GRINClient:
                 html, response_url = await prefetch_task
                 wait_elapsed = time.time() - wait_start
                 use_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                logger.debug(
-                    f"Page {page_count}: Using prefetched data after {wait_elapsed:.2f}s wait at {use_time}"
-                )
+                logger.debug(f"Page {page_count}: Using prefetched data after {wait_elapsed:.2f}s wait at {use_time}")
 
             else:
                 # First page - fetch normally
@@ -123,8 +122,7 @@ class GRINClient:
             # Extract all barcodes from this page for batch SQLite query
             page_barcodes = set()
             for book_line in books:
-                barcode = book_line.split("\t")[0] if book_line else ""
-                if barcode:
+                if barcode := (book_line.split("\t")[0] if book_line else ""):
                     page_barcodes.add(barcode)
 
             # Batch query SQLite for all barcodes on this page
@@ -231,41 +229,111 @@ class GRINClient:
         )
         return html, url
 
+    def _extract_cell_texts(self, cells) -> list[str]:
+        """Extract text content from table cells, handling links and cleaning whitespace."""
+        cell_texts = []
+        for cell in cells:
+            link = cell.css_first("a[href]")
+            if link and link.attributes.get("href"):
+                text = link.attributes["href"]
+            else:
+                text = cell.text(strip=True) if cell.text() else ""
+                text = " ".join(text.split())
+            cell_texts.append(text)
+        return cell_texts
+
+    def _debug_log_cells(self, barcode: str, cell_texts: list[str], books_count: int) -> None:
+        """Log cell structure for debugging (first few books only)."""
+        if books_count < 3:
+            logger.debug(f"Book {barcode} has {len(cell_texts)} cells: {cell_texts}")
+
+    def _create_book_line(self, barcode: str, cell_texts: list[str], skip_cells: int = 0) -> str:
+        """Create tab-separated book line from barcode and cell texts."""
+        cell_strings = [cell or "" for cell in cell_texts[skip_cells:]]
+        if skip_cells == 0:
+            return "\t".join(cell_strings)
+        return barcode + "\t" + "\t".join(cell_strings)
+
+    def _handle_checkbox_format(self, row, books_count: int) -> str | None:
+        """Handle _all_books format with checkboxes. Returns book line or None."""
+        if not (barcode_input := row.css_first('input[name="barcodes"]')):
+            return None
+
+        if not (barcode := barcode_input.attributes.get("value")):
+            return None
+
+        cells = row.css("td")
+        cell_texts = self._extract_cell_texts(cells)
+        self._debug_log_cells(barcode, cell_texts, books_count)
+
+        if len(cell_texts) > 1:
+            return self._create_book_line(barcode, cell_texts, skip_cells=1)
+        return None
+
+    def _detect_row_format(self, row) -> tuple[str, str, int]:
+        """Detect format and extract barcode from row. Returns (format, barcode, skip_cells)."""
+        cells = row.css("td")
+        if len(cells) < 3:
+            return "invalid", "", 0
+
+        first_cell = cells[0].text(strip=True) if cells[0].text() else ""
+
+        if first_cell.endswith(".tar.gz.gpg"):
+            return "converted", first_cell.replace(".tar.gz.gpg", ""), 1
+
+        if first_cell and not first_cell.startswith("_") and len(first_cell) > 3:
+            return "all_books_first", first_cell, 0
+
+        if not first_cell and len(cells) > 1:
+            if (
+                (second_cell := cells[1].text(strip=True) if cells[1].text() else "")
+                and len(second_cell) > 3
+                and not second_cell.startswith("_")
+            ):
+                return "all_books_second", second_cell, 2
+
+        return "invalid", "", 0
+
+    def _process_row(self, row, books_count: int) -> str | None:
+        """Process a single table row and return book line if valid."""
+        if row.css_first('input[name="barcodes"]'):
+            return self._handle_checkbox_format(row, books_count)
+
+        format_type, barcode, skip_cells = self._detect_row_format(row)
+        if format_type == "invalid" or not barcode:
+            return None
+
+        cells = row.css("td")
+        cell_texts = self._extract_cell_texts(cells)
+        self._debug_log_cells(barcode, cell_texts, books_count)
+
+        if len(cell_texts) > skip_cells:
+            return self._create_book_line(barcode, cell_texts, skip_cells)
+        return None
+
     def _parse_books_from_html(self, html_content: str) -> list[str]:
         """
         Parse book data from GRIN HTML using fast selectolax parser.
         """
-        from selectolax.lexbor import LexborHTMLParser
 
         try:
-            # Parse with selectolax using the fastest parser
             tree = LexborHTMLParser(html_content)
-            books = []
+            books: list[str] = []
 
-            # Find all table rows with barcode inputs
-            rows = tree.css("tr")
+            rows = tree.css("tbody tr")
+
+            header_row = tree.css_first("thead tr") or tree.css_first("tr")
+            if header_row and not header_row.css_first('input[name="barcodes"]'):
+                headers = []
+                for th in header_row.css("th, td"):
+                    if header_text := (th.text(strip=True) if th.text() else ""):
+                        headers.append(header_text)
+                if headers:
+                    logger.debug(f"HTML table headers found: {headers}")
 
             for row in rows:
-                # Look for checkbox input with barcode
-                barcode_input = row.css_first('input[name="barcodes"]')
-                if barcode_input:
-                    barcode = barcode_input.attributes.get("value")
-                    if barcode:
-                        # Extract all cell text from this row
-                        cells = row.css("td")
-                        cell_texts = []
-
-                        for cell in cells:
-                            # Get clean text content
-                            text = cell.text(strip=True) if cell.text() else ""
-                            # Clean up extra whitespace
-                            text = " ".join(text.split())
-                            cell_texts.append(text)
-
-                        # Create tab-separated line: barcode + cells (skip first checkbox cell)
-                        if len(cell_texts) > 1:
-                            book_line = barcode + "\t" + "\t".join(cell_texts[1:])
-                            books.append(book_line)
+                if book_line := self._process_row(row, len(books)):
+                    books.append(book_line)
 
             return books
 
@@ -277,7 +345,6 @@ class GRINClient:
         """
         Extract Next button URL from GRIN HTML response using selectolax.
         """
-        from selectolax.lexbor import LexborHTMLParser
 
         try:
             tree = LexborHTMLParser(html_content)
@@ -287,24 +354,23 @@ class GRINClient:
             next_links = tree.css('a[href*="first="], a[href*="ctoken="]')
 
             for link in next_links:
-                href = link.attributes.get("href", "")
+                if not (href := link.attributes.get("href", "")):
+                    continue
+
                 link_text = link.text(strip=True).lower() if link.text() else ""
 
                 # Check if this is a Next button by text content
                 if "next" in link_text or ">" in link_text or "&gt;" in (link.html or ""):
-                    if href:
-                        # Convert relative path to full URL
-                        if href.startswith("/"):
-                            return f"https://books.google.com{href}"
-                        elif href.startswith("http"):
-                            return href
-                        else:
-                            return f"{self.base_url}/{directory}/{href}"
+                    # Convert relative path to full URL
+                    if href.startswith("/"):
+                        return f"https://books.google.com{href}"
+                    elif href.startswith("http"):
+                        return href
+                    else:
+                        return f"{self.base_url}/{directory}/{href}"
 
             return None
 
         except Exception as e:
             logger.warning(f"selectolax next button parsing failed: {e}")
             return None
-
-

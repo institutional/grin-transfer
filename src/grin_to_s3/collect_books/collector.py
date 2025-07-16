@@ -19,7 +19,6 @@ import time
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict
 
 import aiofiles
 
@@ -37,16 +36,13 @@ from grin_to_s3.storage.book_manager import BucketConfig
 
 from .config import ExportConfig, PaginationConfig
 from .models import BookRecord, BoundedSet, SQLiteProgressTracker
+from .progress import PaginationState, ProgressTracker
 
 # Set up module logger
 logger = logging.getLogger(__name__)
 
 
-class PaginationState(TypedDict):
-    """Type for pagination state dictionary."""
-    current_page: int
-    next_url: str | None
-    page_size: int
+# PaginationState moved to progress.py
 
 
 class BookCollector:
@@ -95,6 +91,9 @@ class BookCollector:
 
         # Job metadata
         self.job_metadata = self._create_job_metadata(rate_limit, storage_config)
+        # Initialize progress tracker after job_metadata is available
+        self.progress_tracker = ProgressTracker(self.resume_file, self.job_metadata, self.sqlite_tracker)
+        # Progress tracking attributes for backward compatibility
         self.resume_count = 0
         self.total_books_estimate: int | None = None
         self.processing_rates: list[float] = []  # Track books/second over time
@@ -106,6 +105,8 @@ class BookCollector:
             "next_url": None,
             "page_size": pagination_config.page_size,
         }
+        # Initialize progress tracker pagination state
+        self.progress_tracker.pagination_state = self.pagination_state
 
         # Storage (optional)
         self.book_storage: BookManager | None = None
@@ -313,35 +314,7 @@ class BookCollector:
 
         return True
 
-    async def _archive_progress_file(self) -> bool:
-        """Archive existing progress file with timestamp before execution.
-
-        Returns True if archiving was successful or not needed, False if failed.
-        """
-        if not self.resume_file.exists():
-            return True  # Nothing to archive
-
-        try:
-            # Create archive filename with clean timestamp
-            now = datetime.now(UTC)
-            timestamp = now.strftime("%Y%m%d_%H%M%S")
-            archive_name = f"{self.resume_file.stem}_backup_{timestamp}.json"
-            archive_path = self.resume_file.parent / archive_name
-
-            # Copy the file to archive location
-            async with aiofiles.open(self.resume_file) as src:
-                content = await src.read()
-
-            async with aiofiles.open(archive_path, "w") as dst:
-                await dst.write(content)
-
-            logger.debug(f"Progress file archived: {archive_name}")
-            return True
-
-        except Exception as e:
-            print(f"⚠️  Failed to archive progress file: {e}")
-            print("   Proceeding with execution, but progress file corruption risk exists")
-            return False
+    # Progress file archiving moved to progress.py
 
     async def _backup_database(self) -> bool:
         """Create a timestamped backup of the SQLite database before starting work.
@@ -357,165 +330,11 @@ class BookCollector:
 
     async def load_progress(self) -> dict:
         """Load progress from resume file."""
-        if not self.resume_file.exists():
-            return {"processed": [], "failed": []}
-
-        try:
-            async with aiofiles.open(self.resume_file) as f:
-                content = await f.read()
-                progress_data = json.loads(content)
-
-                # Initialize SQLite tracker (no need to load barcode lists from JSON)
-                await self.sqlite_tracker.init_db()
-
-                # Load additional metadata if available
-                if "job_metadata" in progress_data:
-                    existing_metadata = progress_data["job_metadata"]
-
-                    # Check for configuration changes
-                    existing_config_hash = existing_metadata.get("export_parameters", {}).get("config_hash")
-                    current_config_hash = self.job_metadata["export_parameters"]["config_hash"]
-
-                    if existing_config_hash != current_config_hash:
-                        print(f"""Warning: Export configuration has changed since last run
-  Previous: {existing_config_hash}
-  Current:  {current_config_hash}""")
-
-                    # Preserve original job start time and user
-                    self.job_metadata["job_started"] = existing_metadata.get(
-                        "job_started", self.job_metadata["job_started"]
-                    )
-                    self.job_metadata["started_by_user"] = existing_metadata.get(
-                        "started_by_user", self.job_metadata["started_by_user"]
-                    )
-
-                # Load resume count and increment
-                self.resume_count = progress_data.get("resume_count", 0) + 1
-                self.total_books_estimate = progress_data.get("total_books_estimate")
-
-                # Load pagination state if available
-                if "pagination_state" in progress_data:
-                    self.pagination_state = progress_data["pagination_state"]
-                    print(f"  Pagination: Resume from page {self.pagination_state.get('current_page', 1)}")
-
-                # Get current counts from SQLite
-                processed_count = await self.sqlite_tracker.get_processed_count()
-                failed_count = await self.sqlite_tracker.get_failed_count()
-
-                # Print resume summary
-                elapsed_time = "unknown"
-                if "job_metadata" in progress_data:
-                    job_started = progress_data["job_metadata"].get("job_started")
-                    if job_started:
-                        try:
-                            start_dt = datetime.fromisoformat(job_started.replace("Z", "+00:00"))
-                            elapsed_seconds = (datetime.now(UTC) - start_dt).total_seconds()
-                            elapsed_time = format_duration(elapsed_seconds)
-                        except Exception:
-                            pass
-
-                print(f"Resumed export (attempt #{self.resume_count})")
-                print(f"  Progress: {processed_count} processed, {failed_count} failed")
-                print(f"  Running time: {elapsed_time}")
-                if "job_metadata" in progress_data:
-                    started_by = progress_data["job_metadata"].get("started_by_user", "unknown")
-                    hostname = progress_data["job_metadata"].get("hostname", "unknown")
-                    print(f"  Started by: {started_by}@{hostname}")
-
-                return progress_data
-
-        except (json.JSONDecodeError, Exception) as e:
-            print(f"Warning: Could not load progress file: {e}")
-            return {"processed": [], "failed": []}
+        return await self.progress_tracker.load_progress()
 
     async def save_progress(self):
         """Save current progress to resume file."""
-        now = datetime.now(UTC)
-
-        # Calculate performance metrics based on actual runtime, not wall-clock time
-        if hasattr(self, "session_start_time"):
-            # Current session runtime
-            session_elapsed = (now - self.session_start_time).total_seconds()
-            # Add to accumulated runtime from previous sessions
-            total_runtime = getattr(self, "accumulated_runtime", 0.0) + session_elapsed
-        else:
-            # Fallback: estimate based on processing rate
-            total_processed = await self.sqlite_tracker.get_processed_count()
-            if total_processed > 0:
-                # Assume reasonable processing rate for estimates
-                estimated_rate = 15  # books per minute (conservative estimate)
-                total_runtime = (total_processed / estimated_rate) * 60
-            else:
-                total_runtime = 0.0
-
-        performance_metrics = await self._calculate_performance_metrics(total_runtime)
-
-        # Also calculate wall-clock time for reference
-        job_start_time = datetime.fromisoformat(self.job_metadata["job_started"].replace("Z", "+00:00"))
-        wall_clock_elapsed = (now - job_start_time).total_seconds()
-
-        # Get current counts from SQLite
-        total_processed = await self.sqlite_tracker.get_processed_count()
-        total_failed = await self.sqlite_tracker.get_failed_count()
-
-        # Build minimal progress data (metadata only, no barcode lists)
-        progress_data = {
-            "updated": now.isoformat(),
-            # Enhanced metadata
-            "job_metadata": self.job_metadata,
-            "resume_count": self.resume_count,
-            "total_books_estimate": self.total_books_estimate,
-            # Current status
-            "current_status": {
-                "total_processed": total_processed,
-                "total_failed": total_failed,
-                "actual_runtime_seconds": round(total_runtime, 1),
-                "actual_runtime_formatted": format_duration(total_runtime),
-                "wall_clock_elapsed_seconds": round(wall_clock_elapsed, 1),
-                "wall_clock_elapsed_formatted": format_duration(wall_clock_elapsed),
-                "last_update": now.isoformat(),
-            },
-            # Performance metrics
-            "performance_metrics": performance_metrics,
-            # Error summary
-            "error_summary": {
-                "failure_rate_percent": round(total_failed / max(1, total_processed + total_failed) * 100, 2),
-                "total_errors": total_failed,
-            },
-            # Progress tracking
-            "progress_tracking": {
-                "completion_percentage": round(
-                    total_processed / max(1, self.total_books_estimate or total_processed) * 100, 2
-                )
-                if self.total_books_estimate and self.total_books_estimate > total_processed
-                else None,
-                "total_estimate_method": "streaming" if self.total_books_estimate else "unknown",
-            },
-            # Runtime tracking
-            "runtime_tracking": {
-                "total_runtime_seconds": round(total_runtime, 1),
-                "wall_clock_elapsed_seconds": round(wall_clock_elapsed, 1),
-                "resume_count": self.resume_count,
-                "explanation": (
-                    "total_runtime tracks actual processing time across sessions; "
-                    "wall_clock tracks time since first start"
-                ),
-            },
-            # Pagination state for resume functionality
-            "pagination_state": self.pagination_state,
-            # SQLite database info
-            "sqlite_info": {
-                "database_path": str(self.sqlite_tracker.db_path),
-                "session_id": self.sqlite_tracker.session_id,
-                "note": "Processed/failed barcodes stored in SQLite database, not in this JSON file",
-            },
-        }
-
-        # Ensure progress directory exists
-        self.resume_file.parent.mkdir(parents=True, exist_ok=True)
-
-        async with aiofiles.open(self.resume_file, "w") as f:
-            await f.write(json.dumps(progress_data, indent=2))
+        await self.progress_tracker.save_progress(self._calculate_performance_metrics)
 
     async def get_processing_states(self) -> dict[str, set[str]]:
         """Get book processing states from GRIN endpoints."""
@@ -553,13 +372,39 @@ class BookCollector:
 
     async def save_pagination_state(self, pagination_state: PaginationState):
         """Save pagination state for resume functionality."""
+        await self.progress_tracker.save_pagination_state(pagination_state)
+        # Update local state for backward compatibility
         self.pagination_state.update(pagination_state)
-        # Save progress immediately to persist pagination state
-        await self.save_progress()
+
+    async def get_converted_books_html(self) -> AsyncGenerator[tuple[str, set[str]], None]:
+        """Stream converted books from GRIN using HTML pagination with full metadata."""
+        logger.info("Streaming converted books from GRIN...")
+
+        # Use same pagination settings as _all_books
+        pagination_config = self.config.pagination or PaginationConfig()
+
+        book_count = 0
+        async for book_line, known_barcodes in self.client.stream_book_list_html_prefetch(
+            self.directory,
+            list_type="_converted",
+            page_size=pagination_config.page_size,
+            max_pages=pagination_config.max_pages,
+            start_page=1,
+            pagination_callback=None,  # Don't save pagination state for converted books
+            sqlite_tracker=self.sqlite_tracker,
+        ):
+            yield book_line.strip(), known_barcodes
+            book_count += 1
+
+            if book_count % 1000 == 0:
+                logger.info(f"Streamed {book_count:,} converted {pluralize(book_count, 'book')}...")
 
     async def get_all_books_html(self) -> AsyncGenerator[tuple[str, set[str]], None]:
-        """Stream all book data from GRIN using HTML pagination with large page sizes."""
-        logger.info("Streaming all books from GRIN...")
+        """Stream non-converted books from GRIN using HTML pagination with large page sizes.
+
+        Note: _all_books endpoint actually returns 'all books except converted', not truly all books.
+        """
+        logger.info("Streaming non-converted books from GRIN...")
 
         # Determine starting point for pagination
         start_page = self.pagination_state.get("current_page", 1)
@@ -589,7 +434,7 @@ class BookCollector:
                 self.total_books_estimate = book_count + 50000  # Conservative estimate
 
             if book_count % 5000 == 0:
-                logger.info(f"Streamed {book_count:,} {pluralize(book_count, 'book')}...")
+                logger.info(f"Streamed {book_count:,} non-converted {pluralize(book_count, 'book')}...")
                 # Update total estimate more aggressively during large streams
                 if book_count > 50000:
                     self.total_books_estimate = book_count + 100000
@@ -620,19 +465,35 @@ class BookCollector:
             # Continue without converted books rather than failing
 
     async def get_all_books(self) -> AsyncGenerator[tuple[str, set[str]], None]:
-        """Stream all book data from GRIN using HTML pagination, plus converted books."""
-        # First, yield books from the _converted list
+        """Stream all book data from GRIN using two-pass collection with full metadata.
+
+        First pass: Collect converted books with full metadata from _converted endpoint
+        Second pass: Collect non-converted books from _all_books endpoint
+
+        Note: _all_books endpoint actually returns 'all books except converted', not truly all books.
+        """
+        # First pass: Get converted books with full metadata
+        print("Phase 1: Collecting converted books with full metadata...")
         converted_count = 0
-        async for book_line, known_barcodes in self.get_converted_books():
-            converted_count += 1
+        async for book_line, known_barcodes in self.get_converted_books_html():
             yield book_line, known_barcodes
+            converted_count += 1
 
         if converted_count > 0:
-            print(f"Finished processing {converted_count:,} converted books, now continuing with full catalog...")
+            print(f"Phase 1 complete: {converted_count:,} converted books collected")
 
-        # Then, yield books from the main _all_books catalog
+        # Second pass: Get non-converted books from _all_books
+        print("Phase 2: Collecting non-converted books...")
+        non_converted_count = 0
         async for book_line, known_barcodes in self.get_all_books_html():
             yield book_line, known_barcodes
+            non_converted_count += 1
+
+        if non_converted_count > 0:
+            print(f"Phase 2 complete: {non_converted_count:,} non-converted books collected")
+
+        total_books = converted_count + non_converted_count
+        print(f"Two-pass collection complete: {total_books:,} total books ({converted_count:,} converted + {non_converted_count:,} non-converted)")
 
     def _looks_like_date(self, text: str) -> bool:
         """Check if text looks like a date string."""
@@ -645,6 +506,161 @@ class BookCollector:
             or text.lower().startswith("http")
         )  # URLs are not dates
 
+    def _parse_grin_date(self, date_str: str) -> str | None:
+        """Parse a date string from GRIN format to ISO format."""
+        if not date_str:
+            return None
+        try:
+            # GRIN format: YYYY/MM/DD HH:MM
+            dt = datetime.strptime(date_str, "%Y/%m/%d %H:%M")
+            return dt.isoformat()
+        except ValueError:
+            return date_str  # Return as-is if parsing fails
+
+    def _get_field_or_none(self, fields: list[str], index: int) -> str | None:
+        """Get field at index or None if index is out of bounds or field is empty."""
+        if index < len(fields) and fields[index]:
+            return fields[index]
+        return None
+
+    def _parse_date_field(self, fields: list[str], index: int) -> str | None:
+        """Parse date field at index or return None if missing/empty."""
+        field = self._get_field_or_none(fields, index)
+        return self._parse_grin_date(field) if field else None
+
+    def _has_status_field(self, text: str) -> bool:
+        """Check if text contains a GRIN status field."""
+        return any(status in text for status in ["NOT_AVAILABLE", "PREVIOUSLY_DOWNLOADED", "AVAILABLE"])
+
+    def _extract_google_books_link(self, text: str) -> str:
+        """Extract Google Books link if valid."""
+        if text and ("books.google.com" in text or text.startswith("http")):
+            return text
+        return ""
+
+    def _detect_grin_format(self, fields: list[str]) -> str:
+        """Detect the GRIN line format type."""
+        # Check if this is _converted format (barcode in field 0, title in field 1)
+        # The _converted format has 9 fields, a non-empty title in field 1, and scanned_date in field 2
+        if (
+            len(fields) >= 9 and
+            len(fields[1]) > 0 and
+            not self._looks_like_date(fields[1]) and
+            len(fields[2]) > 0 and
+            self._looks_like_date(fields[2])
+        ):
+            return "converted"
+
+        # Check if this is _all_books format without checkbox (barcode in field 0, title in field 1, status in field 2)
+        if (
+            len(fields) >= 3 and
+            len(fields[1]) > 0 and
+            not self._looks_like_date(fields[1]) and
+            len(fields[2]) > 0 and
+            self._has_status_field(fields[2])
+        ):
+            return "all_books_no_checkbox"
+
+        # Check if this is _all_books HTML format (has title in field 2)
+        if len(fields) > 2 and fields[2] and not self._looks_like_date(fields[2]):
+            return "html_table"
+
+        # Default to plain text format
+        return "text"
+
+    def _parse_converted_format(self, fields: list[str]) -> dict:
+        """Parse _converted HTML format."""
+        # _converted HTML format:
+        # fields[0] = barcode
+        # fields[1] = title
+        # fields[2] = scanned_date
+        # fields[3] = processed_date
+        # fields[4] = analyzed_date
+        # fields[5] = ? (additional date)
+        # fields[6] = ? (additional date)
+        # fields[7] = ? (additional date)
+        # fields[8] = google_books_link
+        return {
+            "barcode": fields[0],
+            "title": self._get_field_or_none(fields, 1) or "",
+            "scanned_date": self._parse_date_field(fields, 2),
+            "processed_date": self._parse_date_field(fields, 3),
+            "analyzed_date": self._parse_date_field(fields, 4),
+            "converted_date": None,  # Not directly available in _converted format
+            "downloaded_date": None,
+            "ocr_date": None,
+            "google_books_link": self._get_field_or_none(fields, 8) or "",
+        }
+
+    def _parse_all_books_no_checkbox(self, fields: list[str]) -> dict:
+        """Parse _all_books HTML format without checkbox."""
+        # _all_books HTML format without checkbox:
+        # fields[0] = barcode
+        # fields[1] = title
+        # fields[2] = status
+        # fields[3] = dates (if present)
+        # Limited date information available
+        return {
+            "barcode": fields[0],
+            "title": self._get_field_or_none(fields, 1) or "",
+            "grin_state": self._get_field_or_none(fields, 2),
+            "scanned_date": self._parse_date_field(fields, 3),
+            "analyzed_date": self._parse_date_field(fields, 4),
+            "converted_date": self._parse_date_field(fields, 5),
+            "downloaded_date": self._parse_date_field(fields, 6),
+            "processed_date": self._parse_date_field(fields, 7),
+            "ocr_date": self._parse_date_field(fields, 8),
+            "google_books_link": self._get_field_or_none(fields, 9) or "",
+        }
+
+    def _parse_html_table_format(self, fields: list[str]) -> dict:
+        """Parse HTML table format."""
+        # HTML table format - title in field[2]
+        # Extract Google Books link from field 10
+        google_link = self._extract_google_books_link(self._get_field_or_none(fields, 10) or "")
+
+        return {
+            "barcode": fields[0],  # Barcode from checkbox input
+            "title": fields[2],
+            "grin_state": self._get_field_or_none(fields, 3),  # Status field
+            "scanned_date": self._parse_date_field(fields, 4),
+            "analyzed_date": self._parse_date_field(fields, 5),
+            "converted_date": self._parse_date_field(fields, 6),
+            "downloaded_date": self._parse_date_field(fields, 7),
+            "processed_date": self._parse_date_field(fields, 8),
+            "ocr_date": self._parse_date_field(fields, 9),
+            "google_books_link": google_link,
+        }
+
+    def _parse_text_format(self, fields: list[str]) -> dict:
+        """Parse plain text format."""
+        return {
+            "barcode": fields[0],
+            "title": "",
+            "scanned_date": self._parse_date_field(fields, 1),
+            "converted_date": self._parse_date_field(fields, 2),
+            "downloaded_date": self._parse_date_field(fields, 3),
+            "processed_date": self._parse_date_field(fields, 4),
+            "analyzed_date": self._parse_date_field(fields, 5),
+            # field[6] is unknown/blank
+            "ocr_date": self._parse_date_field(fields, 7),
+            "google_books_link": self._get_field_or_none(fields, 8) or "",
+        }
+
+    def _create_barcode_only_record(self, barcode: str) -> dict:
+        """Create minimal record for barcode-only input."""
+        return {
+            "barcode": barcode,
+            "title": "",
+            "scanned_date": None,
+            "converted_date": None,
+            "downloaded_date": None,
+            "processed_date": None,
+            "analyzed_date": None,
+            "ocr_date": None,
+            "google_books_link": "",
+        }
+
     def parse_grin_line(self, line: str) -> dict:
         """Parse a line from GRIN _all_books output or a simple barcode."""
         fields = line.strip().split("\t")
@@ -653,80 +669,22 @@ class BookCollector:
 
         # Handle barcode-only input (from converted books list)
         if len(fields) == 1 and not any("\t" in line for line in [line]):
-            # This is just a barcode, create minimal record
-            barcode = fields[0]
-            return {
-                "barcode": barcode,
-                "title": "",  # Will be enriched later if needed
-                "scanned_date": None,
-                "converted_date": None,
-                "downloaded_date": None,
-                "processed_date": None,
-                "analyzed_date": None,
-                "ocr_date": None,
-                "google_books_link": "",
-            }
+            return self._create_barcode_only_record(fields[0])
 
-        # Pad fields to ensure we have at least 9 elements
-        while len(fields) < 9:
+        # Pad fields to ensure we have at least 11 elements
+        while len(fields) < 11:
             fields.append("")
 
-        def parse_date(date_str: str) -> str | None:
-            if not date_str:
-                return None
-            try:
-                # GRIN format: YYYY/MM/DD HH:MM
-                dt = datetime.strptime(date_str, "%Y/%m/%d %H:%M")
-                return dt.isoformat()
-            except ValueError:
-                return date_str  # Return as-is if parsing fails
-
-        # GRIN HTML output format (from GRINTableParser):
-        # fields[0] = barcode (from input checkbox value)
-        # fields[1] = barcode (duplicate from table cell)
-        # fields[2] = title
-        # fields[3] = unknown/empty field
-        # fields[4] = scanned_date
-        # fields[5] = analyzed_date
-        # fields[6] = converted_date
-        # fields[7] = downloaded_date
-        # fields[8+] = additional fields if present (might include Google Books link)
-
-        # Check if this is HTML format (has title in field 2) vs test format (has date in field 2)
-        if len(fields) > 2 and fields[2] and not self._looks_like_date(fields[2]):
-            # HTML table format - title in field[2]
-            # Look for Google Books link in additional fields
-            google_link = ""
-            for i in range(8, len(fields)):
-                if fields[i] and ("books.google.com" in fields[i] or fields[i].startswith("http")):
-                    google_link = fields[i]
-                    break
-
-            return {
-                "barcode": fields[0],
-                "title": fields[2],
-                "scanned_date": parse_date(fields[4]) if len(fields) > 4 else None,
-                "converted_date": parse_date(fields[6]) if len(fields) > 6 else None,
-                "downloaded_date": parse_date(fields[7]) if len(fields) > 7 else None,
-                "processed_date": None,  # Not available in HTML format
-                "analyzed_date": parse_date(fields[5]) if len(fields) > 5 else None,
-                "ocr_date": None,  # Not available in HTML format
-                "google_books_link": google_link,
-            }
-        else:
-            # Test/legacy text format
-            return {
-                "barcode": fields[0],
-                "title": "",  # Title not available in text format
-                "scanned_date": parse_date(fields[1]),
-                "converted_date": parse_date(fields[2]),
-                "downloaded_date": parse_date(fields[3]),
-                "processed_date": parse_date(fields[4]),
-                "analyzed_date": parse_date(fields[5]),
-                # field[6] is unknown/blank
-                "ocr_date": parse_date(fields[7]) if len(fields) > 7 else None,
-                "google_books_link": fields[8] if len(fields) > 8 else "",
-            }
+        # Detect format and parse accordingly
+        format_type = self._detect_grin_format(fields)
+        if format_type == "converted":
+            return self._parse_converted_format(fields)
+        elif format_type == "all_books_no_checkbox":
+            return self._parse_all_books_no_checkbox(fields)
+        elif format_type == "html_table":
+            return self._parse_html_table_format(fields)
+        else:  # text
+            return self._parse_text_format(fields)
 
     async def enrich_book_record(self, record: BookRecord) -> BookRecord:
         """Enrich book record with storage and metadata information."""
@@ -778,7 +736,7 @@ class BookCollector:
 
         # Archive existing progress file before starting execution
         logger.debug("Backing up progress file...")
-        await self._archive_progress_file()
+        await self.progress_tracker.archive_progress_file()
 
         # Backup database before starting work
         logger.debug("Backing up SQLite database...")
@@ -798,19 +756,15 @@ class BookCollector:
 
         try:
             # Load progress and initialize session tracking
-            progress_data = await self.load_progress()
+            await self.load_progress()
 
             # Initialize session timing
-            self.session_start_time = datetime.now(UTC)
+            self.progress_tracker.start_session()
+            self.session_start_time = datetime.now(UTC)  # Keep for backward compatibility
 
-            # Load accumulated runtime from previous sessions
-            if "runtime_tracking" in progress_data:
-                self.accumulated_runtime = progress_data["runtime_tracking"].get("total_runtime_seconds", 0.0)
-            else:
-                self.accumulated_runtime = 0.0
+            # Runtime tracking is now handled by progress_tracker
 
-            # Get processing states
-            processing_states = await self.get_processing_states()
+            # Book conversion status is determined from converted_date field in all_books data
 
             # Prepare CSV file
             output_path = Path(output_file)
@@ -889,7 +843,7 @@ class BookCollector:
 
                     # Process the book
                     try:
-                        record = await self.process_book(grin_line, processing_states)
+                        record = await self.process_book(grin_line)
                         if record:
                             # Write to CSV immediately
                             csv_line = ",".join(f'"{field}"' for field in record.to_csv_row()) + "\n"
@@ -947,7 +901,7 @@ class BookCollector:
             self.progress.finish()
 
         # Final summary
-        actual_runtime = getattr(self, "accumulated_runtime", 0.0)
+        actual_runtime = self.progress_tracker.accumulated_runtime
         if hasattr(self, "session_start_time"):
             session_elapsed = (datetime.now(UTC) - self.session_start_time).total_seconds()
             actual_runtime += session_elapsed
@@ -997,7 +951,7 @@ class BookCollector:
         # Return completion status
         return completed_successfully
 
-    async def process_book(self, grin_line: str, processing_states: dict[str, set[str]]) -> BookRecord | None:
+    async def process_book(self, grin_line: str) -> BookRecord | None:
         """Process a single book line from GRIN and return its record."""
 
         # Parse GRIN data directly from the line
@@ -1014,9 +968,7 @@ class BookCollector:
             # Create record
             record = BookRecord(**parsed_data)
 
-            # Determine processing state
-            # Processing state is now tracked in status history table
-            # No need to set processing_state field
+            # Book conversion status is available in converted_date field
 
             # Enrich record with timestamps and storage info
             record = await self.enrich_book_record(record)
