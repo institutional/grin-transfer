@@ -253,23 +253,23 @@ class GRINClient:
             return "\t".join(cell_strings)
         return barcode + "\t" + "\t".join(cell_strings)
 
-    def _handle_checkbox_format(self, row, books: list[str]) -> None:
-        """Handle _all_books format with checkboxes."""
+    def _handle_checkbox_format(self, row, books_count: int) -> str | None:
+        """Handle _all_books format with checkboxes. Returns book line or None."""
         barcode_input = row.css_first('input[name="barcodes"]')
         if not barcode_input:
-            return
+            return None
 
         barcode = barcode_input.attributes.get("value")
         if not barcode:
-            return
+            return None
 
         cells = row.css("td")
         cell_texts = self._extract_cell_texts(cells)
-        self._debug_log_cells(barcode, cell_texts, len(books))
+        self._debug_log_cells(barcode, cell_texts, books_count)
 
         if len(cell_texts) > 1:
-            book_line = self._create_book_line(barcode, cell_texts, skip_cells=1)
-            books.append(book_line)
+            return self._create_book_line(barcode, cell_texts, skip_cells=1)
+        return None
 
     def _detect_row_format(self, row) -> tuple[str, str, int]:
         """Detect format and extract barcode from row. Returns (format, barcode, skip_cells)."""
@@ -292,23 +292,22 @@ class GRINClient:
 
         return "invalid", "", 0
 
-    def _process_row(self, row, books: list[str]) -> None:
-        """Process a single table row and add book if valid."""
+    def _process_row(self, row, books_count: int) -> str | None:
+        """Process a single table row and return book line if valid."""
         if row.css_first('input[name="barcodes"]'):
-            self._handle_checkbox_format(row, books)
-            return
+            return self._handle_checkbox_format(row, books_count)
 
         format_type, barcode, skip_cells = self._detect_row_format(row)
         if format_type == "invalid" or not barcode:
-            return
+            return None
 
         cells = row.css("td")
         cell_texts = self._extract_cell_texts(cells)
-        self._debug_log_cells(barcode, cell_texts, len(books))
+        self._debug_log_cells(barcode, cell_texts, books_count)
 
         if len(cell_texts) > skip_cells:
-            book_line = self._create_book_line(barcode, cell_texts, skip_cells)
-            books.append(book_line)
+            return self._create_book_line(barcode, cell_texts, skip_cells)
+        return None
 
     def _parse_books_from_html(self, html_content: str) -> list[str]:
         """
@@ -332,7 +331,9 @@ class GRINClient:
                     logger.debug(f"HTML table headers found: {headers}")
 
             for row in rows:
-                self._process_row(row, books)
+                book_line = self._process_row(row, len(books))
+                if book_line:
+                    books.append(book_line)
 
             return books
 
