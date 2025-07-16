@@ -852,7 +852,7 @@ class BookCollector:
         if len(fields) == 1 and not any("\t" in line for line in [line]):
             return self._create_barcode_only_record(fields[0])
 
-        # Pad fields to ensure we have at least 11 elements (based on debug output)
+        # Pad fields to ensure we have at least 11 elements
         while len(fields) < 11:
             fields.append("")
 

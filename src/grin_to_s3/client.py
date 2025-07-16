@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 ALL_BOOKS_ENDPOINT = "_all_books"
 
+
 class GRINClient:
     """Async client for GRIN API operations."""
 
@@ -52,8 +53,6 @@ class GRINClient:
             response = await self.auth.make_authenticated_request(session, url, method=method)
             return await response.text()
 
-
-
     async def stream_book_list_html_prefetch(
         self,
         directory: str,
@@ -87,9 +86,7 @@ class GRINClient:
                 html, response_url = await prefetch_task
                 wait_elapsed = time.time() - wait_start
                 use_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                logger.debug(
-                    f"Page {page_count}: Using prefetched data after {wait_elapsed:.2f}s wait at {use_time}"
-                )
+                logger.debug(f"Page {page_count}: Using prefetched data after {wait_elapsed:.2f}s wait at {use_time}")
 
             else:
                 # First page - fetch normally
@@ -231,6 +228,88 @@ class GRINClient:
         )
         return html, url
 
+    def _extract_cell_texts(self, cells) -> list[str]:
+        """Extract text content from table cells, handling links and cleaning whitespace."""
+        cell_texts = []
+        for cell in cells:
+            link = cell.css_first("a[href]")
+            if link and link.attributes.get("href"):
+                text = link.attributes["href"]
+            else:
+                text = cell.text(strip=True) if cell.text() else ""
+                text = " ".join(text.split())
+            cell_texts.append(text)
+        return cell_texts
+
+    def _debug_log_cells(self, barcode: str, cell_texts: list[str], books_count: int) -> None:
+        """Log cell structure for debugging (first few books only)."""
+        if books_count < 3:
+            logger.debug(f"Book {barcode} has {len(cell_texts)} cells: {cell_texts}")
+
+    def _create_book_line(self, barcode: str, cell_texts: list[str], skip_cells: int = 0) -> str:
+        """Create tab-separated book line from barcode and cell texts."""
+        cell_strings = [cell or "" for cell in cell_texts[skip_cells:]]
+        if skip_cells == 0:
+            return "\t".join(cell_strings)
+        return barcode + "\t" + "\t".join(cell_strings)
+
+    def _handle_checkbox_format(self, row, books: list[str]) -> None:
+        """Handle _all_books format with checkboxes."""
+        barcode_input = row.css_first('input[name="barcodes"]')
+        if not barcode_input:
+            return
+
+        barcode = barcode_input.attributes.get("value")
+        if not barcode:
+            return
+
+        cells = row.css("td")
+        cell_texts = self._extract_cell_texts(cells)
+        self._debug_log_cells(barcode, cell_texts, len(books))
+
+        if len(cell_texts) > 1:
+            book_line = self._create_book_line(barcode, cell_texts, skip_cells=1)
+            books.append(book_line)
+
+    def _detect_row_format(self, row) -> tuple[str, str, int]:
+        """Detect format and extract barcode from row. Returns (format, barcode, skip_cells)."""
+        cells = row.css("td")
+        if len(cells) < 3:
+            return "invalid", "", 0
+
+        first_cell = cells[0].text(strip=True) if cells[0].text() else ""
+
+        if first_cell.endswith(".tar.gz.gpg"):
+            return "converted", first_cell.replace(".tar.gz.gpg", ""), 1
+
+        if first_cell and not first_cell.startswith("_") and len(first_cell) > 3:
+            return "all_books_first", first_cell, 0
+
+        if not first_cell and len(cells) > 1:
+            second_cell = cells[1].text(strip=True) if cells[1].text() else ""
+            if second_cell and len(second_cell) > 3 and not second_cell.startswith("_"):
+                return "all_books_second", second_cell, 2
+
+        return "invalid", "", 0
+
+    def _process_row(self, row, books: list[str]) -> None:
+        """Process a single table row and add book if valid."""
+        if row.css_first('input[name="barcodes"]'):
+            self._handle_checkbox_format(row, books)
+            return
+
+        format_type, barcode, skip_cells = self._detect_row_format(row)
+        if format_type == "invalid" or not barcode:
+            return
+
+        cells = row.css("td")
+        cell_texts = self._extract_cell_texts(cells)
+        self._debug_log_cells(barcode, cell_texts, len(books))
+
+        if len(cell_texts) > skip_cells:
+            book_line = self._create_book_line(barcode, cell_texts, skip_cells)
+            books.append(book_line)
+
     def _parse_books_from_html(self, html_content: str) -> list[str]:
         """
         Parse book data from GRIN HTML using fast selectolax parser.
@@ -238,14 +317,11 @@ class GRINClient:
         from selectolax.lexbor import LexborHTMLParser
 
         try:
-            # Parse with selectolax using the fastest parser
             tree = LexborHTMLParser(html_content)
             books: list[str] = []
 
-            # Find all table rows in tbody (skips header rows)
             rows = tree.css("tbody tr")
 
-            # Log table headers if present for debugging
             header_row = tree.css_first("thead tr") or tree.css_first("tr")
             if header_row and not header_row.css_first('input[name="barcodes"]'):
                 headers = []
@@ -256,132 +332,7 @@ class GRINClient:
                     logger.debug(f"HTML table headers found: {headers}")
 
             for row in rows:
-                # Look for checkbox input with barcode (for _all_books format)
-                barcode_input = row.css_first('input[name="barcodes"]')
-                if barcode_input:
-                    barcode = barcode_input.attributes.get("value")
-                    if barcode:
-                        # Extract all cell text from this row
-                        cells = row.css("td")
-                        cell_texts = []
-
-                        for cell in cells:
-                            # Check if cell contains a link and extract the URL
-                            link = cell.css_first("a[href]")
-                            if link and link.attributes.get("href"):
-                                # Use the href attribute as the cell content
-                                text = link.attributes["href"]
-                            else:
-                                # Get clean text content
-                                text = cell.text(strip=True) if cell.text() else ""
-                                # Clean up extra whitespace
-                                text = " ".join(text.split())
-                            cell_texts.append(text)
-
-                        # Log the complete cell structure for first few books for debugging
-                        if len(books) < 3:
-                            logger.debug(f"Book {barcode} has {len(cell_texts)} cells: {cell_texts}")
-
-                        # Create tab-separated line: barcode + cells (skip first checkbox cell)
-                        if len(cell_texts) > 1:
-                            # Ensure all cell values are strings (convert None to empty string)
-                            cell_strings = [cell or "" for cell in cell_texts[1:]]
-                            book_line = barcode + "\t" + "\t".join(cell_strings)
-                            books.append(book_line)
-                else:
-                    # Handle rows without checkboxes
-                    cells = row.css("td")
-                    if len(cells) >= 3:  # Need at least barcode, title, status
-                        first_cell = cells[0].text(strip=True) if cells[0].text() else ""
-
-                        # Check if this is _converted format (filename with .tar.gz.gpg)
-                        if first_cell.endswith(".tar.gz.gpg"):
-                            # Handle _converted format (no checkboxes, filename in first cell)
-                            barcode = first_cell.replace(".tar.gz.gpg", "")
-                            # Extract all cell text from this row
-                            cell_texts = []
-                            for cell in cells:
-                                # Check if cell contains a link and extract the URL
-                                link = cell.css_first("a[href]")
-                                if link and link.attributes.get("href"):
-                                    text = link.attributes["href"]
-                                else:
-                                    # Get clean text content
-                                    text = cell.text(strip=True) if cell.text() else ""
-                                    # Clean up extra whitespace
-                                    text = " ".join(text.split())
-                                cell_texts.append(text)
-
-                            # Log the complete cell structure for first few books for debugging
-                            if len(books) < 3:
-                                logger.debug(f"Book {barcode} has {len(cell_texts)} cells: {cell_texts}")
-
-                            # Create tab-separated line: barcode + cells (skip filename cell)
-                            if len(cell_texts) > 1:
-                                # Ensure all cell values are strings (convert None to empty string)
-                                cell_strings = [cell or "" for cell in cell_texts[1:]]
-                                book_line = barcode + "\t" + "\t".join(cell_strings)
-                                books.append(book_line)
-
-                        # Check if this is _all_books format without checkbox (barcode as text)
-                        elif first_cell and not first_cell.startswith("_") and len(first_cell) > 3:
-                            # Handle _all_books format without checkbox (barcode in first cell as text)
-                            barcode = first_cell
-                            # Extract all cell text from this row
-                            cell_texts = []
-                            for cell in cells:
-                                # Check if cell contains a link and extract the URL
-                                link = cell.css_first("a[href]")
-                                if link and link.attributes.get("href"):
-                                    text = link.attributes["href"]
-                                else:
-                                    # Get clean text content
-                                    text = cell.text(strip=True) if cell.text() else ""
-                                    # Clean up extra whitespace
-                                    text = " ".join(text.split())
-                                cell_texts.append(text)
-
-                            # Log the complete cell structure for first few books for debugging
-                            if len(books) < 3:
-                                logger.debug(f"Book {barcode} has {len(cell_texts)} cells: {cell_texts}")
-
-                            # Create tab-separated line: barcode + cells (barcode already in first cell)
-                            if len(cell_texts) > 0:
-                                # Ensure all cell values are strings (convert None to empty string)
-                                cell_strings = [cell or "" for cell in cell_texts]
-                                book_line = "\t".join(cell_strings)
-                                books.append(book_line)
-
-                        # Check if this is _all_books format with empty first cell, barcode in second cell
-                        elif not first_cell and len(cells) > 1:
-                            second_cell = cells[1].text(strip=True) if cells[1].text() else ""
-                            if second_cell and len(second_cell) > 3 and not second_cell.startswith("_"):
-                                # Handle _all_books format with empty first cell (barcode in second cell)
-                                barcode = second_cell
-                                # Extract all cell text from this row
-                                cell_texts = []
-                                for cell in cells:
-                                    # Check if cell contains a link and extract the URL
-                                    link = cell.css_first("a[href]")
-                                    if link and link.attributes.get("href"):
-                                        text = link.attributes["href"]
-                                    else:
-                                        # Get clean text content
-                                        text = cell.text(strip=True) if cell.text() else ""
-                                        # Clean up extra whitespace
-                                        text = " ".join(text.split())
-                                    cell_texts.append(text)
-
-                                # Log the complete cell structure for first few books for debugging
-                                if len(books) < 3:
-                                    logger.debug(f"Book {barcode} has {len(cell_texts)} cells: {cell_texts}")
-
-                                # Create tab-separated line: barcode + cells (skip empty first cell and barcode cell)
-                                if len(cell_texts) > 2:
-                                    # Use barcode from second cell, then remaining cells (skip first two cells)
-                                    cell_strings = [cell or "" for cell in cell_texts[2:]]
-                                    book_line = barcode + "\t" + "\t".join(cell_strings)
-                                    books.append(book_line)
+                self._process_row(row, books)
 
             return books
 
@@ -422,5 +373,3 @@ class GRINClient:
         except Exception as e:
             logger.warning(f"selectolax next button parsing failed: {e}")
             return None
-
-
