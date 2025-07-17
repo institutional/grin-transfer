@@ -34,7 +34,7 @@ class TestBucketCreation:
         if storage_type == "minio":
             storage_config["endpoint_url"] = "http://localhost:9000"
         elif storage_type == "r2":
-            storage_config["account_id"] = "testaccount"
+            storage_config["endpoint_url"] = "https://testaccount.r2.cloudflarestorage.com"
 
         return storage_config
 

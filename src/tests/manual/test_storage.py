@@ -123,7 +123,7 @@ async def test_storage_configs():
     print("✅ S3 config")
 
     # Test R2 config
-    r2_config = StorageConfig.r2(account_id="test", access_key="key", secret_key="secret")
+    r2_config = StorageConfig.r2(endpoint_url="https://test.r2.cloudflarestorage.com", access_key="key", secret_key="secret")
     assert r2_config.protocol == "s3", "R2 should use S3 protocol"
     assert "r2.cloudflarestorage.com" in r2_config.endpoint_url, "Should have R2 endpoint"
     print("✅ R2 config")

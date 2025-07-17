@@ -97,9 +97,9 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
 
             try:
                 creds = load_json_credentials(str(credentials_file))
-                validate_required_keys(creds, ["account_id", "access_key", "secret_key"], "R2 credentials")
+                validate_required_keys(creds, ["endpoint_url", "access_key", "secret_key"], "R2 credentials")
                 return create_r2_storage(
-                    account_id=creds["account_id"], access_key=creds["access_key"], secret_key=creds["secret_key"]
+                    endpoint_url=creds["endpoint_url"], access_key=creds["access_key"], secret_key=creds["secret_key"]
                 )
             except FileNotFoundError as e:
                 if config.get("credentials_file"):
@@ -132,9 +132,9 @@ def create_s3_storage(bucket: str | None = None, **kwargs: Any) -> Storage:
     return Storage(config)
 
 
-def create_r2_storage(account_id: str, access_key: str, secret_key: str, **kwargs: Any) -> Storage:
+def create_r2_storage(endpoint_url: str, access_key: str, secret_key: str, **kwargs: Any) -> Storage:
     """Create Cloudflare R2 storage instance."""
-    config = StorageConfig.r2(account_id, access_key, secret_key, **kwargs)
+    config = StorageConfig.r2(endpoint_url, access_key, secret_key, **kwargs)
     return Storage(config)
 
 
@@ -196,9 +196,9 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
 
             try:
                 creds = load_json_credentials(str(credentials_file))
-                validate_required_keys(creds, ["account_id", "access_key", "secret_key"], "R2 credentials")
+                validate_required_keys(creds, ["endpoint_url", "access_key", "secret_key"], "R2 credentials")
                 return create_r2_storage(
-                    account_id=creds["account_id"],
+                    endpoint_url=creds["endpoint_url"],
                     access_key=creds["access_key"],
                     secret_key=creds["secret_key"],
                 )
