@@ -25,6 +25,7 @@ services:
       # Secure credential mounting (read-only client secrets)
       - ~/.config/grin-to-s3/client_secret.json:/app/secrets/client_secret.json:ro
       - ~/.config/grin-to-s3/gpg_passphrase.asc:/app/.config/grin-to-s3/gpg_passphrase.asc:ro
+      - ~/.config/grin-to-s3/r2_credentials.json:/app/.config/grin-to-s3/r2_credentials.json:ro
       
       # Writable credential storage for token refresh
       - ./docker-data/credentials:/app/.config/grin-to-s3

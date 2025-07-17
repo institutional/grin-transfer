@@ -1,0 +1,84 @@
+{
+  "run_name": "r2test",
+  "session_id": 1752780033,
+  "run_start_time": 1118191.148084471,
+  "run_end_time": null,
+  "total_duration_seconds": null,
+  "interruption_count": 0,
+  "last_checkpoint_time": 1118288.956584432,
+  "total_items_processed": 0,
+  "total_items_successful": 0,
+  "total_items_failed": 0,
+  "total_items_retried": 0,
+  "total_bytes_processed": 0,
+  "total_error_count": 2,
+  "overall_success_rate_percent": 0,
+  "overall_processing_rate_per_second": 0.0,
+  "stages": {
+    "collect": {
+      "start_time": 1118191.148097305,
+      "end_time": 1118191.157868971,
+      "duration_seconds": 0.0097716657910496,
+      "items_processed": 0,
+      "items_successful": 0,
+      "items_failed": 0,
+      "items_retried": 0,
+      "bytes_processed": 0,
+      "error_count": 2,
+      "error_types": {
+        "ValueError": 2
+      },
+      "last_error_message": "Invalid R2 credentials file /app/.config/grin-to-s3/r2_credentials.json: Missing required R2 credentials keys: ['endpoint_url']",
+      "last_error_time": 1118288.956575141,
+      "command_args": {
+        "library_directory": "Harvard",
+        "storage_type": "r2",
+        "test_mode": false,
+        "limit": 1
+      },
+      "progress_updates": [
+        {
+          "timestamp": 1118191.156655096,
+          "elapsed_seconds": 0.008557790890336037,
+          "message": "Configuration written, starting collection",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118191.157863471,
+          "elapsed_seconds": 0.009766165865585208,
+          "message": "Collection failed: ValueError",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118288.954219849,
+          "elapsed_seconds": 97.80612254398875,
+          "message": "Configuration written, starting collection",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118288.956578432,
+          "elapsed_seconds": 97.80848112679087,
+          "message": "Collection failed: ValueError",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        }
+      ],
+      "is_completed": true,
+      "success_rate_percent": 0
+    }
+  },
+  "is_completed": false,
+  "has_errors": true,
+  "active_stages": [],
+  "completed_stages": [
+    "collect"
+  ],
+  "generated_at": "2025-07-17T19:22:11.590421+00:00"
+}

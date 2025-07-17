@@ -1,0 +1,45 @@
+{
+  "library_directory": "Harvard",
+  "rate_limit": 5.0,
+  "pagination": {
+    "page_size": 10000,
+    "max_pages": 1000,
+    "start_page": 1
+  },
+  "resume_file": "output/r2test/progress.json",
+  "progress_backup_interval": 100,
+  "sqlite_db_path": "output/r2test/books.db",
+  "sqlite_cleanup_sessions": 5,
+  "burst_limit": 10,
+  "processing_chunk_size": 1000,
+  "recent_cache_size": 1000,
+  "recent_failed_cache_size": 100,
+  "estimation_threshold": 100000,
+  "estimation_extrapolation": 100000,
+  "run_name": "r2test",
+  "run_identifier": "r2test",
+  "output_directory": "output/r2test",
+  "progress_file": "output/r2test/progress.json",
+  "log_file": "logs/grin_pipeline_r2test_20250717_192211.log",
+  "storage_config": {
+    "type": "r2",
+    "protocol": "s3",
+    "config": {
+      "bucket_raw": "grin-raw",
+      "bucket_meta": "grin-meta",
+      "bucket_full": "grin-full"
+    },
+    "prefix": ""
+  },
+  "sync_config": {
+    "concurrent_downloads": 5,
+    "concurrent_uploads": 10,
+    "batch_size": 100,
+    "staging_dir": null,
+    "disk_space_threshold": 0.9,
+    "enrichment_workers": 1,
+    "gpg_key_file": null
+  },
+  "secrets_dir": null,
+  "limit": 1
+}

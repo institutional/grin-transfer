@@ -1,0 +1,180 @@
+{
+  "run_name": "r2",
+  "session_id": 1752779805,
+  "run_start_time": 1117962.522798575,
+  "run_end_time": null,
+  "total_duration_seconds": null,
+  "interruption_count": 0,
+  "last_checkpoint_time": 1118616.139194872,
+  "total_items_processed": 15,
+  "total_items_successful": 15,
+  "total_items_failed": 0,
+  "total_items_retried": 0,
+  "total_bytes_processed": 0,
+  "total_error_count": 3,
+  "overall_success_rate_percent": 100.0,
+  "overall_processing_rate_per_second": 0.022949198773997693,
+  "stages": {
+    "collect": {
+      "start_time": 1117962.522814492,
+      "end_time": 1117962.531952158,
+      "duration_seconds": 0.009137666085734963,
+      "items_processed": 5,
+      "items_successful": 5,
+      "items_failed": 0,
+      "items_retried": 0,
+      "bytes_processed": 0,
+      "error_count": 3,
+      "error_types": {
+        "ValueError": 3
+      },
+      "last_error_message": "R2 credentials file not found at /app/.config/grin-to-s3/r2_credentials.json. Create this file with your R2 credentials.",
+      "last_error_time": 1118207.956521479,
+      "command_args": {
+        "library_directory": "Harvard",
+        "storage_type": "r2",
+        "test_mode": false,
+        "limit": 5
+      },
+      "progress_updates": [
+        {
+          "timestamp": 1117962.530571533,
+          "elapsed_seconds": 0.0077570409048348665,
+          "message": "Configuration written, starting collection",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1117962.531943575,
+          "elapsed_seconds": 0.009129083016887307,
+          "message": "Collection failed: ValueError",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118095.775620303,
+          "elapsed_seconds": 133.25280581088737,
+          "message": "Configuration written, starting collection",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118095.776817637,
+          "elapsed_seconds": 133.2540031450335,
+          "message": "Collection failed: ValueError",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118207.955491604,
+          "elapsed_seconds": 245.43267711205408,
+          "message": "Configuration written, starting collection",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118207.956524271,
+          "elapsed_seconds": 245.4337097790558,
+          "message": "Collection failed: ValueError",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118383.559059768,
+          "elapsed_seconds": 421.0362452759873,
+          "message": "Configuration written, starting collection",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118383.562194768,
+          "elapsed_seconds": 421.03938027611,
+          "message": "Starting book collection",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118388.845304145,
+          "elapsed_seconds": 426.3224896530155,
+          "message": "Collection completed successfully",
+          "items_processed": 5,
+          "items_successful": 5,
+          "items_failed": 0
+        }
+      ],
+      "is_completed": true,
+      "success_rate_percent": 100.0
+    },
+    "sync": {
+      "start_time": 1118403.096651151,
+      "end_time": 1118502.101186321,
+      "duration_seconds": 99.00453516980633,
+      "items_processed": 10,
+      "items_successful": 10,
+      "items_failed": 0,
+      "items_retried": 0,
+      "bytes_processed": 0,
+      "error_count": 0,
+      "error_types": {},
+      "last_error_message": null,
+      "last_error_time": null,
+      "command_args": {
+        "storage_type": "r2",
+        "force_mode": false,
+        "limit": 5
+      },
+      "progress_updates": [
+        {
+          "timestamp": 1118403.10328961,
+          "elapsed_seconds": 0.006638458929955959,
+          "message": "Starting sync pipeline",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118502.10117078,
+          "elapsed_seconds": 99.00451962882653,
+          "message": "Sync pipeline completed successfully",
+          "items_processed": 10,
+          "items_successful": 10,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118612.740300496,
+          "elapsed_seconds": 209.643649345031,
+          "message": "Starting sync pipeline",
+          "items_processed": 10,
+          "items_successful": 10,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118616.139181706,
+          "elapsed_seconds": 213.0425305548124,
+          "message": "Sync pipeline completed successfully",
+          "items_processed": 10,
+          "items_successful": 10,
+          "items_failed": 0
+        }
+      ],
+      "is_completed": true,
+      "success_rate_percent": 100.0
+    }
+  },
+  "is_completed": false,
+  "has_errors": true,
+  "active_stages": [],
+  "completed_stages": [
+    "collect",
+    "sync"
+  ],
+  "generated_at": "2025-07-17T19:27:38.770864+00:00"
+}

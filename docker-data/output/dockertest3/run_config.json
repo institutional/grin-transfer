@@ -1,0 +1,48 @@
+{
+  "library_directory": "Harvard",
+  "rate_limit": 5.0,
+  "pagination": {
+    "page_size": 10000,
+    "max_pages": 1000,
+    "start_page": 1
+  },
+  "resume_file": "output/dockertest3/progress.json",
+  "progress_backup_interval": 100,
+  "sqlite_db_path": "output/dockertest3/books.db",
+  "sqlite_cleanup_sessions": 5,
+  "burst_limit": 10,
+  "processing_chunk_size": 1000,
+  "recent_cache_size": 1000,
+  "recent_failed_cache_size": 100,
+  "estimation_threshold": 100000,
+  "estimation_extrapolation": 100000,
+  "run_name": "dockertest3",
+  "run_identifier": "dockertest3",
+  "output_directory": "output/dockertest3",
+  "progress_file": "output/dockertest3/progress.json",
+  "log_file": "/app/logs/grin_pipeline_dockertest3_20250717_192716.log",
+  "storage_config": {
+    "type": "minio",
+    "protocol": "s3",
+    "config": {
+      "endpoint_url": "http://minio:9000",
+      "access_key": "minioadmin",
+      "secret_key": "minioadmin123",
+      "bucket_raw": "grin-raw",
+      "bucket_meta": "grin-meta",
+      "bucket_full": "grin-full"
+    },
+    "prefix": ""
+  },
+  "sync_config": {
+    "concurrent_downloads": 5,
+    "concurrent_uploads": 10,
+    "batch_size": 100,
+    "staging_dir": null,
+    "disk_space_threshold": 0.9,
+    "enrichment_workers": 1,
+    "gpg_key_file": null
+  },
+  "secrets_dir": null,
+  "limit": 1
+}

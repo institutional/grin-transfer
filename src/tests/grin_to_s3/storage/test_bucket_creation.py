@@ -277,8 +277,9 @@ class TestBucketCreationErrorHandling:
             mock_s3 = MagicMock()
             mock_boto_client.return_value = mock_s3
 
-            # The function should still try to work with None credentials
-            await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
+            # The function should return False early when credentials are missing
+            result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
 
-            # Verify boto3 was called with None credentials
-            mock_boto_client.assert_called_once_with("s3", aws_access_key_id=None, aws_secret_access_key=None)
+            # Verify the function returns False and boto3 is not called
+            assert result is False
+            mock_boto_client.assert_not_called()

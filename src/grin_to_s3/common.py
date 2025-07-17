@@ -834,17 +834,21 @@ async def create_storage_buckets_or_directories(storage_type: str, storage_confi
         print(f"Created local storage directories at {base_path}")
 
     elif storage_type in ("minio", "r2", "s3"):
-        # Create buckets for S3-compatible storage
-        from grin_to_s3.sync.utils import ensure_bucket_exists
+        # For non-MinIO storage, skip bucket verification during collection
+        # Bucket verification will happen when storage is actually used
+        if storage_type == "minio":
+            from grin_to_s3.sync.utils import ensure_bucket_exists
 
-        buckets = ["bucket_raw", "bucket_meta", "bucket_full"]
-        for bucket_key in buckets:
-            bucket_name = storage_config.get(bucket_key)
-            if bucket_name:
-                success = await ensure_bucket_exists(storage_type, storage_config, bucket_name)
-                if not success:
-                    raise ValueError(f"Failed to create/verify bucket {bucket_name}")
-        print(f"Verified/created all buckets for {storage_type} storage")
+            buckets = ["bucket_raw", "bucket_meta", "bucket_full"]
+            for bucket_key in buckets:
+                bucket_name = storage_config.get(bucket_key)
+                if bucket_name:
+                    success = await ensure_bucket_exists(storage_type, storage_config, bucket_name)
+                    if not success:
+                        raise ValueError(f"Failed to create/verify bucket {bucket_name}")
+            print(f"Verified/created all buckets for {storage_type} storage")
+        else:
+            print(f"Configured {storage_type} storage (bucket verification will happen during sync)")
 
 
 async def setup_storage_with_checks(
@@ -945,8 +949,8 @@ def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool
 
     # File handler (auto-generate timestamped filename if not provided)
     if log_file is None:
-        # Create logs directory
-        logs_dir = Path("logs")
+        # Create logs directory using environment variable or default
+        logs_dir = Path(os.environ.get("GRIN_LOG_DIR", "logs"))
         logs_dir.mkdir(exist_ok=True)
 
         # Generate timestamped filename
@@ -968,7 +972,13 @@ def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool
     # Replace flush method - type ignore for dynamic assignment
     file_handler.flush = make_flush_func(file_handler)  # type: ignore[method-assign]
 
-    print(f"Logging to file: {log_file}\n")
+    # Show user-friendly path (host-relative for Docker)
+    display_path = log_file
+    if is_docker_environment() and log_file.startswith("/app/logs/"):
+        # Convert container path to host path for Docker users
+        display_path = log_file.replace("/app/logs/", "docker-data/logs/")
+
+    print(f"Logging to file: {display_path}\n")
     logger = logging.getLogger(__name__)
     logger.info(f"Logging to file: {log_file}")
     logger.info(f"Logging initialized at {level} level")

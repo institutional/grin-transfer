@@ -1,0 +1,72 @@
+{
+  "updated": "2025-07-17T19:26:33.608977+00:00",
+  "job_metadata": {
+    "job_started": "2025-07-17T19:26:26.770240+00:00",
+    "started_by_user": "unknown",
+    "hostname": "f682f7bbda1d",
+    "python_version": "3.12.11",
+    "working_directory": "/app",
+    "export_parameters": {
+      "directory": "Harvard",
+      "rate_limit": 1.0,
+      "storage_config": {
+        "type": "minio",
+        "protocol": "s3",
+        "config": {
+          "endpoint_url": "http://minio:9000",
+          "access_key": "minioadmin",
+          "secret_key": "minioadmin123",
+          "bucket_raw": "grin-raw",
+          "bucket_meta": "grin-meta",
+          "bucket_full": "grin-full"
+        },
+        "prefix": ""
+      },
+      "config_hash": "753c9af5"
+    },
+    "system_info": {
+      "platform": "linux",
+      "pid": 199
+    }
+  },
+  "resume_count": 0,
+  "total_books_estimate": null,
+  "current_status": {
+    "total_processed": 1,
+    "total_failed": 0,
+    "actual_runtime_seconds": 6.5,
+    "actual_runtime_formatted": "6.5s",
+    "wall_clock_elapsed_seconds": 6.8,
+    "wall_clock_elapsed_formatted": "6.8s",
+    "last_update": "2025-07-17T19:26:33.608977+00:00"
+  },
+  "performance_metrics": {
+    "books_per_second": 0.153,
+    "books_per_hour": 550.4,
+    "estimated_completion_hours": null
+  },
+  "error_summary": {
+    "failure_rate_percent": 0.0,
+    "total_errors": 0
+  },
+  "progress_tracking": {
+    "completion_percentage": null,
+    "total_estimate_method": "unknown"
+  },
+  "runtime_tracking": {
+    "total_runtime_seconds": 6.5,
+    "wall_clock_elapsed_seconds": 6.8,
+    "resume_count": 0,
+    "explanation": "total_runtime tracks actual processing time across sessions; wall_clock tracks time since first start"
+  },
+  "pagination_state": {
+    "current_page": 1,
+    "next_url": null,
+    "page_size": 10000
+  },
+  "sqlite_info": {
+    "database_path": "output/dockertest2/books.db",
+    "session_id": 1752780386,
+    "note": "Processed/failed barcodes stored in SQLite database, not in this JSON file"
+  }
+}

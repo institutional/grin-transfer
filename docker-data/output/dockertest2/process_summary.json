@@ -1,0 +1,74 @@
+{
+  "run_name": "dockertest2",
+  "session_id": 1752780386,
+  "run_start_time": 1118544.131287673,
+  "run_end_time": null,
+  "total_duration_seconds": null,
+  "interruption_count": 0,
+  "last_checkpoint_time": 1118551.144789718,
+  "total_items_processed": 1,
+  "total_items_successful": 1,
+  "total_items_failed": 0,
+  "total_items_retried": 0,
+  "total_bytes_processed": 0,
+  "total_error_count": 0,
+  "overall_success_rate_percent": 100.0,
+  "overall_processing_rate_per_second": 0.14255602288871336,
+  "stages": {
+    "collect": {
+      "start_time": 1118544.131303548,
+      "end_time": 1118551.143627677,
+      "duration_seconds": 7.0123241289984435,
+      "items_processed": 1,
+      "items_successful": 1,
+      "items_failed": 0,
+      "items_retried": 0,
+      "bytes_processed": 0,
+      "error_count": 0,
+      "error_types": {},
+      "last_error_message": null,
+      "last_error_time": null,
+      "command_args": {
+        "library_directory": "Harvard",
+        "storage_type": "minio",
+        "test_mode": false,
+        "limit": 1
+      },
+      "progress_updates": [
+        {
+          "timestamp": 1118544.138624757,
+          "elapsed_seconds": 0.007321208948269486,
+          "message": "Configuration written, starting collection",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118544.138772715,
+          "elapsed_seconds": 0.007469167001545429,
+          "message": "Starting book collection",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1118551.143619135,
+          "elapsed_seconds": 7.012315586907789,
+          "message": "Collection completed successfully",
+          "items_processed": 1,
+          "items_successful": 1,
+          "items_failed": 0
+        }
+      ],
+      "is_completed": true,
+      "success_rate_percent": 100.0
+    }
+  },
+  "is_completed": false,
+  "has_errors": false,
+  "active_stages": [],
+  "completed_stages": [
+    "collect"
+  ],
+  "generated_at": "2025-07-17T19:26:33.777624+00:00"
+}

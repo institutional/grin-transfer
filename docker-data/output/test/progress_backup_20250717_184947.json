@@ -1,0 +1,72 @@
+{
+  "updated": "2025-07-17T18:48:53.140762+00:00",
+  "job_metadata": {
+    "job_started": "2025-07-17T18:48:47.863574+00:00",
+    "started_by_user": "unknown",
+    "hostname": "a9f395b9a721",
+    "python_version": "3.12.11",
+    "working_directory": "/app",
+    "export_parameters": {
+      "directory": "Harvard",
+      "rate_limit": 1.0,
+      "storage_config": {
+        "type": "minio",
+        "protocol": "s3",
+        "config": {
+          "endpoint_url": "http://minio:9000",
+          "access_key": "minioadmin",
+          "secret_key": "minioadmin123",
+          "bucket_raw": "grin-raw",
+          "bucket_meta": "grin-meta",
+          "bucket_full": "grin-full"
+        },
+        "prefix": ""
+      },
+      "config_hash": "753c9af5"
+    },
+    "system_info": {
+      "platform": "linux",
+      "pid": 13
+    }
+  },
+  "resume_count": 0,
+  "total_books_estimate": null,
+  "current_status": {
+    "total_processed": 5,
+    "total_failed": 0,
+    "actual_runtime_seconds": 4.9,
+    "actual_runtime_formatted": "4.9s",
+    "wall_clock_elapsed_seconds": 5.3,
+    "wall_clock_elapsed_formatted": "5.3s",
+    "last_update": "2025-07-17T18:48:53.140762+00:00"
+  },
+  "performance_metrics": {
+    "books_per_second": 1.01,
+    "books_per_hour": 3637.7,
+    "estimated_completion_hours": null
+  },
+  "error_summary": {
+    "failure_rate_percent": 0.0,
+    "total_errors": 0
+  },
+  "progress_tracking": {
+    "completion_percentage": null,
+    "total_estimate_method": "unknown"
+  },
+  "runtime_tracking": {
+    "total_runtime_seconds": 4.9,
+    "wall_clock_elapsed_seconds": 5.3,
+    "resume_count": 0,
+    "explanation": "total_runtime tracks actual processing time across sessions; wall_clock tracks time since first start"
+  },
+  "pagination_state": {
+    "current_page": 1,
+    "next_url": null,
+    "page_size": 10000
+  },
+  "sqlite_info": {
+    "database_path": "output/test/books.db",
+    "session_id": 1752778127,
+    "note": "Processed/failed barcodes stored in SQLite database, not in this JSON file"
+  }
+}

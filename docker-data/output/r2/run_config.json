@@ -1,0 +1,47 @@
+{
+  "library_directory": "Harvard",
+  "rate_limit": 5.0,
+  "pagination": {
+    "page_size": 10000,
+    "max_pages": 1000,
+    "start_page": 1
+  },
+  "resume_file": "output/r2/progress.json",
+  "progress_backup_interval": 100,
+  "sqlite_db_path": "output/r2/books.db",
+  "sqlite_cleanup_sessions": 5,
+  "burst_limit": 10,
+  "processing_chunk_size": 1000,
+  "recent_cache_size": 1000,
+  "recent_failed_cache_size": 100,
+  "estimation_threshold": 100000,
+  "estimation_extrapolation": 100000,
+  "run_name": "r2",
+  "run_identifier": "r2",
+  "output_directory": "output/r2",
+  "progress_file": "output/r2/progress.json",
+  "log_file": "logs/grin_pipeline_r2_20250717_192346.log",
+  "storage_config": {
+    "type": "r2",
+    "config": {
+      "bucket_raw": "ib-1-0-test-raw",
+      "bucket_meta": "ib-1-0-test-meta",
+      "bucket_full": "ib-1-0-test-text",
+      "access_key": "7cb7f1799922bee2c955035239137cbe",
+      "secret_key": "25364ea0eb0f07d7434718ddc25fe0afd7808f506d4f501bf5fb09a1aef4a2e1",
+      "endpoint_url": "https://e6f9e9dce0394f90d378512b6b39c142.r2.cloudflarestorage.com"
+    },
+    "prefix": ""
+  },
+  "sync_config": {
+    "concurrent_downloads": 5,
+    "concurrent_uploads": 10,
+    "batch_size": 100,
+    "staging_dir": null,
+    "disk_space_threshold": 0.9,
+    "enrichment_workers": 1,
+    "gpg_key_file": null
+  },
+  "secrets_dir": null,
+  "limit": 5
+}
