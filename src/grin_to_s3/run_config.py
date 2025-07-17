@@ -175,8 +175,6 @@ class RunConfig:
                 args["access-key"] = value
             elif key == "secret_key":
                 args["secret-key"] = value
-            elif key == "account_id":
-                args["account-id"] = value
             elif key == "credentials_file":
                 args["credentials-file"] = value
 
@@ -428,7 +426,7 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
                 missing_buckets.append(bucket_attr)
 
         # Load R2 credentials if buckets are missing OR credentials are missing
-        if missing_buckets or not all(key in storage_dict for key in ["access_key", "secret_key", "account_id"]):
+        if missing_buckets or not all(key in storage_dict for key in ["access_key", "secret_key", "endpoint_url"]):
             try:
                 # Determine credentials file path
                 credentials_file = getattr(args, "credentials_file", None)
@@ -447,7 +445,7 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
                         storage_dict[bucket_attr] = creds[bucket_attr]
 
                 # Also include R2 credentials for storage creation
-                for cred_attr in ["access_key", "secret_key", "account_id"]:
+                for cred_attr in ["access_key", "secret_key", "endpoint_url"]:
                     if cred_attr in creds:
                         storage_dict[cred_attr] = creds[cred_attr]
             except Exception:
@@ -455,7 +453,7 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
                 pass
 
     # Add other optional arguments
-    for attr in ["prefix", "endpoint_url", "access_key", "secret_key", "account_id", "credentials_file"]:
+    for attr in ["prefix", "endpoint_url", "access_key", "secret_key", "credentials_file"]:
         value = getattr(args, attr, None)
         if value:
             storage_dict[attr] = value

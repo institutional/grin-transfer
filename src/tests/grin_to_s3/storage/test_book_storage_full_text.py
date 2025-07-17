@@ -163,7 +163,7 @@ class TestStorageFactories:
         mock_storage = MagicMock()
         mock_create_r2.return_value = mock_storage
         mock_load_creds.return_value = {
-            "account_id": "test-account",
+            "endpoint_url": "https://test-account.r2.cloudflarestorage.com",
             "access_key": "test-key",
             "secret_key": "test-secret",
         }
@@ -174,7 +174,7 @@ class TestStorageFactories:
 
         mock_load_creds.assert_called_once_with("/path/to/creds.json")
         mock_create_r2.assert_called_once_with(
-            account_id="test-account", access_key="test-key", secret_key="test-secret"
+            endpoint_url="https://test-account.r2.cloudflarestorage.com", access_key="test-key", secret_key="test-secret"
         )
         assert result == mock_storage
 

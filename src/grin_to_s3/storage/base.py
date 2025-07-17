@@ -41,9 +41,8 @@ class StorageConfig:
         return cls(protocol="s3", **kwargs)
 
     @classmethod
-    def r2(cls, account_id: str, access_key: str, secret_key: str, **kwargs: Any) -> "StorageConfig":
+    def r2(cls, endpoint_url: str, access_key: str, secret_key: str, **kwargs: Any) -> "StorageConfig":
         """Configure for Cloudflare R2 storage."""
-        endpoint_url = f"https://{account_id}.r2.cloudflarestorage.com"
         return cls(protocol="s3", endpoint_url=endpoint_url, key=access_key, secret=secret_key, **kwargs)
 
     @classmethod

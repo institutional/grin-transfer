@@ -61,9 +61,7 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
             if storage_type == "minio":
                 s3_config["endpoint_url"] = storage_config.get("endpoint_url")
             elif storage_type == "r2":
-                account_id = storage_config.get("account_id")
-                if account_id:
-                    s3_config["endpoint_url"] = f"https://{account_id}.r2.cloudflarestorage.com"
+                s3_config["endpoint_url"] = storage_config["endpoint_url"]
 
             s3_client = boto3.client("s3", **s3_config)
 

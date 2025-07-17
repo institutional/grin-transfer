@@ -268,7 +268,7 @@ def storage_config(storage_type):
         "r2": {
             "access_key": "test_access_key",
             "secret_key": "test_secret_key",
-            "account_id": "testaccount"
+            "endpoint_url": "https://testaccount.r2.cloudflarestorage.com"
         },
         "minio": {
             "access_key": "minioadmin",
@@ -404,7 +404,7 @@ def mock_cloud_storage_backend(storage_type: str = "s3", bucket_names: list[str]
         }
 
         if storage_type == "r2":
-            storage_config["config"]["account_id"] = "testaccount"
+            storage_config["config"]["endpoint_url"] = "https://testaccount.r2.cloudflarestorage.com"
         elif storage_type == "minio":
             storage_config["config"]["endpoint_url"] = "http://localhost:9000"
 
