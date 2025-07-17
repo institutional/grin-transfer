@@ -51,7 +51,6 @@ services:
       
       # GRIN API settings
       - GRIN_RATE_LIMIT=5.0
-      - GRIN_BURST_LIMIT=10
     
     networks:
       - grin-network

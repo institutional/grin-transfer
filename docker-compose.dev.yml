@@ -43,7 +43,6 @@ services:
       
       # Development settings
       - GRIN_RATE_LIMIT=5.0
-      - GRIN_BURST_LIMIT=10
       - PYTHONPATH=/app/src
       
       # Enable debug logging
