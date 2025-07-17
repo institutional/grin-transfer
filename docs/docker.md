@@ -105,10 +105,10 @@ MinIO provides a local S3-compatible storage service that's perfect for testing.
 
 ```bash
 # Start MinIO and the application
-docker-compose -f docker-compose.dev.yml up -d
+docker-compose --profile minio up -d
 
 # Wait for services to start (about 30 seconds)
-docker-compose -f docker-compose.dev.yml logs -f
+docker-compose logs -f
 
 # Access MinIO console at http://localhost:9001
 # Username: minioadmin
@@ -134,10 +134,10 @@ docker-compose -f docker-compose.dev.yml logs -f
 **Alternative using docker-compose directly:**
 ```bash
 # Set up OAuth2 credentials (run once)
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py auth setup
+docker-compose exec grin-to-s3 python grin.py auth setup
 
 # Collect a small set of books for testing
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py collect \
+docker-compose exec grin-to-s3 python grin.py collect \
   --run-name my_first_run \
   --library-directory Harvard \
   --storage minio \
@@ -184,7 +184,7 @@ MinIO is auto-configured inside Docker containers. Simply use `--storage minio` 
 
 ```bash
 # MinIO is automatically configured to use http://minio:9000
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py collect \
+docker-compose exec grin-to-s3 python grin.py collect \
   --storage minio \
   --bucket-raw grin-raw \
   --bucket-meta grin-meta \
@@ -302,38 +302,38 @@ environment:
 This example shows a complete workflow from collection to export:
 
 ```bash
-# 1. Start the environment
-docker-compose -f docker-compose.dev.yml up -d
+# 1. Start the environment (with MinIO for this example)
+docker-compose --profile minio up -d
 
 # 2. Set up authentication (run once)
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py auth setup
+docker-compose exec grin-to-s3 python grin.py auth setup
 
 # 3. Collect books
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py collect \
+docker-compose exec grin-to-s3 python grin.py collect \
   --run-name production_run \
   --library-directory Harvard \
   --storage minio \
   --limit 1000
 
 # 4. Request processing
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py process request \
+docker-compose exec grin-to-s3 python grin.py process request \
   --run-name production_run \
   --limit 500
 
 # 5. Monitor processing (run periodically)
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py process monitor \
+docker-compose exec grin-to-s3 python grin.py process monitor \
   --run-name production_run
 
 # 6. Sync converted books
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py sync pipeline \
+docker-compose exec grin-to-s3 python grin.py sync pipeline \
   --run-name production_run
 
 # 7. Enrich with metadata
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py enrich \
+docker-compose exec grin-to-s3 python grin.py enrich \
   --run-name production_run
 
 # 8. Export results
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py export \
+docker-compose exec grin-to-s3 python grin.py export \
   --run-name production_run \
   --output /app/output/final_books.csv
 
@@ -503,8 +503,8 @@ COPY custom-scripts/ /app/custom-scripts/
 Use different configurations for development, staging, and production:
 
 ```bash
-# Development
-docker-compose -f docker-compose.dev.yml up -d
+# Development (with MinIO)
+docker-compose --profile minio up -d
 
 # Staging with R2
 docker-compose -f docker-compose.staging.yml up -d
@@ -580,11 +580,11 @@ The OAuth2 authentication server uses port 58432 by default. This port is config
 
 ```bash
 # Default port
-docker-compose -f docker-compose.dev.yml run --rm --service-ports grin-to-s3 python grin.py auth setup
+docker-compose run --rm --service-ports grin-to-s3 python grin.py auth setup
 
 # Custom port
 export GRIN_OAUTH_PORT=59999
-docker-compose -f docker-compose.dev.yml run --rm --service-ports grin-to-s3 python grin.py auth setup
+docker-compose run --rm --service-ports grin-to-s3 python grin.py auth setup
 ```
 
 **Important Notes**:

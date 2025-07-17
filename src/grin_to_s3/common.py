@@ -807,7 +807,7 @@ def print_oauth_setup_instructions() -> None:
     """Print appropriate OAuth setup instructions based on environment."""
     if is_docker_environment():
         print("\nTo set up OAuth credentials in Docker:")
-        print("docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py auth setup")
+        print("./grin-docker python grin.py auth setup")
     else:
         print("\nTo set up OAuth credentials:")
         print("python grin.py auth setup")

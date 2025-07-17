@@ -10,7 +10,7 @@
 #   ./grin-docker bash
 #
 # Environment variables:
-#   COMPOSE_FILE - Docker Compose file to use (default: docker-compose.dev.yml)
+#   COMPOSE_FILE - Docker Compose file to use (default: docker-compose.yml)
 #   SERVICE_NAME - Service name to execute commands in (default: grin-to-s3)
 
 set -e

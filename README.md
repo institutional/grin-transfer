@@ -204,7 +204,7 @@ python grin.py collect --run-name "r2" --library-directory Harvard --storage r2
 **MinIO (Docker only):**
 ```bash
 # MinIO is auto-configured inside Docker containers
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py collect \
+docker-compose --profile minio exec grin-to-s3 python grin.py collect \
   --run-name "minio" --library-directory Harvard --storage minio 
 ```
 
@@ -364,8 +364,7 @@ docker-compose -f examples/docker/docker-compose.r2.yml up -d
 
 ### Available Docker Configurations
 
-- `docker-compose.yml` - Basic production configuration
-- `docker-compose.dev.yml` - Development with MinIO
+- `docker-compose.yml` - Universal configuration with optional MinIO profile
 - `examples/docker/docker-compose.r2.yml` - Cloudflare R2 setup
 - `examples/docker/docker-compose.s3.yml` - AWS S3 setup
 

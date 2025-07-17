@@ -8,10 +8,10 @@ This directory contains Docker configuration examples for running GRIN-to-S3 wit
 
 ```bash
 # Start MinIO and application
-docker-compose -f docker-compose.dev.yml up -d
+docker-compose up -d
 
 # Run a collection command
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py collect \
+docker-compose exec grin-to-s3 python grin.py collect \
   --run-name test_run \
   --library-directory Harvard \
   --storage minio \
