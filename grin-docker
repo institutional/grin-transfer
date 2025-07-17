@@ -5,8 +5,8 @@
 # while maintaining the same CLI interface as the native tool.
 #
 # Usage:
-#   ./grin-docker python grin.py collect --run-name test --storage minio --limit 5
-#   ./grin-docker python grin.py sync pipeline --run-name test
+#   ./grin-docker collect --run-name test --storage minio --limit 5
+#   ./grin-docker sync pipeline --run-name test
 #   ./grin-docker bash
 #
 # Environment variables:
@@ -32,9 +32,18 @@ if [ ! -f "$COMPOSE_PATH" ]; then
     exit 1
 fi
 
+# Prepare the command to execute
+if [ "$1" = "bash" ]; then
+    # Special case: bash opens an interactive shell
+    COMMAND="bash"
+else
+    # Default: prepend python grin.py to the command
+    COMMAND="python grin.py $*"
+fi
+
 # Check if MinIO storage is being used in the command
 PROFILES=""
-if echo "$*" | grep -q "storage minio\|--storage=minio"; then
+if echo "$COMMAND" | grep -q "storage minio\|--storage=minio"; then
     PROFILES="--profile minio"
     echo "Detected MinIO storage - starting MinIO services..."
 fi
@@ -59,5 +68,5 @@ else
     :
 fi
 
-# Execute command with all arguments passed through
-exec docker-compose -f "$COMPOSE_PATH" exec "$SERVICE_NAME" "$@"
+# Execute command
+exec docker-compose -f "$COMPOSE_PATH" exec "$SERVICE_NAME" $COMMAND
