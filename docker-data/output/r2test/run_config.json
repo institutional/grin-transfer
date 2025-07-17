@@ -20,15 +20,11 @@
   "run_identifier": "r2test",
   "output_directory": "output/r2test",
   "progress_file": "output/r2test/progress.json",
-  "log_file": "logs/grin_pipeline_r2test_20250717_192211.log",
+  "log_file": "/app/logs/grin_pipeline_r2test_20250717_195147.log",
   "storage_config": {
     "type": "r2",
     "protocol": "s3",
-    "config": {
-      "bucket_raw": "grin-raw",
-      "bucket_meta": "grin-meta",
-      "bucket_full": "grin-full"
-    },
+    "config": {},
     "prefix": ""
   },
   "sync_config": {
@@ -41,5 +37,5 @@
     "gpg_key_file": null
   },
   "secrets_dir": null,
-  "limit": 1
+  "limit": 5
 }

@@ -19,7 +19,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Allow environment variable overrides
-COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.dev.yml}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 SERVICE_NAME="${SERVICE_NAME:-grin-to-s3}"
 
 # Full path to compose file
@@ -32,10 +32,17 @@ if [ ! -f "$COMPOSE_PATH" ]; then
     exit 1
 fi
 
+# Check if MinIO storage is being used in the command
+PROFILES=""
+if echo "$*" | grep -q "storage minio\|--storage=minio"; then
+    PROFILES="--profile minio"
+    echo "Detected MinIO storage - starting MinIO services..."
+fi
+
 # Ensure services are running (suppress output unless there's an error)
-if ! docker-compose -f "$COMPOSE_PATH" up -d "$SERVICE_NAME" >/dev/null 2>&1; then
+if ! docker-compose -f "$COMPOSE_PATH" $PROFILES up -d "$SERVICE_NAME" >/dev/null 2>&1; then
     echo "Error: Failed to start $SERVICE_NAME service"
-    echo "Try running: docker-compose -f $COMPOSE_FILE up -d"
+    echo "Try running: docker-compose -f $COMPOSE_FILE $PROFILES up -d"
     exit 1
 fi
 

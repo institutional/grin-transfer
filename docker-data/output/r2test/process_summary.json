@@ -4,23 +4,23 @@
   "run_start_time": 1118191.148084471,
   "run_end_time": null,
   "total_duration_seconds": null,
-  "interruption_count": 0,
-  "last_checkpoint_time": 1118288.956584432,
-  "total_items_processed": 0,
-  "total_items_successful": 0,
+  "interruption_count": 1,
+  "last_checkpoint_time": 1120070.184930535,
+  "total_items_processed": 5,
+  "total_items_successful": 5,
   "total_items_failed": 0,
   "total_items_retried": 0,
   "total_bytes_processed": 0,
   "total_error_count": 2,
-  "overall_success_rate_percent": 0,
-  "overall_processing_rate_per_second": 0.0,
+  "overall_success_rate_percent": 100.0,
+  "overall_processing_rate_per_second": 0.002660935744218804,
   "stages": {
     "collect": {
       "start_time": 1118191.148097305,
       "end_time": 1118191.157868971,
       "duration_seconds": 0.0097716657910496,
-      "items_processed": 0,
-      "items_successful": 0,
+      "items_processed": 5,
+      "items_successful": 5,
       "items_failed": 0,
       "items_retried": 0,
       "bytes_processed": 0,
@@ -34,7 +34,7 @@
         "library_directory": "Harvard",
         "storage_type": "r2",
         "test_mode": false,
-        "limit": 1
+        "limit": 5
       },
       "progress_updates": [
         {
@@ -68,10 +68,42 @@
           "items_processed": 0,
           "items_successful": 0,
           "items_failed": 0
+        },
+        {
+          "timestamp": 1120065.159972282,
+          "elapsed_seconds": 1874.0118749768008,
+          "message": "Run resumed after interruption",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1120065.165761407,
+          "elapsed_seconds": 1874.0176641019061,
+          "message": "Configuration written, starting collection",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1120065.167341032,
+          "elapsed_seconds": 1874.0192437269725,
+          "message": "Starting book collection",
+          "items_processed": 0,
+          "items_successful": 0,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1120070.184922576,
+          "elapsed_seconds": 1879.0368252708577,
+          "message": "Collection completed successfully",
+          "items_processed": 5,
+          "items_successful": 5,
+          "items_failed": 0
         }
       ],
       "is_completed": true,
-      "success_rate_percent": 0
+      "success_rate_percent": 100.0
     }
   },
   "is_completed": false,
@@ -80,5 +112,5 @@
   "completed_stages": [
     "collect"
   ],
-  "generated_at": "2025-07-17T19:22:11.590421+00:00"
+  "generated_at": "2025-07-17T19:51:52.829717+00:00"
 }

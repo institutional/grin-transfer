@@ -4,23 +4,23 @@
   "run_start_time": 1116120.919689987,
   "run_end_time": null,
   "total_duration_seconds": null,
-  "interruption_count": 0,
-  "last_checkpoint_time": 1116349.534482467,
-  "total_items_processed": 10,
-  "total_items_successful": 10,
+  "interruption_count": 1,
+  "last_checkpoint_time": 1120059.017520571,
+  "total_items_processed": 15,
+  "total_items_successful": 15,
   "total_items_failed": 0,
   "total_items_retried": 0,
   "total_bytes_processed": 0,
   "total_error_count": 2,
   "overall_success_rate_percent": 100.0,
-  "overall_processing_rate_per_second": 0.04374129567636284,
+  "overall_processing_rate_per_second": 0.0038089444060799616,
   "stages": {
     "collect": {
       "start_time": 1116120.919708195,
       "end_time": 1116120.932362237,
       "duration_seconds": 0.012654042104259133,
-      "items_processed": 10,
-      "items_successful": 10,
+      "items_processed": 15,
+      "items_successful": 15,
       "items_failed": 0,
       "items_retried": 0,
       "bytes_processed": 0,
@@ -156,6 +156,38 @@
           "items_processed": 10,
           "items_successful": 10,
           "items_failed": 0
+        },
+        {
+          "timestamp": 1120053.166181902,
+          "elapsed_seconds": 3932.246473707026,
+          "message": "Run resumed after interruption",
+          "items_processed": 10,
+          "items_successful": 10,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1120053.20669186,
+          "elapsed_seconds": 3932.286983665079,
+          "message": "Configuration written, starting collection",
+          "items_processed": 10,
+          "items_successful": 10,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1120053.20694686,
+          "elapsed_seconds": 3932.287238665158,
+          "message": "Starting book collection",
+          "items_processed": 10,
+          "items_successful": 10,
+          "items_failed": 0
+        },
+        {
+          "timestamp": 1120059.017511904,
+          "elapsed_seconds": 3938.097803709097,
+          "message": "Collection completed successfully",
+          "items_processed": 15,
+          "items_successful": 15,
+          "items_failed": 0
         }
       ],
       "is_completed": true,
@@ -168,5 +200,5 @@
   "completed_stages": [
     "collect"
   ],
-  "generated_at": "2025-07-17T18:49:52.168601+00:00"
+  "generated_at": "2025-07-17T19:51:41.662048+00:00"
 }

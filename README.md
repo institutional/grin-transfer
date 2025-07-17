@@ -4,7 +4,7 @@ An async pipeline for extracting Google Books data from GRIN (Google Return Inte
 
 ## Requirements
 
-- **Python 3.12+** (required for modern language features)
+- **Python 3.12+** 
 - Dependencies managed via `pyproject.toml`
 
 ## Installation
@@ -193,27 +193,24 @@ During sync, OCR text is automatically extracted from book archives and uploaded
 
 **Local Storage:**
 ```bash
-python grin.py collect --run-name "local" --library-directory Harvard --storage local
+python grin.py collect --run-name "local" --library-directory Harvard --storage local --storage-config base_path=/tmp/grin-books
 ```
 
 **Cloudflare R2:**
 ```bash
-python grin.py collect --run-name "r2" --library-directory Harvard --storage r2 \
-  --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
+python grin.py collect --run-name "r2" --library-directory Harvard --storage r2
 ```
 
 **MinIO (Docker only):**
 ```bash
 # MinIO is auto-configured inside Docker containers
 docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py collect \
-  --run-name "minio" --library-directory Harvard --storage minio \
-  --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
+  --run-name "minio" --library-directory Harvard --storage minio 
 ```
 
 **AWS S3:**
 ```bash
-python grin.py collect --run-name "s3" --library-directory Harvard --storage s3 \
-  --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
+python grin.py collect --run-name "s3" --library-directory Harvard --storage s3 
 ```
 
 ## Run Configuration System
@@ -222,8 +219,7 @@ The first command (`grin.py collect`) writes configuration to the run directory.
 
 ```bash
 # Initial collection creates run config
-python grin.py collect --run-name "my_run" --library-directory Harvard --storage r2 \
-  --bucket-raw raw --bucket-meta meta --bucket-full full
+python grin.py collect --run-name "my_run" --library-directory Harvard --storage r2 
 
 # Other commands auto-detect config from run name
 python grin.py process request --run-name my_run
@@ -343,28 +339,6 @@ chmod +x grin-docker
 ./grin-docker python grin.py auth setup
 ./grin-docker python grin.py collect --run-name test_run --library-directory Harvard --storage minio --limit 10
 ./grin-docker bash  # Interactive shell
-```
-
-**Development with MinIO (Manual Docker Compose):**
-```bash
-# Start MinIO and application
-docker-compose -f docker-compose.dev.yml up -d
-
-# Set up OAuth2 credentials first (one-time setup)
-docker-compose -f docker-compose.dev.yml run --rm --service-ports grin-to-s3 python grin.py auth setup
-
-# Run a collection command
-docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py collect \
-  --run-name test_run \
-  --library-directory Harvard \
-  --storage minio \
-  --bucket-raw grin-raw \
-  --bucket-meta grin-meta \
-  --bucket-full grin-full \
-  --limit 10
-
-# Access MinIO console at http://localhost:9001 (minioadmin/minioadmin123)
-```
 
 **Production with Cloudflare R2:**
 ```bash

@@ -6,9 +6,9 @@
     "max_pages": 1000,
     "start_page": 1
   },
-  "resume_file": "output/test/progress.json",
+  "resume_file": "output/test_run/progress.json",
   "progress_backup_interval": 100,
-  "sqlite_db_path": "output/test/books.db",
+  "sqlite_db_path": "output/test_run/books.db",
   "sqlite_cleanup_sessions": 5,
   "burst_limit": 10,
   "processing_chunk_size": 1000,
@@ -16,11 +16,11 @@
   "recent_failed_cache_size": 100,
   "estimation_threshold": 100000,
   "estimation_extrapolation": 100000,
-  "run_name": "test",
-  "run_identifier": "test",
-  "output_directory": "output/test",
-  "progress_file": "output/test/progress.json",
-  "log_file": "/app/logs/grin_pipeline_test_20250717_195135.log",
+  "run_name": "test_run",
+  "run_identifier": "test_run",
+  "output_directory": "output/test_run",
+  "progress_file": "output/test_run/progress.json",
+  "log_file": "/app/logs/grin_pipeline_test_run_20250717_194528.log",
   "storage_config": {
     "type": "minio",
     "protocol": "s3",
@@ -44,5 +44,5 @@
     "gpg_key_file": null
   },
   "secrets_dir": null,
-  "limit": 5
+  "limit": 10
 }

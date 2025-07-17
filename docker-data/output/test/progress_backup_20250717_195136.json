@@ -1,9 +1,9 @@
 {
-  "updated": "2025-07-17T19:51:41.489354+00:00",
+  "updated": "2025-07-17T18:49:51.975520+00:00",
   "job_metadata": {
     "job_started": "2025-07-17T18:48:47.863574+00:00",
     "started_by_user": "unknown",
-    "hostname": "f682f7bbda1d",
+    "hostname": "a9f395b9a721",
     "python_version": "3.12.11",
     "working_directory": "/app",
     "export_parameters": {
@@ -26,23 +26,23 @@
     },
     "system_info": {
       "platform": "linux",
-      "pid": 326
+      "pid": 93
     }
   },
-  "resume_count": 2,
+  "resume_count": 1,
   "total_books_estimate": null,
   "current_status": {
-    "total_processed": 15,
+    "total_processed": 10,
     "total_failed": 0,
-    "actual_runtime_seconds": 14.5,
-    "actual_runtime_formatted": "14.5s",
-    "wall_clock_elapsed_seconds": 3773.6,
-    "wall_clock_elapsed_formatted": "1h 2m",
-    "last_update": "2025-07-17T19:51:41.489354+00:00"
+    "actual_runtime_seconds": 9.3,
+    "actual_runtime_formatted": "9.3s",
+    "wall_clock_elapsed_seconds": 64.1,
+    "wall_clock_elapsed_formatted": "1m 4s",
+    "last_update": "2025-07-17T18:49:51.975520+00:00"
   },
   "performance_metrics": {
-    "books_per_second": 1.037,
-    "books_per_hour": 3733.8,
+    "books_per_second": 1.079,
+    "books_per_hour": 3886.2,
     "estimated_completion_hours": null
   },
   "error_summary": {
@@ -54,9 +54,9 @@
     "total_estimate_method": "unknown"
   },
   "runtime_tracking": {
-    "total_runtime_seconds": 14.5,
-    "wall_clock_elapsed_seconds": 3773.6,
-    "resume_count": 2,
+    "total_runtime_seconds": 9.3,
+    "wall_clock_elapsed_seconds": 64.1,
+    "resume_count": 1,
     "explanation": "total_runtime tracks actual processing time across sessions; wall_clock tracks time since first start"
   },
   "pagination_state": {
@@ -66,7 +66,7 @@
   },
   "sqlite_info": {
     "database_path": "output/test/books.db",
-    "session_id": 1752781895,
+    "session_id": 1752778187,
     "note": "Processed/failed barcodes stored in SQLite database, not in this JSON file"
   }
 }
