@@ -469,7 +469,7 @@ If you don't have a client_secret.json file, follow these steps to create one:
 
         exit(1)
 
-    print(f"Found client secrets: {secrets_path}")
+    print(f"Looking for client secrets at: {secrets_path}")
 
     # Step 2: Validate secrets file
     try:
@@ -489,6 +489,13 @@ If you don't have a client_secret.json file, follow these steps to create one:
 
         print("✅ Client secrets file is valid")
 
+    except FileNotFoundError:
+        print(f"❌ Client secrets file not found: {secrets_path}")
+        print("\nTo fix this:")
+        print("1. Create the directory: mkdir -p ~/.config/grin-to-s3/")
+        print("2. Copy the template: cp examples/docker/client_secret.json ~/.config/grin-to-s3/client_secret.json")
+        print("3. Edit the file with your OAuth2 credentials from Google Cloud Console")
+        return False
     except json.JSONDecodeError:
         print("❌ Secrets file is not valid JSON")
         return False

@@ -130,7 +130,7 @@ python grin.py storage rm full --run-name harvard_2024 --dry-run
 
 ### 5. Text Extraction: `grin.py extract`
 
-Extract OCR text from decrypted book archives and output as JSONL files.
+Convenience functions for managing remote S3 storage. 
 
 ```bash
 # Extract text and print to stdout
