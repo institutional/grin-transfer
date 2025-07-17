@@ -14,6 +14,12 @@ from moto import mock_aws
 from grin_to_s3.sync.utils import ensure_bucket_exists, reset_bucket_cache
 
 
+@pytest.fixture(autouse=True)
+def reset_cache():
+    """Reset bucket cache before each test to prevent cache-related flakiness."""
+    reset_bucket_cache()
+
+
 class TestBucketCreation:
     """Test bucket creation functionality."""
 
