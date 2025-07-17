@@ -20,6 +20,7 @@ services:
       # Development: Mount source code for live editing
       - ./src:/app/src
       - ./grin.py:/app/grin.py
+      - ./docs:/app/docs
       
       # Secure credential mounting (read-only client secrets)
       - ~/.config/grin-to-s3/client_secret.json:/app/secrets/client_secret.json:ro
