@@ -343,14 +343,15 @@ chmod +x grin-docker
 **Production with Cloudflare R2:**
 ```bash
 # 1. Configure credentials
-cp examples/docker/r2-credentials-template.json examples/docker/r2-credentials.json
-# Edit r2-credentials.json with your actual credentials
+cp examples/docker/r2-credentials-template.json ~/.config/grin-to-s3/r2_credentials.json
+# Edit r2_credentials.json with your actual credentials
 
 # 2. Set up OAuth2 credentials (run once)
-docker-compose -f examples/docker/docker-compose.r2.yml run --rm grin-to-s3 auth setup
+./grin-docker python grin.py auth setup
 
-# 3. Start the application
-docker-compose -f examples/docker/docker-compose.r2.yml up -d
+# 3. Start the application and run collection
+docker-compose up -d
+./grin-docker python grin.py collect --storage r2 --run-name production
 ```
 
 ### Docker Features
@@ -364,9 +365,8 @@ docker-compose -f examples/docker/docker-compose.r2.yml up -d
 
 ### Available Docker Configurations
 
-- `docker-compose.yml` - Universal configuration with optional MinIO profile
-- `examples/docker/docker-compose.r2.yml` - Cloudflare R2 setup
-- `examples/docker/docker-compose.s3.yml` - AWS S3 setup
+- `docker-compose.yml` - Universal configuration supporting all storage backends
+- `examples/docker/` - Credential templates for different storage providers
 
 ### Common Docker Commands
 
