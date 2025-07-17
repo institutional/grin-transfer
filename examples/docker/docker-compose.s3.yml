@@ -1,0 +1,71 @@
+# Docker Compose configuration for AWS S3 storage
+# 
+# Usage:
+#   1. Copy this file to your project root
+#   2. Create the credentials file: examples/docker/aws-credentials.json
+#   3. Run: docker-compose -f docker-compose.s3.yml up -d
+#
+# This configuration mounts AWS S3 credentials and configures the application
+# to use AWS S3 for storage.
+
+services:
+  grin-to-s3:
+    build: .
+    container_name: grin-to-s3-s3
+    restart: unless-stopped
+    
+    volumes:
+      # Application data
+      - ./docker-data/data:/app/data
+      - ./docker-data/output:/app/output
+      - ./docker-data/config:/app/config
+      - ./docker-data/logs:/app/logs
+      - ./docker-data/staging:/app/staging
+      
+      # AWS credentials
+      - ./examples/docker/aws-credentials.json:/app/config/aws-credentials.json:ro
+      
+      # OAuth2 credentials (create these from GRIN setup)
+      - ./examples/docker/client_secret.json:/app/config/client_secret.json:ro
+      - ./examples/docker/credentials.json:/app/config/credentials.json:ro
+      
+      # Optional: GPG key for decryption
+      # - ./examples/docker/gpg-key.asc:/app/config/gpg-key.asc:ro
+    
+    environment:
+      # Application configuration
+      - GRIN_CONFIG_DIR=/app/config
+      - GRIN_DATA_DIR=/app/data
+      - GRIN_OUTPUT_DIR=/app/output
+      - GRIN_LOG_DIR=/app/logs
+      - GRIN_STAGING_DIR=/app/staging
+      
+      # S3 configuration
+      - GRIN_STORAGE_TYPE=s3
+      - GRIN_BUCKET_RAW=your-raw-bucket
+      - GRIN_BUCKET_META=your-meta-bucket
+      - GRIN_BUCKET_FULL=your-full-bucket
+      
+      # AWS credentials (loaded from file)
+      - AWS_CREDENTIALS_FILE=/app/config/aws-credentials.json
+      - AWS_DEFAULT_REGION=us-east-1
+      
+      # GRIN API settings
+      - GRIN_RATE_LIMIT=5.0
+      - GRIN_BURST_LIMIT=10
+    
+    networks:
+      - grin-network
+    
+    command: ["--help"]
+
+volumes:
+  grin-data:
+  grin-output:
+  grin-config:
+  grin-logs:
+  grin-staging:
+
+networks:
+  grin-network:
+    driver: bridge

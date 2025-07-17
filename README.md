@@ -202,11 +202,12 @@ python grin.py collect --run-name "r2" --library-directory Harvard --storage r2 
   --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
 ```
 
-**MinIO:**
+**MinIO (Docker only):**
 ```bash
-python grin.py collect --run-name "minio" --library-directory Harvard --storage minio \
-  --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full \
-  --storage-config endpoint_url=localhost:9000
+# MinIO is auto-configured inside Docker containers
+docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py collect \
+  --run-name "minio" --library-directory Harvard --storage minio \
+  --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 ```
 
 **AWS S3:**
@@ -326,3 +327,86 @@ Each run creates organized output in `output/{run_name}/`:
 - `books_{timestamp}.csv` - Timestamped CSV export
 - `progress.json` - Collection progress for resume capability
 - `run_config.json` - Configuration for other scripts to auto-detect settings
+
+## Docker Usage
+
+GRIN-to-S3 provides Docker support for containerized deployment with comprehensive credential management.
+
+### Quick Start with Docker
+
+**Development with MinIO (Recommended for Testing):**
+```bash
+# Start MinIO and application
+docker-compose -f docker-compose.dev.yml up -d
+
+# Set up OAuth2 credentials first (one-time setup)
+docker-compose -f docker-compose.dev.yml run --rm --service-ports grin-to-s3 python grin.py auth setup
+
+# Run a collection command
+docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py collect \
+  --run-name test_run \
+  --library-directory Harvard \
+  --storage minio \
+  --bucket-raw grin-raw \
+  --bucket-meta grin-meta \
+  --bucket-full grin-full \
+  --limit 10
+
+# Access MinIO console at http://localhost:9001 (minioadmin/minioadmin123)
+```
+
+**Production with Cloudflare R2:**
+```bash
+# 1. Configure credentials
+cp examples/docker/r2-credentials-template.json examples/docker/r2-credentials.json
+# Edit r2-credentials.json with your actual credentials
+
+# 2. Set up OAuth2 credentials (run once)
+docker-compose -f examples/docker/docker-compose.r2.yml run --rm grin-to-s3 auth setup
+
+# 3. Start the application
+docker-compose -f examples/docker/docker-compose.r2.yml up -d
+```
+
+### Docker Features
+
+- **Multi-stage builds** for optimized image size
+- **Non-root user** for security
+- **Persistent volumes** for data, configuration, and logs
+- **Multiple storage backends** (R2, S3, MinIO, local)
+- **Credential management** via file mounts or environment variables
+- **Development environment** with MinIO integration
+
+### Available Docker Configurations
+
+- `docker-compose.yml` - Basic production configuration
+- `docker-compose.dev.yml` - Development with MinIO
+- `examples/docker/docker-compose.r2.yml` - Cloudflare R2 setup
+- `examples/docker/docker-compose.s3.yml` - AWS S3 setup
+
+### Common Docker Commands
+
+```bash
+# Build the image
+docker build -t grin-to-s3 .
+
+# Run individual commands
+docker run --rm -v $(pwd)/docker-data:/app/data grin-to-s3 --help
+
+# Complete pipeline workflow
+docker-compose exec grin-to-s3 python grin.py collect --run-name docker_test --library-directory Harvard --storage minio --limit 5
+docker-compose exec grin-to-s3 python grin.py process request --run-name docker_test --limit 5
+docker-compose exec grin-to-s3 python grin.py sync pipeline --run-name docker_test
+docker-compose exec grin-to-s3 python grin.py export --run-name docker_test --output /app/output/books.csv
+```
+
+### Data Persistence
+
+All Docker configurations use volumes for persistent data:
+- `./docker-data/data/` - SQLite databases and progress files
+- `./docker-data/output/` - Run outputs and results
+- `./docker-data/config/` - Authentication and configuration files
+- `./docker-data/logs/` - Application logs
+- `./docker-data/staging/` - Temporary processing files
+
+See `examples/docker/README.md` for comprehensive Docker documentation and credential management details.

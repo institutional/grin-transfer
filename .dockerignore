@@ -1,0 +1,126 @@
+# Git and version control
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Application-specific
+output/
+logs/
+*.log
+*.db
+*.db-shm
+*.db-wal
+docker-data/
+dev-credentials/
+
+# Staging and temporary files
+staging/
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Credentials and secrets
+*credentials*.json
+*secret*.json
+*.gpg
+*.asc
+*.key
+*.pem
+client_secret.json
+credentials.json
+.env
+.env.local
+.env.production
+
+# Docker files (prevent recursive copying)
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Documentation and examples that aren't needed in container
+docs/
+examples/
+README.md
+*.md
+LICENSE
+
+# Test files
+tests/
+test_*
+*_test.py
+pytest.ini
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+*.tar.gz
+*.zip
+*.tar
+*.bz2
+
+# Large data files
+*.csv
+*.json
+*.jsonl
+*.xml
+*.txt
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Development tools
+.pre-commit-config.yaml
+.github/
+.mypy_cache/
+.ruff_cache/
+

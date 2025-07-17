@@ -1,0 +1,109 @@
+services:
+  grin-to-s3:
+    build: .
+    container_name: grin-to-s3
+    restart: unless-stopped
+    
+    # OAuth2 server port forwarding (configurable)
+    ports:
+      - "${GRIN_OAUTH_PORT:-58432}:${GRIN_OAUTH_PORT:-58432}"
+    
+    # Volume mounts for persistent data
+    volumes:
+      # Application data and configuration
+      - grin-data:/app/data
+      - grin-output:/app/output
+      - grin-logs:/app/logs
+      - grin-staging:/app/staging
+      
+      # Credential mounting from user's home directory (writable for token refresh)
+      - ~/.config/grin-to-s3:/app/.config/grin-to-s3
+      
+      # Optional: Mount additional credential files from host
+      # Uncomment and adjust paths as needed for production
+      # - ./credentials/r2-credentials.json:/app/.config/grin-to-s3/r2-credentials.json:ro
+      # - ./credentials/s3-credentials.json:/app/.config/grin-to-s3/s3-credentials.json:ro
+      # - ./credentials/gpg-key.asc:/app/.config/grin-to-s3/gpg-key.asc:ro
+    
+    # Environment variables for configuration
+    environment:
+      # Application configuration
+      - GRIN_CONFIG_DIR=/app/config
+      - GRIN_DATA_DIR=/app/data
+      - GRIN_OUTPUT_DIR=/app/output
+      - GRIN_LOG_DIR=/app/logs
+      - GRIN_STAGING_DIR=/app/staging
+      - GRIN_OAUTH_PORT=${GRIN_OAUTH_PORT:-58432}
+      
+      # Optional: Storage configuration via environment
+      # Uncomment and configure as needed
+      # - GRIN_STORAGE_TYPE=r2
+      # - GRIN_BUCKET_RAW=my-raw-bucket
+      # - GRIN_BUCKET_META=my-meta-bucket
+      # - GRIN_BUCKET_FULL=my-full-bucket
+      
+      # R2/CloudFlare credentials
+      # - R2_ENDPOINT_URL=https://your-account.r2.cloudflarestorage.com
+      # - R2_ACCESS_KEY_ID=your-access-key
+      # - R2_SECRET_ACCESS_KEY=your-secret-key
+      
+      # AWS S3 credentials
+      # - AWS_ACCESS_KEY_ID=your-access-key
+      # - AWS_SECRET_ACCESS_KEY=your-secret-key
+      # - AWS_DEFAULT_REGION=us-east-1
+      
+      # Google Cloud credentials
+      # - GOOGLE_APPLICATION_CREDENTIALS=/app/config/gcp-credentials.json
+      
+      # GRIN API configuration
+      # - GRIN_RATE_LIMIT=5.0
+      # - GRIN_BURST_LIMIT=10
+    
+    # Network configuration
+    networks:
+      - grin-network
+    
+    # Override entrypoint for production - keep container running
+    entrypoint: ["tail", "-f", "/dev/null"]
+    
+    # Resource limits (adjust as needed)
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+# Named volumes for persistent data
+volumes:
+  grin-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./docker-data/data
+  grin-output:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./docker-data/output
+  grin-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./docker-data/logs
+  grin-staging:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./docker-data/staging
+
+# Network configuration
+networks:
+  grin-network:
+    driver: bridge

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.common import RateLimiter, format_duration, pluralize, setup_logging
+from grin_to_s3.common import RateLimiter, format_duration, pluralize, print_oauth_setup_instructions, setup_logging
 from grin_to_s3.database_utils import validate_database_file
 from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
@@ -272,6 +272,7 @@ class ProcessingPipeline:
                 return
             except Exception as e:
                 print(f"Credential validation failed: {e}")
+                print_oauth_setup_instructions()
                 return
             print()
 
