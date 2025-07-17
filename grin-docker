@@ -1,0 +1,43 @@
+#!/bin/bash
+# grin-docker - Docker wrapper for grin-to-s3 CLI tool
+#
+# This script provides a convenient way to run grin-to-s3 commands inside Docker
+# while maintaining the same CLI interface as the native tool.
+#
+# Usage:
+#   ./grin-docker python grin.py collect --run-name test --storage minio --limit 5
+#   ./grin-docker python grin.py sync pipeline --run-name test
+#   ./grin-docker bash
+#
+# Environment variables:
+#   COMPOSE_FILE - Docker Compose file to use (default: docker-compose.dev.yml)
+#   SERVICE_NAME - Service name to execute commands in (default: grin-to-s3)
+
+set -e
+
+# Get script directory for relative paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Allow environment variable overrides
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.dev.yml}"
+SERVICE_NAME="${SERVICE_NAME:-grin-to-s3}"
+
+# Full path to compose file
+COMPOSE_PATH="$SCRIPT_DIR/$COMPOSE_FILE"
+
+# Check if compose file exists
+if [ ! -f "$COMPOSE_PATH" ]; then
+    echo "Error: Docker Compose file not found: $COMPOSE_PATH"
+    echo "Make sure you're running this script from the project root directory."
+    exit 1
+fi
+
+# Ensure services are running (suppress output unless there's an error)
+if ! docker-compose -f "$COMPOSE_PATH" up -d "$SERVICE_NAME" >/dev/null 2>&1; then
+    echo "Error: Failed to start $SERVICE_NAME service"
+    echo "Try running: docker-compose -f $COMPOSE_FILE up -d"
+    exit 1
+fi
+
+# Execute command with all arguments passed through
+exec docker-compose -f "$COMPOSE_PATH" exec "$SERVICE_NAME" "$@"

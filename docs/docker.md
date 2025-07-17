@@ -83,6 +83,22 @@ chmod -R 755 docker-data/
 
 ## Quick Start
 
+### Convenience Script
+
+For easier command execution, use the included `grin-docker` wrapper script:
+
+```bash
+# Make the script executable
+chmod +x grin-docker
+
+# Now you can run commands more easily
+./grin-docker python grin.py --help
+./grin-docker python grin.py collect --run-name test --storage minio --limit 5
+./grin-docker bash  # Interactive shell
+```
+
+The script automatically starts services and passes all arguments to the container.
+
 ### Option 1: Development with MinIO (Recommended for First-Time Users)
 
 MinIO provides a local S3-compatible storage service that's perfect for testing.
@@ -100,6 +116,22 @@ docker-compose -f docker-compose.dev.yml logs -f
 ```
 
 **Run your first collection:**
+```bash
+# Set up OAuth2 credentials (run once)
+./grin-docker python grin.py auth setup
+
+# Collect a small set of books for testing
+./grin-docker python grin.py collect \
+  --run-name my_first_run \
+  --library-directory Harvard \
+  --storage minio \
+  --bucket-raw grin-raw \
+  --bucket-meta grin-meta \
+  --bucket-full grin-full \
+  --limit 5
+```
+
+**Alternative using docker-compose directly:**
 ```bash
 # Set up OAuth2 credentials (run once)
 docker-compose -f docker-compose.dev.yml exec grin-to-s3 python grin.py auth setup

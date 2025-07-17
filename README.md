@@ -334,7 +334,18 @@ GRIN-to-S3 provides Docker support for containerized deployment with comprehensi
 
 ### Quick Start with Docker
 
-**Development with MinIO (Recommended for Testing):**
+**Convenience Script (Recommended):**
+```bash
+# Make the wrapper script executable
+chmod +x grin-docker
+
+# Start services and run commands easily
+./grin-docker python grin.py auth setup
+./grin-docker python grin.py collect --run-name test_run --library-directory Harvard --storage minio --limit 10
+./grin-docker bash  # Interactive shell
+```
+
+**Development with MinIO (Manual Docker Compose):**
 ```bash
 # Start MinIO and application
 docker-compose -f docker-compose.dev.yml up -d
