@@ -41,8 +41,12 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 # Copy application code
 COPY . .
 
+# Copy and set up entrypoint script
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
 # Create data directories with proper permissions
-RUN mkdir -p /app/data /app/output /app/config /app/logs /app/staging && \
+RUN mkdir -p /app/data /app/output /app/config /app/logs /app/staging /app/.gnupg && \
     chown -R grin:grin /app
 
 # Set environment variables
@@ -55,6 +59,9 @@ ENV GRIN_STAGING_DIR="/app/staging"
 
 # Switch to non-root user
 USER grin
+
+# Set entrypoint
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
 # Create volumes for persistent data
 VOLUME ["/app/data", "/app/output", "/app/config", "/app/logs", "/app/staging"]

@@ -19,6 +19,9 @@ services:
       # Credential mounting from user's home directory (writable for token refresh)
       - ~/.config/grin-to-s3:/app/.config/grin-to-s3
       
+      # GPG keyring for archive decryption
+      - ~/.gnupg:/app/.gnupg:ro
+      
       # Optional: Mount additional credential files from host
       # Uncomment and adjust paths as needed for production
       # - ./credentials/r2-credentials.json:/app/.config/grin-to-s3/r2-credentials.json:ro

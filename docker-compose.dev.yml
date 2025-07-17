@@ -24,9 +24,13 @@ services:
       
       # Secure credential mounting (read-only client secrets)
       - ~/.config/grin-to-s3/client_secret.json:/app/secrets/client_secret.json:ro
+      - ~/.config/grin-to-s3/gpg_passphrase.asc:/app/.config/grin-to-s3/gpg_passphrase.asc:ro
       
       # Writable credential storage for token refresh
       - ./docker-data/credentials:/app/.config/grin-to-s3
+      
+      # GPG keyring for archive decryption (read-only source)
+      - ~/.gnupg:/app/.gnupg-readonly:ro
     
     # Environment variables for development
     environment:

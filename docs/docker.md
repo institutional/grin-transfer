@@ -528,6 +528,7 @@ The Docker configuration uses secure credential mounting practices:
 | OAuth2 Client Secret | `~/.config/grin-to-s3/client_secret.json` | `/app/.config/grin-to-s3/client_secret.json` |
 | OAuth2 Token | `~/.config/grin-to-s3/credentials.json` | `/app/.config/grin-to-s3/credentials.json` |
 | R2 Storage | `~/.config/grin-to-s3/r2_credentials.json` | `/app/.config/grin-to-s3/r2_credentials.json` |
+| GPG Passphrase | `~/.config/grin-to-s3/gpg_passphrase.asc` | `/app/.config/grin-to-s3/gpg_passphrase.asc` |
 
 ### Volume Security
 
@@ -559,6 +560,18 @@ docker-compose -f docker-compose.dev.yml run --rm --service-ports grin-to-s3 pyt
 - The redirect URI in your OAuth2 client configuration must match the port
 - Default redirect URI: `http://localhost:58432`
 - For custom ports, update the redirect_uris in your client_secret.json
+
+### GPG Setup for Archive Decryption
+
+To decrypt `.tar.gz.gpg` files during sync, you need to provide the GPG passphrase:
+
+1. **Create passphrase file**:
+   ```bash
+   echo "your-gpg-passphrase" > ~/.config/grin-to-s3/gpg_passphrase.asc
+   chmod 600 ~/.config/grin-to-s3/gpg_passphrase.asc
+   ```
+
+**Note**: The GPG private key should already be available in your system. The sync process will use the passphrase file for automated decryption without interactive prompts.
 
 ### Additional Security Notes
 
