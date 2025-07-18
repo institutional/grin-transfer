@@ -833,22 +833,8 @@ async def create_storage_buckets_or_directories(storage_type: str, storage_confi
         (base_path / "full").mkdir(parents=True, exist_ok=True)
         print(f"Created local storage directories at {base_path}")
 
-    elif storage_type in ("minio", "r2", "s3"):
-        # For non-MinIO storage, skip bucket verification during collection
-        # Bucket verification will happen when storage is actually used
-        if storage_type == "minio":
-            from grin_to_s3.sync.utils import ensure_bucket_exists
-
-            buckets = ["bucket_raw", "bucket_meta", "bucket_full"]
-            for bucket_key in buckets:
-                bucket_name = storage_config.get(bucket_key)
-                if bucket_name:
-                    success = await ensure_bucket_exists(storage_type, storage_config, bucket_name)
-                    if not success:
-                        raise ValueError(f"Failed to create/verify bucket {bucket_name}")
-            print(f"Verified/created all buckets for {storage_type} storage")
-        else:
-            print(f"Configured {storage_type} storage (bucket verification will happen during sync)")
+    else:
+        print(f"Configured with {storage_type} cloud storage")
 
 
 async def setup_storage_with_checks(

@@ -335,6 +335,7 @@ class ProcessingPipeline:
                         """
                         SELECT barcode FROM books
                         WHERE processing_request_timestamp IS NULL
+                        AND converted_date IS NULL
                         ORDER BY created_at LIMIT ? OFFSET ?
                         """,
                         (fetch_batch_size, fetch_offset),

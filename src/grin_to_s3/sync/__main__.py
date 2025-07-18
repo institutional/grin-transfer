@@ -31,8 +31,22 @@ logger = logging.getLogger(__name__)
 
 async def cmd_pipeline(args) -> None:
     """Handle the 'pipeline' command."""
-    # Set up database path and apply run configuration
+    # Set up database path
     db_path = setup_run_database_path(args, args.run_name)
+
+    # Check if any storage-related arguments were explicitly provided on command line
+    # (before applying run config defaults)
+    storage_checks = [
+        ("storage", getattr(args, "storage", None) is not None),
+        ("bucket_raw", getattr(args, "bucket_raw", None) is not None),
+        ("bucket_meta", getattr(args, "bucket_meta", None) is not None),
+        ("bucket_full", getattr(args, "bucket_full", None) is not None),
+        ("storage_config", getattr(args, "storage_config", None) is not None),
+    ]
+    explicit_storage_args = any(check[1] for check in storage_checks)
+
+
+    # Apply run configuration defaults
     apply_run_config_to_args(args, db_path)
 
     print(f"Database: {db_path}")
@@ -55,19 +69,7 @@ async def cmd_pipeline(args) -> None:
             storage_type = existing_storage_config.get("type")
             storage_config = existing_storage_config.get("config", {})
 
-            # Check if any storage-related arguments were explicitly provided that should override
-            explicit_storage_args = any(
-                [
-                    getattr(args, "storage", None) and args.storage,
-                    getattr(args, "bucket_raw", None),
-                    getattr(args, "bucket_meta", None),
-                    getattr(args, "bucket_full", None),
-                    getattr(args, "storage_config", None),
-                ]
-            )
-
             if explicit_storage_args:
-                print("Explicit storage arguments provided, merging with run config...")
                 # Build args-based config and merge with existing
                 args_storage_config = build_storage_config_dict(args)
 
