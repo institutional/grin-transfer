@@ -65,9 +65,17 @@ jobs:
         # Create dummy client secret file for Docker tests
         cp examples/docker/client_secret.json ~/.config/grin-to-s3/client_secret.json
     
-    - name: Test Docker image build
-      run: |
-        docker build -t grin-to-s3:test .
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Test Docker image build with cache
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: false
+        tags: grin-to-s3:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
     
     - name: Test Docker Compose (basic service)
       run: |
