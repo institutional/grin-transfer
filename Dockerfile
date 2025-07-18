@@ -1,36 +1,41 @@
 # Build stage
-FROM python:3.12-slim as builder
+FROM python:3.12-alpine as builder
 
 # Install system dependencies for building Python packages
-RUN apt-get update && apt-get install -y \
-    build-essential \
+RUN apk add --no-cache \
+    build-base \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    libffi-dev \
+    openssl-dev
 
 # Set working directory
 WORKDIR /app
 
-# Copy dependency files and source code
+# Copy dependency files first for better caching
 COPY pyproject.toml ./
+
+# Install Python dependencies (cached layer)
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# Copy source code
 COPY src/ ./src/
 COPY grin.py ./
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir .
+# Install the package
+RUN pip install --no-cache-dir .
 
-# Production stage
-FROM python:3.12-slim
+# Production stage  
+FROM python:3.12-alpine
 
-# Install system dependencies required at runtime
-RUN apt-get update && apt-get install -y \
+# Install only essential runtime dependencies
+RUN apk add --no-cache \
     gnupg \
     curl \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates
 
-# Create non-root user
-RUN groupadd -r grin && useradd -r -g grin -d /app -s /bin/bash grin
+# Create non-root user (Alpine version)
+RUN addgroup -g 1000 -S grin && \
+    adduser -u 1000 -S grin -G grin -h /app -s /bin/sh
 
 # Set working directory
 WORKDIR /app
@@ -60,16 +65,9 @@ ENV GRIN_STAGING_DIR="/app/staging"
 # Switch to non-root user
 USER grin
 
-# Set entrypoint
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-
 # Create volumes for persistent data
 VOLUME ["/app/data", "/app/output", "/app/config", "/app/logs", "/app/staging"]
-
-# Expose any ports if needed (none for CLI tool)
-# EXPOSE 8080
 
 # Set default command
 ENTRYPOINT ["python", "grin.py"]
 CMD ["--help"]
-# Test caching effectiveness

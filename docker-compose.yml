@@ -9,6 +9,14 @@ services:
     ports:
       - "${GRIN_OAUTH_PORT:-58432}:${GRIN_OAUTH_PORT:-58432}"
     
+    # Health check for service readiness
+    healthcheck:
+      test: ["CMD", "python", "grin.py", "--help"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    
     # Volume mounts for development
     volumes:
       # Application data and configuration
@@ -86,9 +94,10 @@ services:
       - grin-dev-network
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 30s
-      timeout: 20s
-      retries: 3
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # MinIO client for bucket setup (optional - use with --profile minio)
   minio-setup:
@@ -98,10 +107,10 @@ services:
     networks:
       - grin-dev-network
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      sleep 10;
       mc alias set minio http://minio:9000 minioadmin minioadmin123;
       mc mb minio/grin-raw --ignore-existing;
       mc mb minio/grin-meta --ignore-existing;

@@ -55,6 +55,9 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test-type: ["build", "compose", "wrapper"]
     steps:
     - uses: actions/checkout@v4
     
@@ -69,6 +72,7 @@ jobs:
       uses: docker/setup-buildx-action@v3
     
     - name: Test Docker image build with cache
+      if: matrix.test-type == 'build'
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -77,30 +81,27 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
     
-    - name: Test Docker Compose (basic service)
+    - name: Test Docker Compose services
+      if: matrix.test-type == 'compose'
       run: |
+        # Test basic service
         docker compose up -d grin-to-s3
-        # Wait for service to be ready
-        sleep 10
         docker compose ps | grep -q "grin-to-s3"
         docker compose down
-    
-    - name: Test Docker Compose (MinIO profile)
-      run: |
+        
+        # Test MinIO profile with health checks
         docker compose --profile minio up -d
-        # Wait for MinIO to be ready
-        sleep 15
+        # Wait for MinIO health check to pass
+        timeout 60 bash -c 'until docker compose ps | grep -q "healthy.*minio"; do sleep 2; done'
         docker compose ps | grep -q "minio"
         docker compose down
     
-    - name: Test grin-docker wrapper script basic functionality
+    - name: Test grin-docker wrapper functionality
+      if: matrix.test-type == 'wrapper'
       run: |
         chmod +x grin-docker
         ./grin-docker python grin.py --help | grep -q "GRIN-to-S3"
-    
-    - name: Test MinIO storage detection
-      run: |
-        chmod +x grin-docker
-        # Test that the script detects MinIO usage
+        
+        # Test MinIO storage detection
         echo "Testing MinIO detection..."
         ./grin-docker python grin.py collect --storage minio --help | grep -q "storage" || echo "MinIO detection test passed"
