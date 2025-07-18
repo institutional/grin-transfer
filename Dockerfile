@@ -72,3 +72,4 @@ VOLUME ["/app/data", "/app/output", "/app/config", "/app/logs", "/app/staging"]
 # Set default command
 ENTRYPOINT ["python", "grin.py"]
 CMD ["--help"]
+# Test caching effectiveness
