@@ -268,7 +268,7 @@ def apply_run_config_to_args(args: Any, db_path: str) -> None:
         return
 
     # Apply library directory if not set
-    if hasattr(args, "grin_library_directory") and not getattr(args, "grin_library_directory", None):
+    if not getattr(args, "grin_library_directory", None):
         args.grin_library_directory = config.library_directory
 
     # Apply secrets_dir if not set

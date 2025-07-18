@@ -2,24 +2,57 @@
 
 An async pipeline for extracting Google Books data from GRIN (Google Return Interface) to local databases and S3-compatible storage, designed for academic libraries.
 
-## Requirements
+## Prerequisites
 
-- **Python 3.12+** 
-- Dependencies managed via `pyproject.toml`
+1. You should know your "library directory", or the path in GRIN where your books are available. For example, given the URL https://books.google.com/libraries/Harvard/_all_books, the "library directory" is "Harvard." This value is case-sensitive.
+2. You should have access to the Google account that was given to a Google partner manager for access to GRIN. This will be the same account that you use to log in to GRIN as a human.
+3. You'll need your GPG decryption passphrase from Google. It will be a short text file containing random words.
+4. (Optional) We recommend you set up S3-like cloud storage for large collections. GRIN-to-S3 will use those credentials to transfer decrypted book archives and metadata. For smaller collections, you can use any filesystem reachable from where you run this tool.
 
-## Installation
+## Installation requirements
+
+The GRIN-to-S3 pipeline can be installed via docker, or directly on a target Linux-like or MacOS machine.
+
+### Quick start with docker
+
+We've provided a `grin-docker` wrapper script to make accessing the tool easy. 
+```bash
+# Make the wrapper script executable if necessary
+chmod +x grin-docker
+
+
+# Interactively configure authentication with the GRIN interface
+grin-docker auth setup
+
+# Then run a sample collection 
+grin-docker collect --run-name test_run --library-directory Harvard --storage minio --limit 10
+
+# Most file output and logs will be mounted on `docker-files` on your local machine 
+
+# You can also connect directly to the docker container if needed
+/grin-docker bash 
+```
+
+### Local installation
+
+- Requires Python 3.12+
+- Dependencies are managed via `pyproject.toml`
 
 ```bash
 # Install in development mode (includes all dependencies and dev tools)
 pip install -e ".[dev]"
 
-# Set up OAuth2 credentials (interactive)
+# Interactively configure authentication with the GRIN interface
 python grin.py auth setup
+
+# Then run a sample collection 
+python grin.py collect --run-name test_run --library-directory Harvard --storage minio --limit 10
+
 ```
 
 ## Core Commands
 
-The pipeline provides a unified command-line interface via `grin.py` with main subcommands:
+The pipeline provides a unified command-line interface via `grin.py` with main subcommands. Note that installed via docker, you'll want to preface all of these with `grin-docker`
 
 ### 1. Book Collection: `grin.py collect`
 
@@ -130,7 +163,7 @@ python grin.py storage rm full --run-name harvard_2024 --dry-run
 
 ### 5. Text Extraction: `grin.py extract`
 
-Convenience functions for managing remote S3 storage. 
+Extract OCR text from decrypted book archives and output as JSONL files.
 
 ```bash
 # Extract text and print to stdout
@@ -324,21 +357,6 @@ Each run creates organized output in `output/{run_name}/`:
 - `progress.json` - Collection progress for resume capability
 - `run_config.json` - Configuration for other scripts to auto-detect settings
 
-## Docker Usage
-
-GRIN-to-S3 provides Docker support for containerized deployment with comprehensive credential management.
-
-### Quick Start with Docker
-
-**Convenience Script (Recommended):**
-```bash
-# Make the wrapper script executable
-chmod +x grin-docker
-
-# Start services and run commands easily
-./grin-docker python grin.py auth setup
-./grin-docker python grin.py collect --run-name test_run --library-directory Harvard --storage minio --limit 10
-./grin-docker bash  # Interactive shell
 
 **Production with Cloudflare R2:**
 ```bash
