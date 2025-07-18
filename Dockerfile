@@ -1,12 +1,11 @@
 # Build stage
-FROM python:3.12-alpine as builder
+FROM python:3.12-slim as builder
 
 # Install system dependencies for building Python packages
-RUN apk add --no-cache \
-    build-base \
+RUN apt-get update && apt-get install -y \
+    build-essential \
     git \
-    libffi-dev \
-    openssl-dev
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -24,18 +23,18 @@ COPY grin.py ./
 # Install the package
 RUN pip install --no-cache-dir .
 
-# Production stage  
-FROM python:3.12-alpine
+# Production stage
+FROM python:3.12-slim
 
-# Install only essential runtime dependencies
-RUN apk add --no-cache \
+# Install system dependencies required at runtime
+RUN apt-get update && apt-get install -y \
     gnupg \
     curl \
-    ca-certificates
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user (Alpine version)
-RUN addgroup -g 1000 -S grin && \
-    adduser -u 1000 -S grin -G grin -h /app -s /bin/sh
+# Create non-root user
+RUN groupadd -r grin && useradd -r -g grin -d /app -s /bin/bash grin
 
 # Set working directory
 WORKDIR /app
