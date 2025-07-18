@@ -30,6 +30,7 @@ from grin_to_s3.common import (
     format_bytes,
     format_duration,
     pluralize,
+    print_oauth_setup_instructions,
 )
 from grin_to_s3.storage import BookManager, create_storage_from_config
 from grin_to_s3.storage.book_manager import BucketConfig
@@ -721,6 +722,7 @@ class BookCollector:
         except Exception as e:
             print(f"Credential validation failed: {e}")
             print("Collection cannot continue without valid credentials.")
+            print_oauth_setup_instructions()
             return False
 
         # Check for concurrent sessions before starting

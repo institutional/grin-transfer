@@ -19,6 +19,7 @@ CLAUDE.local.md
 /.env.r2
 .env.r2
 .r2-config.json
+docker-data
 
 # Log files
 logs/
@@ -45,3 +46,4 @@ GPG_KEY_GRIN
 **/GPG_KEY_GRIN
 *.gpg.key
 *.passphrase
+

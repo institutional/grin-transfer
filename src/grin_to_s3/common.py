@@ -768,47 +768,49 @@ async def check_minio_connectivity(storage_config: dict) -> None:
 
 
 def auto_configure_minio(storage_config: dict) -> None:
-    """Auto-configure MinIO credentials from docker-compose file if needed."""
-    try:
-        from pathlib import Path
+    """Auto-configure MinIO credentials for Docker container environment."""
+    is_docker = is_docker_environment()
 
-        import yaml
+    if "endpoint_url" not in storage_config:
+        if is_docker:
+            # Use Docker network address when running inside container
+            storage_config["endpoint_url"] = "http://minio:9000"
+        else:
+            # Use localhost when running outside container
+            storage_config["endpoint_url"] = "http://localhost:9000"
 
-        compose_file = Path("examples/docker-compose.minio.yml")
-        if compose_file.exists():
-            with open(compose_file) as f:
-                compose_config = yaml.safe_load(f)
+    if "access_key" not in storage_config:
+        storage_config["access_key"] = "minioadmin"
 
-            minio_service = compose_config.get("services", {}).get("minio", {})
-            env = minio_service.get("environment", {})
-            ports = minio_service.get("ports", [])
+    if "secret_key" not in storage_config:
+        storage_config["secret_key"] = "minioadmin123"
 
-            if "endpoint_url" not in storage_config:
-                api_port = "9000"
-                for port_mapping in ports:
-                    if isinstance(port_mapping, str) and ":9000" in port_mapping:
-                        api_port = port_mapping.split(":")[0]
-                        break
-                storage_config["endpoint_url"] = f"http://localhost:{api_port}"
+    # Auto-configure bucket names for MinIO if not provided
+    if "bucket_raw" not in storage_config:
+        storage_config["bucket_raw"] = "grin-raw"
+    if "bucket_meta" not in storage_config:
+        storage_config["bucket_meta"] = "grin-meta"
+    if "bucket_full" not in storage_config:
+        storage_config["bucket_full"] = "grin-full"
 
-            if "access_key" not in storage_config:
-                storage_config["access_key"] = env.get("MINIO_ROOT_USER", "minioadmin")
+    endpoint_type = "Docker network" if is_docker else "localhost"
+    print(f"Auto-configured MinIO for {endpoint_type} at {storage_config['endpoint_url']}")
 
-            if "secret_key" not in storage_config:
-                storage_config["secret_key"] = env.get("MINIO_ROOT_PASSWORD", "minioadmin123")
 
-            # Auto-configure bucket names for MinIO if not provided
-            if "bucket_raw" not in storage_config:
-                storage_config["bucket_raw"] = "grin-raw"
-            if "bucket_meta" not in storage_config:
-                storage_config["bucket_meta"] = "grin-meta"
-            if "bucket_full" not in storage_config:
-                storage_config["bucket_full"] = "grin-full"
+def is_docker_environment() -> bool:
+    """Check if we're running inside a Docker container."""
+    import os
+    return os.path.exists("/.dockerenv") or os.environ.get("DOCKER_ENV") == "true"
 
-            print("Auto-configured MinIO from examples/docker-compose.minio.yml")
 
-    except Exception as e:
-        print(f"Warning: Failed to read examples/docker-compose.minio.yml: {e}")
+def print_oauth_setup_instructions() -> None:
+    """Print appropriate OAuth setup instructions based on environment."""
+    if is_docker_environment():
+        print("\nTo set up OAuth credentials in Docker:")
+        print("./grin-docker python grin.py auth setup")
+    else:
+        print("\nTo set up OAuth credentials:")
+        print("python grin.py auth setup")
 
 
 async def create_storage_buckets_or_directories(storage_type: str, storage_config: dict) -> None:
@@ -832,17 +834,21 @@ async def create_storage_buckets_or_directories(storage_type: str, storage_confi
         print(f"Created local storage directories at {base_path}")
 
     elif storage_type in ("minio", "r2", "s3"):
-        # Create buckets for S3-compatible storage
-        from grin_to_s3.sync.utils import ensure_bucket_exists
+        # For non-MinIO storage, skip bucket verification during collection
+        # Bucket verification will happen when storage is actually used
+        if storage_type == "minio":
+            from grin_to_s3.sync.utils import ensure_bucket_exists
 
-        buckets = ["bucket_raw", "bucket_meta", "bucket_full"]
-        for bucket_key in buckets:
-            bucket_name = storage_config.get(bucket_key)
-            if bucket_name:
-                success = await ensure_bucket_exists(storage_type, storage_config, bucket_name)
-                if not success:
-                    raise ValueError(f"Failed to create/verify bucket {bucket_name}")
-        print(f"Verified/created all buckets for {storage_type} storage")
+            buckets = ["bucket_raw", "bucket_meta", "bucket_full"]
+            for bucket_key in buckets:
+                bucket_name = storage_config.get(bucket_key)
+                if bucket_name:
+                    success = await ensure_bucket_exists(storage_type, storage_config, bucket_name)
+                    if not success:
+                        raise ValueError(f"Failed to create/verify bucket {bucket_name}")
+            print(f"Verified/created all buckets for {storage_type} storage")
+        else:
+            print(f"Configured {storage_type} storage (bucket verification will happen during sync)")
 
 
 async def setup_storage_with_checks(
@@ -943,8 +949,8 @@ def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool
 
     # File handler (auto-generate timestamped filename if not provided)
     if log_file is None:
-        # Create logs directory
-        logs_dir = Path("logs")
+        # Create logs directory using environment variable or default
+        logs_dir = Path(os.environ.get("GRIN_LOG_DIR", "logs"))
         logs_dir.mkdir(exist_ok=True)
 
         # Generate timestamped filename
@@ -966,7 +972,13 @@ def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool
     # Replace flush method - type ignore for dynamic assignment
     file_handler.flush = make_flush_func(file_handler)  # type: ignore[method-assign]
 
-    print(f"Logging to file: {log_file}\n")
+    # Show user-friendly path (host-relative for Docker)
+    display_path = log_file
+    if is_docker_environment() and log_file.startswith("/app/logs/"):
+        # Convert container path to host path for Docker users
+        display_path = log_file.replace("/app/logs/", "docker-data/logs/")
+
+    print(f"Logging to file: {display_path}\n")
     logger = logging.getLogger(__name__)
     logger.info(f"Logging to file: {log_file}")
     logger.info(f"Logging initialized at {level} level")

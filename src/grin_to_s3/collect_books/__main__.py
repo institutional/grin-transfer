@@ -9,6 +9,7 @@ Run with: python grin.py collect
 import argparse
 import asyncio
 import logging
+import os
 import sys
 
 from .collector import BookCollector
@@ -163,7 +164,7 @@ Examples:
         default="INFO",
         help="Logging level (default: INFO)",
     )
-    parser.add_argument("--log-dir", type=str, default="logs", help="Directory for log files (default: logs)")
+    parser.add_argument("--log-dir", type=str, default=os.environ.get("GRIN_LOG_DIR", "logs"), help="Directory for log files (default: logs)")
 
     # Storage options
     parser.add_argument(

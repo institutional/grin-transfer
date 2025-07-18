@@ -81,8 +81,10 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
             return create_local_storage(base_path)
 
         case "minio":
+            # MinIO is only supported inside Docker container
+            # Use internal Docker network address by default
             return create_minio_storage(
-                endpoint_url=config.get("endpoint_url", "http://localhost:9000"),
+                endpoint_url=config.get("endpoint_url", "http://minio:9000"),
                 access_key=config.get("access_key", "minioadmin"),
                 secret_key=config.get("secret_key", "minioadmin123"),
             )
@@ -109,7 +111,7 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
                     # Default path doesn't exist, provide helpful error
                     raise ValueError(
                         f"R2 credentials file not found at {credentials_file}. "
-                        f"Create this file with your R2 credentials or specify a custom path with --credentials-file"
+                        f"Create this file with your R2 credentials."
                     ) from e
             except (ValueError, KeyError) as e:
                 raise ValueError(f"Invalid R2 credentials file {credentials_file}: {e}") from e
@@ -181,8 +183,10 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
     """
     match storage_type:
         case "minio":
+            # MinIO is only supported inside Docker container
+            # Use internal Docker network address by default
             return create_minio_storage(
-                endpoint_url=config.get("endpoint_url", "http://localhost:9000"),
+                endpoint_url=config.get("endpoint_url", "http://minio:9000"),
                 access_key=config.get("access_key", "minioadmin"),
                 secret_key=config.get("secret_key", "minioadmin123"),
             )
@@ -208,7 +212,7 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
                 else:
                     raise ValueError(
                         f"R2 credentials file not found at {credentials_file}. "
-                        f"Create this file with your R2 credentials or specify a custom path with --credentials-file"
+                        f"Create this file with your R2 credentials."
                     ) from e
             except (ValueError, KeyError) as e:
                 raise ValueError(f"Invalid R2 credentials file {credentials_file}: {e}") from e

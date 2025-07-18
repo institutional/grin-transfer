@@ -4,7 +4,7 @@ An async pipeline for extracting Google Books data from GRIN (Google Return Inte
 
 ## Requirements
 
-- **Python 3.12+** (required for modern language features)
+- **Python 3.12+** 
 - Dependencies managed via `pyproject.toml`
 
 ## Installation
@@ -130,7 +130,7 @@ python grin.py storage rm full --run-name harvard_2024 --dry-run
 
 ### 5. Text Extraction: `grin.py extract`
 
-Extract OCR text from decrypted book archives and output as JSONL files.
+Convenience functions for managing remote S3 storage. 
 
 ```bash
 # Extract text and print to stdout
@@ -193,26 +193,24 @@ During sync, OCR text is automatically extracted from book archives and uploaded
 
 **Local Storage:**
 ```bash
-python grin.py collect --run-name "local" --library-directory Harvard --storage local
+python grin.py collect --run-name "local" --library-directory Harvard --storage local --storage-config base_path=/tmp/grin-books
 ```
 
 **Cloudflare R2:**
 ```bash
-python grin.py collect --run-name "r2" --library-directory Harvard --storage r2 \
-  --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
+python grin.py collect --run-name "r2" --library-directory Harvard --storage r2
 ```
 
-**MinIO:**
+**MinIO (Docker only):**
 ```bash
-python grin.py collect --run-name "minio" --library-directory Harvard --storage minio \
-  --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full \
-  --storage-config endpoint_url=localhost:9000
+# MinIO is auto-configured inside Docker containers
+docker-compose --profile minio exec grin-to-s3 python grin.py collect \
+  --run-name "minio" --library-directory Harvard --storage minio 
 ```
 
 **AWS S3:**
 ```bash
-python grin.py collect --run-name "s3" --library-directory Harvard --storage s3 \
-  --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
+python grin.py collect --run-name "s3" --library-directory Harvard --storage s3 
 ```
 
 ## Run Configuration System
@@ -221,8 +219,7 @@ The first command (`grin.py collect`) writes configuration to the run directory.
 
 ```bash
 # Initial collection creates run config
-python grin.py collect --run-name "my_run" --library-directory Harvard --storage r2 \
-  --bucket-raw raw --bucket-meta meta --bucket-full full
+python grin.py collect --run-name "my_run" --library-directory Harvard --storage r2 
 
 # Other commands auto-detect config from run name
 python grin.py process request --run-name my_run
@@ -326,3 +323,74 @@ Each run creates organized output in `output/{run_name}/`:
 - `books_{timestamp}.csv` - Timestamped CSV export
 - `progress.json` - Collection progress for resume capability
 - `run_config.json` - Configuration for other scripts to auto-detect settings
+
+## Docker Usage
+
+GRIN-to-S3 provides Docker support for containerized deployment with comprehensive credential management.
+
+### Quick Start with Docker
+
+**Convenience Script (Recommended):**
+```bash
+# Make the wrapper script executable
+chmod +x grin-docker
+
+# Start services and run commands easily
+./grin-docker python grin.py auth setup
+./grin-docker python grin.py collect --run-name test_run --library-directory Harvard --storage minio --limit 10
+./grin-docker bash  # Interactive shell
+
+**Production with Cloudflare R2:**
+```bash
+# 1. Configure credentials
+cp examples/docker/r2-credentials-template.json ~/.config/grin-to-s3/r2_credentials.json
+# Edit r2_credentials.json with your actual credentials
+
+# 2. Set up OAuth2 credentials (run once)
+./grin-docker python grin.py auth setup
+
+# 3. Start the application and run collection
+docker-compose up -d
+./grin-docker python grin.py collect --storage r2 --run-name production
+```
+
+### Docker Features
+
+- **Multi-stage builds** for optimized image size
+- **Non-root user** for security
+- **Persistent volumes** for data, configuration, and logs
+- **Multiple storage backends** (R2, S3, MinIO, local)
+- **Credential management** via file mounts or environment variables
+- **Development environment** with MinIO integration
+
+### Available Docker Configurations
+
+- `docker-compose.yml` - Universal configuration supporting all storage backends
+- `examples/docker/` - Credential templates for different storage providers
+
+### Common Docker Commands
+
+```bash
+# Build the image
+docker build -t grin-to-s3 .
+
+# Run individual commands
+docker run --rm -v $(pwd)/docker-data:/app/data grin-to-s3 --help
+
+# Complete pipeline workflow
+docker-compose exec grin-to-s3 python grin.py collect --run-name docker_test --library-directory Harvard --storage minio --limit 5
+docker-compose exec grin-to-s3 python grin.py process request --run-name docker_test --limit 5
+docker-compose exec grin-to-s3 python grin.py sync pipeline --run-name docker_test
+docker-compose exec grin-to-s3 python grin.py export --run-name docker_test --output /app/output/books.csv
+```
+
+### Data Persistence
+
+All Docker configurations use volumes for persistent data:
+- `./docker-data/data/` - SQLite databases and progress files
+- `./docker-data/output/` - Run outputs and results
+- `./docker-data/config/` - Authentication and configuration files
+- `./docker-data/logs/` - Application logs
+- `./docker-data/staging/` - Temporary processing files
+
+See `examples/docker/README.md` for comprehensive Docker documentation and credential management details.

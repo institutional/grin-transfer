@@ -2,9 +2,9 @@
 OAuth2 implementation for GRIN access
 """
 
-import asyncio
 import json
 import logging
+import os
 import sys
 import time
 from datetime import UTC, datetime
@@ -15,6 +15,8 @@ import aiohttp
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
+
+from .common import is_docker_environment
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +70,11 @@ class GRINAuth:
         if secrets_file:
             return Path(secrets_file)
 
+        # Check environment variable first (for Docker)
+        env_path = os.environ.get("GRIN_CLIENT_SECRET_FILE")
+        if env_path and Path(env_path).exists():
+            return Path(env_path)
+
         # Search locations in order of preference
         search_paths = []
 
@@ -92,13 +99,17 @@ class GRINAuth:
 
         # Default to XDG config directory
         default_path = home / ".config" / "grin-to-s3" / "client_secret.json"
-        logger.warning(f"No secrets file found, using default: {default_path}")
         return default_path
 
     def _find_credentials_file(self, credentials_file: str | None, secrets_dir: str | None) -> Path:
         """Find the credentials file, checking multiple locations."""
         if credentials_file:
             return Path(credentials_file)
+
+        # Check environment variable first (for Docker)
+        env_dir = os.environ.get("GRIN_CREDENTIALS_DIR")
+        if env_dir:
+            return Path(env_dir) / "credentials.json"
 
         # Search locations in order of preference
         search_paths = []
@@ -416,14 +427,31 @@ def setup_credentials(secrets_file: str | None = None, credentials_file: str | N
     # Step 1: Check for secrets file
     print("\nStep 1: OAuth2 Client Configuration")
     if not secrets_path.exists():
-        print(f"❌ Missing client secrets file: {secrets_path}")
-        print("\nYou need to create a Google Cloud OAuth2 application:")
-        print("   1. Go to: https://console.cloud.google.com/apis/credentials")
-        print("   2. Create a new project or select existing")
-        print("   3. Click 'Create Credentials' → 'OAuth 2.0 Client IDs'")
-        print("   4. Application type: 'Desktop application'")
-        print("   5. Download the JSON file")
-        print(f"   6. Save it as '{secrets_path}'")
+        print(
+            f"""
+❌ Missing OAuth 2.0 client secrets file: {secrets_path}
+
+If you already have a client_secret.json file, """, end="")
+
+        print("save it in your home directory at ~/.config/grin-to-s3/client_secret.json")
+
+        print("""
+If you don't have a client_secret.json file, follow these steps to create one:
+
+   1. Go to: https://console.cloud.google.com/apis/credentials
+   2. Create a new project or select existing
+   3. Click 'Create Credentials' → 'OAuth 2.0 Client IDs'
+   4. Application type: 'Desktop application'
+   5. Download the JSON file"""
+        )
+
+        # Detect Docker environment and provide appropriate instructions
+        if is_docker_environment():
+            print("   6. Save it in your home directory as ~/.config/grin-to-s3/client_secret.json")
+            print(f"   7. The file will be available inside the container at: {secrets_path}")
+            print("   8. Tokens will be saved to a writable project directory for secure refresh")
+        else:
+            print(f"   6. Save it as '{secrets_path}'")
 
         print("\nThe file should look like:")
         print("   {")
@@ -433,17 +461,15 @@ def setup_credentials(secrets_file: str | None = None, credentials_file: str | N
         print('       "project_id": "your-project-id",')
         print('       "auth_uri": "https://accounts.google.com/o/oauth2/auth",')
         print('       "token_uri": "https://oauth2.googleapis.com/token",')
-        print('       "redirect_uris": ["http://localhost:8080"]')
+        print('       "redirect_uris": ["http://localhost:58432"]')
         print("     }")
         print("   }")
+        print("\nNOTE: The redirect URI must match the OAuth2 port (default: 58432)")
+        print("If you use a custom port, update the redirect_uris accordingly.")
 
-        input(f"\nPress Enter once you've saved the secrets file as '{secrets_path}'...")
+        exit(1)
 
-        if not secrets_path.exists():
-            print(f"❌ Still can't find {secrets_path}. Please create it first.")
-            return False
-
-    print(f"✅ Found client secrets: {secrets_path}")
+    print(f"Looking for client secrets at: {secrets_path}")
 
     # Step 2: Validate secrets file
     try:
@@ -463,6 +489,13 @@ def setup_credentials(secrets_file: str | None = None, credentials_file: str | N
 
         print("✅ Client secrets file is valid")
 
+    except FileNotFoundError:
+        print(f"❌ Client secrets file not found: {secrets_path}")
+        print("\nTo fix this:")
+        print("1. Create the directory: mkdir -p ~/.config/grin-to-s3/")
+        print("2. Copy the template: cp examples/docker/client_secret.json ~/.config/grin-to-s3/client_secret.json")
+        print("3. Edit the file with your OAuth2 credentials from Google Cloud Console")
+        return False
     except json.JSONDecodeError:
         print("❌ Secrets file is not valid JSON")
         return False
@@ -483,48 +516,142 @@ def setup_credentials(secrets_file: str | None = None, credentials_file: str | N
             current_scopes = set(SCOPES)
 
             if existing_scopes == current_scopes:
-                print(f"Compatible credentials found: {creds_path}")
-                overwrite = input("Do you want to create new credentials? (y/N): ").strip().lower()
-                if overwrite not in ["y", "yes"]:
-                    print("✅ Keeping existing credentials")
-                    return True
+                print(f"✅ Compatible credentials found: {creds_path}")
+                return True
             else:
-                print("Existing credentials have different scopes")
-                print(f"Existing: {sorted(existing_scopes)}")
-                print(f"Required: {sorted(current_scopes)}")
-                print("New credentials required")
+                print("⚠️  Existing credentials have different scopes")
+                print(f"   Existing: {sorted(existing_scopes)}")
+                print(f"   Required: {sorted(current_scopes)}")
+                print("   Creating new credentials with correct scopes...")
 
         except (json.JSONDecodeError, KeyError, FileNotFoundError):
-            print(f"Invalid credentials file found: {creds_path}")
-            print("New credentials required")
+            print(f"⚠️  Invalid credentials file found: {creds_path}")
+            print("   Creating new credentials...")
 
     print("Starting OAuth2 flow...")
-    print("This will open your browser for Google authentication")
 
     try:
         # Use InstalledAppFlow which handles the local server properly
         flow = InstalledAppFlow.from_client_secrets_file(str(secrets_path), scopes=SCOPES)
 
-        print("\nStarting local server for OAuth2 callback...")
-        print("This will open your browser automatically for Google authentication")
-        print("If the browser doesn't open automatically, copy the URL that appears")
+        if is_docker_environment():
+            print("Running in Docker container - using port forwarding flow")
+            print("\n" + "="*60)
+            print("DOCKER OAUTH2 SETUP")
+            print("="*60)
 
-        # Run the local server flow with auto-shutdown
-        credentials = flow.run_local_server(
-            host="localhost",
-            port=8080,
-            open_browser=True,
-            prompt="consent",
-            authorization_prompt_message="",
-            success_message="Authentication successful! You can close this browser tab.",
-            stop_server=True,
-        )
+            # Get OAuth2 port from environment
+            oauth_port = int(os.environ.get("GRIN_OAUTH_PORT", "58432"))
+
+            print(f"1. The OAuth2 server will start on port {oauth_port}")
+            print("2. A URL will be displayed for you to visit")
+            print("3. Complete the Google authorization")
+            print(f"4. The browser will redirect to localhost:{oauth_port}")
+            print("   This will complete authentication automatically")
+            print("="*60)
+            print("Starting OAuth2 server...")
+
+            # Generate and display the authorization URL
+            flow.redirect_uri = f"http://localhost:{oauth_port}"
+            auth_url, _ = flow.authorization_url(
+                prompt="consent",
+                access_type="offline"
+            )
+
+            print("\nPlease visit this URL to authorize the application:")
+            print(f"{auth_url}")
+            print(f"\nAfter authorization, the browser will redirect to localhost:{oauth_port}")
+            print("The server is now waiting for the authorization callback...")
+
+            # Start local server with Docker-compatible settings
+            # Use fetch_token to handle the callback manually
+            import urllib.parse
+            from http.server import BaseHTTPRequestHandler, HTTPServer
+
+            auth_code = None
+            server_error = None
+
+            class CallbackHandler(BaseHTTPRequestHandler):
+                def do_GET(self):
+                    nonlocal auth_code, server_error
+
+                    # Parse the callback URL
+                    parsed_url = urllib.parse.urlparse(self.path)
+                    query_params = urllib.parse.parse_qs(parsed_url.query)
+
+                    if "code" in query_params:
+                        auth_code = query_params["code"][0]
+                        self.send_response(200)
+                        self.send_header("Content-type", "text/html")
+                        self.end_headers()
+                        self.wfile.write(b"<html><body><h1>Authentication successful!</h1><p>You can close this browser tab.</p></body></html>")
+                    elif "error" in query_params:
+                        server_error = query_params["error"][0]
+                        self.send_response(400)
+                        self.send_header("Content-type", "text/html")
+                        self.end_headers()
+                        self.wfile.write(b"<html><body><h1>Authentication failed!</h1><p>Error: " + server_error.encode() + b"</p></body></html>")
+                    else:
+                        self.send_response(400)
+                        self.send_header("Content-type", "text/html")
+                        self.end_headers()
+                        self.wfile.write(b"<html><body><h1>Invalid request</h1></body></html>")
+
+                def log_message(self, format, *args):
+                    # Suppress log messages
+                    pass
+
+            # Start the HTTP server
+            server = HTTPServer(("0.0.0.0", oauth_port), CallbackHandler)
+            server.timeout = 300  # 5 minute timeout
+
+            # Handle the request
+            server.handle_request()
+            server.server_close()
+
+            if server_error:
+                raise Exception(f"OAuth2 authorization failed: {server_error}")
+
+            if not auth_code:
+                raise Exception("No authorization code received")
+
+            # Exchange the authorization code for credentials
+            token = flow.fetch_token(code=auth_code)
+
+            # Convert OAuth2Token to Credentials object
+            credentials = Credentials(
+                token=token.get("access_token"),
+                refresh_token=token.get("refresh_token"),
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=flow.client_config["client_id"],
+                client_secret=flow.client_config["client_secret"],
+                scopes=SCOPES,
+            )
+        else:
+            print("This will open your browser for Google authentication")
+            print("\nStarting local server for OAuth2 callback...")
+            print("This will open your browser automatically for Google authentication")
+            print("If the browser doesn't open automatically, copy the URL that appears")
+
+            # Use same port logic for consistency
+            oauth_port = int(os.environ.get("GRIN_OAUTH_PORT", "58432"))
+
+            # Run the local server flow with auto-shutdown
+            credentials = flow.run_local_server(
+                host="localhost",
+                port=oauth_port,
+                open_browser=True,
+                prompt="consent",
+                authorization_prompt_message="",
+                success_message="Authentication successful! You can close this browser tab.",
+                stop_server=True,
+            )
 
         # Save credentials
         creds_data = {
             "token": credentials.token,
             "refresh_token": credentials.refresh_token,
-            "token_uri": credentials.token_uri,
+            "token_uri": getattr(credentials, "token_uri", "https://oauth2.googleapis.com/token"),
             "client_id": credentials.client_id,
             "client_secret": credentials.client_secret,
             "scopes": credentials.scopes,
@@ -547,21 +674,22 @@ def setup_credentials(secrets_file: str | None = None, credentials_file: str | N
     print("\nStep 3: Testing Credentials")
 
     try:
-        # Reuse the same auth instance to ensure consistent file paths
+        # Test credential loading synchronously
         test_auth = GRINAuth(str(secrets_path), str(creds_path))
 
-        # Test credential loading
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Test loading credentials from file
+        loaded_creds = test_auth._load_credentials()
+        if loaded_creds:
+            print("✅ Credentials loaded successfully")
 
-        loop.run_until_complete(test_auth.get_credentials())
-        print("✅ Credentials loaded successfully")
-
-        # Test bearer token
-        token = loop.run_until_complete(test_auth.get_bearer_token())
-        print(f"✅ Bearer token generated: {token[:30]}...")
-
-        loop.close()
+            # Test bearer token access
+            if loaded_creds.token:
+                print(f"✅ Bearer token available: {loaded_creds.token[:30]}...")
+            else:
+                print("⚠️  No bearer token found, but credentials are valid")
+        else:
+            print("❌ Could not load credentials from file")
+            return False
 
     except Exception as e:
         print(f"❌ Credential test failed: {e}")

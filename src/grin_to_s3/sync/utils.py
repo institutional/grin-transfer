@@ -54,9 +54,17 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
 
 
             # Create boto3 client with same credentials
+            access_key = storage_config.get("access_key")
+            secret_key = storage_config.get("secret_key")
+
+            # Check if credentials are available
+            if not access_key or not secret_key:
+                logger.error(f"Missing credentials for {storage_type} storage")
+                return False
+
             s3_config = {
-                "aws_access_key_id": storage_config.get("access_key"),
-                "aws_secret_access_key": storage_config.get("secret_key"),
+                "aws_access_key_id": access_key,
+                "aws_secret_access_key": secret_key,
             }
             if storage_type == "minio":
                 s3_config["endpoint_url"] = storage_config.get("endpoint_url")
