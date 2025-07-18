@@ -112,22 +112,10 @@ services:
       echo 'MinIO buckets created successfully';
       "
 
-  # Optional: Redis for caching (if needed in future)
-  # redis:
-  #   image: redis:7-alpine
-  #   container_name: grin-to-s3-redis-dev
-  #   networks:
-  #     - grin-dev-network
-  #   command: redis-server --appendonly yes
-  #   volumes:
-  #     - redis-data:/data
-
 # Named volumes for development
 volumes:
   minio-data:
     driver: local
-  # redis-data:
-  #   driver: local
 
 # Network configuration
 networks:

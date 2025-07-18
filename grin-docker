@@ -49,16 +49,16 @@ if echo "$COMMAND" | grep -q "storage minio\|--storage=minio"; then
 fi
 
 # Check if services are already running
-if ! docker-compose -f "$COMPOSE_PATH" ps "$SERVICE_NAME" 2>/dev/null | grep -q "Up"; then
+if ! docker compose -f "$COMPOSE_PATH" ps "$SERVICE_NAME" 2>/dev/null | grep -q "Up"; then
     echo "Starting Docker services..."
     if [ -n "$PROFILES" ]; then
         echo "Starting with MinIO profile..."
     fi
     
     # Start services with visible output
-    if ! docker-compose -f "$COMPOSE_PATH" $PROFILES up -d "$SERVICE_NAME"; then
+    if ! docker compose -f "$COMPOSE_PATH" $PROFILES up -d "$SERVICE_NAME"; then
         echo "Error: Failed to start $SERVICE_NAME service"
-        echo "Try running: docker-compose -f $COMPOSE_FILE $PROFILES up -d"
+        echo "Try running: docker compose -f $COMPOSE_FILE $PROFILES up -d"
         exit 1
     fi
     
@@ -69,4 +69,4 @@ else
 fi
 
 # Execute command
-exec docker-compose -f "$COMPOSE_PATH" exec "$SERVICE_NAME" $COMMAND
+exec docker compose -f "$COMPOSE_PATH" exec "$SERVICE_NAME" $COMMAND

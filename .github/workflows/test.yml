@@ -58,10 +58,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Create required directories
+    - name: Create required directories and dummy credentials
       run: |
         mkdir -p docker-data/{data,output,logs,staging}
         mkdir -p ~/.config/grin-to-s3
+        # Create dummy client secret file for Docker tests
+        cp examples/docker/client_secret.json ~/.config/grin-to-s3/client_secret.json
     
     - name: Test Docker image build
       run: |
@@ -69,19 +71,19 @@ jobs:
     
     - name: Test Docker Compose (basic service)
       run: |
-        docker-compose up -d grin-to-s3
+        docker compose up -d grin-to-s3
         # Wait for service to be ready
         sleep 10
-        docker-compose ps | grep -q "grin-to-s3"
-        docker-compose down
+        docker compose ps | grep -q "grin-to-s3"
+        docker compose down
     
     - name: Test Docker Compose (MinIO profile)
       run: |
-        docker-compose --profile minio up -d
+        docker compose --profile minio up -d
         # Wait for MinIO to be ready
         sleep 15
-        docker-compose ps | grep -q "minio"
-        docker-compose down
+        docker compose ps | grep -q "minio"
+        docker compose down
     
     - name: Test grin-docker wrapper script basic functionality
       run: |
