@@ -1,13 +1,13 @@
 # GRIN-to-S3
 
-An async pipeline for extracting Google Books data from GRIN (Google Return Interface) to local databases and S3-compatible storage, designed for academic libraries.
+A pipeline for extracting page scans, metadata, and OCR from Google Books GRIN (Google Return Interface) by academic libraries who have partnered with Google Books. The tool will programmatically download and store book archives to local or S3-compatible storage. 
 
 ## Prerequisites
 
-1. You should know your "library directory", or the path in GRIN where your books are available. For example, given the URL https://books.google.com/libraries/Harvard/_all_books, the "library directory" is "Harvard." This value is case-sensitive.
-2. You should have access to the Google account that was given to a Google partner manager for access to GRIN. This will be the same account that you use to log in to GRIN as a human.
-3. You'll need your GPG decryption passphrase from Google. It will be a short text file containing random words.
-4. (Optional) We recommend you set up S3-like cloud storage for large collections. GRIN-to-S3 will use those credentials to transfer decrypted book archives and metadata. For smaller collections, you can use any filesystem reachable from where you run this tool.
+1. You should know your "library directory", or the path in GRIN where your books are made available. For example, given the URL https://books.google.com/libraries/Harvard/_all_books, the "library directory" is "Harvard." This value is case-sensitive.
+2. You should have credentials for the Google account that was given to a Google partner manager for access to GRIN. This will be the same account that you use to log in to GRIN as a human.
+3. Book archives stored in GRIN are encrypted. You'll need your GPG decryption passphrase from Google. It will be a short text file containing random words.
+4. (Optional) We recommend you set up S3-like cloud storage to extract large collections. GRIN-to-S3 will use those credentials to transfer decrypted book archives and metadata. For smaller collections, you can use any filesystem reachable from where you run this tool.
 
 ## Installation requirements
 
@@ -15,22 +15,20 @@ The GRIN-to-S3 pipeline can be installed via docker, or directly on a target Lin
 
 ### Quick start with docker
 
-We've provided a `grin-docker` wrapper script to make accessing the tool easy. 
+We've provided a `grin-docker` wrapper script to make accessing the tool straightforward.
+
+Assuming Docker is running on your local or host machine:
+
 ```bash
-# Make the wrapper script executable if necessary
-chmod +x grin-docker
 
+# Build the docker environment and configure authentication with GRIN
+./grin-docker auth setup
 
-# Interactively configure authentication with the GRIN interface
-grin-docker auth setup
-
-# Then run a sample collection 
-grin-docker collect --run-name test_run --library-directory Harvard --storage minio --limit 10
-
-# Most file output and logs will be mounted on `docker-files` on your local machine 
+# Then run a sample collection using the default storage option available in the docker container
+./grin-docker collect --run-name test_run --library-directory YOUR_LIBRARY_DIRECTORY --storage minio --limit 10
 
 # You can also connect directly to the docker container if needed
-/grin-docker bash 
+./grin-docker bash 
 ```
 
 ### Local installation
@@ -39,39 +37,66 @@ grin-docker collect --run-name test_run --library-directory Harvard --storage mi
 - Dependencies are managed via `pyproject.toml`
 
 ```bash
-# Install in development mode (includes all dependencies and dev tools)
-pip install -e ".[dev]"
+# Create and activate a virtual environment
+python -m venv venv
+source venv/bin/activate 
+
+# Install dependencies
+pip install -e "."
 
 # Interactively configure authentication with the GRIN interface
 python grin.py auth setup
 
 # Then run a sample collection 
-python grin.py collect --run-name test_run --library-directory Harvard --storage minio --limit 10
+python grin.py collect --run-name test_run --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=/tmp/grin-to-s3-storage --limit 10
 
+# And sync those 10 files
+python grin.py sync pipeline --run-name test_run
 ```
+## Pipeline concepts
+
+### Runs
+Discrete sessions of pipeline operations are called "runs" and are referenced via the `--run-name` argument. If you don't specify a run name, it will default to a timestamped value like `run_20250721_103242`. 
+
+### Storage
+Downloaded archives are ultimately synced to your **storage**, which may be a cloud-based block storage like S3, GCS, or R2, or a local filesystem. Configuring storage is required.
+
+For block storage, the default configuration is to use three buckets: 
+
+1. `raw`: The decrypted book archives in their entirety
+2. `full`: Only the OCR exports from the books
+3. `meta`: Complete book metadata and run information
+
+
+### Staging
+During processing, book archives and metadata are saved in the **staging** area on your local filesystem until they are fully uploaded to storage. By default,  `staging/` is created in the repo directory, but can be overridden with `--sync-staging-dir`. To avoid running out of local disk space, `--sync-disk-space-threshold` is used to keep the staging area at capacity; when capacity is exceeded, downloads are paused and usually will resume once files are fully uploaded.
+
+## Pipeline steps
+Each run begins with the **collection** step, where book metadata is first downloaded from GRIN and stored locally for evaluation and processing. Collecting all book metadata for very large (1 million+ book) collections usually takes about an hour.
+
+GRIN needs to "convert" archives to make them available for download. This pipeline can **request** conversions up to Google's maximum of 50,000 queued.
+
+The next step is to start the **sync pipeline**, in which the original book archives are downloaded from GRIN, decrypted, **enriched** with additional GRIN metadata, and uploaded or copied to storage. 
+
+Finally, there are utilities for checking progress and gathering statistics about the run. 
 
 ## Core Commands
 
-The pipeline provides a unified command-line interface via `grin.py` with main subcommands. Note that installed via docker, you'll want to preface all of these with `grin-docker`
+The pipeline provides a unified command-line interface via `grin.py`, with  subcommands that map to the pipeline steps. Note that installed via docker, for convenience these can all be called from outside the contanier as `grin-docker <subcommand>`
 
 ### 1. Book Collection: `grin.py collect`
 
-Collects book metadata from GRIN into local SQLite database with run configuration.
+Collects book metadata from GRIN into the local SQLite database and writes the run configuration with relevant parameters.
 
 ```bash
-# Basic collection with three-bucket storage
+# Basic collection using CloudFlare R2 as the remote storage
 python grin.py collect --run-name "harvard_2024" \
   --library-directory Harvard \
-  --storage r2 \
-  --bucket-raw grin-raw \
-  --bucket-meta grin-meta \
-  --bucket-full grin-full
+  --storage r2 
 
-# Local storage (no buckets required)
-python grin.py collect --run-name "local_test" --library-directory Harvard --storage local
+# Local storage (no buckets required, but necessary to specify the storage path)
+python grin.py collect --run-name "local_test" --library-directory Harvard --storage local --storage-config base_path=/tmp/storage
 
-# Test mode with mock data
-python grin.py collect --test-mode --library-directory Harvard --limit 100 --storage local
 ```
 
 **Key options:**
@@ -105,24 +130,12 @@ Download converted books from GRIN to storage with database tracking.
 # Sync converted books to storage (auto-detects config from run)
 python grin.py sync pipeline --run-name harvard_2024
 
-# Sync with explicit storage configuration
-python grin.py sync pipeline --run-name harvard_2024 \
-  --storage r2 \
-  --bucket-raw grin-raw \
-  --bucket-meta grin-meta \
-  --bucket-full grin-full
-
 # Check sync status
 python grin.py sync status --run-name harvard_2024
-
-# Download already-converted books from GRIN
-python grin.py sync catchup --run-name harvard_2024
 
 # Retry failed syncs only
 python grin.py sync pipeline --run-name harvard_2024 --status failed
 
-# Sync without OCR text extraction (faster)
-python grin.py sync pipeline --run-name harvard_2024 --skip-extract-ocr
 ```
 
 **Pipeline options:**
@@ -133,12 +146,10 @@ python grin.py sync pipeline --run-name harvard_2024 --skip-extract-ocr
 - `--status`: Filter by sync status (`pending`, `failed`)
 - `--force`: Overwrite existing files
 - `--staging-dir`: Custom staging directory path (default: output/run-name/staging)
-- `--disk-space-threshold`: Disk usage threshold to pause downloads (0.0-1.0, default: 0.9)
-- `--skip-extract-ocr`: Skip OCR text extraction during sync (default: extract OCR)
 
 ### 4. Storage Management: `grin.py storage`
 
-Manage storage buckets with fast listing and deletion for millions of files.
+Manage storage buckets with fast listing and deletion.
 
 ```bash
 # List all buckets (summary)
@@ -161,66 +172,7 @@ python grin.py storage rm full --run-name harvard_2024 --dry-run
 - `ls`: List contents of all storage buckets with file counts and sizes
 - `rm`: Remove all contents from specified bucket (raw, meta, or full)
 
-### 5. Text Extraction: `grin.py extract`
 
-Extract OCR text from decrypted book archives and output as JSONL files.
-
-```bash
-# Extract text and print to stdout
-python grin.py extract /path/to/book.tar.gz
-
-# Extract text and save to JSONL file
-python grin.py extract /path/to/book.tar.gz --output /path/to/output.jsonl
-
-# Extract multiple archives to directory
-python grin.py extract /path/to/books/*.tar.gz --output-dir /path/to/jsonl_files/
-
-# Extract and upload to buckets using run configuration
-python grin.py extract /path/to/book.tar.gz --run-name harvard_2024
-
-# Extract multiple files using run configuration
-python grin.py extract /path/to/books/*.tar.gz --run-name harvard_2024
-
-# Use disk extraction with custom directory
-python grin.py extract /path/to/book.tar.gz --extraction-dir /tmp/grin_work --keep-extracted
-```
-
-**Extraction options:**
-- `--output`: Save to specific JSONL file path (default: print to stdout)
-- `--output-dir`: Save multiple files to directory (creates BARCODE.jsonl for each archive)
-- `--run-name`: Use run configuration to upload extracted text to full-text bucket
-- `--extraction-dir`: Directory to extract archives to (creates BARCODE/ subdirectories)
-- `--keep-extracted`: Keep extracted files after processing
-- `--use-memory`: Extract in memory instead of to disk (memory efficient for smaller archives)
-- `--verbose`: Enable detailed progress output
-- `--summary`: Show extraction statistics
-
-### 6. GRIN Enrichment: `grin.py enrich/export-csv`
-
-Add detailed GRIN metadata to collected books and export to CSV.
-
-```bash
-python grin.py enrich --run-name harvard_2024
-python grin.py export-csv --run-name harvard_2024 --output books.csv
-
-# View comprehensive pipeline status
-python grin.py reports view --run-name harvard_2024
-```
-
-**Commands:**
-- `enrich`: Add detailed GRIN metadata to collected books  
-- `export-csv`: Export enriched data to CSV file
-- `reports view`: Show comprehensive pipeline status and progress
-
-## Storage Configuration
-
-The system uses a three-bucket architecture for different data types:
-
-- **Raw Bucket** (`--bucket-raw`): Decrypted book archives from GRIN sync
-- **Metadata Bucket** (`--bucket-meta`): CSV files and database exports  
-- **Full-text Bucket** (`--bucket-full`): OCR text extraction outputs (JSONL format)
-
-During sync, OCR text is automatically extracted from book archives and uploaded to the full-text bucket. Use `--skip-extract-ocr` to disable this behavior for faster sync operations.
 
 ### Storage Backends
 
