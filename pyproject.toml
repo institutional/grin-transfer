@@ -62,9 +62,6 @@ test = [
     "pytest-xdist>=3.0.0",
 ]
 
-[project.scripts]
-grin-collect = "collect_books.__main__:main"
-grin-enrich = "grin_to_s3.metadata.grin_enrichment:main"
 
 [project.urls]
 Homepage = "https://github.com/harvard-idi/grin-to-s3-wip"
