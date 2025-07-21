@@ -171,10 +171,11 @@ class RunConfig:
                 args["prefix"] = value
             elif key == "endpoint_url":
                 args["endpoint-url"] = value
+            # Skip access_key and secret_key - these should only be read from secrets directories
             elif key == "access_key":
-                args["access-key"] = value
+                pass  # Don't include secrets in args
             elif key == "secret_key":
-                args["secret-key"] = value
+                pass  # Don't include secrets in args
             elif key == "credentials_file":
                 args["credentials-file"] = value
 
@@ -444,16 +445,15 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
                     if bucket_attr in creds:
                         storage_dict[bucket_attr] = creds[bucket_attr]
 
-                # Also include R2 credentials for storage creation
-                for cred_attr in ["access_key", "secret_key", "endpoint_url"]:
-                    if cred_attr in creds:
-                        storage_dict[cred_attr] = creds[cred_attr]
+                # Include endpoint_url but NOT credentials - those should only be read from secrets dirs
+                if "endpoint_url" in creds:
+                    storage_dict["endpoint_url"] = creds["endpoint_url"]
             except Exception:
                 # If we can't load credentials, that's ok - validation will catch missing buckets later
                 pass
 
-    # Add other optional arguments
-    for attr in ["prefix", "endpoint_url", "access_key", "secret_key", "credentials_file"]:
+    # Add other optional arguments (excluding secrets)
+    for attr in ["prefix", "endpoint_url", "credentials_file"]:
         value = getattr(args, attr, None)
         if value:
             storage_dict[attr] = value

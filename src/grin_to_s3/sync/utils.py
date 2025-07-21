@@ -14,11 +14,14 @@ import boto3
 from botocore.exceptions import ClientError
 
 from ..database import connect_async
+from ..storage.factories import get_storage_protocol, load_r2_credentials, s3_credentials_available
 
 logger = logging.getLogger(__name__)
 
 # Global cache for bucket existence checks
 _bucket_checked_cache: set[str] = set()
+
+
 
 
 def reset_bucket_cache() -> None:
@@ -50,28 +53,46 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
 
     try:
         # Use boto3 directly for bucket operations (fsspec doesn't support bucket creation)
-        if storage_type in ("s3", "minio", "r2"):
+        storage_protocol = get_storage_protocol(storage_type)
 
+        if storage_protocol == "s3":
+            # Check credentials availability for each storage type
+            access_key = None
+            secret_key = None
 
-            # Create boto3 client with same credentials
-            access_key = storage_config.get("access_key")
-            secret_key = storage_config.get("secret_key")
-
-            # Check if credentials are available
-            if not access_key or not secret_key:
-                logger.error(f"Missing credentials for {storage_type} storage")
-                return False
-
-            s3_config = {
-                "aws_access_key_id": access_key,
-                "aws_secret_access_key": secret_key,
-            }
             if storage_type == "minio":
-                s3_config["endpoint_url"] = storage_config.get("endpoint_url")
+                # MinIO uses hardcoded development credentials
+                access_key = "minioadmin"
+                secret_key = "minioadmin123"
             elif storage_type == "r2":
-                s3_config["endpoint_url"] = storage_config["endpoint_url"]
+                # Load R2 credentials from secrets directory
+                r2_creds = load_r2_credentials()
+                if r2_creds is None:
+                    return False
+                access_key, secret_key = r2_creds
+            elif storage_type == "s3":
+                # For S3, check if credentials are available via boto3
+                if not s3_credentials_available():
+                    logger.error("Missing S3 credentials. Please ensure credentials are configured via environment variables or ~/.aws/credentials")
+                    return False
+                # Don't set access_key/secret_key - let boto3 handle credential loading
 
-            s3_client = boto3.client("s3", **s3_config)
+            # Build S3 config based on storage type
+            s3_config: dict[str, str] = {}
+            if storage_type == "s3":
+                # For S3, let boto3 handle credential loading via standard credential chain
+                pass
+            elif access_key and secret_key:
+                # For MinIO and R2, use explicit credentials
+                # Note: Parameter names are from S3-compatible API (used by MinIO, R2, etc.)
+                s3_config["aws_access_key_id"] = access_key
+                s3_config["aws_secret_access_key"] = secret_key
+            if storage_type in ("minio", "r2"):
+                endpoint_url = storage_config.get("endpoint_url")
+                if endpoint_url:
+                    s3_config["endpoint_url"] = endpoint_url
+
+            s3_client = boto3.client("s3", **s3_config)  # type: ignore[call-overload]
 
             try:
                 s3_client.head_bucket(Bucket=bucket_name)

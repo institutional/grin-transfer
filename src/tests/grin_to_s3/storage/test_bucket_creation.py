@@ -91,15 +91,17 @@ class TestBucketCreation:
 
         with patch.dict(os.environ, {"MOTO_S3_CUSTOM_ENDPOINTS": custom_endpoint}):
             with mock_aws():
-                # Don't create bucket beforehand - test should create it
-                result = await ensure_bucket_exists("r2", storage_config, "test-bucket-raw")
+                # Mock R2 credentials loading to return test credentials
+                with patch("grin_to_s3.sync.utils.load_r2_credentials", return_value=("test_access_key", "test_secret_key")):
+                    # Don't create bucket beforehand - test should create it
+                    result = await ensure_bucket_exists("r2", storage_config, "test-bucket-raw")
 
-                assert result is True
+                    assert result is True
 
-                # Verify bucket was actually created by moto using the R2 endpoint
-                s3_client = boto3.client("s3", endpoint_url=custom_endpoint, region_name="us-east-1")
-                response = s3_client.head_bucket(Bucket="test-bucket-raw")
-                assert response is not None
+                    # Verify bucket was actually created by moto using the R2 endpoint
+                    s3_client = boto3.client("s3", endpoint_url=custom_endpoint, region_name="us-east-1")
+                    response = s3_client.head_bucket(Bucket="test-bucket-raw")
+                    assert response is not None
 
     @pytest.mark.asyncio
     async def test_bucket_creation_failure(self):
@@ -274,18 +276,20 @@ class TestBucketCreationErrorHandling:
             assert result is False
 
     @pytest.mark.asyncio
-    async def test_missing_credentials(self):
-        """Test bucket creation with missing credentials."""
-        # Create config with missing credentials
+    async def test_missing_credentials_r2(self):
+        """Test bucket creation with missing credentials for R2 (non-S3)."""
+        # Create config with missing credentials for R2
         storage_config = {"bucket_raw": "test-bucket-raw"}  # Missing access_key and secret_key
 
         with patch("boto3.client") as mock_boto_client:
             mock_s3 = MagicMock()
             mock_boto_client.return_value = mock_s3
 
-            # The function should return False early when credentials are missing
-            result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
+            # Mock the credentials file not existing
+            with patch("pathlib.Path.exists", return_value=False):
+                # The function should return False early when R2 credentials are missing
+                result = await ensure_bucket_exists("r2", storage_config, "test-bucket-raw")
 
-            # Verify the function returns False and boto3 is not called
-            assert result is False
-            mock_boto_client.assert_not_called()
+                # Verify the function returns False and boto3 is not called
+                assert result is False
+                mock_boto_client.assert_not_called()

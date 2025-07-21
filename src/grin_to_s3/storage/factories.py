@@ -38,6 +38,48 @@ def load_json_credentials(credentials_path: str) -> dict[str, Any]:
         raise ValueError(f"Invalid JSON in credentials file {credentials_path}: {e}") from e
 
 
+def s3_credentials_available() -> bool:
+    """Check if S3 credentials are available via boto3's credential resolution."""
+    try:
+        import boto3
+        session = boto3.Session()
+        credentials = session.get_credentials()
+        return credentials is not None and credentials.access_key is not None
+    except Exception:
+        return False
+
+
+def load_r2_credentials() -> tuple[str, str] | None:
+    """Load R2 credentials from secrets directory.
+
+    Returns:
+        Tuple of (access_key, secret_key) if successful, None if failed
+    """
+    import logging
+    from pathlib import Path
+
+    logger = logging.getLogger(__name__)
+    credentials_file = Path.home() / ".config" / "grin-to-s3" / "r2_credentials.json"
+
+    if not credentials_file.exists():
+        logger.error("Missing R2 credentials file. Please ensure credentials are properly configured in ~/.config/grin-to-s3/r2_credentials.json")
+        return None
+
+    try:
+        creds = load_json_credentials(str(credentials_file))
+        access_key = creds.get("access_key")
+        secret_key = creds.get("secret_key")
+
+        if not access_key or not secret_key:
+            logger.error("Invalid R2 credentials file. Missing access_key or secret_key in ~/.config/grin-to-s3/r2_credentials.json")
+            return None
+
+        return access_key, secret_key
+    except Exception as e:
+        logger.error(f"Failed to load R2 credentials from ~/.config/grin-to-s3/r2_credentials.json: {e}")
+        return None
+
+
 def validate_required_keys(data: dict, required_keys: list, context: str = "configuration") -> None:
     """
     Validate that required keys exist in configuration dictionary.

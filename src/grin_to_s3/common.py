@@ -779,11 +779,8 @@ def auto_configure_minio(storage_config: dict) -> None:
             # Use localhost when running outside container
             storage_config["endpoint_url"] = "http://localhost:9000"
 
-    if "access_key" not in storage_config:
-        storage_config["access_key"] = "minioadmin"
-
-    if "secret_key" not in storage_config:
-        storage_config["secret_key"] = "minioadmin123"
+    # Note: MinIO credentials should be read from secrets directories, not stored in config
+    # Default credentials are: access_key=minioadmin, secret_key=minioadmin123
 
     # Auto-configure bucket names for MinIO if not provided
     if "bucket_raw" not in storage_config:
