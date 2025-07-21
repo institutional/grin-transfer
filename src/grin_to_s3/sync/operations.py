@@ -658,28 +658,24 @@ async def sync_book_to_local_storage(
         dict: Sync result
     """
     try:
-        # Create storage and book storage
-        storage = create_storage_from_config("local", storage_config or {})
+        # Create storage for base_path validation
+        create_storage_from_config("local", storage_config or {})
         base_path = storage_config.get("base_path") if storage_config else None
         if not base_path:
             raise ValueError("Local storage requires base_path in configuration")
-        # Create bucket configuration
-        bucket_config: BucketConfig = {
-            "bucket_raw": "",  # Local storage doesn't use separate buckets
-            "bucket_meta": "",
-            "bucket_full": "",
-        }
-        book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+        # No need for BookManager as we construct paths directly for local storage
 
         # Generate final file paths
         encrypted_filename = f"{barcode}.tar.gz.gpg"
         decrypted_filename = f"{barcode}.tar.gz"
-        encrypted_path = book_storage._raw_archive_path(barcode, encrypted_filename)
-        decrypted_path = book_storage._raw_archive_path(barcode, decrypted_filename)
+
+        # For local storage, construct relative paths directly
+        relative_encrypted_path = f"{barcode}/{encrypted_filename}"
+        relative_decrypted_path = f"{barcode}/{decrypted_filename}"
 
         # Get absolute paths for local storage
-        final_encrypted_path = Path(base_path) / encrypted_path
-        final_decrypted_path = Path(base_path) / decrypted_path
+        final_encrypted_path = Path(base_path) / relative_encrypted_path
+        final_decrypted_path = Path(base_path) / relative_decrypted_path
 
         # Ensure directory exists
         final_encrypted_path.parent.mkdir(parents=True, exist_ok=True)
@@ -728,7 +724,7 @@ async def sync_book_to_local_storage(
         # Update book record with sync data
         sync_data: dict[str, Any] = {
             "storage_type": "local",
-            "storage_path": str(decrypted_path),
+            "storage_path": str(final_decrypted_path),
             "is_decrypted": True,
             "sync_timestamp": datetime.now(UTC).isoformat(),
             "encrypted_etag": encrypted_etag,

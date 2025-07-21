@@ -498,14 +498,14 @@ class SyncPipeline:
             books = await sqlite_tracker.get_all_books_csv_data()
             logger.info(f"Exporting {len(books)} books to local CSV")
 
-            # Get final CSV paths directly from book storage
+            # For local storage, construct paths directly to avoid absolute path issues
             timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-            latest_path = book_storage._meta_path("books_latest.csv")
-            timestamped_path = book_storage._meta_path(f"timestamped/books_{timestamp}.csv")
-
-            # Ensure directories exist
-            latest_path = Path(latest_path)
-            timestamped_path = Path(timestamped_path)
+            base_path = book_storage.storage.config.options.get("base_path")
+            if not base_path:
+                raise ValueError("Local storage requires base_path in configuration")
+            # Construct relative paths and combine with base_path
+            latest_path = Path(base_path) / "books_latest.csv"
+            timestamped_path = Path(base_path) / "timestamped" / f"books_{timestamp}.csv"
 
             latest_path.parent.mkdir(parents=True, exist_ok=True)
             timestamped_path.parent.mkdir(parents=True, exist_ok=True)
