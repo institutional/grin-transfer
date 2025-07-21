@@ -274,18 +274,20 @@ class TestBucketCreationErrorHandling:
             assert result is False
 
     @pytest.mark.asyncio
-    async def test_missing_credentials(self):
-        """Test bucket creation with missing credentials."""
-        # Create config with missing credentials
+    async def test_missing_credentials_r2(self):
+        """Test bucket creation with missing credentials for R2 (non-S3)."""
+        # Create config with missing credentials for R2
         storage_config = {"bucket_raw": "test-bucket-raw"}  # Missing access_key and secret_key
 
         with patch("boto3.client") as mock_boto_client:
             mock_s3 = MagicMock()
             mock_boto_client.return_value = mock_s3
 
-            # The function should return False early when credentials are missing
-            result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")
+            # Mock the credentials file not existing
+            with patch("pathlib.Path.exists", return_value=False):
+                # The function should return False early when R2 credentials are missing
+                result = await ensure_bucket_exists("r2", storage_config, "test-bucket-raw")
 
-            # Verify the function returns False and boto3 is not called
-            assert result is False
-            mock_boto_client.assert_not_called()
+                # Verify the function returns False and boto3 is not called
+                assert result is False
+                mock_boto_client.assert_not_called()
