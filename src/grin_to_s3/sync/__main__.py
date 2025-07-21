@@ -390,7 +390,7 @@ Examples:
     )
 
     status_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
-    status_parser.add_argument("--storage-type", choices=["local", "minio", "r2", "s3"], help="Filter by storage type")
+    status_parser.add_argument("--storage-type", choices=["local", "minio", "r2", "s3", "gcs"], help="Filter by storage type")
 
     args = parser.parse_args()
 

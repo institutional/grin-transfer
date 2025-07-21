@@ -156,7 +156,7 @@ Examples:
 
     # Storage options
     parser.add_argument(
-        "--storage", choices=["local", "minio", "r2", "s3"], required=True, help="Storage backend for run configuration"
+        "--storage", choices=["local", "minio", "r2", "s3", "gcs"], required=True, help="Storage backend for run configuration"
     )
     parser.add_argument(
         "--bucket-raw",

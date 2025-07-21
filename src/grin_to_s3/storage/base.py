@@ -80,6 +80,19 @@ class Storage:
             options = self.config.options.copy()
             if self.config.endpoint_url:
                 options["endpoint_url"] = self.config.endpoint_url
+
+            # For GCS, ensure project ID is available and set environment variable
+            if self.config.protocol == "gcs":
+                import os
+                project_id = options.get("project")
+                if not project_id:
+                    raise ValueError("GCS filesystem requires project ID in storage configuration")
+
+                # Set GOOGLE_CLOUD_PROJECT environment variable if not already set
+                # This prevents gcsfs from trying to auto-detect the project
+                if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+                    os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
+
             self._fs = fsspec.filesystem(self.config.protocol, **options)
         return self._fs
 

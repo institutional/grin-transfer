@@ -34,7 +34,7 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
     """Ensure the bucket exists, create if it doesn't.
 
     Args:
-        storage_type: Type of storage (local, minio, s3, r2)
+        storage_type: Type of storage (local, minio, s3, r2, gcs)
         storage_config: Storage configuration dictionary
         bucket_name: Name of the bucket to check/create
 
@@ -125,6 +125,51 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
                     # Some other error occurred
                     logger.error(f"Error checking bucket '{bucket_name}': {e}")
                     return False
+
+        elif storage_protocol == "gcs":
+            # Handle GCS bucket operations using google-cloud-storage
+            try:
+                from google.api_core import exceptions as gcs_exceptions
+                from google.cloud import storage as gcs
+
+                # Use Application Default Credentials
+                project_id = storage_config.get("project")
+                if not project_id:
+                    logger.error("GCS storage requires project ID in configuration")
+                    return False
+
+                # Create GCS client using ADC
+                gcs_client = gcs.Client(project=project_id)
+
+                try:
+                    # Check if bucket exists
+                    bucket = gcs_client.bucket(bucket_name)
+                    bucket.reload()  # This will raise an exception if bucket doesn't exist
+                    logger.debug(f"GCS bucket '{bucket_name}' exists")
+                    _bucket_checked_cache.add(bucket_key)
+                    return True
+
+                except gcs_exceptions.NotFound:
+                    # Bucket doesn't exist, try to create it
+                    logger.info(f"GCS bucket '{bucket_name}' does not exist. Creating automatically...")
+                    try:
+                        bucket = gcs_client.bucket(bucket_name)
+                        bucket.create(location="US")  # Default to US region
+                        logger.info(f"Created GCS bucket '{bucket_name}'")
+                        _bucket_checked_cache.add(bucket_key)
+                        return True
+
+                    except Exception as create_error:
+                        logger.error(f"Failed to create GCS bucket '{bucket_name}': {create_error}")
+                        return False
+
+            except ImportError:
+                logger.error("google-cloud-storage library not installed. Install with: pip install google-cloud-storage")
+                return False
+            except Exception as e:
+                logger.error(f"Error checking GCS bucket '{bucket_name}': {e}")
+                return False
+
         else:
             # For other storage types, assume bucket exists
             _bucket_checked_cache.add(bucket_key)
