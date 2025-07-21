@@ -111,37 +111,25 @@ async def main():
         epilog="""
 Examples:
   # Basic collection with timestamp-based run name
-  python grin.py collect --storage r2 --bucket-raw grin-raw \
-                         --bucket-meta grin-meta --bucket-full grin-full
+  python grin.py collect --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
   # Named collection run
-  python grin.py collect --run-name "harvard_fall_2024" --storage r2 \
-                         --bucket-raw grin-raw --bucket-meta grin-meta \
-                         --bucket-full grin-full
+  python grin.py collect --run-name "harvard_fall_2024" --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
   # Specific output file with custom run
-  python grin.py collect books.csv --run-name "test_run" --limit 100 \
-                         --storage r2 --bucket-raw grin-raw \
-                         --bucket-meta grin-meta --bucket-full grin-full
+  python grin.py collect books.csv --run-name "test_run" --limit 100 --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
   # With rate limiting and storage checking
-  python grin.py collect --rate-limit 0.5 --storage s3 \
-                         --bucket-raw my-raw --bucket-meta my-meta \
-                         --bucket-full my-full
+  python grin.py collect --rate-limit 0.5 --storage s3 --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
 
   # With additional storage configuration
-  python grin.py collect --storage minio --bucket-raw grin-raw \
-                         --bucket-meta grin-meta --bucket-full grin-full \
-                         --storage-config endpoint_url=localhost:9000
+  python grin.py collect --storage minio --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full --storage-config endpoint_url=localhost:9000
 
   # Local storage (requires base_path, no buckets needed)
-  python grin.py collect --storage local --run-name "local_test" \
-                         --storage-config base_path=/path/to/storage
+  python grin.py collect --storage local --run-name "local_test" --storage-config base_path=/path/to/storage
 
   # Resume interrupted collection (uses run-specific progress files and saved config)
-  python grin.py collect --run-name "harvard_fall_2024" --storage r2 \
-                         --bucket-raw grin-raw --bucket-meta grin-meta \
-                         --bucket-full grin-full
+  python grin.py collect --run-name "harvard_fall_2024" --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
         """,
     )
 
@@ -184,10 +172,7 @@ Examples:
     )
     parser.add_argument("--storage-config", action="append", help="Additional storage config key=value")
 
-    # Resume/progress options
-    parser.add_argument(
-        "--resume-file", default="output/default/progress.json", help="Progress tracking file for resume capability"
-    )
+    # Resume/progress options (progress files are auto-generated based on run name)
 
     # Configuration options
     parser.add_argument("--config-file", type=str, help="Configuration file path (JSON format)")
@@ -216,8 +201,7 @@ Examples:
     parser.add_argument("--max-pages", type=int, help="Maximum pages to fetch (default: 1000)")
     parser.add_argument("--start-page", type=int, help="Starting page number (default: 1)")
 
-    # Performance options
-    parser.add_argument("--disable-prefetch", action="store_true", help="Disable HTTP prefetching for next page")
+    # Performance options (HTTP prefetching is always enabled)
 
     # Sync configuration options (stored in run config for later use)
     parser.add_argument(
