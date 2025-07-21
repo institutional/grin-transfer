@@ -91,15 +91,17 @@ class TestBucketCreation:
 
         with patch.dict(os.environ, {"MOTO_S3_CUSTOM_ENDPOINTS": custom_endpoint}):
             with mock_aws():
-                # Don't create bucket beforehand - test should create it
-                result = await ensure_bucket_exists("r2", storage_config, "test-bucket-raw")
+                # Mock R2 credentials loading to return test credentials
+                with patch("grin_to_s3.sync.utils.load_r2_credentials", return_value=("test_access_key", "test_secret_key")):
+                    # Don't create bucket beforehand - test should create it
+                    result = await ensure_bucket_exists("r2", storage_config, "test-bucket-raw")
 
-                assert result is True
+                    assert result is True
 
-                # Verify bucket was actually created by moto using the R2 endpoint
-                s3_client = boto3.client("s3", endpoint_url=custom_endpoint, region_name="us-east-1")
-                response = s3_client.head_bucket(Bucket="test-bucket-raw")
-                assert response is not None
+                    # Verify bucket was actually created by moto using the R2 endpoint
+                    s3_client = boto3.client("s3", endpoint_url=custom_endpoint, region_name="us-east-1")
+                    response = s3_client.head_bucket(Bucket="test-bucket-raw")
+                    assert response is not None
 
     @pytest.mark.asyncio
     async def test_bucket_creation_failure(self):
