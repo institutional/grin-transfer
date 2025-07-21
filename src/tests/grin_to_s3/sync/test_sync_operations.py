@@ -655,3 +655,18 @@ class TestDiskSpaceHandling:
                         # Should eventually succeed after retry
                         assert result[0] == "TEST123"  # barcode
                         assert Path(result[1]).exists()  # staging file created
+
+    @pytest.mark.asyncio
+    async def test_staging_manager_wait_for_disk_space_timeout(self):
+        """Test wait_for_disk_space timeout when space never becomes available."""
+        from grin_to_s3.storage.staging import DiskSpaceError, StagingDirectoryManager
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            staging_manager = StagingDirectoryManager(temp_dir, capacity_threshold=0.9)
+
+            # Mock check_disk_space to always return False (no space)
+            with patch.object(staging_manager, "check_disk_space", return_value=False):
+                with patch.object(staging_manager, "get_disk_usage", return_value=(950e9, 1000e9, 0.95)):
+                    # This should timeout after 2 seconds
+                    with pytest.raises(DiskSpaceError, match="Timed out waiting for disk space after 2 seconds"):
+                        await staging_manager.wait_for_disk_space(timeout=2, check_interval=0.5)

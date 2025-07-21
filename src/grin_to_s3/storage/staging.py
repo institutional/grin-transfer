@@ -40,8 +40,6 @@ class StagingDirectoryManager:
         """
         self.staging_path = Path(staging_path)
         self.capacity_threshold = capacity_threshold
-        self._last_space_check = 0.0
-        self._space_check_interval = 10  # Check disk space every 10 seconds
 
         # Ensure staging directory exists
         self.staging_path.mkdir(parents=True, exist_ok=True)
@@ -78,8 +76,7 @@ class StagingDirectoryManager:
         Returns:
             True if space is available, False if at capacity
         """
-        # Always check disk space for critical operations - no rate limiting
-        # Rate limiting was causing race conditions in concurrent scenarios
+        # Always check disk space for critical operations
 
         used_bytes, total_bytes, usage_ratio = self.get_disk_usage()
 
@@ -104,7 +101,7 @@ class StagingDirectoryManager:
 
         return True
 
-    async def wait_for_disk_space(self, required_bytes: int = 0, check_interval: int = 30) -> None:
+    async def wait_for_disk_space(self, required_bytes: int = 0, check_interval: int = 30, timeout: int = 600) -> None:
         """
         Wait for disk space to become available before proceeding.
 
@@ -114,8 +111,13 @@ class StagingDirectoryManager:
         Args:
             required_bytes: Additional bytes needed (for upcoming operations)
             check_interval: How often to check disk space in seconds (default: 30)
+            timeout: Maximum time to wait in seconds (default: 600 = 10 minutes)
+
+        Raises:
+            DiskSpaceError: If timeout is reached without sufficient space
         """
         space_warned = False
+        start_time = time.time()
 
         while not self.check_disk_space(required_bytes):
             if not space_warned:
@@ -126,6 +128,16 @@ class StagingDirectoryManager:
                     f"(threshold: {self.capacity_threshold:.1%})"
                 )
                 space_warned = True
+
+            # Check timeout
+            elapsed = time.time() - start_time
+            if elapsed >= timeout:
+                used_bytes, total_bytes, usage_ratio = self.get_disk_usage()
+                raise DiskSpaceError(
+                    f"Timed out waiting for disk space after {timeout} seconds. "
+                    f"Current usage: {usage_ratio:.1%} full "
+                    f"(threshold: {self.capacity_threshold:.1%})"
+                )
 
             await asyncio.sleep(check_interval)
 
