@@ -78,13 +78,8 @@ class StagingDirectoryManager:
         Returns:
             True if space is available, False if at capacity
         """
-        current_time = time.time()
-
-        # Rate limit disk space checks
-        if current_time - self._last_space_check < self._space_check_interval:
-            return True  # Assume OK if recently checked
-
-        self._last_space_check = current_time
+        # Always check disk space for critical operations - no rate limiting
+        # Rate limiting was causing race conditions in concurrent scenarios
 
         used_bytes, total_bytes, usage_ratio = self.get_disk_usage()
 
