@@ -21,12 +21,17 @@ def get_storage_protocol(storage_type: str) -> str:
     Determine storage protocol from storage type.
 
     Args:
-        storage_type: Original storage type (minio, r2, s3, local)
+        storage_type: Original storage type (minio, r2, s3, gcs, local)
 
     Returns:
-        str: Storage protocol ("s3" or "local")
+        str: Storage protocol ("s3", "gcs", or "local")
     """
-    return "s3" if storage_type in ("minio", "r2", "s3") else "local"
+    if storage_type in ("minio", "r2", "s3"):
+        return "s3"
+    elif storage_type == "gcs":
+        return "gcs"
+    else:
+        return "local"
 
 
 def load_json_credentials(credentials_path: str) -> dict[str, Any]:
@@ -104,7 +109,7 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
     Centralized storage factory to eliminate duplication between modules.
 
     Args:
-        storage_type: Storage backend type (local, minio, r2, s3)
+        storage_type: Storage backend type (local, minio, r2, s3, gcs)
         config: Configuration dictionary for the storage type
 
     Returns:
@@ -165,6 +170,14 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
 
             # AWS credentials from environment or ~/.aws/credentials
             return create_s3_storage(bucket=bucket)
+
+        case "gcs":
+            project = config.get("project")
+            if not project:
+                raise ValueError("GCS storage requires project ID")
+
+            # Use Application Default Credentials (ADC) - set up via: gcloud auth application-default login
+            return create_gcs_storage(project=project)
 
         case _:
             raise ValueError(f"Unknown storage type: {storage_type}")

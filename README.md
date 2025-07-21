@@ -59,7 +59,7 @@ python grin.py sync pipeline --run-name test_run
 Discrete sessions of pipeline operations are called "runs" and are referenced via the `--run-name` argument. If you don't specify a run name, it will default to a timestamped value like `run_20250721_103242`. 
 
 ### Storage
-Downloaded archives are ultimately synced to your **storage**, which may be a cloud-based block storage like S3, GCS, or R2, or a local filesystem. Configuring storage is required.
+Downloaded archives are ultimately synced to your **storage**, which may be a cloud-based block storage like AWS S3, Google Cloud Storage (GCS), Cloudflare R2, or a local filesystem. Configuring storage is required.
 
 For block storage, the default configuration is to use three buckets: 
 
@@ -102,7 +102,7 @@ python grin.py collect --run-name "local_test" --library-directory Harvard --sto
 **Key options:**
 - `--library-directory`: GRIN library directory name (required, e.g., Harvard, MIT, Yale)
 - `--run-name`: Named run for organized output (defaults to timestamp)
-- `--storage`: Storage backend (`local`, `minio`, `r2`, `s3`)
+- `--storage`: Storage backend (`local`, `minio`, `r2`, `s3`, `gcs`)
 - `--bucket-raw`: Raw data bucket (sync archives)
 - `--bucket-meta`: Metadata bucket (CSV/database outputs)
 - `--bucket-full`: Full-text bucket (OCR outputs)
@@ -221,6 +221,25 @@ aws configure
 
 # Then run collection
 python grin.py collect --run-name "s3" --library-directory Harvard --storage s3 
+```
+
+**Google Cloud Storage (GCS):**
+```bash
+# Configure Google Cloud authentication
+gcloud auth application-default login
+
+# Create GCS buckets (optional - will be created automatically if they don't exist)
+gsutil mb gs://your-grin-raw
+gsutil mb gs://your-grin-meta  
+gsutil mb gs://your-grin-full
+
+# Run collection with GCS storage
+python grin.py collect --run-name "gcs" --library-directory Harvard \
+  --storage gcs \
+  --bucket-raw your-grin-raw \
+  --bucket-meta your-grin-meta \
+  --bucket-full your-grin-full \
+  --storage-config project=your-google-cloud-project-id
 ```
 
 ## Development
