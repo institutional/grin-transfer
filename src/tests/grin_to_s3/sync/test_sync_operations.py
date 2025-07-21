@@ -549,3 +549,109 @@ class TestBookStorageIntegrationInSync:
                 # Verify successful completion
                 assert result["status"] == "completed"
                 assert result["barcode"] == "TEST123"
+
+
+class TestDiskSpaceHandling:
+    """Test disk space management functionality."""
+
+    @pytest.mark.asyncio
+    async def test_staging_manager_wait_for_disk_space_available(self):
+        """Test wait_for_disk_space when space is already available."""
+        from grin_to_s3.storage.staging import StagingDirectoryManager
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            staging_manager = StagingDirectoryManager(temp_dir, capacity_threshold=0.9)
+
+            # Mock check_disk_space to return True (space available)
+            with patch.object(staging_manager, "check_disk_space", return_value=True):
+                # This should complete immediately without waiting
+                await staging_manager.wait_for_disk_space()
+                # If we get here without timeout, the test passes
+
+    @pytest.mark.asyncio
+    async def test_staging_manager_wait_for_disk_space_becomes_available(self):
+        """Test wait_for_disk_space when space becomes available after waiting."""
+        from grin_to_s3.storage.staging import StagingDirectoryManager
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            staging_manager = StagingDirectoryManager(temp_dir, capacity_threshold=0.9)
+
+            # Track number of check_disk_space calls
+            call_count = 0
+            def mock_check_disk_space(*args, **kwargs):
+                nonlocal call_count
+                call_count += 1
+                # Return False first 2 times, then True (space becomes available)
+                return call_count > 2
+
+            with patch.object(staging_manager, "check_disk_space", side_effect=mock_check_disk_space):
+                with patch.object(staging_manager, "get_disk_usage", return_value=(800e9, 1000e9, 0.8)):
+                    # This should wait briefly then succeed
+                    await staging_manager.wait_for_disk_space(check_interval=0.1)
+
+            # Verify it checked multiple times before succeeding
+            assert call_count > 2
+
+    @pytest.mark.asyncio
+    async def test_download_book_mid_download_space_exhaustion(self, mock_grin_client, mock_progress_tracker):
+        """Test download behavior when disk space is exhausted mid-download."""
+        from grin_to_s3.storage.staging import StagingDirectoryManager
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            staging_manager = StagingDirectoryManager(temp_dir, capacity_threshold=0.9)
+
+            # Track disk space check calls during download
+            check_calls = 0
+            def mock_check_disk_space(*args, **kwargs):
+                nonlocal check_calls
+                check_calls += 1
+                # Fail on second check (simulating space exhaustion mid-download)
+                return check_calls == 1
+
+            def mock_wait_for_disk_space(*args, **kwargs):
+                # Simulate that space becomes available after cleanup
+                nonlocal check_calls
+                check_calls = 0  # Reset for retry
+                return asyncio.sleep(0.01)
+
+            with patch.object(staging_manager, "check_disk_space", side_effect=mock_check_disk_space):
+                with patch.object(staging_manager, "wait_for_disk_space", side_effect=mock_wait_for_disk_space):
+                    with aioresponses() as m:
+                        # Mock large download that will trigger periodic space checks
+                        large_content = b"x" * (60 * 1024 * 1024)  # 60MB to trigger check at 50MB
+                        m.get("https://books.google.com/libraries/Harvard/TEST123.tar.gz.gpg", body=large_content)
+
+                        mock_grin_client.auth.make_authenticated_request = AsyncMock()
+
+                        # Configure the mock session response
+                        mock_response = AsyncMock()
+
+                        class AsyncIterator:
+                            def __init__(self, data):
+                                self.data = data
+                                self.yielded = False
+
+                            def __aiter__(self):
+                                return self
+
+                            async def __anext__(self):
+                                if not self.yielded:
+                                    self.yielded = True
+                                    return self.data
+                                raise StopAsyncIteration
+
+                        mock_response.content.iter_chunked = lambda chunk_size: AsyncIterator(large_content)
+                        mock_grin_client.auth.make_authenticated_request.return_value = mock_response
+
+                        # This should trigger the mid-download space check and retry
+                        result = await download_book_to_staging(
+                            "TEST123",
+                            mock_grin_client,
+                            "Harvard",
+                            staging_manager,
+                            "etag123"
+                        )
+
+                        # Should eventually succeed after retry
+                        assert result[0] == "TEST123"  # barcode
+                        assert Path(result[1]).exists()  # staging file created

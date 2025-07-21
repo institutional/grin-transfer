@@ -336,3 +336,143 @@ class TestSyncPipelineEnrichmentQueue:
         # Stats should show queue size 0 when disabled
         status = await pipeline.get_sync_status()
         assert status["session_stats"]["enrichment_queue_size"] == 0
+
+
+class TestDiskSpaceRaceConditionFix:
+    """Test the disk space race condition fix."""
+
+    @pytest.fixture
+    def mock_run_config(self, test_config_builder):
+        """Create a mock RunConfig for testing."""
+        return (
+            test_config_builder.with_library_directory("TestLib")
+            .minio_storage(bucket_raw="test-raw")
+            .with_concurrent_downloads(3)  # Multiple downloads to test race condition
+            .with_batch_size(5)
+            .build()
+        )
+
+    @pytest.mark.asyncio
+    async def test_disk_space_checked_before_semaphore_acquisition(self, mock_run_config):
+        """Test that disk space is checked BEFORE semaphore acquisition to prevent race condition."""
+        # Track the order of operations
+        operation_order = []
+
+        with patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker:
+            with patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter:
+                with patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client:
+                    # Configure mocks
+                    mock_tracker.return_value = MagicMock()
+                    mock_reporter.return_value = MagicMock()
+                    mock_client.return_value = MagicMock()
+
+                    # Create pipeline
+                    mock_stage = MagicMock()
+                    pipeline = SyncPipeline.from_run_config(config=mock_run_config, process_summary_stage=mock_stage)
+
+                    # Mock staging manager with space checking
+                    space_calls = 0
+                    async def mock_wait_for_disk_space():
+                        nonlocal space_calls
+                        space_calls += 1
+                        operation_order.append(f"space_check_{space_calls}")
+                        await asyncio.sleep(0.01)  # Simulate brief wait
+
+                    pipeline.staging_manager.wait_for_disk_space = mock_wait_for_disk_space
+
+                    # Mock semaphore acquisition to track when it happens
+                    original_acquire = pipeline._download_semaphore.acquire
+                    semaphore_calls = 0
+                    async def mock_semaphore_acquire():
+                        nonlocal semaphore_calls
+                        semaphore_calls += 1
+                        operation_order.append(f"semaphore_acquire_{semaphore_calls}")
+                        return await original_acquire()
+
+                    pipeline._download_semaphore.acquire = mock_semaphore_acquire
+
+                    # Mock the actual operations to avoid network calls
+                    with patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000)):
+                        with patch("grin_to_s3.sync.pipeline.download_book_to_staging", return_value=("book1", "/tmp/test", {})):
+
+                            # Start multiple concurrent tasks
+                            tasks = []
+                            for i in range(3):
+                                task = asyncio.create_task(pipeline._process_book_with_staging(f"book{i}"))
+                                tasks.append(task)
+
+                            # Wait for all tasks to complete
+                            await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Verify that disk space checks happened BEFORE semaphore acquisitions
+        space_operations = [op for op in operation_order if op.startswith("space_check")]
+        semaphore_operations = [op for op in operation_order if op.startswith("semaphore_acquire")]
+
+        assert len(space_operations) == 3, f"Expected 3 space checks, got {len(space_operations)}"
+        assert len(semaphore_operations) == 3, f"Expected 3 semaphore acquisitions, got {len(semaphore_operations)}"
+
+        # Find positions of first space check and first semaphore acquire
+        first_space_pos = operation_order.index(space_operations[0])
+        first_semaphore_pos = operation_order.index(semaphore_operations[0])
+
+        # Space check should happen before semaphore acquisition
+        assert first_space_pos < first_semaphore_pos, (
+            f"Disk space check should happen before semaphore acquisition. "
+            f"Order: {operation_order}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_disk_space_blocks_all_new_downloads(self, mock_run_config):
+        """Test that when disk space is insufficient, ALL new downloads are blocked."""
+        with patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker:
+            with patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter:
+                with patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client:
+                    # Configure mocks
+                    mock_tracker.return_value = MagicMock()
+                    mock_reporter.return_value = MagicMock()
+                    mock_client.return_value = MagicMock()
+
+                    # Create pipeline
+                    mock_stage = MagicMock()
+                    pipeline = SyncPipeline.from_run_config(config=mock_run_config, process_summary_stage=mock_stage)
+
+                    # Mock staging manager to block on disk space initially
+                    wait_calls = 0
+                    async def mock_wait_for_disk_space():
+                        nonlocal wait_calls
+                        wait_calls += 1
+                        if wait_calls <= 2:  # First 2 calls blocked
+                            await asyncio.sleep(0.1)  # Simulate waiting for space
+                        # Third call and beyond proceed immediately
+
+                    pipeline.staging_manager.wait_for_disk_space = mock_wait_for_disk_space
+
+                    # Track when semaphore is acquired (actual download starts)
+                    semaphore_acquired = []
+                    original_acquire = pipeline._download_semaphore.acquire
+                    async def track_semaphore_acquire():
+                        semaphore_acquired.append(asyncio.get_event_loop().time())
+                        return await original_acquire()
+                    pipeline._download_semaphore.acquire = track_semaphore_acquire
+
+                    # Mock the actual operations
+                    with patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000)):
+                        with patch("grin_to_s3.sync.pipeline.download_book_to_staging", return_value=("book1", "/tmp/test", {})):
+
+                            # Start multiple concurrent tasks
+                            tasks = []
+                            for i in range(3):
+                                task = asyncio.create_task(pipeline._process_book_with_staging(f"book{i}"))
+                                tasks.append(task)
+
+                            # Wait for all tasks
+                            await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Verify that downloads were delayed due to disk space blocking
+        assert wait_calls >= 3, f"Expected at least 3 disk space checks, got {wait_calls}"
+        assert len(semaphore_acquired) == 3, f"Expected 3 semaphore acquisitions, got {len(semaphore_acquired)}"
+
+        # The semaphore acquisitions should have been spread out due to disk space blocking
+        if len(semaphore_acquired) >= 2:
+            time_diff = semaphore_acquired[1] - semaphore_acquired[0]
+            assert time_diff >= 0.05, f"Semaphore acquisitions too close together: {time_diff}s (expected delay due to disk space blocking)"

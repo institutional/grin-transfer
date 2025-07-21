@@ -5,6 +5,7 @@ Handles disk space monitoring, file management, and cleanup for the staging dire
 where downloaded files are temporarily stored before upload.
 """
 
+import asyncio
 import logging
 import shutil
 import time
@@ -107,6 +108,38 @@ class StagingDirectoryManager:
             )
 
         return True
+
+    async def wait_for_disk_space(self, required_bytes: int = 0, check_interval: int = 30) -> None:
+        """
+        Wait for disk space to become available before proceeding.
+
+        This is a reusable utility that blocks until sufficient disk space is available,
+        respecting the configured capacity threshold.
+
+        Args:
+            required_bytes: Additional bytes needed (for upcoming operations)
+            check_interval: How often to check disk space in seconds (default: 30)
+        """
+        space_warned = False
+
+        while not self.check_disk_space(required_bytes):
+            if not space_warned:
+                used_bytes, total_bytes, usage_ratio = self.get_disk_usage()
+                logger.info(
+                    f"Waiting for disk space ({usage_ratio:.1%} full, "
+                    f"{(total_bytes - used_bytes) / (1024 * 1024 * 1024):.1f} GB available), pausing operations... "
+                    f"(threshold: {self.capacity_threshold:.1%})"
+                )
+                space_warned = True
+
+            await asyncio.sleep(check_interval)
+
+        if space_warned:
+            used_bytes, total_bytes, usage_ratio = self.get_disk_usage()
+            logger.info(
+                f"Disk space available, resuming operations "
+                f"({usage_ratio:.1%} full, {(total_bytes - used_bytes) / (1024 * 1024 * 1024):.1f} GB available)"
+            )
 
     def get_staging_files(self) -> list[tuple[str, Path, Path]]:
         """
