@@ -172,6 +172,14 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
             return create_s3_storage(bucket=bucket)
 
         case "gcs":
+            try:
+                import gcsfs  # noqa: F401
+                import google.cloud.storage  # noqa: F401
+            except ImportError as e:
+                raise ValueError(
+                    "GCS support requires additional dependencies. Install with: pip install 'grin-to-s3[gcs]'"
+                ) from e
+
             project = config.get("project")
             if not project:
                 raise ValueError("GCS storage requires project ID")

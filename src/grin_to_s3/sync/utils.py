@@ -131,7 +131,11 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
             try:
                 from google.api_core import exceptions as gcs_exceptions
                 from google.cloud import storage as gcs
+            except ImportError:
+                logger.error("GCS support requires additional dependencies. Install with: pip install 'grin-to-s3[gcs]'")
+                return False
 
+            try:
                 # Use Application Default Credentials
                 project_id = storage_config.get("project")
                 if not project_id:
@@ -163,9 +167,6 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
                         logger.error(f"Failed to create GCS bucket '{bucket_name}': {create_error}")
                         return False
 
-            except ImportError:
-                logger.error("google-cloud-storage library not installed. Install with: pip install google-cloud-storage")
-                return False
             except Exception as e:
                 logger.error(f"Error checking GCS bucket '{bucket_name}': {e}")
                 return False
