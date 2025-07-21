@@ -30,6 +30,7 @@ from grin_to_s3.storage.book_manager import BookManager, BucketConfig
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .csv_export import CSVExportResult, export_and_upload_csv
+from .database_backup import create_local_database_backup, upload_database_to_storage
 from .models import create_sync_stats
 from .operations import (
     check_and_handle_etag_skip,
@@ -60,6 +61,7 @@ class SyncPipeline:
         skip_enrichment: bool = False,
         skip_csv_export: bool = False,
         skip_staging_cleanup: bool = False,
+        skip_database_backup: bool = False,
     ) -> "SyncPipeline":
         """Create SyncPipeline from RunConfig.
 
@@ -72,6 +74,7 @@ class SyncPipeline:
             skip_enrichment: Skip enrichment processing
             skip_csv_export: Skip CSV export after sync
             skip_staging_cleanup: Skip deletion of files in staging directory
+            skip_database_backup: Skip database backup and upload
 
         Returns:
             Configured SyncPipeline instance
@@ -85,6 +88,7 @@ class SyncPipeline:
             skip_enrichment=skip_enrichment,
             skip_csv_export=skip_csv_export,
             skip_staging_cleanup=skip_staging_cleanup,
+            skip_database_backup=skip_database_backup,
         )
 
     def __init__(
@@ -97,6 +101,7 @@ class SyncPipeline:
         skip_enrichment: bool = False,
         skip_csv_export: bool = False,
         skip_staging_cleanup: bool = False,
+        skip_database_backup: bool = False,
     ):
         # Store configuration and runtime parameters
         self.config = config
@@ -106,6 +111,7 @@ class SyncPipeline:
         self.enrichment_enabled = not skip_enrichment
         self.skip_csv_export = skip_csv_export
         self.skip_staging_cleanup = skip_staging_cleanup
+        self.skip_database_backup = skip_database_backup
         self.process_summary_stage = process_summary_stage
 
         # Extract commonly used config values
@@ -538,6 +544,107 @@ class SyncPipeline:
             logger.error(f"Local CSV export failed: {e}", exc_info=True)
             return {"status": "failed", "file_size": 0, "num_rows": 0, "export_time": time.time() - start_time}
 
+    async def _backup_database_at_start(self) -> None:
+        """Create and upload database backup at start of sync process."""
+        if self.skip_database_backup:
+            logger.debug("Database backup skipped due to --skip-database-backup flag")
+            return
+
+        try:
+            # Create local backup first
+            logger.info("Creating database backup before sync...")
+            local_backup_result = await create_local_database_backup(self.db_path)
+
+            if local_backup_result["status"] == "completed":
+                logger.info(f"Local backup created: {local_backup_result['backup_filename']}")
+
+                # Upload timestamped backup to storage
+                storage = create_storage_from_config(self.storage_type, self.storage_config or {})
+                base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
+
+                bucket_config: BucketConfig = {
+                    "bucket_raw": self.storage_config.get("bucket_raw", "") if self.storage_config else "",
+                    "bucket_meta": self.storage_config.get("bucket_meta", "") if self.storage_config else "",
+                    "bucket_full": self.storage_config.get("bucket_full", "") if self.storage_config else "",
+                }
+
+                book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
+
+                # Upload timestamped backup
+                upload_result = await upload_database_to_storage(
+                    self.db_path,
+                    book_storage,
+                    self.staging_manager if hasattr(self, "staging_manager") else None,
+                    upload_type="timestamped"
+                )
+
+                if upload_result["status"] == "completed":
+                    logger.info(f"Database backup uploaded: {upload_result['backup_filename']}")
+                else:
+                    logger.warning(f"Database backup upload failed: {upload_result['status']}")
+
+            else:
+                logger.warning(f"Local database backup failed: {local_backup_result['status']}")
+
+        except Exception as e:
+            logger.error(f"Database backup process failed: {e}", exc_info=True)
+
+    async def _upload_latest_database(self):
+        """Upload current database state as 'latest' version."""
+        if self.skip_database_backup:
+            logger.debug("Database upload skipped due to --skip-database-backup flag")
+            return {"status": "skipped", "file_size": 0, "backup_time": 0.0, "backup_filename": None}
+
+        try:
+            logger.info("Uploading current database as latest version...")
+
+            # Create storage components
+            storage = create_storage_from_config(self.storage_type, self.storage_config or {})
+            base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
+
+            bucket_config: BucketConfig = {
+                "bucket_raw": self.storage_config.get("bucket_raw", "") if self.storage_config else "",
+                "bucket_meta": self.storage_config.get("bucket_meta", "") if self.storage_config else "",
+                "bucket_full": self.storage_config.get("bucket_full", "") if self.storage_config else "",
+            }
+
+            book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
+
+            # Upload latest database
+            upload_result = await upload_database_to_storage(
+                self.db_path,
+                book_storage,
+                self.staging_manager if hasattr(self, "staging_manager") else None,
+                upload_type="latest"
+            )
+
+            if upload_result["status"] == "completed":
+                logger.info(f"Latest database uploaded: {upload_result['backup_filename']}")
+                return upload_result
+            else:
+                logger.warning(f"Latest database upload failed: {upload_result['status']}")
+                return upload_result
+
+        except Exception as e:
+            logger.error(f"Latest database upload failed: {e}", exc_info=True)
+            return {"status": "failed", "file_size": 0, "backup_time": 0.0, "backup_filename": None}
+
+    async def _export_csv_and_upload_database_result(self) -> None:
+        """Export CSV if enabled and upload database, print results to console."""
+        # CSV export (existing)
+        csv_result = await self._export_csv_if_enabled()
+        if csv_result["status"] == "completed":
+            print(f"  CSV exported: {csv_result['num_rows']:,} rows ({csv_result['file_size']:,} bytes)")
+        elif csv_result["status"] == "failed":
+            print(f"  CSV export failed: {csv_result.get('error', 'unknown error')}")
+
+        # Database upload (new)
+        db_result = await self._upload_latest_database()
+        if db_result and db_result["status"] == "completed":
+            print(f"  Database backed up: {db_result['backup_filename']} ({db_result['file_size']:,} bytes)")
+        elif db_result and db_result["status"] == "failed":
+            print(f"  Database backup failed: {db_result.get('error', 'unknown error')}")
+
     async def queue_book_for_enrichment(self, barcode: str) -> None:
         """Add a book to the enrichment queue."""
         if self.enrichment_queue is None:
@@ -703,7 +810,7 @@ class SyncPipeline:
                 print(f"  Average rate: {avg_rate:.1f} books/second")
 
             # Export CSV if enabled
-            await self._export_csv_and_print_result()
+            await self._export_csv_and_upload_database_result()
 
             logger.info("Sync completed")
 
@@ -884,7 +991,7 @@ class SyncPipeline:
                 print(f"  Average rate: {avg_rate:.1f} books/second")
 
             # Export CSV if enabled
-            await self._export_csv_and_print_result()
+            await self._export_csv_and_upload_database_result()
 
             # Point to process summary file
             run_name = Path(self.db_path).parent.name
@@ -1032,6 +1139,9 @@ class SyncPipeline:
 
         # Reset bucket cache at start of sync
         reset_bucket_cache()
+
+        # Create and upload database backup before starting sync
+        await self._backup_database_at_start()
 
         sync_successful = False
         try:
