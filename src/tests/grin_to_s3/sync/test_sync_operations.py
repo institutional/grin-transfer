@@ -245,6 +245,66 @@ class TestLocalStorageSync:
         assert result["status"] == "failed"
         assert "Local storage requires" in result["error"]
 
+    @pytest.mark.asyncio
+    async def test_sync_book_to_local_storage_correct_path_construction(self, mock_grin_client, mock_progress_tracker):
+        """Test that local storage sync creates files under base_path, not at filesystem root."""
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            storage_config = {
+                "base_path": temp_dir,
+            }
+
+            # Mock the HTTP call and GPG decryption
+            with (
+                aioresponses() as mock_http,
+                patch("grin_to_s3.sync.operations.decrypt_gpg_file"),
+                patch("pathlib.Path.mkdir"),
+                patch("pathlib.Path.unlink"),
+            ):
+                # Mock the GRIN download URL
+                mock_http.get(
+                    "https://books.google.com/libraries/Harvard/TEST123.tar.gz.gpg",
+                    body=b"test archive content",
+                    headers={"content-length": "20"}
+                )
+
+                # Track the file paths that aiofiles.open is called with
+                opened_paths = []
+
+                class MockAsyncFile:
+                    def __init__(self, path):
+                        opened_paths.append(str(path))
+                        self.mock_file = AsyncMock()
+
+                    async def __aenter__(self):
+                        return self.mock_file
+
+                    async def __aexit__(self, *args):
+                        pass
+
+                def mock_aiofiles_open(path, *args, **kwargs):
+                    return MockAsyncFile(path)
+
+                with patch("aiofiles.open", side_effect=mock_aiofiles_open):
+                    result = await sync_book_to_local_storage(
+                        "TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker
+                    )
+
+                    assert result["barcode"] == "TEST123"
+                    assert result["status"] == "completed"
+
+                    # Verify that opened paths are under base_path, not at filesystem root
+                    assert len(opened_paths) >= 1, "Should have opened at least one file"
+                    for path in opened_paths:
+                        assert path.startswith(temp_dir), f"Path {path} should be under base_path {temp_dir}"
+                        assert not path.startswith("/TEST123"), f"Path {path} should not start with /TEST123 (filesystem root)"
+
+                    # Verify the specific path structure
+                    encrypted_path = opened_paths[0]  # First opened file should be encrypted
+                    expected_encrypted_path = f"{temp_dir}/TEST123/TEST123.tar.gz.gpg"
+                    assert encrypted_path == expected_encrypted_path, f"Expected {expected_encrypted_path}, got {encrypted_path}"
+
 
 class TestOCRExtractionIntegration:
     """Test OCR extraction integration in sync pipeline."""
