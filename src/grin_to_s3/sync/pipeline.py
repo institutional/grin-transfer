@@ -895,7 +895,6 @@ class SyncPipeline:
 
     async def _process_book_with_staging(self, barcode: str) -> dict[str, Any]:
         """Process a single book using staging directory."""
-        # Wait for disk space BEFORE acquiring semaphore to prevent race condition
         if self.staging_manager:
             await self.staging_manager.wait_for_disk_space()
             logger.debug(f"[{barcode}] Disk space check passed, proceeding with download")

@@ -41,7 +41,6 @@ class StagingDirectoryManager:
         self.staging_path = Path(staging_path)
         self.capacity_threshold = capacity_threshold
 
-        # Ensure staging directory exists
         self.staging_path.mkdir(parents=True, exist_ok=True)
 
     def get_encrypted_file_path(self, barcode: str) -> Path:

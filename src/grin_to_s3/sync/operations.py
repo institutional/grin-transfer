@@ -153,8 +153,6 @@ async def download_book_to_staging(
     Returns:
         tuple: (barcode, staging_file_path, metadata)
     """
-    # Note: Disk space is now checked before task starts in pipeline,
-    # so no need for blocking wait here. Keep periodic checks during download.
 
     client = grin_client
     grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
