@@ -127,13 +127,8 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
                     return False
 
         elif storage_protocol == "gcs":
-            # Handle GCS bucket operations using google-cloud-storage
-            try:
-                from google.api_core import exceptions as gcs_exceptions
-                from google.cloud import storage as gcs
-            except ImportError:
-                logger.error("GCS support requires additional dependencies. Install with: pip install 'grin-to-s3[gcs]'")
-                return False
+            # Handle GCS bucket operations using gcsfs
+            import gcsfs
 
             try:
                 # Use Application Default Credentials
@@ -142,23 +137,24 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
                     logger.error("GCS storage requires project ID in configuration")
                     return False
 
-                # Create GCS client using ADC
-                gcs_client = gcs.Client(project=project_id)
+                # Set GOOGLE_CLOUD_PROJECT for gcsfs authentication
+                import os
+                if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+                    os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
 
-                try:
-                    # Check if bucket exists
-                    bucket = gcs_client.bucket(bucket_name)
-                    bucket.reload()  # This will raise an exception if bucket doesn't exist
+                # Create gcsfs client
+                gcs_fs = gcsfs.GCSFileSystem(project=project_id)
+
+                # Check if bucket exists
+                if gcs_fs.exists(bucket_name):
                     logger.debug(f"GCS bucket '{bucket_name}' exists")
                     _bucket_checked_cache.add(bucket_key)
                     return True
-
-                except gcs_exceptions.NotFound:
+                else:
                     # Bucket doesn't exist, try to create it
                     logger.info(f"GCS bucket '{bucket_name}' does not exist. Creating automatically...")
                     try:
-                        bucket = gcs_client.bucket(bucket_name)
-                        bucket.create(location="US")  # Default to US region
+                        gcs_fs.mkdir(bucket_name)
                         logger.info(f"Created GCS bucket '{bucket_name}'")
                         _bucket_checked_cache.add(bucket_key)
                         return True
