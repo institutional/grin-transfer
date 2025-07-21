@@ -5,6 +5,7 @@ Handles disk space monitoring, file management, and cleanup for the staging dire
 where downloaded files are temporarily stored before upload.
 """
 
+import asyncio
 import logging
 import shutil
 import time
@@ -39,10 +40,7 @@ class StagingDirectoryManager:
         """
         self.staging_path = Path(staging_path)
         self.capacity_threshold = capacity_threshold
-        self._last_space_check = 0.0
-        self._space_check_interval = 10  # Check disk space every 10 seconds
 
-        # Ensure staging directory exists
         self.staging_path.mkdir(parents=True, exist_ok=True)
 
     def get_encrypted_file_path(self, barcode: str) -> Path:
@@ -77,13 +75,7 @@ class StagingDirectoryManager:
         Returns:
             True if space is available, False if at capacity
         """
-        current_time = time.time()
-
-        # Rate limit disk space checks
-        if current_time - self._last_space_check < self._space_check_interval:
-            return True  # Assume OK if recently checked
-
-        self._last_space_check = current_time
+        # Always check disk space for critical operations
 
         used_bytes, total_bytes, usage_ratio = self.get_disk_usage()
 
@@ -107,6 +99,53 @@ class StagingDirectoryManager:
             )
 
         return True
+
+    async def wait_for_disk_space(self, required_bytes: int = 0, check_interval: int = 30, timeout: int = 600) -> None:
+        """
+        Wait for disk space to become available before proceeding.
+
+        This is a reusable utility that blocks until sufficient disk space is available,
+        respecting the configured capacity threshold.
+
+        Args:
+            required_bytes: Additional bytes needed (for upcoming operations)
+            check_interval: How often to check disk space in seconds (default: 30)
+            timeout: Maximum time to wait in seconds (default: 600 = 10 minutes)
+
+        Raises:
+            DiskSpaceError: If timeout is reached without sufficient space
+        """
+        space_warned = False
+        start_time = time.time()
+
+        while not self.check_disk_space(required_bytes):
+            if not space_warned:
+                used_bytes, total_bytes, usage_ratio = self.get_disk_usage()
+                logger.info(
+                    f"Waiting for disk space ({usage_ratio:.1%} full, "
+                    f"{(total_bytes - used_bytes) / (1024 * 1024 * 1024):.1f} GB available), pausing operations... "
+                    f"(threshold: {self.capacity_threshold:.1%})"
+                )
+                space_warned = True
+
+            # Check timeout
+            elapsed = time.time() - start_time
+            if elapsed >= timeout:
+                used_bytes, total_bytes, usage_ratio = self.get_disk_usage()
+                raise DiskSpaceError(
+                    f"Timed out waiting for disk space after {timeout} seconds. "
+                    f"Current usage: {usage_ratio:.1%} full "
+                    f"(threshold: {self.capacity_threshold:.1%})"
+                )
+
+            await asyncio.sleep(check_interval)
+
+        if space_warned:
+            used_bytes, total_bytes, usage_ratio = self.get_disk_usage()
+            logger.info(
+                f"Disk space available, resuming operations "
+                f"({usage_ratio:.1%} full, {(total_bytes - used_bytes) / (1024 * 1024 * 1024):.1f} GB available)"
+            )
 
     def get_staging_files(self) -> list[tuple[str, Path, Path]]:
         """

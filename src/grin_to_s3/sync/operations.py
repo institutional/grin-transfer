@@ -153,20 +153,6 @@ async def download_book_to_staging(
     Returns:
         tuple: (barcode, staging_file_path, metadata)
     """
-    # Wait for disk space to become available
-    space_warned = False
-    while not staging_manager.check_disk_space():
-        if not space_warned:
-            used_bytes, total_bytes, usage_ratio = staging_manager.get_disk_usage()
-            logger.info(
-                f"[{barcode}] Waiting for disk space ({usage_ratio:.1%} full, "
-                f"{(total_bytes - used_bytes) / (1024 * 1024 * 1024):.1f} GB available), pausing download..."
-            )
-            space_warned = True
-        await asyncio.sleep(30)  # Check every 30 seconds
-
-    if space_warned:
-        logger.info(f"[{barcode}] Disk space available, resuming download")
 
     client = grin_client
     grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
@@ -189,10 +175,10 @@ async def download_book_to_staging(
                 # Check disk space periodically during download
                 if total_bytes % (50 * 1024 * 1024) == 0:  # Every 50MB
                     if not staging_manager.check_disk_space():
-                        # Clean up partial file and pause
+                        # Clean up partial file and wait for space
                         staging_file.unlink(missing_ok=True)
-                        logger.warning(f"[{barcode}] Disk space exhausted during download, cleaning up and retrying...")
-                        await asyncio.sleep(60)  # Wait longer before retry
+                        logger.warning(f"[{barcode}] Disk space exhausted during download, cleaning up and waiting for space...")
+                        await staging_manager.wait_for_disk_space(check_interval=60)
                         return await download_book_to_staging(
                             barcode, grin_client, library_directory, staging_manager, encrypted_etag, secrets_dir
                         )
