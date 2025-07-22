@@ -84,17 +84,14 @@ def mock_test_config(test_config_builder):
 def mock_pipeline_dependencies():
     """Mock all pipeline dependencies."""
     with (
-        patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter,
         patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client,
         patch("grin_to_s3.sync.pipeline.StagingDirectoryManager") as mock_staging,
     ):
         # Configure mocks
-        mock_reporter.return_value = MagicMock()
         mock_client.return_value = MagicMock()
         mock_staging.return_value = MagicMock()
 
         yield {
-            "reporter": mock_reporter.return_value,
             "client": mock_client.return_value,
             "staging": mock_staging.return_value,
         }

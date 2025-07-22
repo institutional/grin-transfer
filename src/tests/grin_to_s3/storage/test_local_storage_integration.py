@@ -99,40 +99,6 @@ class TestLocalStorageIntegration:
                     assert none_printed, "Should display 'None' for missing storage config"
 
     @pytest.mark.asyncio
-    async def test_progress_reporter_methods_exist(self, mock_process_stage, test_config_builder):
-        """Test that ProgressReporter has expected methods and they work correctly."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = Path(temp_dir) / "test.db"
-
-            # Initialize database
-            tracker = SQLiteProgressTracker(str(db_path))
-            await tracker.init_db()
-            await tracker.close()
-
-            config = test_config_builder.with_db_path(str(db_path)).local_storage(temp_dir).build()
-
-            pipeline = SyncPipeline.from_run_config(
-                config=config,
-                process_summary_stage=mock_process_stage,
-            )
-
-            # Verify ProgressReporter has the methods we expect
-            reporter = pipeline.progress_reporter
-
-            # These should exist and be callable
-            assert hasattr(reporter, "start"), "ProgressReporter should have start() method"
-            assert hasattr(reporter, "increment"), "ProgressReporter should have increment() method"
-            assert hasattr(reporter, "finish"), "ProgressReporter should have finish() method"
-
-            # This should NOT exist (would have caught the .stop() bug)
-            assert not hasattr(reporter, "stop"), "ProgressReporter should NOT have stop() method"
-
-            # Test that the methods actually work
-            reporter.start()
-            reporter.increment(1)
-            reporter.finish()  # This is what should be called, not stop()
-
-    @pytest.mark.asyncio
     async def test_staging_manager_none_handling(self, mock_process_stage, test_config_builder):
         """Test that local storage properly handles None staging_manager."""
         with tempfile.TemporaryDirectory() as temp_dir:

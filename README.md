@@ -6,7 +6,10 @@ A pipeline for extracting page scans, metadata, and OCR from Google Books GRIN (
 
 1. **GRIN Library Directory**: You should know your "library directory", or the path in GRIN where your books are made available. For example, given the URL https://books.google.com/libraries/Harvard/_all_books, the "library directory" is "Harvard." This value is case-sensitive.
 2. **GRIN Google Account**: You should have credentials for the Google account that was given to a Google partner manager for access to GRIN. This will be the same account that you use to log in to GRIN as a human.
-3. **GRIN archive decryption key**: Book archives stored in GRIN are encrypted. You'll need your GPG decryption passphrase from Google. It will be a short text file containing random words. Save this file as `gpg_passphrase.asc` in `~/.config/grin-to-s3/` (the tool will search this location automatically).
+3. **GRIN archive decryption key**: Book archives stored in GRIN are encrypted. You'll need your GPG decryption passphrase from Google. It will be a short text file containing random words.
+
+Save this file as `gpg_passphrase.asc` in `~/.config/grin-to-s3/` (the tool will search this location automatically).
+
 4. _(Optional)_ We recommend you set up S3-like cloud storage to extract large collections. GRIN-to-S3 will use those credentials to transfer decrypted book archives and metadata. For smaller collections, you can use any filesystem reachable from where you run this tool.
 
 ### Set up OAuth2 client credentials
