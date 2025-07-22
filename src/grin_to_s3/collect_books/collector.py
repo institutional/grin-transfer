@@ -24,7 +24,6 @@ import aiofiles
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
-    BackupManager,
     ProgressReporter,
     RateLimiter,
     format_bytes,
@@ -317,17 +316,6 @@ class BookCollector:
 
     # Progress file archiving moved to progress.py
 
-    async def _backup_database(self) -> bool:
-        """Create a timestamped backup of the SQLite database before starting work.
-
-        Returns True if backup was successful or not needed, False if failed.
-        """
-        db_path = Path(self.sqlite_tracker.db_path)
-        backup_dir = db_path.parent / "backups"
-
-        # Use shared backup manager
-        backup_manager = BackupManager(backup_dir)
-        return await backup_manager.backup_file(db_path, "database")
 
     async def load_progress(self) -> dict:
         """Load progress from resume file."""
@@ -740,9 +728,6 @@ class BookCollector:
         logger.debug("Backing up progress file...")
         await self.progress_tracker.archive_progress_file()
 
-        # Backup database before starting work
-        logger.debug("Backing up SQLite database...")
-        await self._backup_database()
 
         # Set up async-friendly signal handling
         loop = asyncio.get_running_loop()

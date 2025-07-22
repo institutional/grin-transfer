@@ -19,7 +19,6 @@ from typing import Any
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import (
-    BackupManager,
     RateLimiter,
     SlidingWindowRateCalculator,
     format_duration,
@@ -93,17 +92,6 @@ class GRINEnrichmentPipeline:
 
         logger.info("Cleanup completed")
 
-    async def _backup_database(self) -> bool:
-        """Create a timestamped backup of the SQLite database before starting work.
-
-        Returns True if backup was successful or not needed, False if failed.
-        """
-        db_path = Path(self.db_path)
-        backup_dir = db_path.parent / "backups"
-
-        # Use shared backup manager
-        backup_manager = BackupManager(backup_dir)
-        return await backup_manager.backup_file(db_path, "database")
 
     def _calculate_max_batch_size(self, barcodes: list[str]) -> int:
         """Calculate maximum batch size that fits in URL length limit."""
@@ -384,9 +372,6 @@ class GRINEnrichmentPipeline:
         if reset:
             logger.info("Reset mode: Will clear existing enrichment data")
 
-        # Backup database before starting work
-        logger.debug("Backing up SQLite database...")
-        await self._backup_database()
 
         # Reset enrichment data if requested
         if reset:

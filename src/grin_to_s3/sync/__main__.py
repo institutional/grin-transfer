@@ -165,6 +165,7 @@ async def cmd_pipeline(args) -> None:
                 skip_enrichment=args.skip_enrichment,
                 skip_csv_export=args.skip_csv_export,
                 skip_staging_cleanup=args.skip_staging_cleanup,
+                skip_database_backup=args.skip_database_backup,
             )
 
             # Set up signal handlers for graceful shutdown
@@ -219,6 +220,7 @@ async def cmd_pipeline(args) -> None:
                     skip_enrichment=args.skip_enrichment,
                     skip_csv_export=args.skip_csv_export,
                     skip_staging_cleanup=args.skip_staging_cleanup,
+                    skip_database_backup=args.skip_database_backup,
                 )
                 print("  - Concurrent downloads: 1")
                 print("  - Concurrent uploads: 1")
@@ -369,6 +371,12 @@ Examples:
     # Staging cleanup
     pipeline_parser.add_argument(
         "--skip-staging-cleanup", action="store_true", help="Skip deletion of files in staging directory after sync"
+    )
+
+    # Database backup options
+    pipeline_parser.add_argument(
+        "--skip-database-backup", action="store_true",
+        help="Skip automatic database backup and upload (default: backup enabled)"
     )
 
     # Logging
