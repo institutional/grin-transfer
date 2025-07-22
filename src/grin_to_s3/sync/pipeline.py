@@ -230,7 +230,7 @@ class SyncPipeline:
                     f"[{active_count}/{self.concurrent_downloads} active{enrichment_info}] [{interval_desc} update]"
                 )
             else:  # Block storage
-                downloads_running = self._active_download_count
+                downloads_running = len(active_downloads or {})
                 uploads_running = min(len(active_uploads or {}), self.concurrent_uploads)
                 uploads_queued = len(active_uploads or {}) - uploads_running
                 print(
