@@ -49,6 +49,9 @@ pip install -e "."
 # Interactively configure authentication with the GRIN interface
 python grin.py auth setup
 
+# For remote servers, SSH sessions, or cloud instances, use:
+python grin.py auth setup --remote-auth
+
 # Then run a sample collection 
 python grin.py collect --run-name test_run --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=/tmp/grin-to-s3-storage --limit 10
 
@@ -72,6 +75,29 @@ For block storage, the default configuration is to use three buckets:
 
 ### Staging
 During processing, book archives and metadata are saved in the **staging** area on your local filesystem until they are fully uploaded to storage. By default,  `staging/` is created in the repo directory, but can be overridden with `--sync-staging-dir`. To avoid running out of local disk space, `--sync-disk-space-threshold` is used to keep the staging area at capacity; when capacity is exceeded, downloads are paused and usually will resume once files are fully uploaded.
+
+## Authentication
+
+The pipeline uses OAuth2 to authenticate with Google's GRIN interface. The authentication setup process automatically detects your environment and provides appropriate instructions:
+
+### Local machine authentication
+For typical desktop/laptop usage with a browser:
+```bash
+python grin.py auth setup
+```
+This opens your browser automatically and handles the OAuth2 callback locally.
+
+### Remote server authentication  
+For SSH sessions, cloud instances, or environments without browser access:
+```bash
+python grin.py auth setup --remote-auth
+```
+This provides a URL to visit in your local browser and prompts for a manual authorization code.
+
+### Docker authentication
+Docker environments are automatically detected and use port forwarding for OAuth2 callbacks.
+
+The authentication system automatically detects SSH sessions (via `SSH_CLIENT`, `SSH_TTY` environment variables), terminal multiplexers (`tmux`, `screen`), and cloud platforms (AWS, GCP, Azure) to provide the most appropriate authentication flow.
 
 ## Pipeline steps
 Each run begins with the **collection** step, where book metadata is first downloaded from GRIN and stored locally for evaluation and processing. Collecting all book metadata for very large (1 million+ book) collections usually takes about an hour.
