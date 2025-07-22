@@ -180,13 +180,13 @@ If you don't have a client_secret.json file, follow these steps to create one:
                         self.send_response(200)
                         self.send_header("Content-type", "text/html")
                         self.end_headers()
-                        self.wfile.write(b"<html><body><h1>Authentication successful!</h1><p>You can close this browser tab.</p></body></html>")
+                        self.wfile.write(b"<html><body><h1>GRIN pipeline authorization was successful!</h1><p>You can close this browser tab and continue working with the tool from the command line.</p></body></html>")
                     elif "error" in query_params:
                         server_error = query_params["error"][0]
                         self.send_response(400)
                         self.send_header("Content-type", "text/html")
                         self.end_headers()
-                        self.wfile.write(b"<html><body><h1>Authentication failed!</h1><p>Error: " + server_error.encode() + b"</p></body></html>")
+                        self.wfile.write(b"<html><body><h1>GRIN pipeline authorization failed!</h1><p>Error: " + server_error.encode() + b"</p></body></html>")
                     else:
                         self.send_response(400)
                         self.send_header("Content-type", "text/html")
@@ -199,7 +199,7 @@ If you don't have a client_secret.json file, follow these steps to create one:
 
             # Start the HTTP server
             server = HTTPServer(("0.0.0.0", oauth_port), CallbackHandler)
-            server.timeout = 300  # 5 minute timeout
+            server.timeout = 600  # 10 minute timeout
 
             # Handle the request
             server.handle_request()
@@ -224,10 +224,9 @@ If you don't have a client_secret.json file, follow these steps to create one:
                 scopes=SCOPES,
             )
         else:
-            print("This will open your browser for Google authentication")
-            print("\nStarting local server for OAuth2 callback...")
-            print("This will open your browser automatically for Google authentication")
-            print("If the browser doesn't open automatically, copy the URL that appears")
+            print("This will open your browser for Google authentication.")
+            print("When prompted, log in with your GRIN Google account.")
+            print("(If the browser doesn't open automatically, copy the URL that appears.)")
 
             # Use same port logic for consistency
             oauth_port = int(os.environ.get("GRIN_OAUTH_PORT", "58432"))
@@ -239,7 +238,7 @@ If you don't have a client_secret.json file, follow these steps to create one:
                 open_browser=True,
                 prompt="consent",
                 authorization_prompt_message="",
-                success_message="Authentication successful! You can close this browser tab.",
+                success_message="GRIN pipeline authorization was successful! You can close this browser tab and continue working with the tool from the command line.",
                 stop_server=True,
             )
 
@@ -312,4 +311,3 @@ def main() -> None:
         print("GRIN OAuth2 Authentication")
         print("Usage:")
         print("  python auth.py setup    # Interactive credential setup")
-        print("\nFor programmatic use, import GRINAuth class")
