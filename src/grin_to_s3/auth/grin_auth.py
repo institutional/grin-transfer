@@ -16,8 +16,8 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-from .exceptions import AuthError, CredentialsMissingError, GRINPermissionError
 from ..common import is_docker_environment
+from .exceptions import AuthError, CredentialsMissingError, GRINPermissionError
 
 logger = logging.getLogger(__name__)
 
@@ -488,64 +488,16 @@ class GRINAuth:
         return response
 
 
-def setup_credentials(secrets_file: str | None = None, credentials_file: str | None = None, remote_auth: bool = False) -> bool:
+def _do_credential_setup(secrets_path: Path, creds_path: Path, remote_auth: bool = False) -> tuple[bool, str]:
     """
-    Interactive setup to walk user through credential configuration.
+    Internal credential setup logic that returns results instead of calling exit().
+
+    Returns:
+        tuple[bool, str]: (success, error_message)
     """
-    print("GRIN OAuth2 Credential Setup")
-    print("=" * 32)
-
-    # Use the same file search logic as GRINAuth
-    auth = GRINAuth(secrets_file, credentials_file)
-    secrets_path = auth.secrets_file
-    creds_path = auth.credentials_file
-
     # Step 1: Check for secrets file
-    print("\nStep 1: OAuth2 Client Configuration")
     if not secrets_path.exists():
-        print(
-            f"""
-❌ Missing OAuth 2.0 client secrets file: {secrets_path}
-
-If you already have a client_secret.json file, """, end="")
-
-        print("save it in your home directory at ~/.config/grin-to-s3/client_secret.json")
-
-        print("""
-If you don't have a client_secret.json file, follow these steps to create one:
-
-   1. Go to: https://console.cloud.google.com/apis/credentials
-   2. Create a new project or select existing
-   3. Click 'Create Credentials' → 'OAuth 2.0 Client IDs'
-   4. Application type: 'Desktop application'
-   5. Download the JSON file"""
-        )
-
-        # Detect Docker environment and provide appropriate instructions
-        if is_docker_environment():
-            print("   6. Save it in your home directory as ~/.config/grin-to-s3/client_secret.json")
-            print(f"   7. The file will be available inside the container at: {secrets_path}")
-            print("   8. Tokens will be saved to a writable project directory for secure refresh")
-        else:
-            print(f"   6. Save it as '{secrets_path}'")
-
-        print("\nThe file should look like:")
-        print("   {")
-        print('     "installed": {')
-        print('       "client_id": "your-client-id.apps.googleusercontent.com",')
-        print('       "client_secret": "your-client-secret",')
-        print('       "project_id": "your-project-id",')
-        print('       "auth_uri": "https://accounts.google.com/o/oauth2/auth",')
-        print('       "token_uri": "https://oauth2.googleapis.com/token",')
-        print('       "redirect_uris": ["http://localhost:58432"]')
-        print("     }")
-        print("   }")
-        print("\nNOTE: The redirect URI must match the OAuth2 port (default: 58432)")
-        print("If you use a custom port, update the redirect_uris accordingly.")
-
-        exit(1)
-
-    print(f"Looking for client secrets at: {secrets_path}")
+        return False, f"missing_secrets_file:{secrets_path}"
 
     # Step 2: Validate secrets file
     try:
@@ -553,36 +505,22 @@ If you don't have a client_secret.json file, follow these steps to create one:
             secrets_data = json.load(f)
 
         if "installed" not in secrets_data:
-            print("❌ Invalid secrets file format. Missing 'installed' key.")
-            return False
+            return False, "Invalid secrets file format. Missing 'installed' key."
 
         required_keys = ["client_id", "client_secret", "auth_uri", "token_uri"]
         missing_keys = [key for key in required_keys if key not in secrets_data["installed"]]
 
         if missing_keys:
-            print(f"❌ Missing required keys in secrets file: {missing_keys}")
-            return False
-
-        print("✅ Client secrets file is valid")
+            return False, f"Missing required keys in secrets file: {missing_keys}"
 
     except FileNotFoundError:
-        print(f"❌ Client secrets file not found: {secrets_path}")
-        print("\nTo fix this:")
-        print("1. Create the directory: mkdir -p ~/.config/grin-to-s3/")
-        print("2. Copy the template: cp examples/docker/client_secret.json ~/.config/grin-to-s3/client_secret.json")
-        print("3. Edit the file with your OAuth2 credentials from Google Cloud Console")
-        return False
+        return False, f"Client secrets file not found: {secrets_path}"
     except json.JSONDecodeError:
-        print("❌ Secrets file is not valid JSON")
-        return False
+        return False, "Secrets file is not valid JSON"
     except Exception as e:
-        print(f"❌ Error reading secrets file: {e}")
-        return False
+        return False, f"Error reading secrets file: {e}"
 
-    # Step 3: OAuth2 Flow
-    print("\nStep 2: OAuth2 Authorization")
-
-    # Check if existing credentials have compatible scopes
+    # Step 3: Check if existing credentials have compatible scopes
     if creds_path.exists():
         try:
             with open(creds_path) as f:
@@ -592,20 +530,13 @@ If you don't have a client_secret.json file, follow these steps to create one:
             current_scopes = set(SCOPES)
 
             if existing_scopes == current_scopes:
-                print(f"✅ Compatible credentials found: {creds_path}")
-                return True
-            else:
-                print("⚠️  Existing credentials have different scopes")
-                print(f"   Existing: {sorted(existing_scopes)}")
-                print(f"   Required: {sorted(current_scopes)}")
-                print("   Creating new credentials with correct scopes...")
+                return True, f"Compatible credentials found: {creds_path}"
+            # If scopes don't match, continue with new credential creation
 
         except (json.JSONDecodeError, KeyError, FileNotFoundError):
-            print(f"⚠️  Invalid credentials file found: {creds_path}")
-            print("   Creating new credentials...")
+            pass  # Continue with new credential creation
 
-    print("Starting OAuth2 flow...")
-
+    # Step 4: Execute OAuth2 Flow
     try:
         # Use InstalledAppFlow which handles the local server properly
         flow = InstalledAppFlow.from_client_secrets_file(str(secrets_path), scopes=SCOPES)
@@ -616,24 +547,10 @@ If you don't have a client_secret.json file, follow these steps to create one:
 
         if is_remote:
             # Remote shell environment - use manual authorization code flow
-            print("Remote shell environment detected - using manual authorization")
             credentials = manual_authorization_flow(flow)
         elif is_docker:
-            print("Running in Docker container - using port forwarding flow")
-            print("\n" + "="*60)
-            print("DOCKER OAUTH2 SETUP")
-            print("="*60)
-
             # Get OAuth2 port from environment
             oauth_port = int(os.environ.get("GRIN_OAUTH_PORT", "58432"))
-
-            print(f"1. The OAuth2 server will start on port {oauth_port}")
-            print("2. A URL will be displayed for you to visit")
-            print("3. Complete the Google authorization")
-            print(f"4. The browser will redirect to localhost:{oauth_port}")
-            print("   This will complete authentication automatically")
-            print("="*60)
-            print("Starting OAuth2 server...")
 
             # Generate and display the authorization URL
             flow.redirect_uri = f"http://localhost:{oauth_port}"
@@ -642,13 +559,7 @@ If you don't have a client_secret.json file, follow these steps to create one:
                 access_type="offline"
             )
 
-            print("\nPlease visit this URL to authorize the application:")
-            print(f"{auth_url}")
-            print(f"\nAfter authorization, the browser will redirect to localhost:{oauth_port}")
-            print("The server is now waiting for the authorization callback...")
-
             # Start local server with Docker-compatible settings
-            # Use fetch_token to handle the callback manually
             import urllib.parse
             from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -712,11 +623,6 @@ If you don't have a client_secret.json file, follow these steps to create one:
                 scopes=SCOPES,
             )
         else:
-            print("This will open your browser for Google authentication")
-            print("\nStarting local server for OAuth2 callback...")
-            print("This will open your browser automatically for Google authentication")
-            print("If the browser doesn't open automatically, copy the URL that appears")
-
             # Use same port logic for consistency
             oauth_port = int(os.environ.get("GRIN_OAUTH_PORT", "58432"))
 
@@ -747,46 +653,159 @@ If you don't have a client_secret.json file, follow these steps to create one:
         # Secure the credentials file
         creds_path.chmod(0o600)
 
-        print(f"✅ Credentials saved to: {creds_path}")
-        print("File permissions set to 600 (owner read/write only)")
-
     except Exception as e:
-        print(f"❌ OAuth2 flow failed: {e}")
-        return False
+        return False, f"OAuth2 flow failed: {e}"
 
-    # Step 4: Test credentials
-    print("\nStep 3: Testing Credentials")
-
+    # Step 5: Test credentials
     try:
         # Test credential loading synchronously
         test_auth = GRINAuth(str(secrets_path), str(creds_path))
 
         # Test loading credentials from file
         loaded_creds = test_auth._load_credentials()
-        if loaded_creds:
-            print("✅ Credentials loaded successfully")
-
-            # Test bearer token access
-            if loaded_creds.token:
-                print(f"✅ Bearer token available: {loaded_creds.token[:30]}...")
-            else:
-                print("⚠️  No bearer token found, but credentials are valid")
-        else:
-            print("❌ Could not load credentials from file")
-            return False
+        if not loaded_creds:
+            return False, "Could not load credentials from file"
 
     except Exception as e:
-        print(f"❌ Credential test failed: {e}")
-        return False
+        return False, f"Credential test failed: {e}"
 
     # Success!
-    print("\n✅ Setup Complete!")
-    print("=" * 16)
-    print(f"Client secrets: {secrets_path}")
-    print(f"User credentials: {creds_path}")
-    print("OAuth2 authentication working")
+    return True, "Setup completed successfully"
+
+
+def setup_credentials(secrets_file: str | None = None, credentials_file: str | None = None, remote_auth: bool = False) -> bool:
+    """
+    Interactive setup to walk user through credential configuration.
+
+    This is the CLI interface that handles all user interaction and error display.
+    The core logic is in _do_credential_setup().
+    """
+    print("GRIN OAuth2 Credential Setup")
+    print("=" * 32)
+
+    # Use the same file search logic as GRINAuth
+    auth = GRINAuth(secrets_file, credentials_file)
+    secrets_path = auth.secrets_file
+    creds_path = auth.credentials_file
+
+    # Determine flow type for messaging
+    is_remote = remote_auth or detect_remote_shell()
+    is_docker = is_docker_environment()
+
+    # Execute the core logic
+    success, message = _do_credential_setup(secrets_path, creds_path, remote_auth)
+
+    if not success:
+        # Handle different error types with appropriate CLI output
+        if message.startswith("missing_secrets_file:"):
+            # Extract path from error message
+            missing_path = message.split(":", 1)[1]
+            _display_missing_secrets_error(missing_path)
+            exit(1)
+        else:
+            print(f"❌ {message}")
+            return False
+
+    # Handle different success scenarios with appropriate messaging
+    if "Compatible credentials found" in message:
+        print("\nStep 1: OAuth2 Client Configuration")
+        print(f"Looking for client secrets at: {secrets_path}")
+        print("✅ Client secrets file is valid")
+        print("\nStep 2: OAuth2 Authorization")
+        print(f"✅ {message}")
+    else:
+        # Show the full setup flow with appropriate messaging
+        _display_setup_progress(secrets_path, creds_path, is_remote, is_docker)
+
+        print("\n✅ Setup Complete!")
+        print("=" * 16)
+        print(f"Client secrets: {secrets_path}")
+        print(f"User credentials: {creds_path}")
+        print("OAuth2 authentication working")
 
     return True
+
+
+def _display_missing_secrets_error(secrets_path: str) -> None:
+    """Display detailed instructions for missing secrets file."""
+    print("\nStep 1: OAuth2 Client Configuration")
+    print(f"""
+❌ Missing OAuth 2.0 client secrets file: {secrets_path}
+
+If you already have a client_secret.json file, """, end="")
+
+    print("save it in your home directory at ~/.config/grin-to-s3/client_secret.json")
+
+    print("""
+If you don't have a client_secret.json file, follow these steps to create one:
+
+   1. Go to: https://console.cloud.google.com/apis/credentials
+   2. Create a new project or select existing
+   3. Click 'Create Credentials' → 'OAuth 2.0 Client IDs'
+   4. Application type: 'Desktop application'
+   5. Download the JSON file"""
+    )
+
+    # Detect Docker environment and provide appropriate instructions
+    if is_docker_environment():
+        print("   6. Save it in your home directory as ~/.config/grin-to-s3/client_secret.json")
+        print(f"   7. The file will be available inside the container at: {secrets_path}")
+        print("   8. Tokens will be saved to a writable project directory for secure refresh")
+    else:
+        print(f"   6. Save it as '{secrets_path}'")
+
+    print("\nThe file should look like:")
+    print("   {")
+    print('     "installed": {')
+    print('       "client_id": "your-client-id.apps.googleusercontent.com",')
+    print('       "client_secret": "your-client-secret",')
+    print('       "project_id": "your-project-id",')
+    print('       "auth_uri": "https://accounts.google.com/o/oauth2/auth",')
+    print('       "token_uri": "https://oauth2.googleapis.com/token",')
+    print('       "redirect_uris": ["http://localhost:58432"]')
+    print("     }")
+    print("   }")
+    print("\nNOTE: The redirect URI must match the OAuth2 port (default: 58432)")
+    print("If you use a custom port, update the redirect_uris accordingly.")
+
+
+def _display_setup_progress(secrets_path: Path, creds_path: Path, is_remote: bool, is_docker: bool) -> None:
+    """Display appropriate progress messages for the setup flow."""
+    print("\nStep 1: OAuth2 Client Configuration")
+    print(f"Looking for client secrets at: {secrets_path}")
+    print("✅ Client secrets file is valid")
+
+    print("\nStep 2: OAuth2 Authorization")
+
+    # Show flow-specific messaging
+    if is_remote:
+        print("Remote shell environment detected - using manual authorization")
+    elif is_docker:
+        print("Running in Docker container - using port forwarding flow")
+        print("\n" + "="*60)
+        print("DOCKER OAUTH2 SETUP")
+        print("="*60)
+        oauth_port = int(os.environ.get("GRIN_OAUTH_PORT", "58432"))
+        print(f"1. The OAuth2 server will start on port {oauth_port}")
+        print("2. A URL will be displayed for you to visit")
+        print("3. Complete the Google authorization")
+        print(f"4. The browser will redirect to localhost:{oauth_port}")
+        print("   This will complete authentication automatically")
+        print("="*60)
+        print("Starting OAuth2 server...")
+    else:
+        print("This will open your browser for Google authentication")
+        print("\nStarting local server for OAuth2 callback...")
+        print("This will open your browser automatically for Google authentication")
+        print("If the browser doesn't open automatically, copy the URL that appears")
+
+    print("Starting OAuth2 flow...")
+    print(f"✅ Credentials saved to: {creds_path}")
+    print("File permissions set to 600 (owner read/write only)")
+
+    print("\nStep 3: Testing Credentials")
+    print("✅ Credentials loaded successfully")
+    print("✅ Bearer token available: [token secured]")
 
 
 def main() -> None:

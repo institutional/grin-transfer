@@ -78,26 +78,62 @@ During processing, book archives and metadata are saved in the **staging** area 
 
 ## Authentication
 
-The pipeline uses OAuth2 to authenticate with Google's GRIN interface. The authentication setup process automatically detects your environment and provides appropriate instructions:
+The pipeline uses OAuth2 to authenticate with Google's GRIN interface. Before running any pipeline commands, you must configure authentication using your Google account credentials that have GRIN access.
 
-### Local machine authentication
-For typical desktop/laptop usage with a browser:
+### Setup OAuth2 Client Credentials
+
+1. **Create OAuth2 credentials** at [Google Cloud Console](https://console.cloud.google.com/apis/credentials):
+   - Create a new project or select an existing one
+   - Click "Create Credentials" → "OAuth 2.0 Client IDs"  
+   - Application type: "Desktop application"
+   - Download the JSON file
+
+2. **Install the credentials file**:
+   ```bash
+   mkdir -p ~/.config/grin-to-s3/
+   cp /path/to/downloaded/client_secret.json ~/.config/grin-to-s3/client_secret.json
+   ```
+
+### Authentication Setup
+
+The authentication system automatically detects your environment and provides the appropriate OAuth2 flow:
+
+**Local desktop/laptop** (automatic browser):
 ```bash
 python grin.py auth setup
 ```
-This opens your browser automatically and handles the OAuth2 callback locally.
 
-### Remote server authentication  
-For SSH sessions, cloud instances, or environments without browser access:
+**Remote servers, SSH sessions, cloud instances** (manual authorization code):
 ```bash
 python grin.py auth setup --remote-auth
 ```
-This provides a URL to visit in your local browser and prompts for a manual authorization code.
 
-### Docker authentication
-Docker environments are automatically detected and use port forwarding for OAuth2 callbacks.
+**Docker containers** (port forwarding):
+```bash
+./grin-docker auth setup
+```
 
-The authentication system automatically detects SSH sessions (via `SSH_CLIENT`, `SSH_TTY` environment variables), terminal multiplexers (`tmux`, `screen`), and cloud platforms (AWS, GCP, Azure) to provide the most appropriate authentication flow.
+### Remote Environment Authentication
+
+For SSH sessions, cloud instances (AWS EC2, GCP Compute Engine, Azure VMs), or any environment without browser access, the system automatically detects the remote environment and uses manual authorization:
+
+1. **Automatic detection** identifies:
+   - SSH sessions (`SSH_CLIENT`, `SSH_TTY` environment variables)
+   - Terminal multiplexers (`tmux`, `screen`)
+   - Cloud platforms (AWS, GCP, Azure) without display
+
+2. **Manual authorization flow**:
+   - Displays a URL to visit in your local browser
+   - You complete Google authentication on your local machine
+   - Google displays an authorization code
+   - You copy and paste the code back to the remote session
+
+3. **Manual override** for any environment:
+   ```bash
+   python grin.py auth setup --remote-auth
+   ```
+
+This approach eliminates the need for complex SSH port forwarding and works seamlessly across all cloud and remote environments.
 
 ## Pipeline steps
 Each run begins with the **collection** step, where book metadata is first downloaded from GRIN and stored locally for evaluation and processing. Collecting all book metadata for very large (1 million+ book) collections usually takes about an hour.
