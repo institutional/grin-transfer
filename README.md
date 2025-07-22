@@ -4,18 +4,20 @@ A pipeline for extracting page scans, metadata, and OCR from Google Books GRIN (
 
 ## Prerequisites
 
-1. You should know your "library directory", or the path in GRIN where your books are made available. For example, given the URL https://books.google.com/libraries/Harvard/_all_books, the "library directory" is "Harvard." This value is case-sensitive.
-2. You should have credentials for the Google account that was given to a Google partner manager for access to GRIN. This will be the same account that you use to log in to GRIN as a human.
-3. Book archives stored in GRIN are encrypted. You'll need your GPG decryption passphrase from Google. It will be a short text file containing random words.
+1. **GRIN Library Directory** You should know your "library directory", or the path in GRIN where your books are made available. For example, given the URL https://books.google.com/libraries/Harvard/_all_books, the "library directory" is "Harvard." This value is case-sensitive.
+2. **GRIN Google Account** You should have credentials for the Google account that was given to a Google partner manager for access to GRIN. This will be the same account that you use to log in to GRIN as a human. 
+3. **GRIN archive decryption key** Book archives stored in GRIN are encrypted. You'll need your GPG decryption passphrase from Google. It will be a short text file containing random words.
 4. (Optional) We recommend you set up S3-like cloud storage to extract large collections. GRIN-to-S3 will use those credentials to transfer decrypted book archives and metadata. For smaller collections, you can use any filesystem reachable from where you run this tool.
 
 ## Installation requirements
 
 The GRIN-to-S3 pipeline can be installed via docker, or directly on a target Linux-like or MacOS machine.
 
-### Quick start with docker
+### Quick start with docker (recommended)
 
-We've provided a `grin-docker` wrapper script to make accessing the tool straightforward.
+We've provided a `grin-docker` wrapper script to make accessing the tool straightforward. 
+
+The first time you run `auth setup`, you will be prompted to log in via your web browser to your **GRIN Google Account**. After that the pipeline will be able to run using those credentials. 
 
 Assuming Docker is running on your local or host machine:
 
