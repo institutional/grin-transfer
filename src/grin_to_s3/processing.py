@@ -2,8 +2,7 @@
 """
 GRIN Book Processing Management
 
-Unified script to request and monitor book processing via GRIN.
-Based on v1 conversion system with modern async architecture.
+Request and monitor book processing via GRIN.
 """
 
 import argparse
@@ -46,6 +45,9 @@ class ProcessingClient:
         # Rate limiting
         requests_per_second = 1.0 / rate_limit_delay if rate_limit_delay > 0 else 5.0
         self.rate_limiter = RateLimiter(requests_per_second=requests_per_second)
+
+        # In-memory tracking for batch database updates
+        self.requested_books: set[str] = set()  # Track books we've requested processing for
 
     async def cleanup(self) -> None:
         """Clean up resources and close connections safely."""
@@ -110,9 +112,9 @@ class ProcessingClient:
                 results[returned_barcode] = status
 
                 if status == "Success":
-                    logger.info(f"Successfully requested processing for {returned_barcode}")
+                    logger.debug(f"Successfully requested processing for {returned_barcode}")
                 else:
-                    logger.warning(f"Processing request failed for {returned_barcode}: {status}")
+                    logger.debug(f"Processing request failed for {returned_barcode}: {status}")
 
             return results
 
@@ -412,24 +414,6 @@ class ProcessingPipeline:
 
             logger.info("Processing request pipeline completed")
 
-    async def _mark_book_as_requested(self, barcode: str) -> None:
-        """Mark a book as requested in the database with current timestamp."""
-        try:
-            # Get the book record from database
-            book = await self.db_tracker.get_book(barcode)
-            if book:
-                # Update the processing request fields using atomic status change
-                await self.db_tracker.add_status_change(barcode, "processing_request", "requested")
-
-                # Also update the timestamp field for backwards compatibility
-                book.processing_request_timestamp = datetime.now(UTC).isoformat()
-                await self.db_tracker.save_book(book)
-                logger.debug(f"Marked book {barcode} as requested in database")
-            else:
-                logger.warning(f"Book {barcode} not found in database when trying to mark as requested")
-        except Exception as e:
-            logger.error(f"⚠️ Failed to mark book {barcode} as requested in database: {e}")
-
     async def _process_single_batch(self, batch: list[str], batch_num: int) -> dict:
         """Process a single batch of books with rate limiting."""
         async with self._batch_semaphore:
@@ -439,12 +423,11 @@ class ProcessingPipeline:
             print(f"Starting batch {batch_num}: {batch_size} books")
 
             try:
-                # Mark all books in batch as requested in database before making the request
-                for barcode in batch:
-                    await self._mark_book_as_requested(barcode)
-
                 # Make the batch processing request to GRIN
                 batch_results = await self.processing_client.request_processing_batch(batch)
+
+                # Track requested books for bulk database update
+                successfully_requested_books = []
 
                 # Process results
                 successful = 0
@@ -455,18 +438,13 @@ class ProcessingPipeline:
                         status = batch_results[barcode]
                         if status == "Success":
                             successful += 1
+                            successfully_requested_books.append(barcode)
                             logger.info(f"Successfully requested processing for {barcode}")
                             self.process_summary_stage.increment_items(processed=1, successful=1)
                         elif status == "Already available for download":
                             successful += 1  # Count as successful since book is ready
+                            successfully_requested_books.append(barcode)  # Still track as requested
                             logger.warning(f"Book {barcode} already processed: {status}")
-                            # Update status in database to track this
-                            try:
-                                await self.db_tracker.add_status_change(
-                                    barcode, "processing_request", "already_processed"
-                                )
-                            except Exception as e:
-                                logger.debug(f"Failed to update status for {barcode}: {e}")
                             self.process_summary_stage.increment_items(processed=1, successful=1)
                         else:
                             failed += 1
@@ -484,6 +462,10 @@ class ProcessingPipeline:
                     f"Completed batch {batch_num}: {successful}/{batch_size} successful "
                     f"in {batch_elapsed:.1f}s ({rate:.1f} req/s)"
                 )
+
+                # Bulk update database for all successfully requested books
+                if successfully_requested_books:
+                    await self._bulk_update_requested_books(successfully_requested_books)
 
                 return {
                     "batch_num": batch_num,
@@ -506,6 +488,27 @@ class ProcessingPipeline:
                     "elapsed": batch_elapsed,
                     "error": str(e),
                 }
+
+    async def _bulk_update_requested_books(self, barcodes: list[str]) -> None:
+        """Update database with processing request timestamps for a batch of books."""
+        if not barcodes:
+            return
+
+        try:
+            current_timestamp = datetime.now(UTC).isoformat()
+            placeholders = ",".join(["?"] * len(barcodes))
+
+            async with connect_async(self.db_path) as db:
+                await db.execute(
+                    f"UPDATE books SET processing_request_timestamp = ? WHERE barcode IN ({placeholders})",
+                    [current_timestamp] + barcodes,
+                )
+                await db.commit()
+
+            logger.debug(f"Bulk updated {len(barcodes)} books with processing request timestamp")
+        except Exception as e:
+            logger.warning(f"Failed to bulk update {len(barcodes)} books in database: {e}")
+            # Don't raise - database updates shouldn't block the processing pipeline
 
     async def _process_batches_concurrently(
         self, candidate_barcodes: list[str], limit: int | None, start_time: float
