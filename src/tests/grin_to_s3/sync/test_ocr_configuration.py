@@ -28,12 +28,10 @@ class TestOCRConfiguration:
         """Test that OCR extraction is enabled by default."""
         with (
             patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
-            patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter,
             patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client,
             patch("grin_to_s3.storage.StagingDirectoryManager") as mock_staging,
         ):
             mock_tracker.return_value = Mock()
-            mock_reporter.return_value = Mock()
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
@@ -55,12 +53,10 @@ class TestOCRConfiguration:
         """Test that OCR extraction can be disabled."""
         with (
             patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
-            patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter,
             patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client,
             patch("grin_to_s3.storage.StagingDirectoryManager") as mock_staging,
         ):
             mock_tracker.return_value = Mock()
-            mock_reporter.return_value = Mock()
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 
@@ -124,12 +120,10 @@ class TestOCRConfiguration:
         """Test OCR configuration integration with sync pipeline."""
         with (
             patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
-            patch("grin_to_s3.sync.pipeline.ProgressReporter") as mock_reporter,
             patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client,
             patch("grin_to_s3.storage.StagingDirectoryManager") as mock_staging,
         ):
             mock_tracker.return_value = Mock()
-            mock_reporter.return_value = Mock()
             mock_client.return_value = Mock()
             mock_staging.return_value = Mock()
 

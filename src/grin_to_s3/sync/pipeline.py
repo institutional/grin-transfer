@@ -17,7 +17,6 @@ from typing import Any
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.common import (
-    ProgressReporter,
     RateLimiter,
     SlidingWindowRateCalculator,
     format_duration,
@@ -44,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 # Progress reporting intervals
 INITIAL_PROGRESS_INTERVAL = 60  # 1 minute for first few reports
-REGULAR_PROGRESS_INTERVAL = 300  # 5 minutes for subsequent reports
+REGULAR_PROGRESS_INTERVAL = 600  # 10 minutes for subsequent reports
 
 
 class SyncPipeline:
@@ -140,7 +139,6 @@ class SyncPipeline:
 
         # Initialize components
         self.db_tracker = SQLiteProgressTracker(self.db_path)
-        self.progress_reporter = ProgressReporter("sync", None)
         self.grin_client = GRINClient(secrets_dir=self.secrets_dir)
 
         # Initialize staging directory manager only for non-local storage
@@ -160,6 +158,7 @@ class SyncPipeline:
         # Track actual active task counts for accurate reporting
         self._active_download_count = 0
         self._active_upload_count = 0
+        self._pending_upload_count = 0  # Track pending uploads in queue
 
         # Simple gate to prevent race conditions in task creation
         self._task_creation_lock = asyncio.Lock()
@@ -172,84 +171,13 @@ class SyncPipeline:
 
         # Statistics
         self.stats = create_sync_stats()
+        self._processed_count = 0  # Track total processed (downloaded) books
+        self._completed_count = 0  # Track fully synced books (upload completed/failed)
+        self._has_started_work = False  # Track if any work has begun
 
         # Worker management
         self._enrichment_workers: list[asyncio.Task] = []
 
-    def _maybe_show_progress(
-        self,
-        processed_count: int,
-        books_to_process: int,
-        start_time: float,
-        last_progress_report: float,
-        initial_reports_count: int,
-        max_initial_reports: int,
-        rate_calculator,
-        active_downloads: dict | None = None,
-        active_uploads: dict | None = None,
-        active_tasks: dict | None = None,
-    ) -> tuple[float, int]:
-        """Show detailed progress at intervals. Returns (new_last_report_time, new_initial_count)."""
-        current_time = time.time()
-        current_interval = (
-            INITIAL_PROGRESS_INTERVAL if initial_reports_count < max_initial_reports else REGULAR_PROGRESS_INTERVAL
-        )
-
-        if current_time - last_progress_report >= current_interval:
-            percentage = (processed_count / books_to_process) * 100
-            remaining = books_to_process - processed_count
-            elapsed = current_time - start_time
-
-            rate = rate_calculator.get_rate(start_time, processed_count)
-
-            # Show ETA only after enough batches for stable estimate
-            eta_text = ""
-            if len(rate_calculator.batch_times) >= 3 and rate > 0:
-                eta_seconds = remaining / rate
-                eta_text = f" (ETA: {format_duration(eta_seconds)})"
-
-            interval_desc = (
-                f"{INITIAL_PROGRESS_INTERVAL // 60} min"
-                if initial_reports_count < max_initial_reports
-                else f"{REGULAR_PROGRESS_INTERVAL // 60} min"
-            )
-
-            # Get enrichment status
-            enrichment_info = ""
-            if self.enrichment_enabled and self.enrichment_queue is not None:
-                queue_size = self.enrichment_queue.qsize()
-                enrichment_info = f", {queue_size} enrichment queued"
-
-            # Format progress based on storage type
-            if active_tasks is not None:  # Local storage
-                active_count = len(active_tasks)
-                print(
-                    f"{processed_count:,}/{books_to_process:,} "
-                    f"({percentage:.1f}%) - {rate:.1f} books/sec - "
-                    f"elapsed: {format_duration(elapsed)}{eta_text} "
-                    f"[{active_count}/{self.concurrent_downloads} active{enrichment_info}] [{interval_desc} update]"
-                )
-            else:  # Block storage
-                downloads_running = len(active_downloads or {})
-                uploads_running = min(len(active_uploads or {}), self.concurrent_uploads)
-                uploads_queued = len(active_uploads or {}) - uploads_running
-                print(
-                    f"{processed_count:,}/{books_to_process:,} "
-                    f"({percentage:.1f}%) - {rate:.1f} books/sec - "
-                    f"elapsed: {format_duration(elapsed)}{eta_text} "
-                    f"[{downloads_running}/{self.concurrent_downloads} downloads, "
-                    f"{uploads_running}/{self.concurrent_uploads} uploads, "
-                    f"{uploads_queued} uploads queued{enrichment_info}] [{interval_desc} update]"
-                )
-
-            # Update tracking variables
-            new_last_report = current_time
-            new_initial_count = (
-                initial_reports_count + 1 if initial_reports_count < max_initial_reports else initial_reports_count
-            )
-            return new_last_report, new_initial_count
-
-        return last_progress_report, initial_reports_count
 
     async def cleanup(self, sync_successful: bool = False) -> None:
         """Clean up resources and close connections safely.
@@ -292,6 +220,144 @@ class SyncPipeline:
             logger.warning(f"Error closing GRIN client session: {e}")
 
         logger.info("Cleanup completed")
+
+    async def _background_progress_reporter(
+        self,
+        start_time: float,
+        books_to_process: int,
+        rate_calculator: SlidingWindowRateCalculator,
+    ) -> None:
+        """Independent background progress reporter that runs throughout pipeline."""
+        last_report_time = 0.0
+        initial_reports_count = 0
+        max_initial_reports = 3
+        while not self._shutdown_requested:
+            try:
+                # Calculate timing for next report
+                current_time = time.time()
+                interval = (
+                    INITIAL_PROGRESS_INTERVAL
+                    if initial_reports_count < max_initial_reports
+                    else REGULAR_PROGRESS_INTERVAL
+                )
+
+                # Check if it's time to report
+                if current_time - last_report_time >= interval:
+                    # Query current state
+                    completed_count = await self._get_completed_count()
+
+                    # Get active task counts
+                    downloads_active = self._active_download_count
+                    uploads_active = self._active_upload_count
+                    uploads_queued = self._pending_upload_count
+                    enrichment_queued = self.enrichment_queue.qsize() if self.enrichment_queue else 0
+
+                    # Determine pipeline phase
+                    sync_phase_active = downloads_active > 0 or uploads_active > 0
+                    enrichment_phase_active = enrichment_queued > 0 and not sync_phase_active
+
+                    # Show appropriate progress
+                    await self._show_unified_progress(
+                        completed_count,
+                        books_to_process,
+                        start_time,
+                        current_time,
+                        downloads_active,
+                        uploads_active,
+                        uploads_queued,
+                        enrichment_queued,
+                        sync_phase_active,
+                        enrichment_phase_active,
+                        rate_calculator,
+                        interval,
+                        last_report_time,
+                    )
+
+                    # Update tracking
+                    last_report_time = current_time
+                    if initial_reports_count < max_initial_reports:
+                        initial_reports_count += 1
+
+                # Sleep briefly to avoid busy-waiting, but check for shutdown more frequently
+                for _ in range(10):  # Check every 0.1 seconds instead of every 1 second
+                    if self._shutdown_requested:
+                        break
+                    await asyncio.sleep(0.1)
+
+            except Exception as e:
+                logger.error(f"Error in progress reporter: {e}", exc_info=True)
+                await asyncio.sleep(1)
+
+    async def _get_completed_count(self) -> int:
+        """Get count of books fully synced in current session."""
+        # Return the number of books that have been fully synced (upload completed or failed)
+        return self._completed_count
+
+    async def _show_unified_progress(
+        self,
+        completed_count: int,
+        books_to_process: int,
+        start_time: float,
+        current_time: float,
+        downloads_active: int,
+        uploads_active: int,
+        uploads_queued: int,
+        enrichment_queued: int,
+        sync_phase_active: bool,
+        enrichment_phase_active: bool,
+        rate_calculator: SlidingWindowRateCalculator,
+        interval: int,
+        last_report_time: float,
+    ) -> None:
+        """Display unified progress for all pipeline phases."""
+        percentage = (completed_count / books_to_process) * 100 if books_to_process > 0 else 0
+        elapsed = current_time - start_time
+        rate = rate_calculator.get_rate(start_time, completed_count)
+
+        # Calculate ETA
+        remaining = books_to_process - completed_count
+        eta_text = ""
+        if rate > 0 and remaining > 0:
+            eta_seconds = remaining / rate
+            eta_text = f" (ETA: {format_duration(eta_seconds)})"
+
+        # Calculate time until next update
+        time_since_last_report = current_time - last_report_time
+        time_until_next_update = max(0, interval - time_since_last_report)
+        minutes_until_next = int(time_until_next_update // 60) + 1  # Round up to next minute
+        minute_plural = "min" if minutes_until_next == 1 else "min"
+        interval_desc = f"next update in {minutes_until_next} {minute_plural}"
+
+        # Build status message based on phase
+        if sync_phase_active:
+            # Download/upload phase
+            status_details = (
+                f"[{downloads_active}/{self.concurrent_downloads} downloads, "
+                f"{uploads_active}/{self.concurrent_uploads} uploads"
+            )
+            if uploads_queued > 0:
+                upload_plural = "upload" if uploads_queued == 1 else "uploads"
+                status_details += f", {uploads_queued} {upload_plural} queued"
+            if enrichment_queued > 0:
+                status_details += f", {enrichment_queued} enrichment queued"
+            status_details += "]"
+        elif enrichment_phase_active:
+            # Pure enrichment phase
+            status_details = f"[Enrichment phase: {enrichment_queued} books remaining]"
+        else:
+            # Either starting or finalizing
+            if not self._has_started_work and completed_count == 0:
+                status_details = "[Starting...]"
+            else:
+                status_details = "[Finalizing]"
+
+        # Print progress
+        print(
+            f"{completed_count:,}/{books_to_process:,} "
+            f"({percentage:.1f}%) - {rate:.1f} books/sec - "
+            f"elapsed: {format_duration(elapsed)}{eta_text} "
+            f"{status_details} [{interval_desc}]"
+        )
 
     async def _mark_book_as_converted(self, barcode: str) -> None:
         """Mark a book as converted in our database after successful download."""
@@ -673,10 +739,10 @@ class SyncPipeline:
         # Initialize sliding window rate calculator
         rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
-        # Progress reporting variables
-        last_progress_report = start_time - INITIAL_PROGRESS_INTERVAL  # Force immediate first report
-        initial_reports_count = 0
-        max_initial_reports = 3
+        # Start background progress reporter
+        self._progress_reporter_task = asyncio.create_task(
+            self._background_progress_reporter(start_time, books_to_process, rate_calculator)
+        )
 
         try:
             # Create iterator for books
@@ -701,6 +767,8 @@ class SyncPipeline:
                         )
                     )
                     active_tasks[barcode] = task
+                    self._active_download_count = len(active_tasks)
+                    self._has_started_work = True
                     logger.info(f"[{barcode}] Started local storage sync")
                 except StopIteration:
                     break
@@ -721,10 +789,13 @@ class SyncPipeline:
 
                     if completed_barcode:
                         del active_tasks[completed_barcode]
+                        self._active_download_count = len(active_tasks)
                         processed_count += 1
+                        self._processed_count = processed_count
 
                         try:
                             result = await task
+                            self._completed_count += 1  # Book is fully processed (success or failure)
                             if result["status"] == "completed":
                                 self.stats["completed"] += 1
                                 self.stats["uploaded"] += 1
@@ -738,23 +809,9 @@ class SyncPipeline:
                                 logger.error(f"[{completed_barcode}] ❌ Local storage sync failed: {error_msg}")
 
                         except Exception as e:
+                            self._completed_count += 1  # Book is fully processed (failed)
                             self.stats["failed"] += 1
                             logger.error(f"[{completed_barcode}] ❌ Local storage sync failed: {e}")
-
-                        # Track progress (disable auto-reporting since we handle it manually)
-                        # Don't call progress_reporter.increment() as we show manual progress updates
-
-                        # Show detailed progress at intervals
-                        last_progress_report, initial_reports_count = self._maybe_show_progress(
-                            processed_count,
-                            books_to_process,
-                            start_time,
-                            last_progress_report,
-                            initial_reports_count,
-                            max_initial_reports,
-                            rate_calculator,
-                            active_tasks=active_tasks,
-                        )
 
                         # Start next book if available
                         try:
@@ -774,6 +831,7 @@ class SyncPipeline:
                                 )
                             )
                             active_tasks[next_barcode] = task
+                            self._active_download_count = len(active_tasks)
                             logger.info(f"[{next_barcode}] Started local storage sync")
                         except StopIteration:
                             pass  # No more books
@@ -792,11 +850,22 @@ class SyncPipeline:
             logger.error(f"Local storage sync failed: {e}", exc_info=True)
 
         finally:
+            # Ensure shutdown is requested
+            self._shutdown_requested = True
+
+            # Cancel progress reporter with timeout
+            if hasattr(self, "_progress_reporter_task") and not self._progress_reporter_task.done():
+                self._progress_reporter_task.cancel()
+                try:
+                    # Wait for cancellation with timeout to prevent hanging
+                    await asyncio.wait_for(self._progress_reporter_task, timeout=2.0)
+                except (TimeoutError, asyncio.CancelledError):
+                    pass
+
             # Clean up resources
             await self.cleanup()
 
             # Final statistics
-            self.progress_reporter.finish()
             total_elapsed = time.time() - start_time
 
             print("\nSync completed:")
@@ -818,9 +887,6 @@ class SyncPipeline:
         self, available_to_sync: list[str], books_to_process: int, specific_barcodes: list[str] | None = None
     ) -> None:
         """Run sync pipeline for block storage (S3, R2, MinIO)."""
-        self.progress_reporter = ProgressReporter("sync", books_to_process)
-        self.progress_reporter.start()
-
         start_time = time.time()
         processed_count = 0
         active_downloads: dict[str, asyncio.Task] = {}
@@ -829,10 +895,10 @@ class SyncPipeline:
         # Initialize sliding window rate calculator
         rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
-        # Progress reporting variables
-        last_progress_report = start_time - INITIAL_PROGRESS_INTERVAL  # Force immediate first report
-        initial_reports_count = 0
-        max_initial_reports = 3
+        # Start background progress reporter
+        self._progress_reporter_task = asyncio.create_task(
+            self._background_progress_reporter(start_time, books_to_process, rate_calculator)
+        )
 
         try:
             # Create iterator for books
@@ -896,9 +962,11 @@ class SyncPipeline:
                                 if result.get("download_success"):
                                     upload_task = asyncio.create_task(self._upload_book_from_staging(barcode, result))
                                     active_uploads[barcode] = upload_task
+                                    self._pending_upload_count = len(active_uploads)
                                     logger.debug(f"[{barcode}] Started upload task")
                                 elif result.get("skipped"):
                                     # Download skipped due to ETag match, count as completed
+                                    self._completed_count += 1  # Book is fully processed (already up to date)
                                     self.stats["skipped"] += 1
                                     logger.info(f"[{barcode}] Download skipped (already up to date)")
 
@@ -906,6 +974,7 @@ class SyncPipeline:
                                     self.process_summary_stage.increment_items(successful=1)
                                 else:
                                     # Download failed, update stats
+                                    self._completed_count += 1  # Book is fully processed (failed)
                                     self.stats["failed"] += 1
                                     logger.warning(f"[{barcode}] Download failed, not starting upload")
 
@@ -914,27 +983,17 @@ class SyncPipeline:
 
                                 # Update progress
                                 processed_count += 1
+                                self._processed_count = processed_count
                                 rate_calculator.add_batch(time.time(), processed_count)
 
                                 # Track in process summary
                                 self.process_summary_stage.increment_items(processed=1)
 
-                                # Show detailed progress at intervals
-                                last_progress_report, initial_reports_count = self._maybe_show_progress(
-                                    processed_count,
-                                    books_to_process,
-                                    start_time,
-                                    last_progress_report,
-                                    initial_reports_count,
-                                    max_initial_reports,
-                                    rate_calculator,
-                                    active_downloads=active_downloads,
-                                    active_uploads=active_uploads,
-                                )
-
                             # Handle upload completion
                             elif barcode in active_uploads and active_uploads[barcode] == completed_task:
                                 del active_uploads[barcode]
+                                self._pending_upload_count = len(active_uploads)
+                                self._completed_count += 1  # Book is fully processed (success or failure)
                                 logger.info(
                                     f"[{barcode}] Upload completed (success: {result.get('upload_success', False)})"
                                 )
@@ -963,7 +1022,22 @@ class SyncPipeline:
                         self.process_summary_stage.increment_items(failed=1)
                         self.process_summary_stage.add_error(type(e).__name__, str(e))
 
+            # Main loop completed - stop the background progress reporter
+            self._shutdown_requested = True
+
         finally:
+            # Ensure shutdown is requested
+            self._shutdown_requested = True
+
+            # Cancel progress reporter with timeout
+            if hasattr(self, "_progress_reporter_task") and not self._progress_reporter_task.done():
+                self._progress_reporter_task.cancel()
+                try:
+                    # Wait for cancellation with timeout to prevent hanging
+                    await asyncio.wait_for(self._progress_reporter_task, timeout=2.0)
+                except (TimeoutError, asyncio.CancelledError):
+                    pass
+
             # Cancel remaining tasks
             for task in active_downloads.values():
                 if not task.done():
@@ -976,8 +1050,6 @@ class SyncPipeline:
             all_tasks = list(active_downloads.values()) + list(active_uploads.values())
             if all_tasks:
                 await asyncio.gather(*all_tasks, return_exceptions=True)
-
-            self.progress_reporter.finish()
 
             # Print final statistics
             total_elapsed = time.time() - start_time
@@ -1008,6 +1080,7 @@ class SyncPipeline:
 
         async with self._download_semaphore:
             self._active_download_count += 1
+            self._has_started_work = True
             try:
                 logger.debug(
                     f"[{barcode}] Download task started "
@@ -1211,8 +1284,6 @@ class SyncPipeline:
 
             # Set up progress tracking
             books_to_process = min(limit or len(available_to_sync), len(available_to_sync))
-            self.progress_reporter = ProgressReporter("sync", books_to_process)
-            self.progress_reporter.start()
 
             # For local storage, use direct processing without staging
             if self.storage_protocol == "local":
