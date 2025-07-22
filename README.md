@@ -4,10 +4,30 @@ A pipeline for extracting page scans, metadata, and OCR from Google Books GRIN (
 
 ## Prerequisites
 
-1. **GRIN Library Directory** You should know your "library directory", or the path in GRIN where your books are made available. For example, given the URL https://books.google.com/libraries/Harvard/_all_books, the "library directory" is "Harvard." This value is case-sensitive.
-2. **GRIN Google Account** You should have credentials for the Google account that was given to a Google partner manager for access to GRIN. This will be the same account that you use to log in to GRIN as a human. 
-3. **GRIN archive decryption key** Book archives stored in GRIN are encrypted. You'll need your GPG decryption passphrase from Google. It will be a short text file containing random words.
-4. (Optional) We recommend you set up S3-like cloud storage to extract large collections. GRIN-to-S3 will use those credentials to transfer decrypted book archives and metadata. For smaller collections, you can use any filesystem reachable from where you run this tool.
+1. **GRIN Library Directory**: You should know your "library directory", or the path in GRIN where your books are made available. For example, given the URL https://books.google.com/libraries/Harvard/_all_books, the "library directory" is "Harvard." This value is case-sensitive.
+2. **GRIN Google Account**: You should have credentials for the Google account that was given to a Google partner manager for access to GRIN. This will be the same account that you use to log in to GRIN as a human.
+3. **GRIN archive decryption key**: Book archives stored in GRIN are encrypted. You'll need your GPG decryption passphrase from Google. It will be a short text file containing random words.
+4. _(Optional)_ We recommend you set up S3-like cloud storage to extract large collections. GRIN-to-S3 will use those credentials to transfer decrypted book archives and metadata. For smaller collections, you can use any filesystem reachable from where you run this tool.
+
+### Set up OAuth2 client credentials
+
+The pipeline uses OAuth2 to authenticate with Google's GRIN interface. Before running any pipeline commands, you must configure authentication using your Google account credentials that have GRIN access.
+
+Using your **GRIN Google Account**:
+
+1. Go to https://console.developers.google.com and create a new project.
+2. Click the 'Credentials' tab.
+3. Select 'OAuth client ID' in the credential type dropdown.
+4. Click 'Configure consent screen'.
+5. Enter any name in the 'Product name' box, e.g. 'Scripted Access to GRIN’.
+6. Click 'Save'.
+7. There should now be a radio list titled 'Application type'. Click 'Other'. Enter
+any name. Click 'Create'.
+8. A dialog box should appear that has 'Here is your client ID' and 'Here is
+your client secret' boxes. Ignore this, just click 'OK'.
+9. Click the 'download' button to the right of the credentials. The button is a
+down arrow with a line under it.
+10. Move that file into your home directory at `.config/grin-to-s3/client_secret.json`
 
 ## Installation requirements
 
@@ -17,7 +37,7 @@ The GRIN-to-S3 pipeline can be installed via docker, or directly on a target Lin
 
 We've provided a `grin-docker` wrapper script to make accessing the tool straightforward. 
 
-The first time you run `auth setup`, you will be prompted to log in via your web browser to your **GRIN Google Account**. After that the pipeline will be able to run using those credentials. 
+The first time you run `auth setup`, you will be prompted to log in via your web browser to your **GRIN Google Account** using the **OAuth2 client credentials** that you downloaded to your home directory. After that the pipeline will be able to run using those credentials. 
 
 Assuming Docker is running on your local or host machine:
 
@@ -75,65 +95,7 @@ For block storage, the default configuration is to use three buckets:
 
 ### Staging
 During processing, book archives and metadata are saved in the **staging** area on your local filesystem until they are fully uploaded to storage. By default,  `staging/` is created in the repo directory, but can be overridden with `--sync-staging-dir`. To avoid running out of local disk space, `--sync-disk-space-threshold` is used to keep the staging area at capacity; when capacity is exceeded, downloads are paused and usually will resume once files are fully uploaded.
-
-## Authentication
-
-The pipeline uses OAuth2 to authenticate with Google's GRIN interface. Before running any pipeline commands, you must configure authentication using your Google account credentials that have GRIN access.
-
-### Setup OAuth2 Client Credentials
-
-1. **Create OAuth2 credentials** at [Google Cloud Console](https://console.cloud.google.com/apis/credentials):
-   - Create a new project or select an existing one
-   - Click "Create Credentials" → "OAuth 2.0 Client IDs"  
-   - Application type: "Desktop application"
-   - Download the JSON file
-
-2. **Install the credentials file**:
-   ```bash
-   mkdir -p ~/.config/grin-to-s3/
-   cp /path/to/downloaded/client_secret.json ~/.config/grin-to-s3/client_secret.json
-   ```
-
-### Authentication Setup
-
-The authentication system automatically detects your environment and provides the appropriate OAuth2 flow:
-
-**Local desktop/laptop** (automatic browser):
-```bash
-python grin.py auth setup
-```
-
-**Remote servers, SSH sessions, cloud instances** (manual authorization code):
-```bash
-python grin.py auth setup --remote-auth
-```
-
-**Docker containers** (port forwarding):
-```bash
-./grin-docker auth setup
-```
-
-### Remote Environment Authentication
-
-For SSH sessions, cloud instances (AWS EC2, GCP Compute Engine, Azure VMs), or any environment without browser access, the system automatically detects the remote environment and uses manual authorization:
-
-1. **Automatic detection** identifies:
-   - SSH sessions (`SSH_CLIENT`, `SSH_TTY` environment variables)
-   - Terminal multiplexers (`tmux`, `screen`)
-   - Cloud platforms (AWS, GCP, Azure) without display
-
-2. **Manual authorization flow**:
-   - Displays a URL to visit in your local browser
-   - You complete Google authentication on your local machine
-   - Google displays an authorization code
-   - You copy and paste the code back to the remote session
-
-3. **Manual override** for any environment:
-   ```bash
-   python grin.py auth setup --remote-auth
-   ```
-
-This approach eliminates the need for complex SSH port forwarding and works seamlessly across all cloud and remote environments.
+   
 
 ## Pipeline steps
 Each run begins with the **collection** step, where book metadata is first downloaded from GRIN and stored locally for evaluation and processing. Collecting all book metadata for very large (1 million+ book) collections usually takes about an hour.
