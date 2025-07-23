@@ -118,13 +118,13 @@ services:
       mc mb minio/grin-meta --ignore-existing || exit 1;
       mc mb minio/grin-full --ignore-existing || exit 1;
       echo 'Setting bucket policies...';
-      mc policy set public minio/grin-raw || exit 1;
-      mc policy set public minio/grin-meta || exit 1;
-      mc policy set public minio/grin-full || exit 1;
+      mc anonymous set public minio/grin-raw || exit 1;
+      mc anonymous set public minio/grin-meta || exit 1;
+      mc anonymous set public minio/grin-full || exit 1;
       echo 'Verifying buckets were created...';
-      mc ls minio | grep -q grin-raw || exit 1;
-      mc ls minio | grep -q grin-meta || exit 1;
-      mc ls minio | grep -q grin-full || exit 1;
+      mc ls minio/grin-raw >/dev/null 2>&1 || exit 1;
+      mc ls minio/grin-meta >/dev/null 2>&1 || exit 1;
+      mc ls minio/grin-full >/dev/null 2>&1 || exit 1;
       echo '✅ MinIO buckets created and verified successfully';
       "
 
