@@ -98,18 +98,31 @@ services:
     networks:
       - grin-dev-network
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      sleep 10;
-      mc alias set minio http://minio:9000 minioadmin minioadmin123;
+      echo 'MinIO healthcheck passed, server should be ready';
+      echo 'Attempting to set up MinIO alias...';
+      mc alias set minio http://minio:9000 minioadmin minioadmin123 || {
+        echo 'Failed to set MinIO alias, debugging...';
+        echo 'Testing network connectivity...';
+        nc -z minio 9000 && echo 'Port 9000 reachable' || echo 'Port 9000 unreachable';
+        exit 1;
+      };
+      echo 'MinIO alias set successfully, creating buckets...';
       mc mb minio/grin-raw --ignore-existing;
       mc mb minio/grin-meta --ignore-existing;
       mc mb minio/grin-full --ignore-existing;
-      mc policy set public minio/grin-raw;
-      mc policy set public minio/grin-meta;
-      mc policy set public minio/grin-full;
-      echo 'MinIO buckets created successfully';
+      echo 'Setting bucket policies...';
+      mc anonymous set public minio/grin-raw;
+      mc anonymous set public minio/grin-meta;
+      mc anonymous set public minio/grin-full;
+      echo 'Verifying buckets exist...';
+      mc ls minio/grin-raw >/dev/null;
+      mc ls minio/grin-meta >/dev/null;
+      mc ls minio/grin-full >/dev/null;
+      echo '✅ MinIO buckets created and verified successfully';
       "
 
 # Named volumes for development

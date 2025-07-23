@@ -101,6 +101,28 @@ class TestRemoteShellDetection:
                 # Should not detect remote shell on Windows even without DISPLAY
                 assert detect_remote_shell() is False
 
+    def test_docker_environment_not_detected_as_remote(self):
+        """Test that Docker environments are not incorrectly detected as remote shells."""
+        env_vars = {
+            "DISPLAY": "",  # No display (common in Docker)
+            "DOCKER_ENV": "true"  # Docker environment indicator
+        }
+        with patch.dict(os.environ, env_vars, clear=True):
+            # Docker should not be detected as remote shell
+            assert detect_remote_shell() is False
+
+    def test_dockerenv_file_not_detected_as_remote(self):
+        """Test that Docker environments with /.dockerenv file are not detected as remote."""
+        env_vars = {
+            "DISPLAY": "",  # No display (common in Docker)
+        }
+        with patch.dict(os.environ, env_vars, clear=True):
+            with patch("os.path.exists") as mock_exists:
+                # Mock /.dockerenv file exists
+                mock_exists.return_value = True
+                # Docker should not be detected as remote shell
+                assert detect_remote_shell() is False
+
 
 class TestManualAuthorizationFlow:
     """Test manual authorization code flow."""
