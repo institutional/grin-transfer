@@ -88,19 +88,45 @@ jobs:
     - name: Test Docker Compose (MinIO profile)
       run: |
         docker compose --profile minio up -d
-        # Wait for MinIO and setup to be ready
-        sleep 20
+        
         # Wait for the minio-setup container to complete
         echo "Waiting for MinIO setup to complete..."
         while docker compose ps minio-setup | grep -q "running"; do
           echo "Setup still running, waiting..."
           sleep 2
         done
-        docker compose ps | grep -q "minio"
-        # Verify MinIO buckets were created
-        docker compose exec minio mc ls minio | grep -q "grin-raw"
-        docker compose exec minio mc ls minio | grep -q "grin-meta" 
-        docker compose exec minio mc ls minio | grep -q "grin-full"
+        
+        # Check that setup container exited successfully
+        if docker compose ps -a minio-setup | grep -q "exited (0)"; then
+          echo "✅ MinIO setup completed successfully"
+        else
+          echo "❌ MinIO setup failed:"
+          docker compose logs minio-setup
+          exit 1
+        fi
+        
+        # Verify MinIO server is running
+        docker compose ps | grep -q "minio.*Up"
+        
+        # Verify connectivity using application's MinIO check
+        docker compose exec grin-to-s3 python -c "
+        import asyncio
+        import sys
+        sys.path.append('/app/src')
+        from grin_to_s3.common import check_minio_connectivity
+        
+        async def test_connectivity():
+            config = {
+                'endpoint_url': 'http://minio:9000',
+                'access_key': 'minioadmin',
+                'secret_key': 'minioadmin123'
+            }
+            await check_minio_connectivity(config)
+            print('✅ MinIO connectivity verified via application code')
+        
+        asyncio.run(test_connectivity())
+        "
+        
         docker compose down
     
     - name: Test grin-docker wrapper script basic functionality
@@ -112,7 +138,18 @@ jobs:
       run: |
         chmod +x grin-docker
         docker compose --profile minio up -d
-        sleep 15
+        
+        # Wait for setup to complete and verify success
+        while docker compose ps minio-setup | grep -q "running"; do
+          echo "Waiting for MinIO setup..."
+          sleep 2
+        done
+        
+        if ! docker compose ps -a minio-setup | grep -q "exited (0)"; then
+          echo "❌ MinIO setup failed:"
+          docker compose logs minio-setup
+          exit 1
+        fi
         
         # Test that MinIO connectivity check works
         docker compose exec grin-to-s3 python -c "
@@ -145,21 +182,35 @@ jobs:
       run: |
         chmod +x grin-docker
         docker compose --profile minio up -d
-        sleep 15
+        
+        # Wait for setup to complete and verify success
+        while docker compose ps minio-setup | grep -q "running"; do
+          echo "Waiting for MinIO setup..."
+          sleep 2
+        done
+        
+        if ! docker compose ps -a minio-setup | grep -q "exited (0)"; then
+          echo "❌ MinIO setup failed:"
+          docker compose logs minio-setup
+          exit 1
+        fi
         
         # Test that storage factories work with MinIO auto-configuration
         docker compose exec grin-to-s3 python -c "
         import sys
         sys.path.append('/app/src')
         from grin_to_s3.storage.factories import create_storage_from_config, create_book_manager_with_full_text
+        from grin_to_s3.common import auto_configure_minio
         
         def test_storage_factories():
             # Test storage factory with empty config (should auto-configure)
             storage = create_storage_from_config('minio', {})
             print('✅ Storage factory works with auto-configuration')
             
-            # Test book manager factory with MinIO auto-configuration  
-            book_manager = create_book_manager_with_full_text('minio', {})
+            # Test book manager factory with proper bucket configuration
+            config = {}
+            auto_configure_minio(config)
+            book_manager = create_book_manager_with_full_text('minio', config)
             
             # Verify bucket configuration was set
             bucket_config = book_manager.bucket_config

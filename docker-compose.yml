@@ -101,15 +101,25 @@ services:
       - minio
     entrypoint: >
       /bin/sh -c "
-      sleep 10;
-      mc alias set minio http://minio:9000 minioadmin minioadmin123;
-      mc mb minio/grin-raw --ignore-existing;
-      mc mb minio/grin-meta --ignore-existing;
-      mc mb minio/grin-full --ignore-existing;
-      mc policy set public minio/grin-raw;
-      mc policy set public minio/grin-meta;
-      mc policy set public minio/grin-full;
-      echo 'MinIO buckets created successfully';
+      set -e;
+      echo 'Waiting for MinIO server to be ready...';
+      until mc alias set minio http://minio:9000 minioadmin minioadmin123 2>/dev/null; do
+        echo 'MinIO not ready, retrying in 2 seconds...';
+        sleep 2;
+      done;
+      echo 'MinIO server is ready, creating buckets...';
+      mc mb minio/grin-raw --ignore-existing || exit 1;
+      mc mb minio/grin-meta --ignore-existing || exit 1;
+      mc mb minio/grin-full --ignore-existing || exit 1;
+      echo 'Setting bucket policies...';
+      mc policy set public minio/grin-raw || exit 1;
+      mc policy set public minio/grin-meta || exit 1;
+      mc policy set public minio/grin-full || exit 1;
+      echo 'Verifying buckets were created...';
+      mc ls minio | grep -q grin-raw || exit 1;
+      mc ls minio | grep -q grin-meta || exit 1;
+      mc ls minio | grep -q grin-full || exit 1;
+      echo '✅ MinIO buckets created and verified successfully';
       "
 
 # Named volumes for development
