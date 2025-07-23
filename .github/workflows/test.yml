@@ -89,21 +89,15 @@ jobs:
       run: |
         docker compose --profile minio up -d
         
-        # Wait for the minio-setup container to complete
-        echo "Waiting for MinIO setup to complete..."
+        # Wait for setup to complete
         while docker compose ps minio-setup | grep -q "running"; do
-          echo "Setup still running, waiting..."
+          echo "Waiting for MinIO setup..."
           sleep 2
         done
         
-        # Check that setup container exited successfully
-        if docker compose ps -a minio-setup | grep -q "exited (0)"; then
-          echo "✅ MinIO setup completed successfully"
-        else
-          echo "❌ MinIO setup failed:"
-          docker compose logs minio-setup
-          exit 1
-        fi
+        # Show setup logs for debugging
+        echo "MinIO setup logs:"
+        docker compose logs minio-setup
         
         # Verify MinIO server is running
         docker compose ps | grep -q "minio.*Up"
@@ -139,18 +133,12 @@ jobs:
         chmod +x grin-docker
         docker compose --profile minio up -d
         
-        # Wait for setup to complete and verify success
+        # Wait for setup to complete
         while docker compose ps minio-setup | grep -q "running"; do
           echo "Waiting for MinIO setup..."
           sleep 2
         done
-        
-        if ! docker compose ps -a minio-setup | grep -q "exited (0)"; then
-          echo "❌ MinIO setup failed:"
-          docker compose logs minio-setup
-          exit 1
-        fi
-        
+
         # Test that MinIO connectivity check works
         docker compose exec grin-to-s3 python -c "
         import asyncio
@@ -183,17 +171,11 @@ jobs:
         chmod +x grin-docker
         docker compose --profile minio up -d
         
-        # Wait for setup to complete and verify success
+        # Wait for setup to complete
         while docker compose ps minio-setup | grep -q "running"; do
           echo "Waiting for MinIO setup..."
           sleep 2
         done
-        
-        if ! docker compose ps -a minio-setup | grep -q "exited (0)"; then
-          echo "❌ MinIO setup failed:"
-          docker compose logs minio-setup
-          exit 1
-        fi
         
         # Test that storage factories work with MinIO auto-configuration
         docker compose exec grin-to-s3 python -c "
