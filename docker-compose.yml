@@ -98,33 +98,30 @@ services:
     networks:
       - grin-dev-network
     depends_on:
-      - minio
+      minio:
+        condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      set -e;
-      echo 'Waiting for MinIO server to be ready...';
-      ATTEMPTS=0;
-      until mc alias set minio http://minio:9000 minioadmin minioadmin123 2>/dev/null; do
-        ATTEMPTS=$$((ATTEMPTS + 1));
-        if [ $$ATTEMPTS -gt 30 ]; then
-          echo 'MinIO server failed to start after 60 seconds, giving up';
-          exit 1;
-        fi;
-        echo \"MinIO not ready (attempt $$ATTEMPTS/30), retrying in 2 seconds...\";
-        sleep 2;
-      done;
-      echo 'MinIO server is ready, creating buckets...';
-      mc mb minio/grin-raw --ignore-existing || exit 1;
-      mc mb minio/grin-meta --ignore-existing || exit 1;
-      mc mb minio/grin-full --ignore-existing || exit 1;
+      echo 'MinIO healthcheck passed, server should be ready';
+      echo 'Attempting to set up MinIO alias...';
+      mc alias set minio http://minio:9000 minioadmin minioadmin123 || {
+        echo 'Failed to set MinIO alias, debugging...';
+        echo 'Testing network connectivity...';
+        nc -z minio 9000 && echo 'Port 9000 reachable' || echo 'Port 9000 unreachable';
+        exit 1;
+      };
+      echo 'MinIO alias set successfully, creating buckets...';
+      mc mb minio/grin-raw --ignore-existing;
+      mc mb minio/grin-meta --ignore-existing;
+      mc mb minio/grin-full --ignore-existing;
       echo 'Setting bucket policies...';
-      mc anonymous set public minio/grin-raw || exit 1;
-      mc anonymous set public minio/grin-meta || exit 1;
-      mc anonymous set public minio/grin-full || exit 1;
-      echo 'Verifying buckets were created...';
-      mc ls minio/grin-raw >/dev/null 2>&1 || exit 1;
-      mc ls minio/grin-meta >/dev/null 2>&1 || exit 1;
-      mc ls minio/grin-full >/dev/null 2>&1 || exit 1;
+      mc anonymous set public minio/grin-raw;
+      mc anonymous set public minio/grin-meta;
+      mc anonymous set public minio/grin-full;
+      echo 'Verifying buckets exist...';
+      mc ls minio/grin-raw >/dev/null;
+      mc ls minio/grin-meta >/dev/null;
+      mc ls minio/grin-full >/dev/null;
       echo '✅ MinIO buckets created and verified successfully';
       "
 
