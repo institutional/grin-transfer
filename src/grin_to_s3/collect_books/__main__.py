@@ -406,6 +406,11 @@ Examples:
                     key, value = item.split("=", 1)
                     final_storage_dict[key] = value
 
+        # Auto-configure MinIO with standard bucket names (only used in Docker)
+        if args.storage == "minio":
+            from ..common import auto_configure_minio
+            auto_configure_minio(final_storage_dict)
+
         # Determine storage protocol for operational logic
         storage_protocol = get_storage_protocol(args.storage)
         storage_config = {

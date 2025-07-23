@@ -91,6 +91,10 @@ jobs:
         # Wait for MinIO to be ready
         sleep 15
         docker compose ps | grep -q "minio"
+        # Verify MinIO buckets were created
+        docker compose exec minio mc ls minio/ | grep -q "grin-raw"
+        docker compose exec minio mc ls minio/ | grep -q "grin-meta" 
+        docker compose exec minio mc ls minio/ | grep -q "grin-full"
         docker compose down
     
     - name: Test grin-docker wrapper script basic functionality
@@ -98,9 +102,68 @@ jobs:
         chmod +x grin-docker
         ./grin-docker python grin.py --help | grep -q "GRIN-to-S3"
     
-    - name: Test MinIO storage detection
+    - name: Test MinIO configuration functions
       run: |
         chmod +x grin-docker
-        # Test that the script detects MinIO usage
-        echo "Testing MinIO detection..."
-        ./grin-docker python grin.py collect --storage minio --help | grep -q "storage" || echo "MinIO detection test passed"
+        docker compose --profile minio up -d
+        sleep 15
+        
+        # Test that MinIO connectivity check works
+        docker compose exec grin-to-s3 python -c "
+        import asyncio
+        import sys
+        sys.path.append('/app/src')
+        from grin_to_s3.common import auto_configure_minio, check_minio_connectivity
+        
+        async def test_minio_config():
+            # Test auto-configuration
+            config = {}
+            auto_configure_minio(config)
+            
+            # Verify expected configuration
+            assert config['endpoint_url'] == 'http://minio:9000', f'Expected http://minio:9000, got {config.get(\"endpoint_url\")}'
+            assert config['bucket_raw'] == 'grin-raw', f'Expected grin-raw, got {config.get(\"bucket_raw\")}'
+            assert config['bucket_meta'] == 'grin-meta', f'Expected grin-meta, got {config.get(\"bucket_meta\")}'
+            assert config['bucket_full'] == 'grin-full', f'Expected grin-full, got {config.get(\"bucket_full\")}'
+            
+            # Test connectivity
+            await check_minio_connectivity(config)
+            print('✅ MinIO configuration and connectivity tests passed')
+        
+        asyncio.run(test_minio_config())
+        "
+        
+        docker compose down
+    
+    - name: Test storage factory integration
+      run: |
+        chmod +x grin-docker
+        docker compose --profile minio up -d
+        sleep 15
+        
+        # Test that storage factories work with MinIO auto-configuration
+        docker compose exec grin-to-s3 python -c "
+        import sys
+        sys.path.append('/app/src')
+        from grin_to_s3.storage.factories import create_storage_from_config, create_book_manager_with_full_text
+        
+        def test_storage_factories():
+            # Test storage factory with empty config (should auto-configure)
+            storage = create_storage_from_config('minio', {})
+            print('✅ Storage factory works with auto-configuration')
+            
+            # Test book manager factory with MinIO auto-configuration  
+            book_manager = create_book_manager_with_full_text('minio', {})
+            
+            # Verify bucket configuration was set
+            bucket_config = book_manager.bucket_config
+            assert bucket_config['bucket_raw'] == 'grin-raw', f'Expected grin-raw, got {bucket_config.get(\"bucket_raw\")}'
+            assert bucket_config['bucket_meta'] == 'grin-meta', f'Expected grin-meta, got {bucket_config.get(\"bucket_meta\")}'
+            assert bucket_config['bucket_full'] == 'grin-full', f'Expected grin-full, got {bucket_config.get(\"bucket_full\")}'
+            
+            print('✅ Book manager factory works with auto-configuration')
+        
+        test_storage_factories()
+        "
+        
+        docker compose down

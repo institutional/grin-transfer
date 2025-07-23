@@ -754,6 +754,73 @@ def print_oauth_setup_instructions() -> None:
         print("python grin.py auth setup")
 
 
+async def setup_storage_with_checks(storage_type: str, storage_config: dict,
+                                   required_credentials: list[str] | None = None) -> None:
+    """Set up storage with auto-configuration and connectivity checks.
+
+    Args:
+        storage_type: Type of storage ("minio", "r2", "s3", "local")
+        storage_config: Storage configuration dictionary to modify
+        required_credentials: List of required credential keys for auto-config check
+    """
+    if storage_type == "minio":
+        # Auto-configure MinIO if credentials are missing
+        if required_credentials is None:
+            required_credentials = ["endpoint_url", "access_key", "secret_key"]
+
+        if not all(k in storage_config for k in required_credentials):
+            auto_configure_minio(storage_config)
+
+        # Check connectivity
+        await check_minio_connectivity(storage_config)
+
+
+async def check_minio_connectivity(storage_config: dict) -> None:
+    """Check if MinIO is accessible and fail fast if not.
+
+    Args:
+        storage_config: Storage configuration dict containing endpoint_url
+
+    Raises:
+        SystemExit: If MinIO is not accessible
+    """
+    endpoint_url = storage_config.get("endpoint_url")
+    if not endpoint_url:
+        print("❌ Error: MinIO endpoint_url not configured")
+        print("   Either start MinIO with: docker-compose -f docker-compose.minio.yml up -d")
+        print("   Or use local storage with: --storage local")
+        exit(1)
+
+    # Extract base URL for health check
+    if endpoint_url.endswith("/"):
+        health_url = f"{endpoint_url}minio/health/live"
+    else:
+        health_url = f"{endpoint_url}/minio/health/live"
+
+    try:
+        async with create_http_session(timeout=5) as session:
+            async with session.get(health_url) as response:
+                if response.status == 200:
+                    print(f"✅ MinIO connectivity verified: {endpoint_url}")
+                    return
+                else:
+                    print(f"❌ MinIO health check failed with status {response.status}")
+    except TimeoutError:
+        print(f"❌ MinIO connection timeout: {endpoint_url}")
+        print("   MinIO is not responding within 5 seconds")
+    except aiohttp.ClientConnectorError as e:
+        print(f"❌ Cannot connect to MinIO: {endpoint_url}")
+        print(f"   Connection error: {e}")
+    except Exception as e:
+        print(f"❌ MinIO connectivity check failed: {e}")
+
+    print("\n💡 To fix this:")
+    print("   Start MinIO: docker-compose -f docker-compose.minio.yml up -d")
+    print("   Or use local storage: --storage local")
+    print("   Or provide different MinIO credentials with --endpoint-url")
+    exit(1)
+
+
 async def create_storage_buckets_or_directories(storage_type: str, storage_config: dict) -> None:
     """Create all required buckets or directories for the storage type.
 

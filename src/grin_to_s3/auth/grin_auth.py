@@ -46,7 +46,10 @@ def detect_remote_shell() -> bool:
         return True
 
     # Check if DISPLAY is not set (headless environment)
-    if not os.environ.get("DISPLAY") and not sys.platform.startswith("win"):
+    # But exclude Docker containers which also don't have DISPLAY but should use Docker flow
+    if (not os.environ.get("DISPLAY") and
+        not sys.platform.startswith("win") and
+        not is_docker_environment()):
         # Additional check: if we're on a known cloud platform
         cloud_indicators = [
             "AWS_EXECUTION_ENV",
@@ -520,6 +523,11 @@ def _do_credential_setup(secrets_path: Path, creds_path: Path, remote_auth: bool
     except Exception as e:
         return False, f"Error reading secrets file: {e}"
 
+    # Show Step 1 information early
+    print("\nStep 1: OAuth2 Client Configuration")
+    print(f"Looking for client secrets at: {secrets_path}")
+    print("✅ Client secrets file is valid")
+
     # Step 3: Check if existing credentials have compatible scopes
     if creds_path.exists():
         try:
@@ -549,8 +557,22 @@ def _do_credential_setup(secrets_path: Path, creds_path: Path, remote_auth: bool
             # Remote shell environment - use manual authorization code flow
             credentials = manual_authorization_flow(flow)
         elif is_docker:
+            # Show Docker-specific setup instructions immediately
+            print("\nStep 2: OAuth2 Authorization")
+            print("Running in Docker container - using port forwarding flow")
+            print("\n" + "="*60)
+            print("DOCKER OAUTH2 SETUP")
+            print("="*60)
+
             # Get OAuth2 port from environment
             oauth_port = int(os.environ.get("GRIN_OAUTH_PORT", "58432"))
+
+            print(f"1. The OAuth2 server will start on port {oauth_port}")
+            print("2. A URL will be displayed for you to visit")
+            print("3. Complete the Google authorization")
+            print(f"4. The browser will redirect to localhost:{oauth_port}")
+            print("   This will complete authentication automatically")
+            print("="*60)
 
             # Generate and display the authorization URL
             flow.redirect_uri = f"http://localhost:{oauth_port}"
@@ -600,6 +622,11 @@ def _do_credential_setup(secrets_path: Path, creds_path: Path, remote_auth: bool
             server = HTTPServer(("0.0.0.0", oauth_port), CallbackHandler)
             server.timeout = 300  # 5 minute timeout
 
+            print(f"\nOAuth2 server started on port {oauth_port}")
+            print("Please visit this URL to complete authentication:")
+            print(f"\n{auth_url}\n")
+            print("Waiting for authorization callback...")
+
             # Handle the request
             server.handle_request()
             server.server_close()
@@ -623,6 +650,12 @@ def _do_credential_setup(secrets_path: Path, creds_path: Path, remote_auth: bool
                 scopes=SCOPES,
             )
         else:
+            # Show local setup instructions immediately
+            print("\nStep 2: OAuth2 Authorization")
+            print("This will open your browser for Google authentication.")
+            print("When prompted, log in with your GRIN Google account.")
+            print("(If the browser doesn't open automatically, copy the URL that appears.)")
+
             # Use same port logic for consistency
             oauth_port = int(os.environ.get("GRIN_OAUTH_PORT", "58432"))
 
@@ -653,10 +686,14 @@ def _do_credential_setup(secrets_path: Path, creds_path: Path, remote_auth: bool
         # Secure the credentials file
         creds_path.chmod(0o600)
 
+        print(f"\n✅ Credentials saved to: {creds_path}")
+        print("File permissions set to 600 (owner read/write only)")
+
     except Exception as e:
         return False, f"OAuth2 flow failed: {e}"
 
     # Step 5: Test credentials
+    print("\nStep 3: Testing Credentials")
     try:
         # Test credential loading synchronously
         test_auth = GRINAuth(str(secrets_path), str(creds_path))
@@ -666,10 +703,22 @@ def _do_credential_setup(secrets_path: Path, creds_path: Path, remote_auth: bool
         if not loaded_creds:
             return False, "Could not load credentials from file"
 
+        print("✅ Credentials loaded successfully")
+        if loaded_creds.token:
+            print("✅ Bearer token available: [token secured]")
+        else:
+            print("⚠️  No bearer token found, but credentials are valid")
+
     except Exception as e:
         return False, f"Credential test failed: {e}"
 
     # Success!
+    print("\n✅ Setup Complete!")
+    print("=" * 16)
+    print(f"Client secrets: {secrets_path}")
+    print(f"User credentials: {creds_path}")
+    print("OAuth2 authentication working")
+
     return True, "Setup completed successfully"
 
 
@@ -688,10 +737,6 @@ def setup_credentials(secrets_file: str | None = None, credentials_file: str | N
     secrets_path = auth.secrets_file
     creds_path = auth.credentials_file
 
-    # Determine flow type for messaging
-    is_remote = remote_auth or detect_remote_shell()
-    is_docker = is_docker_environment()
-
     # Execute the core logic
     success, message = _do_credential_setup(secrets_path, creds_path, remote_auth)
 
@@ -706,22 +751,13 @@ def setup_credentials(secrets_file: str | None = None, credentials_file: str | N
             print(f"❌ {message}")
             return False
 
-    # Handle different success scenarios with appropriate messaging
+    # Handle success case for existing credentials
     if "Compatible credentials found" in message:
         print("\nStep 1: OAuth2 Client Configuration")
         print(f"Looking for client secrets at: {secrets_path}")
         print("✅ Client secrets file is valid")
         print("\nStep 2: OAuth2 Authorization")
         print(f"✅ {message}")
-    else:
-        # Show the full setup flow with appropriate messaging
-        _display_setup_progress(secrets_path, creds_path, is_remote, is_docker)
-
-        print("\n✅ Setup Complete!")
-        print("=" * 16)
-        print(f"Client secrets: {secrets_path}")
-        print(f"User credentials: {creds_path}")
-        print("OAuth2 authentication working")
 
     return True
 
