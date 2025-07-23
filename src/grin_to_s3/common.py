@@ -7,11 +7,14 @@ Shared functions and patterns to eliminate code duplication across V2 modules.
 import asyncio
 import logging
 import os
+import shutil
 import subprocess
 import time
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 
+import aiofiles
 import aiohttp
 
 logger = logging.getLogger(__name__)
@@ -191,8 +194,6 @@ class SlidingWindowRateCalculator:
             return count_span / max(1, time_span)
         else:
             # Fallback to overall rate for first batch
-            import time
-
             current_time = time.time()
             overall_elapsed = current_time - fallback_start_time
             return fallback_processed_count / max(1, overall_elapsed)
@@ -215,8 +216,6 @@ class ProgressReporter:
 
     def start(self) -> None:
         """Start progress tracking."""
-        import time
-
         self.start_time = time.perf_counter()
         self.last_report_time = self.start_time
 
@@ -232,8 +231,6 @@ class ProgressReporter:
             force: Force progress report even if time threshold not met
             record_id: ID of the record being processed (e.g., barcode)
         """
-        import time
-
         self.processed_items += items
         self.processed_bytes += bytes_count
 
@@ -276,8 +273,6 @@ class ProgressReporter:
 
     def finish(self) -> None:
         """Complete progress tracking and show final summary."""
-        import time
-
         if self.start_time:
             total_time = time.perf_counter() - self.start_time
 
@@ -298,8 +293,6 @@ class BackupManager:
 
     def __init__(self, backup_dir):
         """Initialize backup manager with target backup directory."""
-        from pathlib import Path
-
         self.backup_dir = Path(backup_dir)
 
     async def backup_file(self, source_file, file_type: str = "file") -> bool:
@@ -312,10 +305,6 @@ class BackupManager:
         Returns:
             True if backup was successful or not needed, False if failed.
         """
-        import shutil
-        from datetime import UTC, datetime
-        from pathlib import Path
-
         source_file = Path(source_file)
 
         if not source_file.exists():
@@ -335,8 +324,6 @@ class BackupManager:
             # Copy the file
             if source_file.suffix == ".json":
                 # For JSON files, use async file operations
-                import aiofiles
-
                 async with aiofiles.open(source_file) as src:
                     content = await src.read()
                 async with aiofiles.open(backup_path, "w") as dst:
@@ -722,49 +709,7 @@ async def decrypt_gpg_file(
     await loop.run_in_executor(None, _decrypt_file_with_gpg)
 
 
-async def check_minio_connectivity(storage_config: dict) -> None:
-    """Check if MinIO is accessible and fail fast if not.
 
-    Args:
-        storage_config: Storage configuration dict containing endpoint_url
-
-    Raises:
-        SystemExit: If MinIO is not accessible
-    """
-    endpoint_url = storage_config.get("endpoint_url")
-    if not endpoint_url:
-        print("❌ Error: MinIO endpoint_url not configured")
-        print("   Either start MinIO with: docker-compose -f examples/docker-compose.minio.yml up -d")
-        print("   Or use local storage with: --storage local")
-        exit(1)
-
-    # Extract base URL for health check
-    if endpoint_url.endswith("/"):
-        health_url = f"{endpoint_url}minio/health/live"
-    else:
-        health_url = f"{endpoint_url}/minio/health/live"
-
-    try:
-        async with create_http_session(timeout=5) as session:
-            async with session.get(health_url) as response:
-                if response.status == 200:
-                    return
-                else:
-                    print(f"❌ MinIO health check failed with status {response.status}")
-    except TimeoutError:
-        print(f"❌ MinIO connection timeout: {endpoint_url}")
-        print("   MinIO is not responding within 5 seconds")
-    except aiohttp.ClientConnectorError as e:
-        print(f"❌ Cannot connect to MinIO: {endpoint_url}")
-        print(f"   Connection error: {e}")
-    except Exception as e:
-        print(f"❌ MinIO connectivity check failed: {e}")
-
-    print("\n💡 To fix this:")
-    print("   Start MinIO: docker-compose -f examples/docker-compose.minio.yml up -d")
-    print("   Or use local storage: --storage local")
-    print("   Or provide different MinIO credentials with --endpoint-url")
-    exit(1)
 
 
 def auto_configure_minio(storage_config: dict) -> None:
@@ -796,7 +741,6 @@ def auto_configure_minio(storage_config: dict) -> None:
 
 def is_docker_environment() -> bool:
     """Check if we're running inside a Docker container."""
-    import os
     return os.path.exists("/.dockerenv") or os.environ.get("DOCKER_ENV") == "true"
 
 
@@ -833,27 +777,6 @@ async def create_storage_buckets_or_directories(storage_type: str, storage_confi
     else:
         print(f"Configured with {storage_type} cloud storage")
 
-
-async def setup_storage_with_checks(
-    storage_type: str, storage_config: dict, required_credentials: list[str] | None = None
-) -> None:
-    """Set up storage with auto-configuration and connectivity checks.
-
-    Args:
-        storage_type: Type of storage ("minio", "r2", "s3", "local")
-        storage_config: Storage configuration dictionary to modify
-        required_credentials: List of required credential keys for auto-config check
-    """
-    if storage_type == "minio":
-        # Auto-configure MinIO if credentials are missing
-        if required_credentials is None:
-            required_credentials = ["endpoint_url", "access_key", "secret_key"]
-
-        if not all(k in storage_config for k in required_credentials):
-            auto_configure_minio(storage_config)
-
-        # Check connectivity
-        await check_minio_connectivity(storage_config)
 
 
 class RateLimiter:
@@ -893,10 +816,6 @@ def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool
         log_file: Optional log file path (defaults to timestamped file in logs/)
         append: Whether to append to existing log file (default: True)
     """
-    import logging
-    from datetime import datetime
-    from pathlib import Path
-
     # Create root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, level.upper()))

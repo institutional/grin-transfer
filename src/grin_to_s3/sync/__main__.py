@@ -14,16 +14,23 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from grin_to_s3.common import setup_logging, setup_storage_with_checks
-from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
+from grin_to_s3.common import setup_logging
+from grin_to_s3.process_summary import (
+    create_book_manager_for_uploads,
+    create_process_summary,
+    get_current_stage,
+    save_process_summary,
+)
 from grin_to_s3.run_config import (
     RunConfig,
     apply_run_config_to_args,
     build_storage_config_dict,
+    find_run_config,
     load_run_config,
     setup_run_database_path,
 )
 from grin_to_s3.sync.models import validate_and_parse_barcodes
+from grin_to_s3.sync.pipeline import SyncPipeline
 from grin_to_s3.sync.status import show_sync_status, validate_database_file
 
 logger = logging.getLogger(__name__)
@@ -107,12 +114,8 @@ async def cmd_pipeline(args) -> None:
         print(f"Note: No run config found at {config_path}, building from args")
         storage_config = build_storage_config_dict(args)
 
-    # Set up storage with auto-configuration and connectivity checks
-    await setup_storage_with_checks(args.storage, storage_config)
 
     # Set up logging - use unified log file from run config
-    from grin_to_s3.run_config import find_run_config
-
     run_config = find_run_config(args.db_path)
     if run_config is None:
         print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
@@ -126,10 +129,6 @@ async def cmd_pipeline(args) -> None:
     limit_info = f" limit={args.limit}" if hasattr(args, "limit") and args.limit else ""
     logger.info(f"SYNC PIPELINE STARTED - storage={args.storage} force={args.force}{barcodes_info}{limit_info}")
     logger.info(f"Command: {' '.join(sys.argv)}")
-
-    # Import and create pipeline
-    from grin_to_s3.process_summary import create_book_manager_for_uploads
-    from grin_to_s3.sync.pipeline import SyncPipeline
 
     # Create book storage for process summary uploads
     book_storage = await create_book_manager_for_uploads(args.run_name)

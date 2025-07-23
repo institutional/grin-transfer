@@ -1,8 +1,6 @@
 """Tests for sync pipeline concurrency control."""
 
 import asyncio
-import tempfile
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,54 +11,8 @@ from grin_to_s3.sync.pipeline import SyncPipeline
 class TestSyncPipelineConcurrency:
     """Test concurrency control in sync pipeline."""
 
-    @pytest.fixture
-    def mock_run_config(self, test_config_builder):
-        """Create a mock RunConfig for testing."""
-        return (
-            test_config_builder.with_library_directory("TestLib")
-            .minio_storage(bucket_raw="test-raw")
-            .with_concurrent_downloads(2)  # Low limit for testing
-            .with_concurrent_uploads(1)
-            .with_batch_size(10)
-            .build()
-        )
 
-    @pytest.fixture
-    def mock_pipeline_dependencies(self):
-        """Mock all pipeline dependencies."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with (
-                patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
-                patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client,
-                patch("grin_to_s3.storage.StagingDirectoryManager") as mock_staging,
-            ):
-                # Configure mocks
-                mock_tracker.return_value = MagicMock()
-                mock_client.return_value = MagicMock()
-
-                # Configure staging manager mock with real temporary directory
-                staging_manager_mock = MagicMock()
-                staging_manager_mock.staging_path = Path(temp_dir)
-                staging_manager_mock.get_staging_path = MagicMock(return_value=Path(temp_dir) / "test_file")
-                staging_manager_mock.cleanup_file = AsyncMock()
-                staging_manager_mock.check_and_wait_for_space = AsyncMock()
-                mock_staging.return_value = staging_manager_mock
-
-                yield {
-                    "tracker": mock_tracker.return_value,
-                    "client": mock_client.return_value,
-                    "staging": staging_manager_mock,
-                }
-
-    @pytest.fixture
-    def pipeline(self, mock_pipeline_dependencies, mock_process_stage, mock_run_config):
-        """Create a test pipeline with low concurrency limits."""
-        return SyncPipeline.from_run_config(
-            config=mock_run_config,
-            process_summary_stage=mock_process_stage,
-        )
-
-    async def test_download_concurrency_limit_respected(self, pipeline, mock_pipeline_dependencies):
+    async def test_download_concurrency_limit_respected(self, sync_pipeline):
         """Test that download concurrency limit is respected."""
         download_started = []
         download_completed = []
@@ -81,6 +33,9 @@ class TestSyncPipelineConcurrency:
             download_completed.append(args[0] if args else "unknown")
             return {"barcode": args[0], "download_success": True, "staging_file_path": "/tmp/test"}
 
+        # Set concurrency limit for test
+        sync_pipeline.concurrent_downloads = 2
+
         # Mock the actual download operation
         with (
             patch("grin_to_s3.sync.pipeline.download_book_to_staging", side_effect=mock_download_with_delay),
@@ -93,20 +48,20 @@ class TestSyncPipelineConcurrency:
                 return_value={"book1", "book2", "book3", "book4", "book5"},
             ):
                 # Mock database methods
-                mock_pipeline_dependencies["tracker"].get_books_for_sync = AsyncMock(
+                sync_pipeline.db_tracker.get_books_for_sync = AsyncMock(
                     return_value=["book1", "book2", "book3", "book4", "book5"]
                 )
-                mock_pipeline_dependencies["tracker"].get_sync_stats = AsyncMock(
+                sync_pipeline.db_tracker.get_sync_stats = AsyncMock(
                     return_value={"total_converted": 5, "synced": 0, "failed": 0, "pending": 5}
                 )
-                mock_pipeline_dependencies["tracker"].add_status_change = AsyncMock()
+                sync_pipeline.db_tracker.add_status_change = AsyncMock()
 
                 # Run sync with limit
-                await pipeline.run_sync(limit=5)
+                await sync_pipeline.run_sync(limit=5)
 
         # Verify concurrency was respected
-        assert max_concurrent <= pipeline.concurrent_downloads, (
-            f"Max concurrent downloads ({max_concurrent}) exceeded limit ({pipeline.concurrent_downloads})"
+        assert max_concurrent <= sync_pipeline.concurrent_downloads, (
+            f"Max concurrent downloads ({max_concurrent}) exceeded limit ({sync_pipeline.concurrent_downloads})"
         )
         assert len(download_started) >= 5, f"Expected at least 5 downloads, got {len(download_started)}"
         assert len(download_completed) >= 5, f"Expected at least 5 completed downloads, got {len(download_completed)}"
@@ -163,14 +118,14 @@ class TestSyncPipelineConcurrency:
                 f"Reported upload count ({report['reported_upload_count']}) exceeded limit"
             )
 
-    async def test_semaphore_acquisition_order(self, pipeline):
+    async def test_semaphore_acquisition_order(self, sync_pipeline):
         """Test that semaphore is properly acquired and released."""
         acquisition_order = []
         release_order = []
 
         # Track semaphore acquisition
-        original_acquire = pipeline._download_semaphore.acquire
-        original_release = pipeline._download_semaphore.release
+        original_acquire = sync_pipeline._download_semaphore.acquire
+        original_release = sync_pipeline._download_semaphore.release
 
         async def track_acquire():
             result = await original_acquire()
@@ -181,13 +136,13 @@ class TestSyncPipelineConcurrency:
             release_order.append(len(release_order))
             return original_release()
 
-        pipeline._download_semaphore.acquire = track_acquire
-        pipeline._download_semaphore.release = track_release
+        sync_pipeline._download_semaphore.acquire = track_acquire
+        sync_pipeline._download_semaphore.release = track_release
 
         # Test semaphore with multiple tasks
         tasks = []
         for i in range(5):  # More than concurrency limit
-            task = asyncio.create_task(pipeline._process_book_with_staging(f"book{i}"))
+            task = asyncio.create_task(sync_pipeline._process_book_with_staging(f"book{i}"))
             tasks.append(task)
 
         # Mock the actual operations to avoid real network calls
@@ -205,7 +160,7 @@ class TestSyncPipelineConcurrency:
         # At any point, concurrent acquisitions should not exceed limit
         for i in range(len(acquisition_order)):
             concurrent_at_point = len(list(acquisition_order[: i + 1])) - len(list(release_order[:i]))
-            assert concurrent_at_point <= pipeline.concurrent_downloads, (
+            assert concurrent_at_point <= sync_pipeline.concurrent_downloads, (
                 f"Concurrent acquisitions ({concurrent_at_point}) exceeded limit at point {i}"
             )
 

@@ -59,7 +59,6 @@ def _convert_marc_keys_to_db_fields(marc_data: dict[str, str | None]) -> dict[st
     }
 
     # Convert keys and add extraction timestamp
-    from datetime import UTC, datetime
     db_data = {}
     for marc_key, db_key in key_mapping.items():
         if marc_key in marc_data:

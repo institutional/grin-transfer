@@ -19,7 +19,6 @@ sys.path.append("..")
 from grin_to_s3.common import (
     create_storage_buckets_or_directories,
     setup_logging,
-    setup_storage_with_checks,
 )
 from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
 from grin_to_s3.run_config import (
@@ -122,9 +121,6 @@ Examples:
   # With rate limiting and storage checking
   python grin.py collect --rate-limit 0.5 --storage s3 --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
 
-  # With additional storage configuration
-  python grin.py collect --storage minio --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full --storage-config endpoint_url=localhost:9000
-
   # Local storage (requires base_path, no buckets needed)
   python grin.py collect --storage local --run-name "local_test" --storage-config base_path=/path/to/storage
 
@@ -160,15 +156,15 @@ Examples:
     )
     parser.add_argument(
         "--bucket-raw",
-        help="Raw data bucket (for sync archives, required for MinIO, optional for R2/S3 if in config file)",
+        help="Raw data bucket (for sync archives, required for MinIO, GCS, or S3, optional for R2 if in config file)",
     )
     parser.add_argument(
         "--bucket-meta",
-        help="Metadata bucket (for CSV/database outputs, required for MinIO, optional for R2/S3 if in config file)",
+        help="Metadata bucket (for CSV/database outputs, required for MinIO, GCS, or S3, optional for R2 if in config file)",
     )
     parser.add_argument(
         "--bucket-full",
-        help="Full-text bucket (for OCR outputs, required for MinIO, optional for R2/S3 if in config file)",
+        help="Full-text bucket (for OCR outputs, required for MinIO, GCS, or S3, optional for R2 if in config file)",
     )
     parser.add_argument("--storage-config", action="append", help="Additional storage config key=value")
 
@@ -418,9 +414,6 @@ Examples:
             "config": final_storage_dict,
             "prefix": "",
         }
-
-        # Set up storage with auto-configuration and connectivity checks
-        await setup_storage_with_checks(args.storage, final_storage_dict)
 
         # Create all required buckets/directories early to fail fast
         await create_storage_buckets_or_directories(args.storage, final_storage_dict)
