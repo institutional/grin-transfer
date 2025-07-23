@@ -8,6 +8,7 @@ storage helpers, and common operations.
 
 import json
 import logging
+import os
 from typing import Any
 
 import boto3
@@ -138,7 +139,6 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
                     return False
 
                 # Set GOOGLE_CLOUD_PROJECT for gcsfs authentication
-                import os
                 if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
                     os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
 
@@ -240,8 +240,6 @@ async def should_skip_download(
         return False, "force_flag" if force else "no_etag"
 
     # Determine storage protocol for logic decisions
-    from grin_to_s3.storage import get_storage_protocol
-
     storage_protocol = get_storage_protocol(storage_type)
 
     # For S3-compatible storage, check metadata on decrypted file
