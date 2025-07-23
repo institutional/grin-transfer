@@ -59,10 +59,6 @@ USER grin
 # Create volumes for persistent data
 VOLUME ["/app/data", "/app/output", "/app/config", "/app/logs", "/app/staging"]
 
-# Expose any ports if needed (none for CLI tool)
-# EXPOSE 8080
-
 # Set default command
 ENTRYPOINT ["python", "grin.py"]
 CMD ["--help"]
-# Test caching effectiveness
