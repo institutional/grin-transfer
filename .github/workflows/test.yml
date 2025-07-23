@@ -92,9 +92,9 @@ jobs:
         sleep 15
         docker compose ps | grep -q "minio"
         # Verify MinIO buckets were created
-        docker compose exec minio mc ls minio/ | grep -q "grin-raw"
-        docker compose exec minio mc ls minio/ | grep -q "grin-meta" 
-        docker compose exec minio mc ls minio/ | grep -q "grin-full"
+        docker compose exec minio mc ls minio | grep -q "grin-raw"
+        docker compose exec minio mc ls minio | grep -q "grin-meta" 
+        docker compose exec minio mc ls minio | grep -q "grin-full"
         docker compose down
     
     - name: Test grin-docker wrapper script basic functionality
