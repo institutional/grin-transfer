@@ -195,10 +195,9 @@ jobs:
             book_manager = create_book_manager_with_full_text('minio', config)
             
             # Verify bucket configuration was set
-            bucket_config = book_manager.bucket_config
-            assert bucket_config['bucket_raw'] == 'grin-raw', f'Expected grin-raw, got {bucket_config.get(\"bucket_raw\")}'
-            assert bucket_config['bucket_meta'] == 'grin-meta', f'Expected grin-meta, got {bucket_config.get(\"bucket_meta\")}'
-            assert bucket_config['bucket_full'] == 'grin-full', f'Expected grin-full, got {bucket_config.get(\"bucket_full\")}'
+            assert book_manager.bucket_raw == 'grin-raw', f'Expected grin-raw, got {book_manager.bucket_raw}'
+            assert book_manager.bucket_meta == 'grin-meta', f'Expected grin-meta, got {book_manager.bucket_meta}'
+            assert book_manager.bucket_full == 'grin-full', f'Expected grin-full, got {book_manager.bucket_full}'
             
             print('✅ Book manager factory works with auto-configuration')
         
