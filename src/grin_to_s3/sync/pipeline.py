@@ -206,18 +206,13 @@ class SyncPipeline:
             logger.info("Staging directory preserved due to sync failure")
 
         try:
-            if hasattr(self.db_tracker, "_db") and self.db_tracker._db:
-                await self.db_tracker._db.close()
+            if hasattr(self.db_tracker, "close"):
+                await self.db_tracker.close()
                 logger.debug("Closed database connection")
         except Exception as e:
             logger.warning(f"Error closing database connection: {e}")
 
-        try:
-            if hasattr(self.grin_client, "session") and self.grin_client.session:
-                await self.grin_client.session.close()
-                logger.debug("Closed GRIN client session")
-        except Exception as e:
-            logger.warning(f"Error closing GRIN client session: {e}")
+        # GRIN client uses session-per-request pattern, no persistent session to close
 
         logger.info("Cleanup completed")
 
@@ -726,7 +721,7 @@ class SyncPipeline:
             logger.error(f"Failed to queue {barcode} for enrichment: {e}")
 
     async def _run_local_storage_sync(
-        self, available_to_sync: list[str], books_to_process: int, specific_barcodes: list[str] | None = None
+        self, available_to_sync: list[str], books_to_process: int, _specific_barcodes: list[str] | None = None
     ) -> None:
         """Run sync pipeline for local storage with direct processing."""
         print("Using optimized local storage sync (no staging directory)")
@@ -776,7 +771,7 @@ class SyncPipeline:
             # Process books
             while active_tasks:
                 # Wait for any task to complete
-                done, pending = await asyncio.wait(active_tasks.values(), return_when=asyncio.FIRST_COMPLETED)
+                done, _ = await asyncio.wait(active_tasks.values(), return_when=asyncio.FIRST_COMPLETED)
 
                 # Process completed tasks
                 for task in done:
@@ -942,7 +937,7 @@ class SyncPipeline:
                 if not all_tasks:
                     break
 
-                done, pending = await asyncio.wait(all_tasks, return_when=asyncio.FIRST_COMPLETED)
+                done, _ = await asyncio.wait(all_tasks, return_when=asyncio.FIRST_COMPLETED)
 
                 for completed_task in done:
                     try:
@@ -1088,7 +1083,7 @@ class SyncPipeline:
                 )
 
                 # Check ETag and handle skip scenario
-                skip_result, encrypted_etag, file_size = await check_and_handle_etag_skip(
+                skip_result, encrypted_etag, _ = await check_and_handle_etag_skip(
                     barcode,
                     self.grin_client,
                     self.library_directory,
