@@ -88,8 +88,14 @@ jobs:
     - name: Test Docker Compose (MinIO profile)
       run: |
         docker compose --profile minio up -d
-        # Wait for MinIO to be ready
-        sleep 15
+        # Wait for MinIO and setup to be ready
+        sleep 20
+        # Wait for the minio-setup container to complete
+        echo "Waiting for MinIO setup to complete..."
+        while docker compose ps minio-setup | grep -q "running"; do
+          echo "Setup still running, waiting..."
+          sleep 2
+        done
         docker compose ps | grep -q "minio"
         # Verify MinIO buckets were created
         docker compose exec minio mc ls minio | grep -q "grin-raw"
