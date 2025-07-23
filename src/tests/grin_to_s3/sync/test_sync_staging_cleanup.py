@@ -9,13 +9,16 @@ import pytest
 class TestSyncStagingCleanup:
     """Test staging cleanup behavior in sync pipeline."""
 
+    def _setup_staging_cleanup_test(self, sync_pipeline, skip_cleanup=False):
+        """Helper to set up staging manager for cleanup tests."""
+        sync_pipeline.staging_manager = MagicMock()
+        sync_pipeline.staging_manager.staging_path = Path("/tmp/staging")
+        sync_pipeline.skip_staging_cleanup = skip_cleanup
+
     @pytest.mark.asyncio
     async def test_successful_sync_cleans_up_staging(self, sync_pipeline):
         """Test that successful sync cleans up staging directory."""
-        # Set up staging manager for cleanup test
-        sync_pipeline.staging_manager = MagicMock()
-        sync_pipeline.staging_manager.staging_path = Path("/tmp/staging")
-        sync_pipeline.skip_staging_cleanup = False
+        self._setup_staging_cleanup_test(sync_pipeline)
 
         # Mock shutil.rmtree to track calls
         with patch("grin_to_s3.sync.pipeline.shutil.rmtree") as mock_rmtree:
@@ -31,10 +34,7 @@ class TestSyncStagingCleanup:
     @pytest.mark.asyncio
     async def test_failed_sync_preserves_staging(self, sync_pipeline):
         """Test that failed sync preserves staging directory."""
-        # Set up staging manager for cleanup test
-        sync_pipeline.staging_manager = MagicMock()
-        sync_pipeline.staging_manager.staging_path = Path("/tmp/staging")
-        sync_pipeline.skip_staging_cleanup = False
+        self._setup_staging_cleanup_test(sync_pipeline)
 
         # Mock shutil.rmtree to track calls
         with patch("grin_to_s3.sync.pipeline.shutil.rmtree") as mock_rmtree:
@@ -47,10 +47,7 @@ class TestSyncStagingCleanup:
     @pytest.mark.asyncio
     async def test_skip_staging_cleanup_flag_prevents_cleanup(self, sync_pipeline):
         """Test that --skip-staging-cleanup flag prevents cleanup even on success."""
-        # Set up staging manager and enable skip flag
-        sync_pipeline.staging_manager = MagicMock()
-        sync_pipeline.staging_manager.staging_path = Path("/tmp/staging")
-        sync_pipeline.skip_staging_cleanup = True  # Skip cleanup
+        self._setup_staging_cleanup_test(sync_pipeline, skip_cleanup=True)
 
         with patch("grin_to_s3.sync.pipeline.shutil.rmtree") as mock_rmtree:
             # Mock successful completion
@@ -76,10 +73,7 @@ class TestSyncStagingCleanup:
     @pytest.mark.asyncio
     async def test_cleanup_error_handling(self, sync_pipeline):
         """Test that cleanup handles errors gracefully."""
-        # Set up staging manager for cleanup test
-        sync_pipeline.staging_manager = MagicMock()
-        sync_pipeline.staging_manager.staging_path = Path("/tmp/staging")
-        sync_pipeline.skip_staging_cleanup = False
+        self._setup_staging_cleanup_test(sync_pipeline)
 
         with patch("grin_to_s3.sync.pipeline.shutil.rmtree") as mock_rmtree:
             # Mock rmtree to raise an exception
@@ -158,10 +152,7 @@ class TestSyncStagingCleanup:
     @pytest.mark.asyncio
     async def test_cleanup_logs_preservation_message_on_failure(self, sync_pipeline):
         """Test that cleanup logs preservation message when sync fails."""
-        # Set up staging manager for cleanup test
-        sync_pipeline.staging_manager = MagicMock()
-        sync_pipeline.staging_manager.staging_path = Path("/tmp/staging")
-        sync_pipeline.skip_staging_cleanup = False
+        self._setup_staging_cleanup_test(sync_pipeline)
 
         with patch("grin_to_s3.sync.pipeline.logger") as mock_logger:
             # Mock failed completion
@@ -173,10 +164,7 @@ class TestSyncStagingCleanup:
     @pytest.mark.asyncio
     async def test_cleanup_logs_cleanup_message_on_success(self, sync_pipeline):
         """Test that cleanup logs cleanup message when sync succeeds."""
-        # Set up staging manager for cleanup test
-        sync_pipeline.staging_manager = MagicMock()
-        sync_pipeline.staging_manager.staging_path = Path("/tmp/staging")
-        sync_pipeline.skip_staging_cleanup = False
+        self._setup_staging_cleanup_test(sync_pipeline)
 
         with patch("grin_to_s3.sync.pipeline.shutil.rmtree"):
             with patch("grin_to_s3.sync.pipeline.logger") as mock_logger:
