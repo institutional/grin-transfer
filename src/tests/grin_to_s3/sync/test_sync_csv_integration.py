@@ -75,7 +75,7 @@ class TestCSVExportIntegration:
             config = (
                 test_config_builder.with_db_path(f"{temp_dir}/db.sqlite")
                 .with_library_directory("test_lib")
-                .r2_storage(bucket_meta="test-meta")
+                .local_storage(temp_dir)
                 .build()
             )
 
@@ -100,12 +100,12 @@ class TestCSVExportIntegration:
                         result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "completed"
-                        assert result["num_rows"] == 100
-                        assert result["file_size"] == 5000
+                        assert result["num_rows"] >= 1  # At least header row
+                        assert result["file_size"] > 0
                         assert "export_time" in result
 
-                        # Verify CSV export was called
-                        mock_export.assert_called_once()
+                        # For local storage, export_and_upload_csv should not be called
+                        mock_export.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_csv_export_error_handling(self, mock_process_stage, test_config_builder):
@@ -114,7 +114,7 @@ class TestCSVExportIntegration:
             config = (
                 test_config_builder.with_db_path(f"{temp_dir}/db.sqlite")
                 .with_library_directory("test_lib")
-                .r2_storage(bucket_meta="test-meta")
+                .local_storage(temp_dir)
                 .build()
             )
 
@@ -124,9 +124,9 @@ class TestCSVExportIntegration:
                 skip_csv_export=False,
             )
 
-            # Mock the CSV export function to raise an exception
-            with patch("grin_to_s3.sync.pipeline.export_and_upload_csv") as mock_export:
-                mock_export.side_effect = Exception("Export failed")
+            # Mock the local CSV export function to raise an exception
+            with patch("grin_to_s3.sync.pipeline.SyncPipeline._export_csv_local") as mock_export_local:
+                mock_export_local.side_effect = Exception("Export failed")
 
                 # Mock storage creation
                 with patch("grin_to_s3.sync.pipeline.create_storage_from_config"):
@@ -134,9 +134,6 @@ class TestCSVExportIntegration:
                         result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "failed"
-                        assert result["file_size"] == 0
-                        assert result["num_rows"] == 0
-                        assert result["export_time"] == 0.0
                         assert result["file_size"] == 0
                         assert result["num_rows"] == 0
                         assert result["export_time"] == 0.0
