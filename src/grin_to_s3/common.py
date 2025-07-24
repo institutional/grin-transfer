@@ -17,6 +17,8 @@ from pathlib import Path
 import aiofiles
 import aiohttp
 
+from grin_to_s3.storage.book_manager import BucketConfig
+
 logger = logging.getLogger(__name__)
 
 # Default directory names for local storage
@@ -27,7 +29,7 @@ LOCAL_STORAGE_DEFAULTS = {
 }
 
 
-def extract_bucket_config(storage_type: str, config_dict: dict) -> dict:
+def extract_bucket_config(storage_type: str, config_dict: dict) -> BucketConfig:
     """
     Extract bucket configuration with appropriate defaults based on storage type.
 
@@ -36,22 +38,24 @@ def extract_bucket_config(storage_type: str, config_dict: dict) -> dict:
         config_dict: Configuration dictionary containing bucket names
 
     Returns:
-        Dictionary with bucket_raw, bucket_meta, bucket_full keys
+        BucketConfig with bucket_raw, bucket_meta, bucket_full keys
     """
     if storage_type == "local":
         # For local storage, use standard directory names as defaults
-        return {
+        local_config: BucketConfig = {
             "bucket_raw": config_dict.get("bucket_raw", LOCAL_STORAGE_DEFAULTS["bucket_raw"]),
             "bucket_meta": config_dict.get("bucket_meta", LOCAL_STORAGE_DEFAULTS["bucket_meta"]),
             "bucket_full": config_dict.get("bucket_full", LOCAL_STORAGE_DEFAULTS["bucket_full"]),
         }
+        return local_config
     else:
         # For cloud storage, bucket names are required
-        return {
+        cloud_config: BucketConfig = {
             "bucket_raw": config_dict.get("bucket_raw", ""),
             "bucket_meta": config_dict.get("bucket_meta", ""),
             "bucket_full": config_dict.get("bucket_full", ""),
         }
+        return cloud_config
 
 # HTTP Client Configuration
 DEFAULT_TIMEOUT = 60

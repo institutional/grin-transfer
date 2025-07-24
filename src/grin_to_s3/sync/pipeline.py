@@ -26,7 +26,7 @@ from grin_to_s3.common import (
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config, get_storage_protocol
-from grin_to_s3.storage.book_manager import BookManager, BucketConfig
+from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .csv_export import CSVExportResult, export_and_upload_csv
@@ -178,6 +178,12 @@ class SyncPipeline:
 
         # Worker management
         self._enrichment_workers: list[asyncio.Task] = []
+
+        # Initialize storage components once (now that tests provide complete configurations)
+        self.storage = create_storage_from_config(self.storage_type, self.storage_config or {})
+        self.base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
+        self.bucket_config = extract_bucket_config(self.storage_type, self.storage_config or {})
+        self.book_storage = BookManager(self.storage, bucket_config=self.bucket_config, base_prefix=self.base_prefix)
 
 
     async def cleanup(self, sync_successful: bool = False) -> None:
@@ -505,28 +511,19 @@ class SyncPipeline:
             return {"status": "skipped", "file_size": 0, "num_rows": 0, "export_time": 0.0}
 
         try:
-            # Create book storage for CSV upload
-
-            storage = create_storage_from_config(self.storage_type, self.storage_config or {})
-            base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
-
-            bucket_config: BucketConfig = extract_bucket_config(self.storage_type, self.storage_config or {})
-
-            book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
-
             # Export CSV
             logger.info("Exporting CSV after sync completion")
 
             if self.storage_protocol == "local":
                 # For local storage, write directly to final location
-                result = await self._export_csv_local(book_storage)
+                result = await self._export_csv_local(self.book_storage)
             else:
                 # For cloud storage, use staging manager
                 assert self.staging_manager is not None, "Staging manager required for cloud storage"
                 result = await export_and_upload_csv(
                     db_path=self.db_path,
                     staging_manager=self.staging_manager,
-                    book_storage=book_storage,
+                    book_storage=self.book_storage,
                     skip_export=False,
                 )
 
@@ -616,18 +613,10 @@ class SyncPipeline:
             if local_backup_result["status"] == "completed":
                 logger.info(f"Local backup created: {local_backup_result['backup_filename']}")
 
-                # Upload timestamped backup to storage
-                storage = create_storage_from_config(self.storage_type, self.storage_config or {})
-                base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
-
-                bucket_config: BucketConfig = extract_bucket_config(self.storage_type, self.storage_config or {})
-
-                book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
-
                 # Upload timestamped backup
                 upload_result = await upload_database_to_storage(
                     self.db_path,
-                    book_storage,
+                    self.book_storage,
                     self.staging_manager if hasattr(self, "staging_manager") else None,
                     upload_type="timestamped"
                 )
@@ -652,18 +641,10 @@ class SyncPipeline:
         try:
             logger.info("Uploading current database as latest version...")
 
-            # Create storage components
-            storage = create_storage_from_config(self.storage_type, self.storage_config or {})
-            base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
-
-            bucket_config: BucketConfig = extract_bucket_config(self.storage_type, self.storage_config or {})
-
-            book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
-
             # Upload latest database
             upload_result = await upload_database_to_storage(
                 self.db_path,
-                book_storage,
+                self.book_storage,
                 self.staging_manager if hasattr(self, "staging_manager") else None,
                 upload_type="latest"
             )
