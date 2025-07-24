@@ -17,6 +17,7 @@ from .config import ConfigManager
 
 sys.path.append("..")
 from grin_to_s3.common import (
+    LOCAL_STORAGE_DEFAULTS,
     create_storage_buckets_or_directories,
     setup_logging,
 )
@@ -410,6 +411,12 @@ Examples:
         if args.storage == "minio":
             from ..common import auto_configure_minio
             auto_configure_minio(final_storage_dict)
+
+        # Auto-configure local storage with standard directory names if not provided
+        elif args.storage == "local":
+            for key, default_value in LOCAL_STORAGE_DEFAULTS.items():
+                if key not in final_storage_dict:
+                    final_storage_dict[key] = default_value
 
         # Determine storage protocol for operational logic
         storage_protocol = get_storage_protocol(args.storage)

@@ -540,10 +540,12 @@ class TestBookCollectionIntegration:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_config = {
                 "type": "local",
-                "config": {"base_path": temp_dir},
-                "bucket_raw": "test-raw",
-                "bucket_meta": "test-meta",
-                "bucket_full": "test-full",
+                "config": {
+                    "base_path": temp_dir,
+                    "bucket_raw": "test-raw",
+                    "bucket_meta": "test-meta",
+                    "bucket_full": "test-full",
+                },
                 "prefix": "test-prefix",
             }
 

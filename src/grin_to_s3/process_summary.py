@@ -16,6 +16,8 @@ from typing import Any
 
 import aiofiles
 
+from .common import extract_bucket_config
+
 logger = logging.getLogger(__name__)
 
 
@@ -437,17 +439,18 @@ async def create_book_manager_for_uploads(run_name: str):
         nested_config = run_config.storage_config.get("config", {})
         storage = create_storage_from_config(storage_type, nested_config)
 
-        # Create bucket configuration from nested config
-        bucket_meta = nested_config.get("bucket_meta", "")
-        if not bucket_meta:
+        # Create bucket configuration with appropriate defaults
+        bucket_config_dict = extract_bucket_config(storage_type, nested_config)
+        bucket_config: BucketConfig = {
+            "bucket_raw": bucket_config_dict["bucket_raw"],
+            "bucket_meta": bucket_config_dict["bucket_meta"],
+            "bucket_full": bucket_config_dict["bucket_full"],
+        }
+
+        # For non-local storage, validate that metadata bucket is configured
+        if storage_type != "local" and not bucket_config["bucket_meta"]:
             logger.warning(f"No metadata bucket configured for run {run_name}")
             return None
-
-        bucket_config: BucketConfig = {
-            "bucket_raw": nested_config.get("bucket_raw", ""),
-            "bucket_meta": bucket_meta,
-            "bucket_full": nested_config.get("bucket_full", ""),
-        }
 
         # Create BookStorage with run name as prefix
         book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=run_name)

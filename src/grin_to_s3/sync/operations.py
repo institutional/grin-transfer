@@ -16,8 +16,10 @@ import aiofiles
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
+    LOCAL_STORAGE_DEFAULTS,
     create_http_session,
     decrypt_gpg_file,
+    extract_bucket_config,
 )
 from grin_to_s3.extract.text_extraction import extract_ocr_pages
 from grin_to_s3.extract.tracking import ExtractionStatus, write_status
@@ -510,11 +512,7 @@ async def upload_book_from_staging(
         # BookStorage handles bucket names as directory paths for all storage types
 
         # Create bucket configuration
-        bucket_config: BucketConfig = {
-            "bucket_raw": storage_config.get("bucket_raw", ""),
-            "bucket_meta": storage_config.get("bucket_meta", ""),
-            "bucket_full": storage_config.get("bucket_full", ""),
-        }
+        bucket_config: BucketConfig = extract_bucket_config(storage_type, storage_config)
 
         book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
@@ -668,9 +666,10 @@ async def sync_book_to_local_storage(
         encrypted_filename = f"{barcode}.tar.gz.gpg"
         decrypted_filename = f"{barcode}.tar.gz"
 
-        # For local storage, construct relative paths directly
-        relative_encrypted_path = f"{barcode}/{encrypted_filename}"
-        relative_decrypted_path = f"{barcode}/{decrypted_filename}"
+        # For local storage, construct paths using proper bucket structure
+        bucket_raw = LOCAL_STORAGE_DEFAULTS["bucket_raw"]
+        relative_encrypted_path = f"{bucket_raw}/{barcode}/{encrypted_filename}"
+        relative_decrypted_path = f"{bucket_raw}/{barcode}/{decrypted_filename}"
 
         # Get absolute paths for local storage
         final_encrypted_path = Path(base_path) / relative_encrypted_path

@@ -300,9 +300,9 @@ class TestLocalStorageSync:
                         assert path.startswith(temp_dir), f"Path {path} should be under base_path {temp_dir}"
                         assert not path.startswith("/TEST123"), f"Path {path} should not start with /TEST123 (filesystem root)"
 
-                    # Verify the specific path structure
+                    # Verify the specific path structure (fixed for Issue #139)
                     encrypted_path = opened_paths[0]  # First opened file should be encrypted
-                    expected_encrypted_path = f"{temp_dir}/TEST123/TEST123.tar.gz.gpg"
+                    expected_encrypted_path = f"{temp_dir}/raw/TEST123/TEST123.tar.gz.gpg"
                     assert encrypted_path == expected_encrypted_path, f"Expected {expected_encrypted_path}, got {encrypted_path}"
 
 

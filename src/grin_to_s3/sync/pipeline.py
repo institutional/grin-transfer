@@ -19,6 +19,7 @@ from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.common import (
     RateLimiter,
     SlidingWindowRateCalculator,
+    extract_bucket_config,
     format_duration,
     pluralize,
 )
@@ -509,11 +510,7 @@ class SyncPipeline:
             storage = create_storage_from_config(self.storage_type, self.storage_config or {})
             base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
 
-            bucket_config: BucketConfig = {
-                "bucket_raw": self.storage_config.get("bucket_raw", "") if self.storage_config else "",
-                "bucket_meta": self.storage_config.get("bucket_meta", "") if self.storage_config else "",
-                "bucket_full": self.storage_config.get("bucket_full", "") if self.storage_config else "",
-            }
+            bucket_config: BucketConfig = extract_bucket_config(self.storage_type, self.storage_config or {})
 
             book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
@@ -623,11 +620,7 @@ class SyncPipeline:
                 storage = create_storage_from_config(self.storage_type, self.storage_config or {})
                 base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
 
-                bucket_config: BucketConfig = {
-                    "bucket_raw": self.storage_config.get("bucket_raw", "") if self.storage_config else "",
-                    "bucket_meta": self.storage_config.get("bucket_meta", "") if self.storage_config else "",
-                    "bucket_full": self.storage_config.get("bucket_full", "") if self.storage_config else "",
-                }
+                bucket_config: BucketConfig = extract_bucket_config(self.storage_type, self.storage_config or {})
 
                 book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
@@ -663,11 +656,7 @@ class SyncPipeline:
             storage = create_storage_from_config(self.storage_type, self.storage_config or {})
             base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
 
-            bucket_config: BucketConfig = {
-                "bucket_raw": self.storage_config.get("bucket_raw", "") if self.storage_config else "",
-                "bucket_meta": self.storage_config.get("bucket_meta", "") if self.storage_config else "",
-                "bucket_full": self.storage_config.get("bucket_full", "") if self.storage_config else "",
-            }
+            bucket_config: BucketConfig = extract_bucket_config(self.storage_type, self.storage_config or {})
 
             book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
 

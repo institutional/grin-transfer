@@ -26,6 +26,7 @@ from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
     ProgressReporter,
     RateLimiter,
+    extract_bucket_config,
     format_bytes,
     format_duration,
     pluralize,
@@ -113,11 +114,8 @@ class BookCollector:
         if storage_config:
             storage = create_storage_from_config(storage_config["type"], storage_config.get("config", {}))
             # Create bucket config for BookStorage constructor
-            bucket_config: BucketConfig = {
-                "bucket_raw": storage_config.get("bucket_raw", ""),
-                "bucket_meta": storage_config.get("bucket_meta", ""),
-                "bucket_full": storage_config.get("bucket_full", ""),
-            }
+            config_dict = storage_config.get("config", {})
+            bucket_config: BucketConfig = extract_bucket_config(storage_config["type"], config_dict)
             prefix = storage_config.get("prefix", "")
             self.book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=prefix)
 

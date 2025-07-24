@@ -19,6 +19,40 @@ import aiohttp
 
 logger = logging.getLogger(__name__)
 
+# Default directory names for local storage
+LOCAL_STORAGE_DEFAULTS = {
+    "bucket_raw": "raw",
+    "bucket_meta": "meta",
+    "bucket_full": "full"
+}
+
+
+def extract_bucket_config(storage_type: str, config_dict: dict) -> dict:
+    """
+    Extract bucket configuration with appropriate defaults based on storage type.
+
+    Args:
+        storage_type: Type of storage ("local", "s3", "r2", etc.)
+        config_dict: Configuration dictionary containing bucket names
+
+    Returns:
+        Dictionary with bucket_raw, bucket_meta, bucket_full keys
+    """
+    if storage_type == "local":
+        # For local storage, use standard directory names as defaults
+        return {
+            "bucket_raw": config_dict.get("bucket_raw", LOCAL_STORAGE_DEFAULTS["bucket_raw"]),
+            "bucket_meta": config_dict.get("bucket_meta", LOCAL_STORAGE_DEFAULTS["bucket_meta"]),
+            "bucket_full": config_dict.get("bucket_full", LOCAL_STORAGE_DEFAULTS["bucket_full"]),
+        }
+    else:
+        # For cloud storage, bucket names are required
+        return {
+            "bucket_raw": config_dict.get("bucket_raw", ""),
+            "bucket_meta": config_dict.get("bucket_meta", ""),
+            "bucket_full": config_dict.get("bucket_full", ""),
+        }
+
 # HTTP Client Configuration
 DEFAULT_TIMEOUT = 60
 DEFAULT_CONNECTOR_LIMITS = {"limit": 10, "limit_per_host": 5}
@@ -835,10 +869,10 @@ async def create_storage_buckets_or_directories(storage_type: str, storage_confi
             raise ValueError("Local storage requires base_path in configuration")
 
         base_path = Path(base_path)
-        # Create the main directories
-        (base_path / "raw").mkdir(parents=True, exist_ok=True)
-        (base_path / "meta").mkdir(parents=True, exist_ok=True)
-        (base_path / "full").mkdir(parents=True, exist_ok=True)
+        # Create the main directories using default names
+        (base_path / LOCAL_STORAGE_DEFAULTS["bucket_raw"]).mkdir(parents=True, exist_ok=True)
+        (base_path / LOCAL_STORAGE_DEFAULTS["bucket_meta"]).mkdir(parents=True, exist_ok=True)
+        (base_path / LOCAL_STORAGE_DEFAULTS["bucket_full"]).mkdir(parents=True, exist_ok=True)
         print(f"Created local storage directories at {base_path}")
 
     else:
