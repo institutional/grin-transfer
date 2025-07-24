@@ -47,3 +47,4 @@ GPG_KEY_GRIN
 *.gpg.key
 *.passphrase
 
+.coverage

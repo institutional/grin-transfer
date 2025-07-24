@@ -109,6 +109,8 @@ class ProcessingClient:
                     raise ProcessingRequestError(f"Invalid result format: '{line}'")
 
                 returned_barcode, status = parts
+                # Strip whitespace from barcode - barcodes should be clean identifiers
+                returned_barcode = returned_barcode.strip()
                 results[returned_barcode] = status
 
                 if status == "Success":
