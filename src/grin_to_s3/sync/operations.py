@@ -656,11 +656,19 @@ async def sync_book_to_local_storage(
     """
     try:
         # Create storage for base_path validation
-        create_storage_from_config("local", storage_config or {})
+        storage = create_storage_from_config("local", storage_config or {})
         base_path = storage_config.get("base_path") if storage_config else None
         if not base_path:
             raise ValueError("Local storage requires base_path in configuration")
-        # No need for BookManager as we construct paths directly for local storage
+
+        # Create BookManager instance for OCR extraction
+        bucket_config_dict = extract_bucket_config("local", storage_config or {})
+        bucket_config: BucketConfig = {
+            "bucket_raw": bucket_config_dict["bucket_raw"],
+            "bucket_meta": bucket_config_dict["bucket_meta"],
+            "bucket_full": bucket_config_dict["bucket_full"],
+        }
+        book_storage = BookManager(storage, bucket_config=bucket_config)
 
         # Generate final file paths
         encrypted_filename = f"{barcode}.tar.gz.gpg"
@@ -729,6 +737,31 @@ async def sync_book_to_local_storage(
             "last_etag_check": datetime.now(UTC).isoformat(),
         }
         await db_tracker.update_sync_data(barcode, sync_data)
+
+        # Perform OCR and MARC extraction after successful decryption
+        extraction_tasks = []
+
+        if not skip_extract_ocr:
+            # Run OCR extraction for local storage
+            ocr_task = asyncio.create_task(
+                extract_and_upload_ocr_text(barcode, final_decrypted_path, book_storage, db_tracker, None)
+            )
+            extraction_tasks.append(ocr_task)
+
+        if not skip_extract_marc:
+            # Run MARC extraction for local storage
+            marc_task = asyncio.create_task(
+                extract_and_update_marc_metadata(barcode, final_decrypted_path, db_tracker)
+            )
+            extraction_tasks.append(marc_task)
+
+        # Wait for extraction tasks to complete (non-blocking for sync success)
+        if extraction_tasks:
+            try:
+                await asyncio.gather(*extraction_tasks, return_exceptions=True)
+                logger.info(f"[{barcode}] Extraction tasks completed")
+            except Exception as e:
+                logger.warning(f"[{barcode}] Some extraction tasks failed: {e}")
 
         logger.info(f"[{barcode}] ✅ Successfully synced to local storage")
 
