@@ -158,12 +158,12 @@ class TestCSVExportIntegration:
             base_path = mock_book_storage.storage.config.options.get("base_path")
 
             # This is the fixed path construction from our fix
-            latest_path = Path(base_path) / "books_latest.csv"
-            timestamped_path = Path(base_path) / "timestamped" / f"books_{timestamp}.csv"
+            latest_path = Path(base_path) / "meta" / "books_latest.csv"
+            timestamped_path = Path(base_path) / "meta" / "timestamped" / f"books_{timestamp}.csv"
 
             # Verify paths are constructed correctly
-            assert str(latest_path) == f"{temp_dir}/books_latest.csv"
-            assert str(timestamped_path) == f"{temp_dir}/timestamped/books_{timestamp}.csv"
+            assert str(latest_path) == f"{temp_dir}/meta/books_latest.csv"
+            assert str(timestamped_path) == f"{temp_dir}/meta/timestamped/books_{timestamp}.csv"
 
             # Verify paths are not at filesystem root
             assert not str(latest_path).startswith("/books_")

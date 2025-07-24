@@ -568,8 +568,8 @@ class SyncPipeline:
             if not base_path:
                 raise ValueError("Local storage requires base_path in configuration")
             # Construct relative paths and combine with base_path
-            latest_path = Path(base_path) / "books_latest.csv"
-            timestamped_path = Path(base_path) / "timestamped" / f"books_{timestamp}.csv"
+            latest_path = Path(base_path) / "meta" / "books_latest.csv"
+            timestamped_path = Path(base_path) / "meta" / "timestamped" / f"books_{timestamp}.csv"
 
             latest_path.parent.mkdir(parents=True, exist_ok=True)
             timestamped_path.parent.mkdir(parents=True, exist_ok=True)
