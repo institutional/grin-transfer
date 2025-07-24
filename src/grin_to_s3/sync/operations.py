@@ -314,6 +314,14 @@ async def extract_and_upload_ocr_text(
                     session_id=session_id,
                 )
 
+        finally:
+            # Clean up temporary JSONL file
+            try:
+                jsonl_file.unlink(missing_ok=True)
+                logger.debug(f"[{barcode}] Cleaned up temporary OCR file: {jsonl_file}")
+            except Exception as cleanup_error:
+                logger.warning(f"⚠️ [{barcode}] Failed to clean up temporary OCR file {jsonl_file}: {cleanup_error}")
+
     except Exception as e:
         logger.error(f"[{barcode}] OCR extraction failed but sync continues: {e}")
 

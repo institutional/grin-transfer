@@ -353,6 +353,9 @@ class TestOCRExtractionIntegration:
             assert "[TEST123] Starting OCR text extraction from decrypted archive" in caplog.text
             assert "[TEST123] Extracted 342 pages from archive" in caplog.text
 
+            # Verify temporary JSONL file was cleaned up
+            assert not jsonl_file.exists(), "Temporary JSONL file should be cleaned up after successful upload"
+
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_extraction_failure(
         self, mock_book_manager, mock_progress_tracker, mock_staging_manager, test_decrypted_file, caplog
@@ -364,6 +367,11 @@ class TestOCRExtractionIntegration:
         ):
             # Mock extraction failure
             mock_extract.side_effect = Exception("Archive corrupted")
+
+            # Create mock JSONL file (would be created but extraction fails)
+            jsonl_file = mock_staging_manager.staging_dir / "TEST123_ocr_temp.jsonl"
+            jsonl_file.parent.mkdir(parents=True, exist_ok=True)
+            jsonl_file.write_text('{"page": 1, "text": "Test"}\n')
 
             # This should not raise an exception (non-blocking)
             await extract_and_upload_ocr_text(
@@ -382,6 +390,9 @@ class TestOCRExtractionIntegration:
 
             # Verify error was logged but didn't raise
             assert "OCR extraction failed but sync continues" in caplog.text
+
+            # Verify temporary JSONL file was cleaned up even after failure
+            assert not jsonl_file.exists(), "Temporary JSONL file should be cleaned up even after extraction failure"
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_upload_failure(

@@ -7,7 +7,7 @@ name = "grin-to-s3"
 version = "2.0.0"
 description = "Pipeline for archiving Google Books data from GRIN to S3"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<4.0"
 license = {text = "MIT"}
 authors = [
     {name = "Harvard Library Innovation Lab"}
