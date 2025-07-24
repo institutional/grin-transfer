@@ -555,11 +555,11 @@ class TestBookCollectionIntegration:
             )
 
             # Verify storage was initialized correctly
-            assert collector.book_storage is not None
-            assert collector.book_storage.bucket_raw == "test-raw"
-            assert collector.book_storage.bucket_meta == "test-meta"
-            assert collector.book_storage.bucket_full == "test-full"
-            assert collector.book_storage.base_prefix == "test-prefix"
+            assert collector.book_manager is not None
+            assert collector.book_manager.bucket_raw == "test-raw"
+            assert collector.book_manager.bucket_meta == "test-meta"
+            assert collector.book_manager.bucket_full == "test-full"
+            assert collector.book_manager.base_prefix == "test-prefix"
 
 
 # Pytest configuration for async tests

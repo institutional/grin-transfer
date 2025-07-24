@@ -66,9 +66,9 @@ async def test_upload_database_to_storage_latest():
     """Test database upload as latest version."""
     # Mock setup
     mock_storage = Mock()
-    mock_book_storage = Mock()
-    mock_book_storage._meta_path.return_value = "meta/books_latest.db"
-    mock_book_storage.storage = mock_storage
+    mock_book_manager = Mock()
+    mock_book_manager._meta_path.return_value = "meta/books_latest.db"
+    mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -79,7 +79,7 @@ async def test_upload_database_to_storage_latest():
         # Upload as latest
         result = await upload_database_to_storage(
             str(db_path),
-            mock_book_storage,
+            mock_book_manager,
             staging_manager=None,
             upload_type="latest"
         )
@@ -95,9 +95,9 @@ async def test_upload_database_to_storage_timestamped():
     """Test database upload as timestamped backup."""
     # Mock setup
     mock_storage = Mock()
-    mock_book_storage = Mock()
-    mock_book_storage._meta_path.return_value = "meta/database_backups/books_backup_20240101_120000.db"
-    mock_book_storage.storage = mock_storage
+    mock_book_manager = Mock()
+    mock_book_manager._meta_path.return_value = "meta/database_backups/books_backup_20240101_120000.db"
+    mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -108,7 +108,7 @@ async def test_upload_database_to_storage_timestamped():
         # Upload as timestamped backup
         result = await upload_database_to_storage(
             str(db_path),
-            mock_book_storage,
+            mock_book_manager,
             staging_manager=None,
             upload_type="timestamped"
         )
@@ -125,9 +125,9 @@ async def test_upload_database_to_storage_with_staging():
     """Test database upload using staging manager."""
     # Mock setup
     mock_storage = Mock()
-    mock_book_storage = Mock()
-    mock_book_storage._meta_path.return_value = "meta/books_latest.db"
-    mock_book_storage.storage = mock_storage
+    mock_book_manager = Mock()
+    mock_book_manager._meta_path.return_value = "meta/books_latest.db"
+    mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
     mock_staging_manager = Mock()
@@ -145,7 +145,7 @@ async def test_upload_database_to_storage_with_staging():
         # Upload using staging
         result = await upload_database_to_storage(
             str(db_path),
-            mock_book_storage,
+            mock_book_manager,
             staging_manager=mock_staging_manager,
             upload_type="latest"
         )
@@ -163,11 +163,11 @@ async def test_upload_database_to_storage_with_staging():
 @pytest.mark.asyncio
 async def test_upload_database_to_storage_missing_file():
     """Test database upload with missing file."""
-    mock_book_storage = Mock()
+    mock_book_manager = Mock()
 
     result = await upload_database_to_storage(
         "/nonexistent/path.db",
-        mock_book_storage,
+        mock_book_manager,
         staging_manager=None,
         upload_type="latest"
     )
@@ -182,9 +182,9 @@ async def test_upload_database_to_storage_upload_error():
     """Test database upload with storage error."""
     # Mock setup with failing storage
     mock_storage = Mock()
-    mock_book_storage = Mock()
-    mock_book_storage._meta_path.return_value = "meta/books_latest.db"
-    mock_book_storage.storage = mock_storage
+    mock_book_manager = Mock()
+    mock_book_manager._meta_path.return_value = "meta/books_latest.db"
+    mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock(side_effect=Exception("Storage error"))
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -195,7 +195,7 @@ async def test_upload_database_to_storage_upload_error():
         # Upload should fail
         result = await upload_database_to_storage(
             str(db_path),
-            mock_book_storage,
+            mock_book_manager,
             staging_manager=None,
             upload_type="latest"
         )

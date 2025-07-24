@@ -183,7 +183,7 @@ class SyncPipeline:
         self.storage = create_storage_from_config(self.storage_type, self.storage_config or {})
         self.base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
         self.bucket_config = extract_bucket_config(self.storage_type, self.storage_config or {})
-        self.book_storage = BookManager(self.storage, bucket_config=self.bucket_config, base_prefix=self.base_prefix)
+        self.book_manager = BookManager(self.storage, bucket_config=self.bucket_config, base_prefix=self.base_prefix)
 
 
     async def cleanup(self, sync_successful: bool = False) -> None:
@@ -516,14 +516,14 @@ class SyncPipeline:
 
             if self.storage_protocol == "local":
                 # For local storage, write directly to final location
-                result = await self._export_csv_local(self.book_storage)
+                result = await self._export_csv_local(self.book_manager)
             else:
                 # For cloud storage, use staging manager
                 assert self.staging_manager is not None, "Staging manager required for cloud storage"
                 result = await export_and_upload_csv(
                     db_path=self.db_path,
                     staging_manager=self.staging_manager,
-                    book_storage=self.book_storage,
+                    book_manager=self.book_manager,
                     skip_export=False,
                 )
 
@@ -549,7 +549,7 @@ class SyncPipeline:
         elif csv_result["status"] == "failed":
             print(f"  CSV export failed: {csv_result.get('error', 'unknown error')}")
 
-    async def _export_csv_local(self, book_storage) -> CSVExportResult:
+    async def _export_csv_local(self, book_manager) -> CSVExportResult:
         """Export CSV directly to local storage without temporary files."""
         start_time = time.time()
         try:
@@ -561,7 +561,7 @@ class SyncPipeline:
 
             # For local storage, construct paths directly to avoid absolute path issues
             timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-            base_path = book_storage.storage.config.options.get("base_path")
+            base_path = book_manager.storage.config.options.get("base_path")
             if not base_path:
                 raise ValueError("Local storage requires base_path in configuration")
             # Construct relative paths and combine with base_path
@@ -616,7 +616,7 @@ class SyncPipeline:
                 # Upload timestamped backup
                 upload_result = await upload_database_to_storage(
                     self.db_path,
-                    self.book_storage,
+                    self.book_manager,
                     self.staging_manager if hasattr(self, "staging_manager") else None,
                     upload_type="timestamped"
                 )
@@ -644,7 +644,7 @@ class SyncPipeline:
             # Upload latest database
             upload_result = await upload_database_to_storage(
                 self.db_path,
-                self.book_storage,
+                self.book_manager,
                 self.staging_manager if hasattr(self, "staging_manager") else None,
                 upload_type="latest"
             )

@@ -28,17 +28,17 @@ class TestStorageMetadataETagTracking:
 
         with (
             patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
+            patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
             mock_storage_factory.return_value = mock_storage
-            mock_book_storage = AsyncMock()
-            mock_book_storage_class.return_value = mock_book_storage
+            mock_book_manager = AsyncMock()
+            mock_book_manager_class.return_value = mock_book_manager
 
             # Mock that decrypted archive exists and ETag matches
-            mock_book_storage.decrypted_archive_exists.return_value = True
-            mock_book_storage.archive_matches_encrypted_etag.return_value = True
+            mock_book_manager.decrypted_archive_exists.return_value = True
+            mock_book_manager.archive_matches_encrypted_etag.return_value = True
 
             # Test S3 storage with fresh database - should skip based on storage metadata
             should_skip, reason = await should_skip_download(
@@ -49,8 +49,8 @@ class TestStorageMetadataETagTracking:
             assert reason == "storage_etag_match"
 
             # Verify that storage metadata was checked
-            mock_book_storage.decrypted_archive_exists.assert_called_once_with("TEST123")
-            mock_book_storage.archive_matches_encrypted_etag.assert_called_once_with("TEST123", '"etag123"')
+            mock_book_manager.decrypted_archive_exists.assert_called_once_with("TEST123")
+            mock_book_manager.archive_matches_encrypted_etag.assert_called_once_with("TEST123", '"etag123"')
 
         await tracker.close()
 
@@ -68,17 +68,17 @@ class TestStorageMetadataETagTracking:
 
         with (
             patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
+            patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
             mock_storage_factory.return_value = mock_storage
-            mock_book_storage = AsyncMock()
-            mock_book_storage_class.return_value = mock_book_storage
+            mock_book_manager = AsyncMock()
+            mock_book_manager_class.return_value = mock_book_manager
 
             # Mock that decrypted archive exists but ETag doesn't match
-            mock_book_storage.decrypted_archive_exists.return_value = True
-            mock_book_storage.archive_matches_encrypted_etag.return_value = False
+            mock_book_manager.decrypted_archive_exists.return_value = True
+            mock_book_manager.archive_matches_encrypted_etag.return_value = False
 
             # Test S3 storage with fresh database - should not skip due to ETag mismatch
             should_skip, reason = await should_skip_download(
@@ -104,16 +104,16 @@ class TestStorageMetadataETagTracking:
 
         with (
             patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
+            patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
             mock_storage_factory.return_value = mock_storage
-            mock_book_storage = AsyncMock()
-            mock_book_storage_class.return_value = mock_book_storage
+            mock_book_manager = AsyncMock()
+            mock_book_manager_class.return_value = mock_book_manager
 
             # Mock that decrypted archive doesn't exist
-            mock_book_storage.decrypted_archive_exists.return_value = False
+            mock_book_manager.decrypted_archive_exists.return_value = False
 
             # Test S3 storage with fresh database - should not skip since no archive exists
             should_skip, reason = await should_skip_download(
@@ -124,8 +124,8 @@ class TestStorageMetadataETagTracking:
             assert reason == "no_decrypted_archive"
 
             # Verify that only existence check was called (not ETag check)
-            mock_book_storage.decrypted_archive_exists.assert_called_once_with("TEST123")
-            mock_book_storage.archive_matches_encrypted_etag.assert_not_called()
+            mock_book_manager.decrypted_archive_exists.assert_called_once_with("TEST123")
+            mock_book_manager.archive_matches_encrypted_etag.assert_not_called()
 
         await tracker.close()
 
@@ -143,16 +143,16 @@ class TestStorageMetadataETagTracking:
 
         with (
             patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
+            patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
             mock_storage_factory.return_value = mock_storage
-            mock_book_storage = AsyncMock()
-            mock_book_storage_class.return_value = mock_book_storage
+            mock_book_manager = AsyncMock()
+            mock_book_manager_class.return_value = mock_book_manager
 
             # Mock that storage metadata check fails
-            mock_book_storage.decrypted_archive_exists.side_effect = Exception("Storage error")
+            mock_book_manager.decrypted_archive_exists.side_effect = Exception("Storage error")
 
             # Test S3 storage with storage error - should fall back to database check
             should_skip, reason = await should_skip_download(
@@ -176,17 +176,17 @@ class TestStorageMetadataETagTracking:
 
         with (
             patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
+            patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
             mock_storage_factory.return_value = mock_storage
-            mock_book_storage = AsyncMock()
-            mock_book_storage_class.return_value = mock_book_storage
+            mock_book_manager = AsyncMock()
+            mock_book_manager_class.return_value = mock_book_manager
 
             # Mock that decrypted archive exists and ETag matches
-            mock_book_storage.decrypted_archive_exists.return_value = True
-            mock_book_storage.archive_matches_encrypted_etag.return_value = True
+            mock_book_manager.decrypted_archive_exists.return_value = True
+            mock_book_manager.archive_matches_encrypted_etag.return_value = True
 
             # Test S3 protocol uses metadata approach
             should_skip, reason = await should_skip_download(
@@ -252,17 +252,17 @@ class TestHybridETagApproach:
 
         with (
             patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
+            patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
             mock_storage_factory.return_value = mock_storage
-            mock_book_storage = AsyncMock()
-            mock_book_storage_class.return_value = mock_book_storage
+            mock_book_manager = AsyncMock()
+            mock_book_manager_class.return_value = mock_book_manager
 
             # Mock that decrypted archive exists and ETag matches in storage
-            mock_book_storage.decrypted_archive_exists.return_value = True
-            mock_book_storage.archive_matches_encrypted_etag.return_value = True
+            mock_book_manager.decrypted_archive_exists.return_value = True
+            mock_book_manager.archive_matches_encrypted_etag.return_value = True
 
             # Test that S3 uses storage metadata, not database
             should_skip, reason = await should_skip_download(
@@ -273,8 +273,8 @@ class TestHybridETagApproach:
             assert reason == "storage_etag_match"  # Storage metadata was used
 
             # Verify storage methods were called
-            mock_book_storage.decrypted_archive_exists.assert_called_once()
-            mock_book_storage.archive_matches_encrypted_etag.assert_called_once()
+            mock_book_manager.decrypted_archive_exists.assert_called_once()
+            mock_book_manager.archive_matches_encrypted_etag.assert_called_once()
 
         await tracker.close()
 

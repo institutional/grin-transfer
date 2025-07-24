@@ -150,12 +150,12 @@ class TestCSVExportIntegration:
             # Config not needed for this unit test, just testing path construction directly
 
             # Create a mock book storage that mimics local storage behavior
-            mock_book_storage = Mock()
-            mock_book_storage.storage.config.options.get.return_value = temp_dir
+            mock_book_manager = Mock()
+            mock_book_manager.storage.config.options.get.return_value = temp_dir
 
             # Test the path construction logic directly (extracted from _export_csv_local)
             timestamp = "20241201_120000"  # Fixed timestamp for testing
-            base_path = mock_book_storage.storage.config.options.get("base_path")
+            base_path = mock_book_manager.storage.config.options.get("base_path")
 
             # This is the fixed path construction from our fix
             latest_path = Path(base_path) / "meta" / "books_latest.csv"

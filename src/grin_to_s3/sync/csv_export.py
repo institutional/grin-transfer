@@ -30,7 +30,7 @@ class CSVExportResult(FileResult):
 async def export_and_upload_csv(
     db_path: str,
     staging_manager: StagingDirectoryManager,
-    book_storage,
+    book_manager,
     skip_export: bool = False,
     custom_filename: str | None = None,
 ) -> CSVExportResult:
@@ -42,7 +42,7 @@ async def export_and_upload_csv(
     Args:
         db_path: Path to SQLite database file
         staging_manager: StagingDirectoryManager instance for temporary file creation
-        book_storage: BookStorage instance for upload operations
+        book_manager: BookStorage instance for upload operations
         skip_export: If True, skip export and return early
         custom_filename: Optional custom filename for latest version
 
@@ -104,7 +104,7 @@ async def export_and_upload_csv(
 
         # Upload CSV file to storage
         logger.info("Uploading CSV file to storage")
-        latest_path, timestamped_path = await book_storage.upload_csv_file(temp_csv_path, custom_filename)
+        latest_path, timestamped_path = await book_manager.upload_csv_file(temp_csv_path, custom_filename)
 
         logger.info(f"CSV upload completed successfully: {latest_path}")
 

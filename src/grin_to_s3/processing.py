@@ -1002,10 +1002,10 @@ async def cmd_request(args) -> None:
     # Create book storage for process summary uploads
     from grin_to_s3.process_summary import create_book_manager_for_uploads
 
-    book_storage = await create_book_manager_for_uploads(run_name)
+    book_manager = await create_book_manager_for_uploads(run_name)
 
     # Create or load process summary
-    run_summary = await create_process_summary(run_name, "process", book_storage)
+    run_summary = await create_process_summary(run_name, "process", book_manager)
     process_stage = get_current_stage(run_summary, "process")
     process_stage.set_command_arg("grin_library_directory", args.grin_library_directory)
     process_stage.set_command_arg("rate_limit", args.rate_limit)
@@ -1099,7 +1099,7 @@ async def cmd_request(args) -> None:
     finally:
         # Always end the stage and save summary
         run_summary.end_stage("process")
-        await save_process_summary(run_summary, book_storage)
+        await save_process_summary(run_summary, book_manager)
 
 
 async def cmd_monitor(args) -> None:

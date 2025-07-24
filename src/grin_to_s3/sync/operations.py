@@ -207,7 +207,7 @@ async def download_book_to_staging(
 async def extract_and_upload_ocr_text(
     barcode: str,
     decrypted_file: Path,
-    book_storage: BookManager,
+    book_manager: BookManager,
     db_tracker,
     staging_manager: StagingDirectoryManager | None,
 ) -> None:
@@ -220,7 +220,7 @@ async def extract_and_upload_ocr_text(
     Args:
         barcode: Book barcode
         decrypted_file: Path to decrypted tar.gz archive
-        book_storage: BookStorage instance for uploading
+        book_manager: BookStorage instance for uploading
         db_tracker: Database tracker for status updates
         staging_manager: Staging manager for temp file handling
     """
@@ -279,7 +279,7 @@ async def extract_and_upload_ocr_text(
                 "session_id": session_id,
             }
 
-            await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file), metadata=upload_metadata)
+            await book_manager.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file), metadata=upload_metadata)
 
             logger.info(
                 f"[{barcode}] OCR text JSON saved to bucket_full "
@@ -514,7 +514,7 @@ async def upload_book_from_staging(
         # Create bucket configuration
         bucket_config: BucketConfig = extract_bucket_config(storage_type, storage_config)
 
-        book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
+        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
         # Get staging file paths
         encrypted_file = Path(staging_file_path)
@@ -536,7 +536,7 @@ async def upload_book_from_staging(
         if not skip_extract_ocr:
             # Run OCR extraction concurrently with upload for better performance
             ocr_task = asyncio.create_task(
-                extract_and_upload_ocr_text(barcode, decrypted_file, book_storage, db_tracker, staging_manager)
+                extract_and_upload_ocr_text(barcode, decrypted_file, book_manager, db_tracker, staging_manager)
             )
             extraction_tasks.append(ocr_task)
 
@@ -552,7 +552,7 @@ async def upload_book_from_staging(
 
         try:
             logger.debug(f"[{barcode}] Uploading decrypted archive with encrypted ETag metadata...")
-            decrypted_result = await book_storage.save_decrypted_archive_from_file(
+            decrypted_result = await book_manager.save_decrypted_archive_from_file(
                 barcode, str(decrypted_file), encrypted_etag
             )
             logger.debug(f"[{barcode}] Decrypted archive upload completed")
@@ -668,7 +668,7 @@ async def sync_book_to_local_storage(
             "bucket_meta": bucket_config_dict["bucket_meta"],
             "bucket_full": bucket_config_dict["bucket_full"],
         }
-        book_storage = BookManager(storage, bucket_config=bucket_config)
+        book_manager = BookManager(storage, bucket_config=bucket_config)
 
         # Generate final file paths
         encrypted_filename = f"{barcode}.tar.gz.gpg"
@@ -744,7 +744,7 @@ async def sync_book_to_local_storage(
         if not skip_extract_ocr:
             # Run OCR extraction for local storage
             ocr_task = asyncio.create_task(
-                extract_and_upload_ocr_text(barcode, final_decrypted_path, book_storage, db_tracker, None)
+                extract_and_upload_ocr_text(barcode, final_decrypted_path, book_manager, db_tracker, None)
             )
             extraction_tasks.append(ocr_task)
 

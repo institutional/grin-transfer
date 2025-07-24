@@ -28,10 +28,10 @@ from .text_extraction import (
 logger = logging.getLogger(__name__)
 
 
-async def write_to_bucket(book_storage: BookManager, barcode: str, jsonl_file_path: str, verbose: bool = False) -> None:
+async def write_to_bucket(book_manager: BookManager, barcode: str, jsonl_file_path: str, verbose: bool = False) -> None:
     """Upload JSONL file to full-text bucket."""
     try:
-        path = await book_storage.save_ocr_text_jsonl_from_file(barcode, jsonl_file_path)
+        path = await book_manager.save_ocr_text_jsonl_from_file(barcode, jsonl_file_path)
         print(f"  ✓ Uploaded to bucket: {path}")
 
     except Exception as e:
@@ -125,7 +125,7 @@ async def extract_single_archive(
     db_path: str,
     session_id: str,
     output_path: str | None = None,
-    book_storage: BookManager | None = None,
+    book_manager: BookManager | None = None,
     verbose: bool = False,
 ) -> dict:
     """Extract text from single archive and return stats."""
@@ -141,7 +141,7 @@ async def extract_single_archive(
             import tempfile
             from pathlib import Path
 
-            if book_storage is None:
+            if book_manager is None:
                 raise ValueError("Book storage is required for bucket output mode")
 
             barcode = get_barcode_from_path(archive_path)
@@ -150,7 +150,7 @@ async def extract_single_archive(
 
             try:
                 page_count = await extract_ocr_pages(archive_path, db_path, session_id, output_file=temp_path)
-                await write_to_bucket(book_storage, barcode, temp_path, verbose)
+                await write_to_bucket(book_manager, barcode, temp_path, verbose)
             finally:
                 # Clean up temp file
                 Path(temp_path).unlink(missing_ok=True)
@@ -205,7 +205,7 @@ async def main() -> int:
 
     session_id = f"extract_{uuid.uuid4().hex[:8]}"
     # Create book storage from run configuration if bucket output is needed
-    book_storage = None
+    book_manager = None
     if not (args.output or args.output_dir):
         try:
             # Build storage configuration from run config
@@ -243,7 +243,7 @@ async def main() -> int:
 
                 from ..storage.factories import create_book_manager_with_full_text
 
-                book_storage = create_book_manager_with_full_text(storage_type, storage_config, storage_prefix)
+                book_manager = create_book_manager_with_full_text(storage_type, storage_config, storage_prefix)
             else:
                 raise FileNotFoundError(f"Run configuration not found: {config_path}")
             if args.verbose:
@@ -272,7 +272,7 @@ async def main() -> int:
             db_path=db_path,
             session_id=session_id,
             output_path=output_path,
-            book_storage=book_storage,
+            book_manager=book_manager,
             verbose=args.verbose,
         )
         results.append(result)

@@ -97,7 +97,7 @@ async def create_local_database_backup(
 
 async def upload_database_to_storage(
     db_path: str,
-    book_storage,
+    book_manager,
     staging_manager: StagingDirectoryManager | None = None,
     upload_type: str = "latest"
 ) -> DatabaseBackupResult:
@@ -105,7 +105,7 @@ async def upload_database_to_storage(
 
     Args:
         db_path: Path to SQLite database file
-        book_storage: BookManager instance for upload operations
+        book_manager: BookManager instance for upload operations
         staging_manager: StagingDirectoryManager for cloud storage (None for local)
         upload_type: "latest" for books_latest.db or "timestamped" for books_backup_{timestamp}.db
 
@@ -131,11 +131,11 @@ async def upload_database_to_storage(
         # Generate filename based on upload type
         if upload_type == "latest":
             target_filename = "books_latest.db"
-            storage_path = book_storage._meta_path(target_filename)
+            storage_path = book_manager._meta_path(target_filename)
         else:  # timestamped
             timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
             target_filename = f"books_backup_{timestamp}.db"
-            storage_path = book_storage._meta_path(f"database_backups/{target_filename}")
+            storage_path = book_manager._meta_path(f"database_backups/{target_filename}")
 
         result["backup_filename"] = target_filename
 
@@ -145,7 +145,7 @@ async def upload_database_to_storage(
         # Upload database
         if staging_manager is None:
             # Local storage - direct upload
-            await book_storage.storage.write_file(storage_path, str(db_path_obj))
+            await book_manager.storage.write_file(storage_path, str(db_path_obj))
         else:
             # Cloud storage - use staging
             staging_db_path = staging_manager.staging_path / target_filename
@@ -155,7 +155,7 @@ async def upload_database_to_storage(
 
             try:
                 # Upload from staging
-                await book_storage.storage.write_file(storage_path, str(staging_db_path))
+                await book_manager.storage.write_file(storage_path, str(staging_db_path))
             finally:
                 # Clean up staging file
                 if staging_db_path.exists():

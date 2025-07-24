@@ -41,12 +41,12 @@ class TestLocalStorageBucketConfig:
             )
 
             # Verify that BookManager was created with correct bucket config
-            assert collector.book_storage is not None
+            assert collector.book_manager is not None
 
             # Verify the correct bucket names were extracted
-            assert collector.book_storage.bucket_raw == "raw"
-            assert collector.book_storage.bucket_meta == "meta"
-            assert collector.book_storage.bucket_full == "full"
+            assert collector.book_manager.bucket_raw == "raw"
+            assert collector.book_manager.bucket_meta == "meta"
+            assert collector.book_manager.bucket_full == "full"
 
     def test_bucket_config_extraction_fails_with_direct_lookup(self):
         """Test that the current buggy implementation fails with nested storage config."""
@@ -132,9 +132,9 @@ class TestLocalStorageBucketConfig:
             )
 
             # Verify bucket configuration was set correctly
-            assert collector.book_storage.bucket_raw == "raw_archives"
-            assert collector.book_storage.bucket_meta == "metadata_files"
-            assert collector.book_storage.bucket_full == "fulltext_data"
+            assert collector.book_manager.bucket_raw == "raw_archives"
+            assert collector.book_manager.bucket_meta == "metadata_files"
+            assert collector.book_manager.bucket_full == "fulltext_data"
 
             # Verify prefix was set correctly
-            assert collector.book_storage.base_prefix == "harvard_2024"
+            assert collector.book_manager.base_prefix == "harvard_2024"

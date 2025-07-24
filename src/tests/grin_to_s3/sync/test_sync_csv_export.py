@@ -20,8 +20,8 @@ class TestExportAndUploadCSV:
     """Test suite for export_and_upload_csv utility function."""
 
     @pytest.fixture
-    def mock_book_storage(self):
-        """Create a mock BookStorage instance."""
+    def mock_book_manager(self):
+        """Create a mock BookManager instance."""
         mock_storage = MagicMock()
         mock_storage.upload_csv_file = AsyncMock(
             return_value=("meta/books_latest.csv", "meta/timestamped/books_20240101_120000.csv")
@@ -61,7 +61,7 @@ class TestExportAndUploadCSV:
             yield StagingDirectoryManager(staging_dir)
 
     @pytest.mark.asyncio
-    async def test_successful_export_and_upload(self, mock_book_storage, sample_books, staging_manager):
+    async def test_successful_export_and_upload(self, mock_book_manager, sample_books, staging_manager):
         """Test successful CSV export and upload workflow."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
@@ -79,7 +79,7 @@ class TestExportAndUploadCSV:
                     result = await export_and_upload_csv(
                         db_path=db_path,
                         staging_manager=staging_manager,
-                        book_storage=mock_book_storage,
+                        book_manager=mock_book_manager,
                         skip_export=False,
                     )
 
@@ -89,8 +89,8 @@ class TestExportAndUploadCSV:
                     assert result["file_size"] > 0  # Should have actual file size
 
                     # Verify storage upload was called
-                    mock_book_storage.upload_csv_file.assert_called_once()
-                    args, kwargs = mock_book_storage.upload_csv_file.call_args
+                    mock_book_manager.upload_csv_file.assert_called_once()
+                    args, kwargs = mock_book_manager.upload_csv_file.call_args
                     assert len(args) == 2
                     assert args[0].endswith(".csv")  # temporary file path
                     assert args[1] is None  # custom filename
@@ -99,12 +99,12 @@ class TestExportAndUploadCSV:
                     assert staging_manager.staging_path.exists()
 
     @pytest.mark.asyncio
-    async def test_skip_export_flag(self, mock_book_storage, staging_manager):
+    async def test_skip_export_flag(self, mock_book_manager, staging_manager):
         """Test that skip_export flag works correctly."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
             result = await export_and_upload_csv(
-                db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage, skip_export=True
+                db_path=db_path, staging_manager=staging_manager, book_manager=mock_book_manager, skip_export=True
             )
 
             # Verify result
@@ -113,10 +113,10 @@ class TestExportAndUploadCSV:
             assert result["file_size"] == 0  # No file created
 
             # Verify storage upload was not called
-            mock_book_storage.upload_csv_file.assert_not_called()
+            mock_book_manager.upload_csv_file.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_custom_filename(self, mock_book_storage, sample_books, staging_manager):
+    async def test_custom_filename(self, mock_book_manager, sample_books, staging_manager):
         """Test export with custom filename."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
@@ -131,19 +131,19 @@ class TestExportAndUploadCSV:
                     result = await export_and_upload_csv(
                         db_path=db_path,
                         staging_manager=staging_manager,
-                        book_storage=mock_book_storage,
+                        book_manager=mock_book_manager,
                         custom_filename="custom_export.csv",
                     )
 
                     # Verify custom filename was passed
-                    mock_book_storage.upload_csv_file.assert_called_once()
-                    args, kwargs = mock_book_storage.upload_csv_file.call_args
+                    mock_book_manager.upload_csv_file.assert_called_once()
+                    args, kwargs = mock_book_manager.upload_csv_file.call_args
                     assert args[1] == "custom_export.csv"
 
                     assert result["status"] == "completed"
 
     @pytest.mark.asyncio
-    async def test_database_error_handling(self, mock_book_storage, staging_manager):
+    async def test_database_error_handling(self, mock_book_manager, staging_manager):
         """Test error handling when database operations fail."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
@@ -154,22 +154,22 @@ class TestExportAndUploadCSV:
                 mock_tracker_cls.return_value = mock_tracker
 
                 result = await export_and_upload_csv(
-                    db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage
+                    db_path=db_path, staging_manager=staging_manager, book_manager=mock_book_manager
                 )
 
                 # Verify error handling
                 assert result["status"] == "failed"
 
                 # Verify storage upload was not called
-                mock_book_storage.upload_csv_file.assert_not_called()
+                mock_book_manager.upload_csv_file.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_upload_error_handling(self, mock_book_storage, sample_books, staging_manager):
+    async def test_upload_error_handling(self, mock_book_manager, sample_books, staging_manager):
         """Test error handling when upload operations fail."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
             # Mock upload error
-            mock_book_storage.upload_csv_file.side_effect = Exception("Upload failed")
+            mock_book_manager.upload_csv_file.side_effect = Exception("Upload failed")
 
             with patch("grin_to_s3.sync.csv_export.SQLiteProgressTracker") as mock_tracker_cls:
                 mock_tracker = AsyncMock()
@@ -180,7 +180,7 @@ class TestExportAndUploadCSV:
                     mock_record_cls.csv_headers.return_value = ["barcode", "title"]
 
                     result = await export_and_upload_csv(
-                        db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage
+                        db_path=db_path, staging_manager=staging_manager, book_manager=mock_book_manager
                     )
 
                     # Verify error handling
@@ -189,7 +189,7 @@ class TestExportAndUploadCSV:
                     assert result["file_size"] > 0  # Export succeeded, so file size was captured
 
     @pytest.mark.asyncio
-    async def test_empty_database(self, mock_book_storage, staging_manager):
+    async def test_empty_database(self, mock_book_manager, staging_manager):
         """Test export with empty database."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
@@ -202,7 +202,7 @@ class TestExportAndUploadCSV:
                     mock_record_cls.csv_headers.return_value = ["barcode", "title"]
 
                     result = await export_and_upload_csv(
-                        db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage
+                        db_path=db_path, staging_manager=staging_manager, book_manager=mock_book_manager
                     )
 
                     # Verify successful operation with empty data
@@ -211,10 +211,10 @@ class TestExportAndUploadCSV:
                     assert result["file_size"] > 0  # Header still creates a file
 
                     # Verify upload was still called
-                    mock_book_storage.upload_csv_file.assert_called_once()
+                    mock_book_manager.upload_csv_file.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_staging_directory_creation(self, mock_book_storage, sample_books):
+    async def test_staging_directory_creation(self, mock_book_manager, sample_books):
         """Test that staging directory is created if it doesn't exist."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
@@ -238,14 +238,14 @@ class TestExportAndUploadCSV:
                     mock_record_cls.csv_headers.return_value = ["barcode", "title"]
 
                     result = await export_and_upload_csv(
-                        db_path=db_path, staging_manager=staging_manager, book_storage=mock_book_storage
+                        db_path=db_path, staging_manager=staging_manager, book_manager=mock_book_manager
                     )
 
                     # Verify export operation completed successfully
                     assert result["status"] == "completed"
 
     @pytest.mark.asyncio
-    async def test_concurrent_operations(self, mock_book_storage, sample_books, staging_manager):
+    async def test_concurrent_operations(self, mock_book_manager, sample_books, staging_manager):
         """Test that multiple concurrent export operations work correctly."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = str(Path(temp_dir) / "test.db")
@@ -263,7 +263,7 @@ class TestExportAndUploadCSV:
                         task = export_and_upload_csv(
                             db_path=db_path,
                             staging_manager=staging_manager,
-                            book_storage=mock_book_storage,
+                            book_manager=mock_book_manager,
                             custom_filename=f"concurrent_{i}.csv",
                         )
                         tasks.append(task)
@@ -275,4 +275,4 @@ class TestExportAndUploadCSV:
                         assert result["status"] == "completed"
 
                     # Verify all uploads were called
-                    assert mock_book_storage.upload_csv_file.call_count == 3
+                    assert mock_book_manager.upload_csv_file.call_count == 3

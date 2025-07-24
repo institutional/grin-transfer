@@ -434,10 +434,10 @@ Examples:
         # Create book storage for process summary uploads
         from grin_to_s3.process_summary import create_book_manager_for_uploads
 
-        book_storage = await create_book_manager_for_uploads(run_name)
+        book_manager = await create_book_manager_for_uploads(run_name)
 
         # Create or load process summary
-        run_summary = await create_process_summary(run_name, "collect", book_storage)
+        run_summary = await create_process_summary(run_name, "collect", book_manager)
         collect_stage = get_current_stage(run_summary, "collect")
         collect_stage.set_command_arg("library_directory", args.library_directory)
         collect_stage.set_command_arg("storage_type", args.storage)
@@ -538,7 +538,7 @@ Examples:
         finally:
             # Always end the stage and save summary
             run_summary.end_stage("collect")
-            await save_process_summary(run_summary, book_storage)
+            await save_process_summary(run_summary, book_manager)
 
         return 0
 

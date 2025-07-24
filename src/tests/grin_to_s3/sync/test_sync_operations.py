@@ -541,7 +541,7 @@ class TestBookStorageIntegrationInSync:
 
     @pytest.mark.asyncio
     @meaningful_storage_parametrize()
-    async def test_upload_book_from_staging_real_book_storage_initialization(self, storage_type):
+    async def test_upload_book_from_staging_real_book_manager_initialization(self, storage_type):
         """Test that upload_book_from_staging correctly initializes BookStorage across local vs cloud storage."""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create proper storage config with bucket information
@@ -588,7 +588,7 @@ class TestBookStorageIntegrationInSync:
 
             with mock_upload_operations() as mocks:
                 # Configure specific storage behavior for this test
-                mocks.book_storage_class.return_value.save_decrypted_archive_from_file = AsyncMock(
+                mocks.book_manager_class.return_value.save_decrypted_archive_from_file = AsyncMock(
                     return_value="bucket_raw/TEST123/TEST123.tar.gz"
                 )
 

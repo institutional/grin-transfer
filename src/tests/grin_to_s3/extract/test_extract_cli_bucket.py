@@ -52,15 +52,15 @@ class TestExtractCLIIntegration:
     async def test_extract_single_archive_with_bucket(self, mock_extract_to_file, mock_create_storage):
         """Test extract_single_archive with bucket storage only."""
 
-        mock_book_storage = AsyncMock()
-        mock_book_storage.save_ocr_text_jsonl_from_file = AsyncMock(return_value="book12345.jsonl")
+        mock_book_manager = AsyncMock()
+        mock_book_manager.save_ocr_text_jsonl_from_file = AsyncMock(return_value="book12345.jsonl")
 
         # Test extraction with bucket storage only (no file output)
         result = await extract_single_archive(
             archive_path="/path/to/book12345.tar.gz",
             db_path="/tmp/test.db",
             session_id="test_session",
-            book_storage=mock_book_storage,
+            book_manager=mock_book_manager,
             verbose=True,
         )
 
@@ -74,8 +74,8 @@ class TestExtractCLIIntegration:
         assert call_args[1]["output_file"].endswith(".jsonl")
 
         # Verify bucket upload was called
-        mock_book_storage.save_ocr_text_jsonl_from_file.assert_called_once()
-        upload_call_args = mock_book_storage.save_ocr_text_jsonl_from_file.call_args
+        mock_book_manager.save_ocr_text_jsonl_from_file.assert_called_once()
+        upload_call_args = mock_book_manager.save_ocr_text_jsonl_from_file.call_args
         assert upload_call_args[0][0] == "book12345"  # barcode
         assert upload_call_args[0][1].endswith(".jsonl")  # temp file path
 
@@ -135,15 +135,15 @@ class TestExtractCLIIntegration:
         """Test that stdout output is suppressed when using bucket storage."""
 
         mock_extract_to_file.return_value = 1  # Return page count
-        mock_book_storage = AsyncMock()
-        mock_book_storage.save_ocr_text_jsonl_from_file = AsyncMock(return_value="test.jsonl")
+        mock_book_manager = AsyncMock()
+        mock_book_manager.save_ocr_text_jsonl_from_file = AsyncMock(return_value="test.jsonl")
 
         with patch("builtins.print") as mock_print:
             await extract_single_archive(
                 archive_path="/path/to/test.tar.gz",
                 db_path="/tmp/test.db",
                 session_id="test_session",
-                book_storage=mock_book_storage,
+                book_manager=mock_book_manager,
             )
 
             # Verify no stdout printing of JSONL content when using bucket storage
@@ -195,9 +195,9 @@ class TestExtractCLIIntegration:
         }
 
         # Mock storage creation
-        mock_book_storage = AsyncMock()
-        mock_book_storage.save_ocr_text_jsonl_from_file = AsyncMock(return_value="test.jsonl")
-        mock_create_storage.return_value = mock_book_storage
+        mock_book_manager = AsyncMock()
+        mock_book_manager.save_ocr_text_jsonl_from_file = AsyncMock(return_value="test.jsonl")
+        mock_create_storage.return_value = mock_book_manager
 
         # Mock extraction result
         mock_extract_single.return_value = {"success": True, "archive": "/path/to/test.tar.gz", "pages": 1}
@@ -216,7 +216,7 @@ class TestExtractCLIIntegration:
         # Verify extraction was called with bucket storage
         mock_extract_single.assert_called_once()
         call_kwargs = mock_extract_single.call_args[1]
-        assert call_kwargs["book_storage"] == mock_book_storage
+        assert call_kwargs["book_manager"] == mock_book_manager
 
         # Verify success exit code
         assert result == 0

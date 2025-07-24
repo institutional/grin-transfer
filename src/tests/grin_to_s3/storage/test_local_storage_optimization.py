@@ -78,18 +78,18 @@ class TestLocalStorageDirectWrite:
     """Test direct write functionality for local storage."""
 
     @pytest.mark.asyncio
-    async def test_book_storage_direct_paths(self):
+    async def test_book_manager_direct_paths(self):
         """Test that BookStorage generates correct paths for local storage."""
 
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = create_storage_from_config("local", {"base_path": temp_dir})
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+            book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
 
             # Test path generation
             barcode = "TEST123"
-            encrypted_path = book_storage._raw_archive_path(barcode, f"{barcode}.tar.gz.gpg")
-            decrypted_path = book_storage._raw_archive_path(barcode, f"{barcode}.tar.gz")
+            encrypted_path = book_manager._raw_archive_path(barcode, f"{barcode}.tar.gz.gpg")
+            decrypted_path = book_manager._raw_archive_path(barcode, f"{barcode}.tar.gz")
 
             assert encrypted_path == f"raw/{barcode}/{barcode}.tar.gz.gpg"
             assert decrypted_path == f"raw/{barcode}/{barcode}.tar.gz"
@@ -101,14 +101,14 @@ class TestLocalStorageDirectWrite:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = create_storage_from_config("local", {"base_path": temp_dir})
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+            book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
 
             # Test saving archive
             barcode = "TEST456"
             test_data = b"Test archive data"
 
             # Save decrypted archive (new approach)
-            await book_storage.save_decrypted_archive(barcode, test_data)
+            await book_manager.save_decrypted_archive(barcode, test_data)
 
             # Verify file exists (now includes bucket path)
             expected_file = Path(temp_dir) / "raw" / barcode / f"{barcode}.tar.gz"
@@ -116,11 +116,11 @@ class TestLocalStorageDirectWrite:
             assert expected_file.read_bytes() == test_data
 
             # Test archive exists check
-            exists = await book_storage.archive_exists(barcode)
+            exists = await book_manager.archive_exists(barcode)
             assert exists is True
 
             # Test retrieving archive
-            retrieved_data = await book_storage.get_archive(barcode)
+            retrieved_data = await book_manager.get_archive(barcode)
             assert retrieved_data == test_data
 
 
@@ -196,11 +196,11 @@ class TestLocalStorageErrorHandling:
             try:
                 storage = create_storage_from_config("local", {"base_path": str(readonly_dir)})
                 bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-                book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+                book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
 
                 # Should fail with permission error
                 with pytest.raises((PermissionError, OSError)):
-                    await book_storage.save_archive("TEST", b"data")
+                    await book_manager.save_archive("TEST", b"data")
             finally:
                 # Restore permissions for cleanup
                 readonly_dir.chmod(0o755)

@@ -268,7 +268,7 @@ class RunSummaryManager:
         self.summary_file = Path(f"output/{run_name}/process_summary.json")
         self.summary: RunSummary | None = None
         self._storage_upload_enabled = False
-        self._book_storage = None
+        self._book_manager = None
 
     async def load_or_create_summary(self) -> RunSummary:
         """Load existing summary or create new one."""
@@ -291,10 +291,10 @@ class RunSummaryManager:
         summary = RunSummary(run_name=self.run_name)
         return summary
 
-    def enable_storage_upload(self, book_storage) -> None:
+    def enable_storage_upload(self, book_manager) -> None:
         """Enable uploading process summaries to storage."""
         self._storage_upload_enabled = True
-        self._book_storage = book_storage
+        self._book_manager = book_manager
 
     async def save_summary(self, summary: RunSummary) -> None:
         """Save run summary to file and optionally upload to storage."""
@@ -310,7 +310,7 @@ class RunSummaryManager:
             logger.debug(f"Saved run summary to {self.summary_file}")
 
             # Upload to storage if enabled
-            if self._storage_upload_enabled and self._book_storage:
+            if self._storage_upload_enabled and self._book_manager:
                 await self._upload_to_storage()
 
         except Exception as e:
@@ -318,17 +318,17 @@ class RunSummaryManager:
 
     async def _upload_to_storage(self) -> None:
         """Upload process summary to metadata bucket."""
-        if not self._book_storage:
+        if not self._book_manager:
             logger.warning("Storage upload requested but no book storage configured")
             return
 
         try:
             # Generate storage path for process summary
             filename = f"process_summary_{self.run_name}.json"
-            storage_path = self._book_storage._meta_path(filename)
+            storage_path = self._book_manager._meta_path(filename)
 
             # Upload the local summary file
-            await self._book_storage.storage.write_file(storage_path, str(self.summary_file))
+            await self._book_manager.storage.write_file(storage_path, str(self.summary_file))
 
             logger.info(f"Uploaded process summary to storage: {storage_path}")
 
@@ -381,13 +381,13 @@ class RunSummaryManager:
 
 
 # Convenience functions for backward compatibility
-async def create_process_summary(run_name: str, process_name: str, book_storage=None) -> RunSummary:
+async def create_process_summary(run_name: str, process_name: str, book_manager=None) -> RunSummary:
     """Create or load a run summary and return the specified stage."""
     manager = RunSummaryManager(run_name)
 
-    # Enable storage upload if book_storage is provided
-    if book_storage is not None:
-        manager.enable_storage_upload(book_storage)
+    # Enable storage upload if book_manager is provided
+    if book_manager is not None:
+        manager.enable_storage_upload(book_manager)
 
     summary = await manager.load_or_create_summary()
 
@@ -397,13 +397,13 @@ async def create_process_summary(run_name: str, process_name: str, book_storage=
     return summary
 
 
-async def save_process_summary(summary: RunSummary, book_storage=None) -> None:
+async def save_process_summary(summary: RunSummary, book_manager=None) -> None:
     """Save a run summary."""
     manager = RunSummaryManager(summary.run_name)
 
-    # Enable storage upload if book_storage is provided
-    if book_storage is not None:
-        manager.enable_storage_upload(book_storage)
+    # Enable storage upload if book_manager is provided
+    if book_manager is not None:
+        manager.enable_storage_upload(book_manager)
 
     await manager.save_summary(summary)
 
@@ -453,8 +453,8 @@ async def create_book_manager_for_uploads(run_name: str):
             return None
 
         # Create BookStorage with run name as prefix
-        book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=run_name)
-        return book_storage
+        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix=run_name)
+        return book_manager
 
     except Exception as e:
         logger.error(f"Failed to create book storage for uploads: {e}")
