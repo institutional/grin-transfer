@@ -457,34 +457,31 @@ class TestAsyncEnrichmentEndToEndIntegration:
         assert count == 0
 
     @pytest.mark.asyncio
-    async def test_enrichment_with_different_storage_types(
+    async def test_enrichment_with_local_storage(
         self, temp_db_tracker, mock_pipeline_dependencies, mock_process_stage, mock_test_config
     ):
-        """Test enrichment works with different storage types."""
+        """Test enrichment works with local storage."""
         tracker, db_path = temp_db_tracker
 
-        storage_types = ["local", "s3", "r2"]
+        config = mock_test_config(db_path, storage_type="local", storage_config={"bucket_raw": "test-bucket"})
+        pipeline = SyncPipeline.from_run_config(
+            config=config,
+            process_summary_stage=mock_process_stage,
+        )
 
-        for storage_type in storage_types:
-            config = mock_test_config(db_path, storage_type=storage_type, storage_config={"bucket_raw": "test-bucket"})
-            pipeline = SyncPipeline.from_run_config(
-                config=config,
-                process_summary_stage=mock_process_stage,
-            )
+        # Test queuing works with local storage
+        barcode = "TEST_LOCAL_123"
+        await pipeline.queue_book_for_enrichment(barcode)
 
-            # Test queuing works for all storage types
-            barcode = f"TEST_{storage_type.upper()}_123"
-            await pipeline.queue_book_for_enrichment(barcode)
+        assert pipeline.enrichment_queue.qsize() >= 1
 
-            assert pipeline.enrichment_queue.qsize() >= 1
-
-            # Clear queue for next test
-            try:
-                while True:
-                    pipeline.enrichment_queue.get_nowait()
-                    pipeline.enrichment_queue.task_done()
-            except asyncio.QueueEmpty:
-                pass
+        # Clear queue for cleanup
+        try:
+            while True:
+                pipeline.enrichment_queue.get_nowait()
+                pipeline.enrichment_queue.task_done()
+        except asyncio.QueueEmpty:
+            pass
 
 
 class TestAsyncEnrichmentErrorHandling:

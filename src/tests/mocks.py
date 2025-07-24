@@ -189,8 +189,8 @@ def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
 
     # Mock book storage if configured
     if storage_config:
-        mock_book_storage = MockBookStorage()
-        mock_book_storage.storage = MockStorage()
-        exporter.book_storage = mock_book_storage
+        mock_book_manager = MockBookStorage()
+        mock_book_manager.storage = MockStorage()
+        exporter.book_manager = mock_book_manager
 
     return exporter

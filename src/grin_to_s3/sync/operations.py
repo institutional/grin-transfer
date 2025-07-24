@@ -16,8 +16,10 @@ import aiofiles
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
+    LOCAL_STORAGE_DEFAULTS,
     create_http_session,
     decrypt_gpg_file,
+    extract_bucket_config,
 )
 from grin_to_s3.extract.text_extraction import extract_ocr_pages
 from grin_to_s3.extract.tracking import ExtractionStatus, write_status
@@ -205,7 +207,7 @@ async def download_book_to_staging(
 async def extract_and_upload_ocr_text(
     barcode: str,
     decrypted_file: Path,
-    book_storage: BookManager,
+    book_manager: BookManager,
     db_tracker,
     staging_manager: StagingDirectoryManager | None,
 ) -> None:
@@ -218,7 +220,7 @@ async def extract_and_upload_ocr_text(
     Args:
         barcode: Book barcode
         decrypted_file: Path to decrypted tar.gz archive
-        book_storage: BookStorage instance for uploading
+        book_manager: BookStorage instance for uploading
         db_tracker: Database tracker for status updates
         staging_manager: Staging manager for temp file handling
     """
@@ -277,7 +279,7 @@ async def extract_and_upload_ocr_text(
                 "session_id": session_id,
             }
 
-            await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file), metadata=upload_metadata)
+            await book_manager.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file), metadata=upload_metadata)
 
             logger.info(
                 f"[{barcode}] OCR text JSON saved to bucket_full "
@@ -311,6 +313,14 @@ async def extract_and_upload_ocr_text(
                     },
                     session_id=session_id,
                 )
+
+        finally:
+            # Clean up temporary JSONL file
+            try:
+                jsonl_file.unlink(missing_ok=True)
+                logger.debug(f"[{barcode}] Cleaned up temporary OCR file: {jsonl_file}")
+            except Exception as cleanup_error:
+                logger.warning(f"⚠️ [{barcode}] Failed to clean up temporary OCR file {jsonl_file}: {cleanup_error}")
 
     except Exception as e:
         logger.error(f"[{barcode}] OCR extraction failed but sync continues: {e}")
@@ -510,13 +520,9 @@ async def upload_book_from_staging(
         # BookStorage handles bucket names as directory paths for all storage types
 
         # Create bucket configuration
-        bucket_config: BucketConfig = {
-            "bucket_raw": storage_config.get("bucket_raw", ""),
-            "bucket_meta": storage_config.get("bucket_meta", ""),
-            "bucket_full": storage_config.get("bucket_full", ""),
-        }
+        bucket_config: BucketConfig = extract_bucket_config(storage_type, storage_config)
 
-        book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
+        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
         # Get staging file paths
         encrypted_file = Path(staging_file_path)
@@ -538,7 +544,7 @@ async def upload_book_from_staging(
         if not skip_extract_ocr:
             # Run OCR extraction concurrently with upload for better performance
             ocr_task = asyncio.create_task(
-                extract_and_upload_ocr_text(barcode, decrypted_file, book_storage, db_tracker, staging_manager)
+                extract_and_upload_ocr_text(barcode, decrypted_file, book_manager, db_tracker, staging_manager)
             )
             extraction_tasks.append(ocr_task)
 
@@ -554,7 +560,7 @@ async def upload_book_from_staging(
 
         try:
             logger.debug(f"[{barcode}] Uploading decrypted archive with encrypted ETag metadata...")
-            decrypted_result = await book_storage.save_decrypted_archive_from_file(
+            decrypted_result = await book_manager.save_decrypted_archive_from_file(
                 barcode, str(decrypted_file), encrypted_etag
             )
             logger.debug(f"[{barcode}] Decrypted archive upload completed")
@@ -658,19 +664,28 @@ async def sync_book_to_local_storage(
     """
     try:
         # Create storage for base_path validation
-        create_storage_from_config("local", storage_config or {})
+        storage = create_storage_from_config("local", storage_config or {})
         base_path = storage_config.get("base_path") if storage_config else None
         if not base_path:
             raise ValueError("Local storage requires base_path in configuration")
-        # No need for BookManager as we construct paths directly for local storage
+
+        # Create BookManager instance for OCR extraction
+        bucket_config_dict = extract_bucket_config("local", storage_config or {})
+        bucket_config: BucketConfig = {
+            "bucket_raw": bucket_config_dict["bucket_raw"],
+            "bucket_meta": bucket_config_dict["bucket_meta"],
+            "bucket_full": bucket_config_dict["bucket_full"],
+        }
+        book_manager = BookManager(storage, bucket_config=bucket_config)
 
         # Generate final file paths
         encrypted_filename = f"{barcode}.tar.gz.gpg"
         decrypted_filename = f"{barcode}.tar.gz"
 
-        # For local storage, construct relative paths directly
-        relative_encrypted_path = f"{barcode}/{encrypted_filename}"
-        relative_decrypted_path = f"{barcode}/{decrypted_filename}"
+        # For local storage, construct paths using proper bucket structure
+        bucket_raw = LOCAL_STORAGE_DEFAULTS["bucket_raw"]
+        relative_encrypted_path = f"{bucket_raw}/{barcode}/{encrypted_filename}"
+        relative_decrypted_path = f"{bucket_raw}/{barcode}/{decrypted_filename}"
 
         # Get absolute paths for local storage
         final_encrypted_path = Path(base_path) / relative_encrypted_path
@@ -730,6 +745,31 @@ async def sync_book_to_local_storage(
             "last_etag_check": datetime.now(UTC).isoformat(),
         }
         await db_tracker.update_sync_data(barcode, sync_data)
+
+        # Perform OCR and MARC extraction after successful decryption
+        extraction_tasks = []
+
+        if not skip_extract_ocr:
+            # Run OCR extraction for local storage
+            ocr_task = asyncio.create_task(
+                extract_and_upload_ocr_text(barcode, final_decrypted_path, book_manager, db_tracker, None)
+            )
+            extraction_tasks.append(ocr_task)
+
+        if not skip_extract_marc:
+            # Run MARC extraction for local storage
+            marc_task = asyncio.create_task(
+                extract_and_update_marc_metadata(barcode, final_decrypted_path, db_tracker)
+            )
+            extraction_tasks.append(marc_task)
+
+        # Wait for extraction tasks to complete (non-blocking for sync success)
+        if extraction_tasks:
+            try:
+                await asyncio.gather(*extraction_tasks, return_exceptions=True)
+                logger.info(f"[{barcode}] Extraction tasks completed")
+            except Exception as e:
+                logger.warning(f"[{barcode}] Some extraction tasks failed: {e}")
 
         logger.info(f"[{barcode}] ✅ Successfully synced to local storage")
 

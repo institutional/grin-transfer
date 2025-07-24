@@ -300,9 +300,9 @@ class TestLocalStorageSync:
                         assert path.startswith(temp_dir), f"Path {path} should be under base_path {temp_dir}"
                         assert not path.startswith("/TEST123"), f"Path {path} should not start with /TEST123 (filesystem root)"
 
-                    # Verify the specific path structure
+                    # Verify the specific path structure (fixed for Issue #139)
                     encrypted_path = opened_paths[0]  # First opened file should be encrypted
-                    expected_encrypted_path = f"{temp_dir}/TEST123/TEST123.tar.gz.gpg"
+                    expected_encrypted_path = f"{temp_dir}/raw/TEST123/TEST123.tar.gz.gpg"
                     assert encrypted_path == expected_encrypted_path, f"Expected {expected_encrypted_path}, got {encrypted_path}"
 
 
@@ -353,6 +353,9 @@ class TestOCRExtractionIntegration:
             assert "[TEST123] Starting OCR text extraction from decrypted archive" in caplog.text
             assert "[TEST123] Extracted 342 pages from archive" in caplog.text
 
+            # Verify temporary JSONL file was cleaned up
+            assert not jsonl_file.exists(), "Temporary JSONL file should be cleaned up after successful upload"
+
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_extraction_failure(
         self, mock_book_manager, mock_progress_tracker, mock_staging_manager, test_decrypted_file, caplog
@@ -364,6 +367,11 @@ class TestOCRExtractionIntegration:
         ):
             # Mock extraction failure
             mock_extract.side_effect = Exception("Archive corrupted")
+
+            # Create mock JSONL file (would be created but extraction fails)
+            jsonl_file = mock_staging_manager.staging_dir / "TEST123_ocr_temp.jsonl"
+            jsonl_file.parent.mkdir(parents=True, exist_ok=True)
+            jsonl_file.write_text('{"page": 1, "text": "Test"}\n')
 
             # This should not raise an exception (non-blocking)
             await extract_and_upload_ocr_text(
@@ -382,6 +390,9 @@ class TestOCRExtractionIntegration:
 
             # Verify error was logged but didn't raise
             assert "OCR extraction failed but sync continues" in caplog.text
+
+            # Verify temporary JSONL file was cleaned up even after failure
+            assert not jsonl_file.exists(), "Temporary JSONL file should be cleaned up even after extraction failure"
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_upload_failure(
@@ -541,7 +552,7 @@ class TestBookStorageIntegrationInSync:
 
     @pytest.mark.asyncio
     @meaningful_storage_parametrize()
-    async def test_upload_book_from_staging_real_book_storage_initialization(self, storage_type):
+    async def test_upload_book_from_staging_real_book_manager_initialization(self, storage_type):
         """Test that upload_book_from_staging correctly initializes BookStorage across local vs cloud storage."""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create proper storage config with bucket information
@@ -588,7 +599,7 @@ class TestBookStorageIntegrationInSync:
 
             with mock_upload_operations() as mocks:
                 # Configure specific storage behavior for this test
-                mocks.book_storage_class.return_value.save_decrypted_archive_from_file = AsyncMock(
+                mocks.book_manager_class.return_value.save_decrypted_archive_from_file = AsyncMock(
                     return_value="bucket_raw/TEST123/TEST123.tar.gz"
                 )
 

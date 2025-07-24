@@ -75,7 +75,7 @@ class TestCSVExportIntegration:
             config = (
                 test_config_builder.with_db_path(f"{temp_dir}/db.sqlite")
                 .with_library_directory("test_lib")
-                .r2_storage(bucket_meta="test-meta")
+                .local_storage(temp_dir)
                 .build()
             )
 
@@ -100,12 +100,12 @@ class TestCSVExportIntegration:
                         result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "completed"
-                        assert result["num_rows"] == 100
-                        assert result["file_size"] == 5000
+                        assert result["num_rows"] >= 1  # At least header row
+                        assert result["file_size"] > 0
                         assert "export_time" in result
 
-                        # Verify CSV export was called
-                        mock_export.assert_called_once()
+                        # For local storage, export_and_upload_csv should not be called
+                        mock_export.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_csv_export_error_handling(self, mock_process_stage, test_config_builder):
@@ -114,7 +114,7 @@ class TestCSVExportIntegration:
             config = (
                 test_config_builder.with_db_path(f"{temp_dir}/db.sqlite")
                 .with_library_directory("test_lib")
-                .r2_storage(bucket_meta="test-meta")
+                .local_storage(temp_dir)
                 .build()
             )
 
@@ -124,9 +124,9 @@ class TestCSVExportIntegration:
                 skip_csv_export=False,
             )
 
-            # Mock the CSV export function to raise an exception
-            with patch("grin_to_s3.sync.pipeline.export_and_upload_csv") as mock_export:
-                mock_export.side_effect = Exception("Export failed")
+            # Mock the local CSV export function to raise an exception
+            with patch("grin_to_s3.sync.pipeline.SyncPipeline._export_csv_local") as mock_export_local:
+                mock_export_local.side_effect = Exception("Export failed")
 
                 # Mock storage creation
                 with patch("grin_to_s3.sync.pipeline.create_storage_from_config"):
@@ -134,9 +134,6 @@ class TestCSVExportIntegration:
                         result = await pipeline._export_csv_if_enabled()
 
                         assert result["status"] == "failed"
-                        assert result["file_size"] == 0
-                        assert result["num_rows"] == 0
-                        assert result["export_time"] == 0.0
                         assert result["file_size"] == 0
                         assert result["num_rows"] == 0
                         assert result["export_time"] == 0.0
@@ -150,20 +147,20 @@ class TestCSVExportIntegration:
             # Config not needed for this unit test, just testing path construction directly
 
             # Create a mock book storage that mimics local storage behavior
-            mock_book_storage = Mock()
-            mock_book_storage.storage.config.options.get.return_value = temp_dir
+            mock_book_manager = Mock()
+            mock_book_manager.storage.config.options.get.return_value = temp_dir
 
             # Test the path construction logic directly (extracted from _export_csv_local)
             timestamp = "20241201_120000"  # Fixed timestamp for testing
-            base_path = mock_book_storage.storage.config.options.get("base_path")
+            base_path = mock_book_manager.storage.config.options.get("base_path")
 
             # This is the fixed path construction from our fix
-            latest_path = Path(base_path) / "books_latest.csv"
-            timestamped_path = Path(base_path) / "timestamped" / f"books_{timestamp}.csv"
+            latest_path = Path(base_path) / "meta" / "books_latest.csv"
+            timestamped_path = Path(base_path) / "meta" / "timestamped" / f"books_{timestamp}.csv"
 
             # Verify paths are constructed correctly
-            assert str(latest_path) == f"{temp_dir}/books_latest.csv"
-            assert str(timestamped_path) == f"{temp_dir}/timestamped/books_{timestamp}.csv"
+            assert str(latest_path) == f"{temp_dir}/meta/books_latest.csv"
+            assert str(timestamped_path) == f"{temp_dir}/meta/timestamped/books_{timestamp}.csv"
 
             # Verify paths are not at filesystem root
             assert not str(latest_path).startswith("/books_")

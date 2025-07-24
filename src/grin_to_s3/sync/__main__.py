@@ -131,10 +131,10 @@ async def cmd_pipeline(args) -> None:
     logger.info(f"Command: {' '.join(sys.argv)}")
 
     # Create book storage for process summary uploads
-    book_storage = await create_book_manager_for_uploads(args.run_name)
+    book_manager = await create_book_manager_for_uploads(args.run_name)
 
     # Create or load process summary
-    run_summary = await create_process_summary(args.run_name, "sync", book_storage)
+    run_summary = await create_process_summary(args.run_name, "sync", book_manager)
     sync_stage = get_current_stage(run_summary, "sync")
     sync_stage.set_command_arg("storage_type", args.storage)
     sync_stage.set_command_arg("force_mode", args.force)
@@ -245,7 +245,7 @@ async def cmd_pipeline(args) -> None:
     finally:
         # Always end the stage and save summary
         run_summary.end_stage("sync")
-        await save_process_summary(run_summary, book_storage)
+        await save_process_summary(run_summary, book_manager)
 
 
 async def cmd_status(args) -> None:

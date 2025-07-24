@@ -605,14 +605,14 @@ Examples:
     # Create process summary for enrich command
     run_summary = None
     enrich_stage = None
-    book_storage = None
+    book_manager = None
     if args.command == "enrich":
         # Create book storage for process summary uploads
         from grin_to_s3.process_summary import create_book_manager_for_uploads
 
-        book_storage = await create_book_manager_for_uploads(args.run_name)
+        book_manager = await create_book_manager_for_uploads(args.run_name)
 
-        run_summary = await create_process_summary(args.run_name, "enrich", book_storage)
+        run_summary = await create_process_summary(args.run_name, "enrich", book_manager)
         enrich_stage = get_current_stage(run_summary, "enrich")
         enrich_stage.set_command_arg("grin_library_directory", args.grin_library_directory)
         enrich_stage.set_command_arg("rate_limit", args.rate_limit)
@@ -658,7 +658,7 @@ Examples:
         # Always end the stage and save summary for enrich command
         if run_summary:
             run_summary.end_stage("enrich")
-            await save_process_summary(run_summary, book_storage)
+            await save_process_summary(run_summary, book_manager)
 
 
 async def enrich_main():

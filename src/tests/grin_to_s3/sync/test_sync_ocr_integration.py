@@ -105,7 +105,7 @@ class TestSyncOCRPipelineIntegration:
         with (
             patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
-            patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class,
+            patch("grin_to_s3.sync.operations.BookManager") as mock_book_manager_class,
             patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
         ):
             mock_decrypt.return_value = None
@@ -114,13 +114,13 @@ class TestSyncOCRPipelineIntegration:
             # Set up storage mocks using unified factory
             mock_storage = create_storage_mock(storage_type=storage_type)
             # BookStorage properly wraps the storage mock (no more manual linking!)
-            mock_book_storage = create_book_manager_mock(storage=mock_storage)
+            mock_book_manager = create_book_manager_mock(storage=mock_storage)
 
             # Configure specific return values for this test
             mock_storage.save_ocr_text_jsonl_from_file.return_value = "bucket_full/TEST123456789/TEST123456789.jsonl"
 
             mock_create_storage.return_value = mock_storage
-            mock_book_storage_class.return_value = mock_book_storage
+            mock_book_manager_class.return_value = mock_book_manager
 
             # Execute upload with OCR extraction (using real OCR extraction, not mocked)
             storage_config = {"base_path": "/tmp/storage"} if storage_type == "local" else {
@@ -148,14 +148,14 @@ class TestSyncOCRPipelineIntegration:
             assert result["barcode"] == barcode
 
             # Verify archive upload was called
-            mock_book_storage.save_decrypted_archive_from_file.assert_called_once()
+            mock_book_manager.save_decrypted_archive_from_file.assert_called_once()
 
             # Verify OCR upload was called (indicates real OCR extraction happened)
-            # Since book_storage wraps storage, we can check either one
-            mock_book_storage.save_ocr_text_jsonl_from_file.assert_called_once()
+            # Since book_manager wraps storage, we can check either one
+            mock_book_manager.save_ocr_text_jsonl_from_file.assert_called_once()
 
             # Verify the OCR text file was actually created and uploaded
-            upload_call_args = mock_book_storage.save_ocr_text_jsonl_from_file.call_args
+            upload_call_args = mock_book_manager.save_ocr_text_jsonl_from_file.call_args
             assert upload_call_args is not None
 
             # The function signature is save_ocr_text_jsonl_from_file(barcode, jsonl_file_path, metadata=None)
@@ -187,7 +187,7 @@ class TestSyncOCRPipelineIntegration:
         with (
             patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
             patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
-            patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class,
+            patch("grin_to_s3.sync.operations.BookManager") as mock_book_manager_class,
             patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
         ):
             mock_decrypt.return_value = None
@@ -196,10 +196,10 @@ class TestSyncOCRPipelineIntegration:
             # Set up storage mocks using unified factory
             mock_storage = create_storage_mock(storage_type=storage_type)
             # BookStorage properly wraps the storage mock (no more manual linking!)
-            mock_book_storage = create_book_manager_mock(storage=mock_storage)
+            mock_book_manager = create_book_manager_mock(storage=mock_storage)
 
             mock_create_storage.return_value = mock_storage
-            mock_book_storage_class.return_value = mock_book_storage
+            mock_book_manager_class.return_value = mock_book_manager
 
             # Execute upload with OCR extraction DISABLED
             storage_config = {"base_path": "/tmp/storage"} if storage_type == "local" else {
@@ -227,10 +227,10 @@ class TestSyncOCRPipelineIntegration:
             assert result["barcode"] == barcode
 
             # Verify archive upload was called
-            mock_book_storage.save_decrypted_archive_from_file.assert_called_once()
+            mock_book_manager.save_decrypted_archive_from_file.assert_called_once()
 
             # Verify OCR upload was NOT called
-            mock_book_storage.save_ocr_text_jsonl_from_file.assert_not_called()
+            mock_book_manager.save_ocr_text_jsonl_from_file.assert_not_called()
 
             # Verify NO OCR extraction database entries
             with sqlite3.connect(temp_db_tracker.db_path) as conn:
@@ -255,7 +255,7 @@ class TestSyncOCRPipelineIntegration:
 
         with mock_upload_operations() as mocks:
             # Configure storage mock for this test
-            mocks.book_storage.save_ocr_text_jsonl_from_file = AsyncMock()
+            mocks.book_manager.save_ocr_text_jsonl_from_file = AsyncMock()
 
             # Execute upload - OCR should fail but sync should succeed
             result = await upload_book_from_staging(
@@ -276,7 +276,7 @@ class TestSyncOCRPipelineIntegration:
             assert result["barcode"] == barcode
 
             # Verify archive upload succeeded
-            mocks.book_storage.save_decrypted_archive_from_file.assert_called_once()
+            mocks.book_manager.save_decrypted_archive_from_file.assert_called_once()
 
             # In the simplified mock environment, we just verify that sync completed
             # despite the OCR extraction failure (which is the intended behavior)
@@ -371,7 +371,7 @@ class TestSyncOCRPipelineIntegration:
             assert result["barcode"] == barcode
 
             # Verify archive upload was always called
-            mocks.book_storage.save_decrypted_archive_from_file.assert_called_once()
+            mocks.book_manager.save_decrypted_archive_from_file.assert_called_once()
 
             # Verify extraction behavior based on parameters
             if skip_ocr:

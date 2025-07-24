@@ -19,13 +19,14 @@ from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.common import (
     RateLimiter,
     SlidingWindowRateCalculator,
+    extract_bucket_config,
     format_duration,
     pluralize,
 )
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config, get_storage_protocol
-from grin_to_s3.storage.book_manager import BookManager, BucketConfig
+from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .csv_export import CSVExportResult, export_and_upload_csv
@@ -177,6 +178,12 @@ class SyncPipeline:
 
         # Worker management
         self._enrichment_workers: list[asyncio.Task] = []
+
+        # Initialize storage components once (now that tests provide complete configurations)
+        self.storage = create_storage_from_config(self.storage_type, self.storage_config or {})
+        self.base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
+        self.bucket_config = extract_bucket_config(self.storage_type, self.storage_config or {})
+        self.book_manager = BookManager(self.storage, bucket_config=self.bucket_config, base_prefix=self.base_prefix)
 
 
     async def cleanup(self, sync_successful: bool = False) -> None:
@@ -504,32 +511,19 @@ class SyncPipeline:
             return {"status": "skipped", "file_size": 0, "num_rows": 0, "export_time": 0.0}
 
         try:
-            # Create book storage for CSV upload
-
-            storage = create_storage_from_config(self.storage_type, self.storage_config or {})
-            base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
-
-            bucket_config: BucketConfig = {
-                "bucket_raw": self.storage_config.get("bucket_raw", "") if self.storage_config else "",
-                "bucket_meta": self.storage_config.get("bucket_meta", "") if self.storage_config else "",
-                "bucket_full": self.storage_config.get("bucket_full", "") if self.storage_config else "",
-            }
-
-            book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
-
             # Export CSV
             logger.info("Exporting CSV after sync completion")
 
             if self.storage_protocol == "local":
                 # For local storage, write directly to final location
-                result = await self._export_csv_local(book_storage)
+                result = await self._export_csv_local(self.book_manager)
             else:
                 # For cloud storage, use staging manager
                 assert self.staging_manager is not None, "Staging manager required for cloud storage"
                 result = await export_and_upload_csv(
                     db_path=self.db_path,
                     staging_manager=self.staging_manager,
-                    book_storage=book_storage,
+                    book_manager=self.book_manager,
                     skip_export=False,
                 )
 
@@ -555,7 +549,7 @@ class SyncPipeline:
         elif csv_result["status"] == "failed":
             print(f"  CSV export failed: {csv_result.get('error', 'unknown error')}")
 
-    async def _export_csv_local(self, book_storage) -> CSVExportResult:
+    async def _export_csv_local(self, book_manager) -> CSVExportResult:
         """Export CSV directly to local storage without temporary files."""
         start_time = time.time()
         try:
@@ -567,12 +561,12 @@ class SyncPipeline:
 
             # For local storage, construct paths directly to avoid absolute path issues
             timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-            base_path = book_storage.storage.config.options.get("base_path")
+            base_path = book_manager.storage.config.options.get("base_path")
             if not base_path:
                 raise ValueError("Local storage requires base_path in configuration")
             # Construct relative paths and combine with base_path
-            latest_path = Path(base_path) / "books_latest.csv"
-            timestamped_path = Path(base_path) / "timestamped" / f"books_{timestamp}.csv"
+            latest_path = Path(base_path) / "meta" / "books_latest.csv"
+            timestamped_path = Path(base_path) / "meta" / "timestamped" / f"books_{timestamp}.csv"
 
             latest_path.parent.mkdir(parents=True, exist_ok=True)
             timestamped_path.parent.mkdir(parents=True, exist_ok=True)
@@ -619,22 +613,10 @@ class SyncPipeline:
             if local_backup_result["status"] == "completed":
                 logger.info(f"Local backup created: {local_backup_result['backup_filename']}")
 
-                # Upload timestamped backup to storage
-                storage = create_storage_from_config(self.storage_type, self.storage_config or {})
-                base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
-
-                bucket_config: BucketConfig = {
-                    "bucket_raw": self.storage_config.get("bucket_raw", "") if self.storage_config else "",
-                    "bucket_meta": self.storage_config.get("bucket_meta", "") if self.storage_config else "",
-                    "bucket_full": self.storage_config.get("bucket_full", "") if self.storage_config else "",
-                }
-
-                book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
-
                 # Upload timestamped backup
                 upload_result = await upload_database_to_storage(
                     self.db_path,
-                    book_storage,
+                    self.book_manager,
                     self.staging_manager if hasattr(self, "staging_manager") else None,
                     upload_type="timestamped"
                 )
@@ -659,22 +641,10 @@ class SyncPipeline:
         try:
             logger.info("Uploading current database as latest version...")
 
-            # Create storage components
-            storage = create_storage_from_config(self.storage_type, self.storage_config or {})
-            base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
-
-            bucket_config: BucketConfig = {
-                "bucket_raw": self.storage_config.get("bucket_raw", "") if self.storage_config else "",
-                "bucket_meta": self.storage_config.get("bucket_meta", "") if self.storage_config else "",
-                "bucket_full": self.storage_config.get("bucket_full", "") if self.storage_config else "",
-            }
-
-            book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
-
             # Upload latest database
             upload_result = await upload_database_to_storage(
                 self.db_path,
-                book_storage,
+                self.book_manager,
                 self.staging_manager if hasattr(self, "staging_manager") else None,
                 upload_type="latest"
             )

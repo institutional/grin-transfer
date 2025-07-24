@@ -148,12 +148,12 @@ class TestConvertedBooks:
         assert result == set()
 
 
-class TestBookStorageInitializationInUtils:
-    """Test that sync utils correctly initialize BookStorage with bucket_config."""
+class TestBookManagerInitializationInUtils:
+    """Test that sync utils correctly initialize BookManager with bucket_config."""
 
     @pytest.mark.asyncio
-    async def test_should_skip_download_book_storage_initialization(self):
-        """Test that should_skip_download correctly initializes BookStorage."""
+    async def test_should_skip_download_book_manager_initialization(self):
+        """Test that should_skip_download correctly initializes BookManager."""
 
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create proper storage config with bucket information
@@ -170,16 +170,16 @@ class TestBookStorageInitializationInUtils:
 
             with (
                 patch("grin_to_s3.storage.create_storage_from_config") as mock_create_storage,
-                patch("grin_to_s3.storage.BookManager") as mock_book_storage_class,
+                patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
             ):
                 # Mock storage creation
                 mock_storage = MagicMock()
                 mock_create_storage.return_value = mock_storage
 
                 # Mock BookStorage instance
-                mock_book_storage = MagicMock()
-                mock_book_storage.decrypted_archive_exists = AsyncMock(return_value=False)
-                mock_book_storage_class.return_value = mock_book_storage
+                mock_book_manager = MagicMock()
+                mock_book_manager.decrypted_archive_exists = AsyncMock(return_value=False)
+                mock_book_manager_class.return_value = mock_book_manager
 
                 # This should NOT raise "missing bucket_config argument" error
                 should_skip, reason = await should_skip_download(
@@ -196,8 +196,8 @@ class TestBookStorageInitializationInUtils:
                 assert reason == "no_decrypted_archive"
 
                 # Verify BookStorage was called with correct arguments
-                mock_book_storage_class.assert_called_once()
-                call_args = mock_book_storage_class.call_args
+                mock_book_manager_class.assert_called_once()
+                call_args = mock_book_manager_class.call_args
 
                 # Should be called with (storage, bucket_config=..., base_prefix=...)
                 assert len(call_args[0]) == 1  # One positional arg: storage

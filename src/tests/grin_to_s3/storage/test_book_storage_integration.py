@@ -34,7 +34,7 @@ class TestBookStorageIntegration:
             raw_storage = Storage(StorageConfig.local(str(raw_dir)))
 
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config)
+            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
             text_pages = ["First page content", "Second page content", "Third page content"]
             barcode = "test12345"
@@ -47,7 +47,7 @@ class TestBookStorageIntegration:
 
             # This would be async in real usage, but we'll test the sync version
             async def test_save():
-                return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
+                return await book_manager.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
             # Run the async test
             result_path = asyncio.run(test_save())
@@ -87,7 +87,7 @@ class TestBookStorageIntegration:
 
             base_prefix = "test-collection"
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config, base_prefix=base_prefix)
+            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
             text_pages = ["Page with prefix content"]
             barcode = "prefix12345"
@@ -99,7 +99,7 @@ class TestBookStorageIntegration:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
 
             async def test_save():
-                return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
+                return await book_manager.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
             result_path = asyncio.run(test_save())
 
@@ -125,7 +125,7 @@ class TestBookStorageIntegration:
             raw_storage = Storage(StorageConfig.local(temp_dir))
 
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config)
+            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
             text_pages = [
                 "English text",
@@ -143,7 +143,7 @@ class TestBookStorageIntegration:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
 
             async def test_save():
-                return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
+                return await book_manager.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
             asyncio.run(test_save())
 
@@ -171,7 +171,7 @@ class TestBookStorageIntegration:
             raw_storage = Storage(StorageConfig.local(temp_dir))
 
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config)
+            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
             text_pages = []
             barcode = "empty12345"
@@ -183,7 +183,7 @@ class TestBookStorageIntegration:
                     f.write(json.dumps(page, ensure_ascii=False) + "\n")
 
             async def test_save():
-                return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
+                return await book_manager.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
             asyncio.run(test_save())
 
@@ -210,7 +210,7 @@ class TestBookStorageIntegration:
             raw_storage = Storage(StorageConfig.local(str(raw_dir)))
 
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config)
+            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
             barcode = "multi12345"
             text_pages = ["Page 1", "Page 2"]
@@ -223,13 +223,13 @@ class TestBookStorageIntegration:
 
             async def test_multiple_saves():
                 # Save OCR text to full bucket
-                ocr_path = await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
+                ocr_path = await book_manager.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
                 # Save regular text JSONL to raw bucket (existing method)
-                regular_path = await book_storage.save_text_jsonl(barcode, text_pages)
+                regular_path = await book_manager.save_text_jsonl(barcode, text_pages)
 
                 # Save timestamp to raw bucket (existing method)
-                timestamp_path = await book_storage.save_timestamp(barcode)
+                timestamp_path = await book_manager.save_timestamp(barcode)
 
                 return ocr_path, regular_path, timestamp_path
 
@@ -281,18 +281,18 @@ class TestBookStorageIntegration:
             mock_storage = MagicMock()
             mock_create.return_value = mock_storage
 
-            book_storage = create_book_manager_with_full_text(storage_type, config, "test-prefix")
+            book_manager = create_book_manager_with_full_text(storage_type, config, "test-prefix")
 
             # Verify factory was called correctly (now uses single storage)
             mock_create.assert_called_once_with(storage_type, config)
 
             # Verify BookStorage was configured correctly
-            assert isinstance(book_storage, BookManager)
-            assert book_storage.storage == mock_storage
-            assert book_storage.bucket_raw == "test-raw-bucket"
-            assert book_storage.bucket_meta == "test-meta-bucket"
-            assert book_storage.bucket_full == "test-full-bucket"
-            assert book_storage.base_prefix == "test-prefix"
+            assert isinstance(book_manager, BookManager)
+            assert book_manager.storage == mock_storage
+            assert book_manager.bucket_raw == "test-raw-bucket"
+            assert book_manager.bucket_meta == "test-meta-bucket"
+            assert book_manager.bucket_full == "test-full-bucket"
+            assert book_manager.base_prefix == "test-prefix"
 
     def test_upload_csv_file_integration(self):
         """Test CSV file upload to metadata bucket with both latest and timestamped versions."""
@@ -307,7 +307,7 @@ class TestBookStorageIntegration:
 
             raw_storage = Storage(StorageConfig.local(temp_dir))
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config)
+            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
             # Create a test CSV file
             csv_content = "barcode,title,author\nTEST001,Test Book,Test Author\nTEST002,Another Book,Another Author\n"
@@ -316,7 +316,7 @@ class TestBookStorageIntegration:
                 f.write(csv_content)
 
             async def test_upload():
-                return await book_storage.upload_csv_file(str(csv_file))
+                return await book_manager.upload_csv_file(str(csv_file))
 
             latest_path, timestamped_path = asyncio.run(test_upload())
 
@@ -353,7 +353,7 @@ class TestBookStorageIntegration:
 
             raw_storage = Storage(StorageConfig.local(temp_dir))
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_storage = BookManager(storage=raw_storage, bucket_config=bucket_config)
+            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
             # Create a test CSV file
             csv_content = "barcode,title\nTEST001,Custom Export\n"
@@ -362,7 +362,7 @@ class TestBookStorageIntegration:
                 f.write(csv_content)
 
             async def test_upload():
-                return await book_storage.upload_csv_file(str(csv_file), "custom_books.csv")
+                return await book_manager.upload_csv_file(str(csv_file), "custom_books.csv")
 
             latest_path, timestamped_path = asyncio.run(test_upload())
 
@@ -395,7 +395,7 @@ class TestBookStorageIntegration:
                         "bucket_meta": storage_config["bucket_meta"],
                         "bucket_full": storage_config["bucket_full"]
                     }
-                    book_storage = BookManager(storage=storage, bucket_config=bucket_config)
+                    book_manager = BookManager(storage=storage, bucket_config=bucket_config)
 
                     text_pages = ["First page content", "Second page content", "Third page content"]
                     barcode = "test12345"
@@ -407,7 +407,7 @@ class TestBookStorageIntegration:
                             f.write(json.dumps(page, ensure_ascii=False) + "\n")
 
                     async def test_save():
-                        return await book_storage.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
+                        return await book_manager.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file))
 
                     # Run the async test with real storage backend
                     result_path = asyncio.run(test_save())

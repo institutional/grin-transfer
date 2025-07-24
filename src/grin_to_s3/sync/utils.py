@@ -269,11 +269,11 @@ async def should_skip_download(
                 "bucket_full": storage_config.get("bucket_full", ""),
             }
 
-            book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
+            book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
             # Check if decrypted archive exists and matches encrypted ETag
-            if await book_storage.decrypted_archive_exists(barcode):
-                if await book_storage.archive_matches_encrypted_etag(barcode, encrypted_etag):
+            if await book_manager.decrypted_archive_exists(barcode):
+                if await book_manager.archive_matches_encrypted_etag(barcode, encrypted_etag):
                     logger.info(f"[{barcode}] File unchanged (ETag match in storage metadata), skipping download")
                     return True, "storage_etag_match"
                 else:

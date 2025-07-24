@@ -39,12 +39,12 @@ class TestProcessSummaryUpload:
         return create_storage_mock(storage_type="s3")
 
     @pytest.fixture
-    def mock_book_storage(self, mock_storage):
+    def mock_book_manager(self, mock_storage):
         """Create a mock BookStorage instance."""
         return create_book_manager_mock(base_prefix="test_run")
 
     @pytest.mark.asyncio
-    async def test_run_summary_manager_storage_upload(self, temp_dir, mock_run_name, mock_book_storage):
+    async def test_run_summary_manager_storage_upload(self, temp_dir, mock_run_name, mock_book_manager):
         """Test RunSummaryManager storage upload functionality."""
         # Create manager with temporary directory
         with patch("grin_to_s3.process_summary.Path") as mock_path:
@@ -52,7 +52,7 @@ class TestProcessSummaryUpload:
             manager = RunSummaryManager(mock_run_name)
 
             # Enable storage upload
-            manager.enable_storage_upload(mock_book_storage)
+            manager.enable_storage_upload(mock_book_manager)
 
             # Create a test summary
             summary = RunSummary(run_name=mock_run_name)
@@ -68,24 +68,24 @@ class TestProcessSummaryUpload:
             assert manager.summary_file.exists()
 
             # Verify storage upload was called
-            mock_book_storage.storage.write_file.assert_called_once()
+            mock_book_manager.storage.write_file.assert_called_once()
 
             # Verify the storage path is correct
-            call_args = mock_book_storage.storage.write_file.call_args
+            call_args = mock_book_manager.storage.write_file.call_args
             storage_path, local_path = call_args[0]
             assert storage_path == "test-meta/test_run/process_summary_test_run_upload.json"
             assert local_path == str(manager.summary_file)
 
     @pytest.mark.asyncio
-    async def test_run_summary_manager_upload_error_handling(self, temp_dir, mock_run_name, mock_book_storage):
+    async def test_run_summary_manager_upload_error_handling(self, temp_dir, mock_run_name, mock_book_manager):
         """Test error handling during storage upload."""
         # Mock storage to raise exception
-        mock_book_storage.storage.write_file.side_effect = Exception("Storage error")
+        mock_book_manager.storage.write_file.side_effect = Exception("Storage error")
 
         with patch("grin_to_s3.process_summary.Path") as mock_path:
             mock_path.return_value = temp_dir / mock_run_name
             manager = RunSummaryManager(mock_run_name)
-            manager.enable_storage_upload(mock_book_storage)
+            manager.enable_storage_upload(mock_book_manager)
 
             # Create a test summary
             summary = RunSummary(run_name=mock_run_name)
@@ -97,16 +97,16 @@ class TestProcessSummaryUpload:
             assert manager.summary_file.exists()
 
             # Upload should have been attempted
-            mock_book_storage.storage.write_file.assert_called_once()
+            mock_book_manager.storage.write_file.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_create_process_summary_with_storage(self, temp_dir, mock_run_name, mock_book_storage):
+    async def test_create_process_summary_with_storage(self, temp_dir, mock_run_name, mock_book_manager):
         """Test create_process_summary with storage upload enabled."""
         with patch("grin_to_s3.process_summary.Path") as mock_path:
             mock_path.return_value = temp_dir / mock_run_name
 
             # Create process summary with storage
-            summary = await create_process_summary(mock_run_name, "test_stage", mock_book_storage)
+            summary = await create_process_summary(mock_run_name, "test_stage", mock_book_manager)
 
             # Verify summary was created
             assert summary.run_name == mock_run_name
@@ -114,7 +114,7 @@ class TestProcessSummaryUpload:
             assert summary.stages["test_stage"].start_time is not None
 
     @pytest.mark.asyncio
-    async def test_save_process_summary_with_storage(self, temp_dir, mock_run_name, mock_book_storage):
+    async def test_save_process_summary_with_storage(self, temp_dir, mock_run_name, mock_book_manager):
         """Test save_process_summary with storage upload enabled."""
         with patch("grin_to_s3.process_summary.Path") as mock_path:
             mock_path.return_value = temp_dir / mock_run_name
@@ -125,10 +125,10 @@ class TestProcessSummaryUpload:
             stage.increment_items(processed=5, successful=5)
 
             # Save with storage
-            await save_process_summary(summary, mock_book_storage)
+            await save_process_summary(summary, mock_book_manager)
 
             # Verify upload was called
-            mock_book_storage.storage.write_file.assert_called_once()
+            mock_book_manager.storage.write_file.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_book_manager_for_uploads(self, temp_dir, mock_run_name):
@@ -149,23 +149,23 @@ class TestProcessSummaryUpload:
 
         with patch("grin_to_s3.run_config.find_run_config", return_value=mock_run_config):
             with patch("grin_to_s3.storage.factories.create_storage_from_config", return_value=mock_storage):
-                book_storage = await create_book_manager_for_uploads(mock_run_name)
+                book_manager = await create_book_manager_for_uploads(mock_run_name)
 
                 # Verify BookStorage was created
-                assert book_storage is not None
-                assert book_storage.bucket_raw == "test-raw"
-                assert book_storage.bucket_meta == "test-meta"
-                assert book_storage.bucket_full == "test-full"
-                assert book_storage.base_prefix == mock_run_name
+                assert book_manager is not None
+                assert book_manager.bucket_raw == "test-raw"
+                assert book_manager.bucket_meta == "test-meta"
+                assert book_manager.bucket_full == "test-full"
+                assert book_manager.base_prefix == mock_run_name
 
     @pytest.mark.asyncio
     async def test_create_book_manager_for_uploads_no_config(self, mock_run_name):
         """Test creating BookStorage when no config is found."""
         with patch("grin_to_s3.run_config.find_run_config", return_value=None):
-            book_storage = await create_book_manager_for_uploads(mock_run_name)
+            book_manager = await create_book_manager_for_uploads(mock_run_name)
 
             # Should return None when no config is found
-            assert book_storage is None
+            assert book_manager is None
 
     @pytest.mark.asyncio
     async def test_create_book_manager_for_uploads_no_storage_type(self, mock_run_name):
@@ -176,32 +176,32 @@ class TestProcessSummaryUpload:
         mock_run_config.storage_config = {"bucket_raw": "test-raw"}
 
         with patch("grin_to_s3.run_config.find_run_config", return_value=mock_run_config):
-            book_storage = await create_book_manager_for_uploads(mock_run_name)
+            book_manager = await create_book_manager_for_uploads(mock_run_name)
 
             # Should return None when storage type is missing
-            assert book_storage is None
+            assert book_manager is None
 
     @pytest.mark.asyncio
     async def test_create_book_manager_for_uploads_exception(self, mock_run_name):
         """Test creating BookStorage when exception occurs."""
         with patch("grin_to_s3.run_config.find_run_config", side_effect=Exception("Config error")):
-            book_storage = await create_book_manager_for_uploads(mock_run_name)
+            book_manager = await create_book_manager_for_uploads(mock_run_name)
 
             # Should return None when exception occurs
-            assert book_storage is None
+            assert book_manager is None
 
     @pytest.mark.asyncio
-    async def test_upload_path_generation(self, mock_run_name, mock_book_storage):
+    async def test_upload_path_generation(self, mock_run_name, mock_book_manager):
         """Test that upload paths are generated correctly."""
         manager = RunSummaryManager(mock_run_name)
-        manager.enable_storage_upload(mock_book_storage)
+        manager.enable_storage_upload(mock_book_manager)
 
         # Test the private method directly
         await manager._upload_to_storage()
 
         # Verify the path structure
-        mock_book_storage.storage.write_file.assert_called_once()
-        call_args = mock_book_storage.storage.write_file.call_args
+        mock_book_manager.storage.write_file.assert_called_once()
+        call_args = mock_book_manager.storage.write_file.call_args
         storage_path = call_args[0][0]
 
         # Should follow the pattern: bucket_meta/base_prefix/process_summary_run_name.json
@@ -226,15 +226,15 @@ class TestProcessSummaryUpload:
 
             # Storage upload should not be enabled
             assert not manager._storage_upload_enabled
-            assert manager._book_storage is None
+            assert manager._book_manager is None
 
     @pytest.mark.asyncio
-    async def test_summary_content_structure(self, temp_dir, mock_run_name, mock_book_storage):
+    async def test_summary_content_structure(self, temp_dir, mock_run_name, mock_book_manager):
         """Test that uploaded summary contains expected structure."""
         with patch("grin_to_s3.process_summary.Path") as mock_path:
             mock_path.return_value = temp_dir / mock_run_name
             manager = RunSummaryManager(mock_run_name)
-            manager.enable_storage_upload(mock_book_storage)
+            manager.enable_storage_upload(mock_book_manager)
 
             # Create comprehensive summary
             summary = RunSummary(run_name=mock_run_name)

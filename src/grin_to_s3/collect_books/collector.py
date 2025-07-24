@@ -26,6 +26,7 @@ from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
     ProgressReporter,
     RateLimiter,
+    extract_bucket_config,
     format_bytes,
     format_duration,
     pluralize,
@@ -109,17 +110,14 @@ class BookCollector:
         self.progress_tracker.pagination_state = self.pagination_state
 
         # Storage (optional)
-        self.book_storage: BookManager | None = None
+        self.book_manager: BookManager | None = None
         if storage_config:
             storage = create_storage_from_config(storage_config["type"], storage_config.get("config", {}))
             # Create bucket config for BookStorage constructor
-            bucket_config: BucketConfig = {
-                "bucket_raw": storage_config.get("bucket_raw", ""),
-                "bucket_meta": storage_config.get("bucket_meta", ""),
-                "bucket_full": storage_config.get("bucket_full", ""),
-            }
+            config_dict = storage_config.get("config", {})
+            bucket_config: BucketConfig = extract_bucket_config(storage_config["type"], config_dict)
             prefix = storage_config.get("prefix", "")
-            self.book_storage = BookManager(storage, bucket_config=bucket_config, base_prefix=prefix)
+            self.book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix=prefix)
 
     def _setup_test_mode(self):
         """Set up test mode with mock data and clients"""
@@ -132,9 +130,9 @@ class BookCollector:
 
             # Replace storage with mock if storage config exists
             if self.storage_config:
-                mock_book_storage = MockBookStorage()
-                mock_book_storage.storage = MockStorage()  # type: ignore[attr-defined]
-                self.book_storage = mock_book_storage  # type: ignore[assignment]
+                mock_book_manager = MockBookStorage()
+                mock_book_manager.storage = MockStorage()  # type: ignore[attr-defined]
+                self.book_manager = mock_book_manager  # type: ignore[assignment]
 
             logger.info("Test mode enabled - using mock data (no network calls)")
 

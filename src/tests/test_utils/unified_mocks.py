@@ -311,7 +311,7 @@ def mock_upload_operations(
         patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
         patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract_ocr,
         patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
-        patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class,
+        patch("grin_to_s3.sync.operations.BookManager") as mock_book_manager_class,
     ):
         # Create storage mock first
         mock_storage = create_storage_mock(
@@ -326,7 +326,7 @@ def mock_upload_operations(
             storage=mock_storage,  # Pass the storage mock to be wrapped
             should_fail=should_fail
         )
-        mock_book_storage_class.return_value = mock_book_manager
+        mock_book_manager_class.return_value = mock_book_manager
 
         # Configure operation mocks
         if should_fail:
@@ -345,9 +345,9 @@ def mock_upload_operations(
                 self.create_storage = mock_create_storage
                 self.extract_ocr = mock_extract_ocr
                 self.extract_marc = mock_extract_marc
-                self.book_storage_class = mock_book_storage_class
+                self.book_manager_class = mock_book_manager_class
                 self.storage = mock_storage
-                self.book_storage = mock_book_manager
+                self.book_manager = mock_book_manager
 
         yield MockBundle()
 

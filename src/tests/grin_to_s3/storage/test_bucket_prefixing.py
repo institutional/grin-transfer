@@ -64,14 +64,14 @@ class TestBucketPrefixingBehavior:
                 }
 
                 # This is how BookStorage should be created
-                book_storage = BookManager(mock_storage, bucket_config=bucket_config, base_prefix=base_prefix)
+                book_manager = BookManager(mock_storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
                 # CRITICAL: Check that base_prefix does NOT include bucket names
                 assert base_prefix == ""  # Should be empty, not contain bucket name
                 assert config["bucket_raw"] not in base_prefix
 
                 # Verify bucket configuration contains bucket names (that's correct)
-                assert book_storage.bucket_raw == config["bucket_raw"]
+                assert book_manager.bucket_raw == config["bucket_raw"]
 
     @pytest.mark.asyncio
     async def test_local_storage_path_construction(self, staging_file):
@@ -80,14 +80,14 @@ class TestBucketPrefixingBehavior:
             config = {"base_path": temp_dir, "bucket_raw": "local-raw", "bucket_full": "local-full", "prefix": ""}
 
             with patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage:
-                with patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class:
+                with patch("grin_to_s3.sync.operations.BookManager") as mock_book_manager_class:
                     # Setup mocks
                     mock_storage = AsyncMock()
                     mock_create_storage.return_value = mock_storage
 
-                    mock_book_storage = AsyncMock()
-                    mock_book_storage.save_archive.return_value = "local-raw/TEST123/TEST123.tar.gz"
-                    mock_book_storage_class.return_value = mock_book_storage
+                    mock_book_manager = AsyncMock()
+                    mock_book_manager.save_archive.return_value = "local-raw/TEST123/TEST123.tar.gz"
+                    mock_book_manager_class.return_value = mock_book_manager
 
                     # Call the function
                     with mock_minimal_upload():
@@ -104,8 +104,8 @@ class TestBucketPrefixingBehavior:
                         )
 
                     # Verify BookStorage was created with correct parameters
-                    mock_book_storage_class.assert_called_once()
-                    call_args = mock_book_storage_class.call_args
+                    mock_book_manager_class.assert_called_once()
+                    call_args = mock_book_manager_class.call_args
 
                     # Check bucket configuration - should contain bucket names
                     bucket_config = call_args[1]["bucket_config"]
@@ -123,14 +123,14 @@ class TestBucketPrefixingBehavior:
         config = {"bucket_raw": "test-raw", "bucket_full": "test-full", "prefix": "my-custom-prefix"}
 
         with patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage:
-            with patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class:
+            with patch("grin_to_s3.sync.operations.BookManager") as mock_book_manager_class:
                 # Setup mocks
                 mock_storage = AsyncMock()
                 mock_create_storage.return_value = mock_storage
 
-                mock_book_storage = AsyncMock()
-                mock_book_storage.save_archive.return_value = "test-raw/my-custom-prefix/TEST123/TEST123.tar.gz"
-                mock_book_storage_class.return_value = mock_book_storage
+                mock_book_manager = AsyncMock()
+                mock_book_manager.save_archive.return_value = "test-raw/my-custom-prefix/TEST123/TEST123.tar.gz"
+                mock_book_manager_class.return_value = mock_book_manager
 
                 # Call the function
                 with mock_minimal_upload():
@@ -147,8 +147,8 @@ class TestBucketPrefixingBehavior:
                     )
 
                 # Verify BookStorage was created with correct parameters
-                mock_book_storage_class.assert_called_once()
-                call_args = mock_book_storage_class.call_args
+                mock_book_manager_class.assert_called_once()
+                call_args = mock_book_manager_class.call_args
 
                 # Check that custom prefix is preserved but bucket name is not added
                 base_prefix = call_args[1]["base_prefix"]
@@ -171,11 +171,11 @@ class TestBucketPrefixingBehavior:
 
         for storage_type, config in problematic_configs:
             with patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage:
-                with patch("grin_to_s3.sync.operations.BookManager") as mock_book_storage_class:
+                with patch("grin_to_s3.sync.operations.BookManager") as mock_book_manager_class:
                     # Setup mocks
                     mock_storage = AsyncMock()
                     mock_create_storage.return_value = mock_storage
-                    mock_book_storage_class.return_value = AsyncMock()
+                    mock_book_manager_class.return_value = AsyncMock()
 
                     # Call the function
                     with mock_minimal_upload():
@@ -192,7 +192,7 @@ class TestBucketPrefixingBehavior:
                         )
 
                     # Get the base_prefix passed to BookStorage
-                    call_args = mock_book_storage_class.call_args
+                    call_args = mock_book_manager_class.call_args
                     base_prefix = call_args[1]["base_prefix"]
                     bucket_name = config["bucket_raw"]
 
