@@ -37,7 +37,15 @@ class BookManager:
             storage: Storage backend instance
             bucket_config: Bucket names configuration (keyword-only for safety)
             base_prefix: Optional prefix for all storage paths
+
+        Raises:
+            ValueError: If any bucket name is empty
         """
+        # Validate bucket names are not empty
+        for bucket_key, bucket_name in bucket_config.items():
+            if not bucket_name or (isinstance(bucket_name, str) and not bucket_name.strip()):
+                raise ValueError(f"Bucket name cannot be empty: {bucket_key}")
+
         self.storage = storage
         self.bucket_raw = bucket_config["bucket_raw"]
         self.bucket_meta = bucket_config["bucket_meta"]

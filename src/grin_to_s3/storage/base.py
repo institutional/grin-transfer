@@ -112,8 +112,11 @@ class Storage:
                     raise ValueError("Local storage requires explicit base_path")
                 path = str(Path(base_path) / path)
         elif self.config.protocol in ("s3", "gcs", "abfs"):
-            # For cloud storage, ensure no leading slash
+            # For cloud storage, ensure no leading slash and normalize consecutive slashes
             path = path.lstrip("/")
+            # Replace consecutive slashes with single slash
+            import re
+            path = re.sub(r"/+", "/", path)
         return path
 
     async def exists(self, path: str) -> bool:
