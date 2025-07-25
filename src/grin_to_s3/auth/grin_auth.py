@@ -21,6 +21,9 @@ from .exceptions import AuthError, CredentialsMissingError, GRINPermissionError
 
 logger = logging.getLogger(__name__)
 
+# Default credentials directory
+DEFAULT_CREDENTIALS_DIR = Path.home() / ".config" / "grin-to-s3"
+
 
 def detect_remote_shell() -> bool:
     """
@@ -149,10 +152,11 @@ class GRINAuth:
         if secrets_file:
             return Path(secrets_file)
 
-        # Check environment variable first (for Docker)
-        env_path = os.environ.get("GRIN_CLIENT_SECRET_FILE")
-        if env_path and Path(env_path).exists():
-            return Path(env_path)
+        # Check credentials directory first (configurable, used by Docker)
+        creds_dir = os.environ.get("GRIN_CREDENTIALS_DIR", str(DEFAULT_CREDENTIALS_DIR))
+        creds_path = Path(creds_dir) / "client_secret.json"
+        if creds_path.exists():
+            return creds_path
 
         # Search locations in order of preference
         search_paths = []
@@ -185,10 +189,14 @@ class GRINAuth:
         if credentials_file:
             return Path(credentials_file)
 
-        # Check environment variable first (for Docker)
-        env_dir = os.environ.get("GRIN_CREDENTIALS_DIR")
-        if env_dir:
-            return Path(env_dir) / "credentials.json"
+        # Check writable credentials directory first (for Docker and OAuth tokens)
+        writable_dir = os.environ.get("GRIN_WRITABLE_CREDENTIALS_DIR")
+        if writable_dir:
+            return Path(writable_dir) / "credentials.json"
+
+        # Fall back to main credentials directory
+        creds_dir = os.environ.get("GRIN_CREDENTIALS_DIR", str(DEFAULT_CREDENTIALS_DIR))
+        return Path(creds_dir) / "credentials.json"
 
         # Search locations in order of preference
         search_paths = []

@@ -536,8 +536,10 @@ Examples:
         else:
             print(f"❌ Collection failed: {e}")
 
-        # Show resume command for any failure/interruption
-        print_resume_command(args, run_name)
+        # Only show resume command if collection actually started (run directory exists)
+        run_dir = Path(f"grin-runs/{run_name}")
+        if run_dir.exists():
+            print_resume_command(args, run_name)
         return 1
 
 

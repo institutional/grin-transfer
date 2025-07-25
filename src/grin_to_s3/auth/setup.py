@@ -93,7 +93,7 @@ If you don't have a client_secret.json file, follow these steps to create one:
         print(f"❌ Client secrets file not found: {secrets_path}")
         print("\nTo fix this:")
         print("1. Create the directory: mkdir -p ~/.config/grin-to-s3/")
-        print("2. Copy the template: cp examples/docker/client_secret.json ~/.config/grin-to-s3/client_secret.json")
+        print("2. Copy the template: cp examples/auth/client_secret.json ~/.config/grin-to-s3/client_secret.json")
         print("3. Edit the file with your OAuth2 credentials from Google Cloud Console")
         return False
     except json.JSONDecodeError:

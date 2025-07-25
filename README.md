@@ -221,7 +221,7 @@ python grin.py collect --run-name "local" --library-directory Harvard --storage 
 
 **Cloudflare R2:**
 ```bash 
-cp examples/docker/r2-credentials-template.json ~/.config/grin-to-s3/r2_credentials.json
+cp examples/auth/r2-credentials-template.json ~/.config/grin-to-s3/r2_credentials.json
 
 # Edit `r2_credentials.json` with your access information and bucket names, then test with:
 python grin.py collect --run-name "r2" --library-directory Harvard --storage r2

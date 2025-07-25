@@ -7,6 +7,7 @@ Provides convenient factory functions for common storage configurations.
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +63,27 @@ def s3_credentials_available() -> bool:
         return False
 
 
+def find_credential_file(filename: str) -> Path | None:
+    """
+    Find a credential file, checking credentials directory first, then standard locations.
+
+    Args:
+        filename: Name of the credential file to find
+
+    Returns:
+        Path to the credential file if found, None otherwise
+    """
+    from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR
+
+    # Check credentials directory (defaults to standard location if not set)
+    creds_dir = os.environ.get("GRIN_CREDENTIALS_DIR", str(DEFAULT_CREDENTIALS_DIR))
+    creds_path = Path(creds_dir) / filename
+    if creds_path.exists():
+        return creds_path
+
+    return None
+
+
 def load_r2_credentials() -> tuple[str, str] | None:
     """Load R2 credentials from secrets directory.
 
@@ -69,12 +91,11 @@ def load_r2_credentials() -> tuple[str, str] | None:
         Tuple of (access_key, secret_key) if successful, None if failed
     """
     import logging
-    from pathlib import Path
 
     logger = logging.getLogger(__name__)
-    credentials_file = Path.home() / ".config" / "grin-to-s3" / "r2_credentials.json"
+    credentials_file = find_credential_file("r2_credentials.json")
 
-    if not credentials_file.exists():
+    if not credentials_file:
         logger.error("Missing R2 credentials file. Please ensure credentials are properly configured in ~/.config/grin-to-s3/r2_credentials.json")
         return None
 
@@ -84,12 +105,12 @@ def load_r2_credentials() -> tuple[str, str] | None:
         secret_key = creds.get("secret_key")
 
         if not access_key or not secret_key:
-            logger.error("Invalid R2 credentials file. Missing access_key or secret_key in ~/.config/grin-to-s3/r2_credentials.json")
+            logger.error(f"Invalid R2 credentials file. Missing access_key or secret_key in {credentials_file}")
             return None
 
         return access_key, secret_key
     except Exception as e:
-        logger.error(f"Failed to load R2 credentials from ~/.config/grin-to-s3/r2_credentials.json: {e}")
+        logger.error(f"Failed to load R2 credentials from {credentials_file}: {e}")
         return None
 
 
@@ -148,9 +169,16 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
             # Check for credentials file (custom path or default)
             credentials_file = config.get("credentials_file")
             if not credentials_file:
-                # Use default path in config directory
-                home = Path.home()
-                credentials_file = home / ".config" / "grin-to-s3" / "r2_credentials.json"
+                # Use helper to find credential file in standard locations
+                credentials_file = find_credential_file("r2_credentials.json")
+                if not credentials_file:
+                    # File not found, provide helpful error with host path
+                    from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR
+                    host_path = DEFAULT_CREDENTIALS_DIR / "r2_credentials.json"
+                    raise ValueError(
+                        f"R2 credentials file not found at {host_path}. "
+                        f"Copy examples/auth/r2-credentials-template.json to this location and edit with your R2 credentials."
+                    )
 
             try:
                 creds = load_json_credentials(str(credentials_file))
@@ -258,8 +286,15 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
             # Get R2 credentials from file
             credentials_file = config.get("credentials_file")
             if not credentials_file:
-                home = Path.home()
-                credentials_file = home / ".config" / "grin-to-s3" / "r2_credentials.json"
+                credentials_file = find_credential_file("r2_credentials.json")
+                if not credentials_file:
+                    # File not found, provide helpful error with host path
+                    from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR
+                    host_path = DEFAULT_CREDENTIALS_DIR / "r2_credentials.json"
+                    raise ValueError(
+                        f"R2 credentials file not found at {host_path}. "
+                        f"Copy examples/auth/r2-credentials-template.json to this location and edit with your R2 credentials."
+                    )
 
             try:
                 creds = load_json_credentials(str(credentials_file))

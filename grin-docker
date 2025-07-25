@@ -32,6 +32,59 @@ if [ ! -f "$COMPOSE_PATH" ]; then
     exit 1
 fi
 
+# Handle auth setup before starting container
+if [ "$1" = "auth" ] && [ "$2" = "setup" ]; then
+    echo "Setting up authentication credentials..."
+    
+    # Create credentials directory if it doesn't exist
+    CREDS_DIR="$HOME/.config/grin-to-s3"
+    if [ ! -d "$CREDS_DIR" ]; then
+        echo "Credentials directory doesn't exist: $CREDS_DIR"
+        read -p "Create it now? (y/N): " -r
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            mkdir -p "$CREDS_DIR"
+            echo "Created $CREDS_DIR"
+        else
+            echo "Cannot proceed without credentials directory"
+            exit 1
+        fi
+    fi
+    
+    # Check if client_secret.json exists
+    if [ ! -f "$CREDS_DIR/client_secret.json" ]; then
+        echo ""
+        echo "Missing OAuth 2.0 client secrets file: $CREDS_DIR/client_secret.json"
+        echo ""
+        echo "To obtain your credentials:"
+        echo "1. Go to: https://console.cloud.google.com/apis/credentials"
+        echo "2. Create a new project or select existing"
+        echo "3. Click 'Create Credentials' → 'OAuth 2.0 Client IDs'"
+        echo "4. Application type: 'Desktop application'"
+        echo "5. Download the JSON file"
+        echo "6. Save it as: $CREDS_DIR/client_secret.json"
+        echo ""
+        echo "Or copy the template: cp examples/auth/client_secret.json $CREDS_DIR/client_secret.json"
+        echo "Then edit it with your OAuth2 credentials"
+        exit 1
+    fi
+    
+    # Clear extended attributes that can cause Docker mount issues on macOS
+    if command -v xattr >/dev/null 2>&1; then
+        xattr -c "$CREDS_DIR/client_secret.json" 2>/dev/null || true
+    fi
+    
+    # Check for optional credential files and inform user
+    if [ ! -f "$CREDS_DIR/gpg_passphrase.asc" ]; then
+        echo "Note: GPG passphrase file not found - add $CREDS_DIR/gpg_passphrase.asc if needed for archive decryption"
+    fi
+    
+    if [ ! -f "$CREDS_DIR/r2_credentials.json" ]; then
+        echo "Note: R2 credentials file not found - copy examples/auth/r2-credentials-template.json to $CREDS_DIR/r2_credentials.json if using R2 storage"
+    fi
+    
+    echo "Credentials directory prepared. Starting container for OAuth2 setup..."
+fi
+
 # Prepare the command to execute
 if [ "$1" = "bash" ]; then
     # Special case: bash opens an interactive shell
@@ -46,6 +99,16 @@ PROFILES=""
 if echo "$COMMAND" | grep -q "storage minio\|--storage=minio"; then
     PROFILES="--profile minio"
     echo "Detected MinIO storage - starting MinIO services..."
+fi
+
+# Check for missing GPG passphrase file and warn
+CREDS_DIR="$HOME/.config/grin-to-s3"
+if [ ! -f "$CREDS_DIR/gpg_passphrase.asc" ]; then
+    echo ""
+    echo "⚠️  WARNING: GPG passphrase file not found!"
+    echo "    Archive decryption will fail without: $CREDS_DIR/gpg_passphrase.asc"
+    echo "    Add your GPG passphrase to this file if you need to decrypt archives"
+    echo ""
 fi
 
 # Check if services are already running
