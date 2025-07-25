@@ -28,6 +28,7 @@ from grin_to_s3.run_config import (
     DEFAULT_SYNC_CONCURRENT_UPLOADS,
     DEFAULT_SYNC_DISK_SPACE_THRESHOLD,
     DEFAULT_SYNC_ENRICHMENT_WORKERS,
+    build_storage_config_dict,
 )
 from grin_to_s3.storage import get_storage_protocol
 
@@ -387,25 +388,11 @@ Examples:
     )
     logger.info(f"Command: {' '.join(sys.argv)}")
 
-    # Build storage configuration
+    # Build storage configuration using centralized function
     storage_config = None
     if args.storage:
-        final_storage_dict: dict[str, str] = {}
-
-        # Add bucket names if provided
-        if args.bucket_raw:
-            final_storage_dict["bucket_raw"] = args.bucket_raw
-        if args.bucket_meta:
-            final_storage_dict["bucket_meta"] = args.bucket_meta
-        if args.bucket_full:
-            final_storage_dict["bucket_full"] = args.bucket_full
-
-        # Add additional storage config
-        if args.storage_config:
-            for item in args.storage_config:
-                if "=" in item:
-                    key, value = item.split("=", 1)
-                    final_storage_dict[key] = value
+        # Use centralized function that handles r2 credentials file loading
+        final_storage_dict = build_storage_config_dict(args)
 
         # Auto-configure MinIO with standard bucket names (only used in Docker)
         if args.storage == "minio":

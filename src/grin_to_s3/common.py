@@ -39,6 +39,11 @@ def extract_bucket_config(storage_type: str, config_dict: dict) -> BucketConfig:
 
     Returns:
         BucketConfig with bucket_raw, bucket_meta, bucket_full keys
+
+    Note:
+        This function expects bucket names to already be populated in config_dict.
+        For r2 storage, bucket names should be loaded from credentials file by
+        build_storage_config_dict() before calling this function.
     """
     if storage_type == "local":
         # For local storage, use standard directory names as defaults
@@ -49,7 +54,7 @@ def extract_bucket_config(storage_type: str, config_dict: dict) -> BucketConfig:
         }
         return local_config
     else:
-        # For cloud storage, bucket names are required
+        # For cloud storage, extract bucket names (should already be populated)
         cloud_config: BucketConfig = {
             "bucket_raw": config_dict.get("bucket_raw", ""),
             "bucket_meta": config_dict.get("bucket_meta", ""),
