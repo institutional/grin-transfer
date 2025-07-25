@@ -792,7 +792,7 @@ def print_oauth_setup_instructions() -> None:
     """Print appropriate OAuth setup instructions based on environment."""
     if is_docker_environment():
         print("\nTo set up OAuth credentials in Docker:")
-        print("./grin-docker python grin.py auth setup")
+        print("./grin-docker auth setup")
     else:
         print("\nTo set up OAuth credentials:")
         print("python grin.py auth setup")
