@@ -63,7 +63,7 @@ jobs:
         mkdir -p docker-data/{data,output,logs,staging}
         mkdir -p ~/.config/grin-to-s3
         # Create dummy client secret file for Docker tests
-        cp examples/docker/client_secret.json ~/.config/grin-to-s3/client_secret.json
+        cp examples/auth/client_secret.json ~/.config/grin-to-s3/client_secret.json
     
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3

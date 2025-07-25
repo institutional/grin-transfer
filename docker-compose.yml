@@ -28,13 +28,11 @@ services:
       - ./grin.py:/app/grin.py
       - ./docs:/app/docs
       
-      # Secure credential mounting (read-only client secrets)
-      - ~/.config/grin-to-s3/client_secret.json:/app/secrets/client_secret.json:ro
-      - ~/.config/grin-to-s3/gpg_passphrase.asc:/app/.config/grin-to-s3/gpg_passphrase.asc:ro
-      - ~/.config/grin-to-s3/r2_credentials.json:/app/.config/grin-to-s3/r2_credentials.json:ro
+      # Read-only credential directory (for existing user credentials)
+      - ~/.config/grin-to-s3:/app/.config/grin-to-s3-read:ro
       
-      # Writable credential storage for token refresh
-      - ./docker-data/credentials:/app/.config/grin-to-s3
+      # Writable credential directory (for OAuth tokens and generated credentials)
+      - ./docker-data/credentials:/app/.config/grin-to-s3-write
       
       # GPG keyring for archive decryption (read-only source)
       - ~/.gnupg:/app/.gnupg-readonly:ro
@@ -48,9 +46,9 @@ services:
       - GRIN_LOG_DIR=/app/logs
       - GRIN_STAGING_DIR=/app/staging
       
-      # OAuth2 credential paths
-      - GRIN_CLIENT_SECRET_FILE=/app/secrets/client_secret.json
-      - GRIN_CREDENTIALS_DIR=/app/.config/grin-to-s3
+      # Credential directory paths
+      - GRIN_CREDENTIALS_DIR=/app/.config/grin-to-s3-read
+      - GRIN_WRITABLE_CREDENTIALS_DIR=/app/.config/grin-to-s3-write
       - GRIN_OAUTH_PORT=${GRIN_OAUTH_PORT:-58432}
       
       # Development settings

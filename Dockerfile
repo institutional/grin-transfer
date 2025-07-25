@@ -42,7 +42,7 @@ COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/pytho
 COPY . .
 
 # Create data directories with proper permissions
-RUN mkdir -p /app/data /app/output /app/config /app/logs /app/staging /app/.gnupg && \
+RUN mkdir -p /app/data /app/output /app/config /app/logs /app/staging /app/.gnupg /app/secrets /app/.config/grin-to-s3 && \
     chown -R grin:grin /app
 
 # Set environment variables

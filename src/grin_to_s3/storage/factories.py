@@ -7,15 +7,17 @@ Provides convenient factory functions for common storage configurations.
 
 import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from grin_to_s3.docker import process_local_storage_path
 
+from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR, find_credential_file
 from .base import Storage, StorageConfig
 from .book_manager import BookManager, BucketConfig
 
 logger = logging.getLogger(__name__)
+
+
 
 # Default directory names for local storage
 LOCAL_STORAGE_DEFAULTS = {
@@ -62,6 +64,7 @@ def s3_credentials_available() -> bool:
         return False
 
 
+
 def load_r2_credentials() -> tuple[str, str] | None:
     """Load R2 credentials from secrets directory.
 
@@ -69,12 +72,11 @@ def load_r2_credentials() -> tuple[str, str] | None:
         Tuple of (access_key, secret_key) if successful, None if failed
     """
     import logging
-    from pathlib import Path
 
     logger = logging.getLogger(__name__)
-    credentials_file = Path.home() / ".config" / "grin-to-s3" / "r2_credentials.json"
+    credentials_file = find_credential_file("r2_credentials.json")
 
-    if not credentials_file.exists():
+    if not credentials_file:
         logger.error("Missing R2 credentials file. Please ensure credentials are properly configured in ~/.config/grin-to-s3/r2_credentials.json")
         return None
 
@@ -84,12 +86,12 @@ def load_r2_credentials() -> tuple[str, str] | None:
         secret_key = creds.get("secret_key")
 
         if not access_key or not secret_key:
-            logger.error("Invalid R2 credentials file. Missing access_key or secret_key in ~/.config/grin-to-s3/r2_credentials.json")
+            logger.error(f"Invalid R2 credentials file. Missing access_key or secret_key in {credentials_file}")
             return None
 
         return access_key, secret_key
     except Exception as e:
-        logger.error(f"Failed to load R2 credentials from ~/.config/grin-to-s3/r2_credentials.json: {e}")
+        logger.error(f"Failed to load R2 credentials from {credentials_file}: {e}")
         return None
 
 
@@ -146,11 +148,13 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
 
         case "r2":
             # Check for credentials file (custom path or default)
-            credentials_file = config.get("credentials_file")
+            credentials_file = config.get("credentials_file") or find_credential_file("r2_credentials.json")
             if not credentials_file:
-                # Use default path in config directory
-                home = Path.home()
-                credentials_file = home / ".config" / "grin-to-s3" / "r2_credentials.json"
+                host_path = DEFAULT_CREDENTIALS_DIR / "r2_credentials.json"
+                raise ValueError(
+                    f"R2 credentials file not found at {host_path}. "
+                    f"Copy examples/auth/r2-credentials-template.json to this location and edit with your R2 credentials."
+                )
 
             try:
                 creds = load_json_credentials(str(credentials_file))
@@ -159,15 +163,10 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
                     endpoint_url=creds["endpoint_url"], access_key=creds["access_key"], secret_key=creds["secret_key"]
                 )
             except FileNotFoundError as e:
-                if config.get("credentials_file"):
-                    # Custom path was specified but file doesn't exist
-                    raise ValueError(f"R2 credentials file not found: {credentials_file}") from e
-                else:
-                    # Default path doesn't exist, provide helpful error
-                    raise ValueError(
-                        f"R2 credentials file not found at {credentials_file}. "
-                        f"Create this file with your R2 credentials."
-                    ) from e
+                error_msg = f"R2 credentials file not found: {credentials_file}"
+                if not config.get("credentials_file"):
+                    error_msg += ". Create this file with your R2 credentials."
+                raise ValueError(error_msg) from e
             except (ValueError, KeyError) as e:
                 raise ValueError(f"Invalid R2 credentials file {credentials_file}: {e}") from e
 
@@ -256,10 +255,13 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
 
         case "r2":
             # Get R2 credentials from file
-            credentials_file = config.get("credentials_file")
+            credentials_file = config.get("credentials_file") or find_credential_file("r2_credentials.json")
             if not credentials_file:
-                home = Path.home()
-                credentials_file = home / ".config" / "grin-to-s3" / "r2_credentials.json"
+                host_path = DEFAULT_CREDENTIALS_DIR / "r2_credentials.json"
+                raise ValueError(
+                    f"R2 credentials file not found at {host_path}. "
+                    f"Copy examples/auth/r2-credentials-template.json to this location and edit with your R2 credentials."
+                )
 
             try:
                 creds = load_json_credentials(str(credentials_file))
@@ -270,13 +272,10 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
                     secret_key=creds["secret_key"],
                 )
             except FileNotFoundError as e:
-                if config.get("credentials_file"):
-                    raise ValueError(f"R2 credentials file not found: {credentials_file}") from e
-                else:
-                    raise ValueError(
-                        f"R2 credentials file not found at {credentials_file}. "
-                        f"Create this file with your R2 credentials."
-                    ) from e
+                error_msg = f"R2 credentials file not found: {credentials_file}"
+                if not config.get("credentials_file"):
+                    error_msg += ". Create this file with your R2 credentials."
+                raise ValueError(error_msg) from e
             except (ValueError, KeyError) as e:
                 raise ValueError(f"Invalid R2 credentials file {credentials_file}: {e}") from e
 
