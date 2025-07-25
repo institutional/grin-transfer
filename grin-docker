@@ -119,10 +119,20 @@ if ! docker compose -f "$COMPOSE_PATH" ps "$SERVICE_NAME" 2>/dev/null | grep -q 
     fi
     
     # Start services with visible output
-    if ! docker compose -f "$COMPOSE_PATH" $PROFILES up -d "$SERVICE_NAME"; then
-        echo "Error: Failed to start $SERVICE_NAME service"
-        echo "Try running: docker compose -f $COMPOSE_FILE $PROFILES up -d"
-        exit 1
+    if [ -n "$PROFILES" ]; then
+        # When using profiles, start all services in the profile
+        if ! docker compose -f "$COMPOSE_PATH" $PROFILES up -d; then
+            echo "Error: Failed to start services with profile"
+            echo "Try running: docker compose -f $COMPOSE_FILE $PROFILES up -d"
+            exit 1
+        fi
+    else
+        # When not using profiles, start just the main service
+        if ! docker compose -f "$COMPOSE_PATH" up -d "$SERVICE_NAME"; then
+            echo "Error: Failed to start $SERVICE_NAME service"
+            echo "Try running: docker compose -f $COMPOSE_FILE up -d"
+            exit 1
+        fi
     fi
     
     echo "Services started successfully."
