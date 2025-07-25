@@ -7,17 +7,17 @@ Provides convenient factory functions for common storage configurations.
 
 import json
 import logging
-import os
-from pathlib import Path
 from typing import Any
 
 from grin_to_s3.docker import process_local_storage_path
 
-from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR
+from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR, find_credential_file
 from .base import Storage, StorageConfig
 from .book_manager import BookManager, BucketConfig
 
 logger = logging.getLogger(__name__)
+
+
 
 # Default directory names for local storage
 LOCAL_STORAGE_DEFAULTS = {
@@ -63,24 +63,6 @@ def s3_credentials_available() -> bool:
     except Exception:
         return False
 
-
-def find_credential_file(filename: str) -> Path | None:
-    """
-    Find a credential file, checking credentials directory first, then standard locations.
-
-    Args:
-        filename: Name of the credential file to find
-
-    Returns:
-        Path to the credential file if found, None otherwise
-    """
-    # Check credentials directory (defaults to standard location if not set)
-    creds_dir = os.environ.get("GRIN_CREDENTIALS_DIR", str(DEFAULT_CREDENTIALS_DIR))
-    creds_path = Path(creds_dir) / filename
-    if creds_path.exists():
-        return creds_path
-
-    return None
 
 
 def load_r2_credentials() -> tuple[str, str] | None:

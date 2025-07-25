@@ -871,5 +871,24 @@ def main() -> None:
         print("\nFor programmatic use, import GRINAuth class")
 
 
+def find_credential_file(filename: str) -> Path | None:
+    """
+    Find a credential file, checking credentials directory first, then standard locations.
+
+    Args:
+        filename: Name of the credential file to find
+
+    Returns:
+        Path to the credential file if found, None otherwise
+    """
+    # Check credentials directory (defaults to standard location if not set)
+    creds_dir = os.environ.get("GRIN_CREDENTIALS_DIR", str(DEFAULT_CREDENTIALS_DIR))
+    creds_path = Path(creds_dir) / filename
+    if creds_path.exists():
+        return creds_path
+
+    return None
+
+
 if __name__ == "__main__":
     main()

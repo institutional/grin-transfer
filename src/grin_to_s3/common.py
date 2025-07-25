@@ -20,9 +20,10 @@ import aiohttp
 from grin_to_s3.docker import is_docker_environment
 from grin_to_s3.storage.book_manager import BucketConfig
 
-from .auth.grin_auth import DEFAULT_CREDENTIALS_DIR
+from .auth.grin_auth import find_credential_file
 
 logger = logging.getLogger(__name__)
+
 
 
 def extract_bucket_config(storage_type: str, config_dict: dict) -> BucketConfig:
@@ -436,9 +437,8 @@ def get_gpg_passphrase_from_secrets(secrets_dir: str | None = None) -> str:
         ValueError: If passphrase file is empty
     """
     # First check credentials directory (configurable, used by Docker)
-    creds_dir = os.environ.get("GRIN_CREDENTIALS_DIR", str(DEFAULT_CREDENTIALS_DIR))
-    creds_passphrase_file = Path(creds_dir) / "gpg_passphrase.asc"
-    if creds_passphrase_file.exists():
+    creds_passphrase_file = find_credential_file("gpg_passphrase.asc")
+    if creds_passphrase_file:
         try:
             passphrase = creds_passphrase_file.read_text().strip()
             if not passphrase:
@@ -644,9 +644,8 @@ def get_gpg_passphrase_file_path(secrets_dir: str | None = None) -> str | None:
         Path to passphrase file or None if not found
     """
     # First check credentials directory (configurable, used by Docker)
-    creds_dir = os.environ.get("GRIN_CREDENTIALS_DIR", str(DEFAULT_CREDENTIALS_DIR))
-    creds_passphrase_file = Path(creds_dir) / "gpg_passphrase.asc"
-    if creds_passphrase_file.exists():
+    creds_passphrase_file = find_credential_file("gpg_passphrase.asc")
+    if creds_passphrase_file:
         return str(creds_passphrase_file)
 
     # Search for passphrase file in the same way as get_gpg_passphrase_from_secrets
