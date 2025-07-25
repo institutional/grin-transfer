@@ -9,6 +9,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -873,11 +874,26 @@ async def create_storage_buckets_or_directories(storage_type: str, storage_confi
     """
     if storage_type == "local":
         # Create directories for local storage
-        base_path = storage_config.get("base_path")
-        if not base_path:
+        base_path_str = storage_config.get("base_path")
+        if not base_path_str:
             raise ValueError("Local storage requires base_path in configuration")
 
-        base_path = Path(base_path)
+        # Translate docker-data paths for Docker environments
+        from grin_to_s3.docker import translate_docker_data_path, validate_docker_storage_path
+        translated_path = translate_docker_data_path(base_path_str)
+
+        # Always expand paths (handles ~, relative paths, etc.)
+        base_path = Path(translated_path).expanduser().resolve()
+
+        # Validate path accessibility for Docker environments
+        try:
+            validate_docker_storage_path(base_path_str, base_path)
+        except ValueError:
+            sys.exit(1)
+
+        # Update config with resolved path for consistency
+        storage_config["base_path"] = str(base_path)
+
         # Create the main directories using default names
         (base_path / LOCAL_STORAGE_DEFAULTS["bucket_raw"]).mkdir(parents=True, exist_ok=True)
         (base_path / LOCAL_STORAGE_DEFAULTS["bucket_meta"]).mkdir(parents=True, exist_ok=True)
