@@ -9,7 +9,7 @@ import sys
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-from ..common import is_docker_environment
+from ..docker import is_docker_environment
 from .grin_auth import SCOPES, GRINAuth
 
 

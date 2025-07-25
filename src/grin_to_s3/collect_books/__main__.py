@@ -12,13 +12,13 @@ import logging
 import os
 import sys
 
+from grin_to_s3.storage.factories import create_local_storage_directories
+
 from .collector import BookCollector
 from .config import ConfigManager
 
 sys.path.append("..")
 from grin_to_s3.common import (
-    LOCAL_STORAGE_DEFAULTS,
-    create_storage_buckets_or_directories,
     setup_logging,
 )
 from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
@@ -399,12 +399,6 @@ Examples:
             from ..common import auto_configure_minio
             auto_configure_minio(final_storage_dict)
 
-        # Auto-configure local storage with standard directory names if not provided
-        elif args.storage == "local":
-            for key, default_value in LOCAL_STORAGE_DEFAULTS.items():
-                if key not in final_storage_dict:
-                    final_storage_dict[key] = default_value
-
         # Determine storage protocol for operational logic
         storage_protocol = get_storage_protocol(args.storage)
         storage_config = {
@@ -415,7 +409,14 @@ Examples:
         }
 
         # Create all required buckets/directories early to fail fast
-        await create_storage_buckets_or_directories(args.storage, final_storage_dict)
+        if args.storage == "local":
+            try:
+                await create_local_storage_directories(final_storage_dict)
+            except ValueError:
+                sys.exit(1)
+
+        else:
+            print(f"Configured with {args.storage} cloud storage")
 
     try:
         # Create book storage for process summary uploads

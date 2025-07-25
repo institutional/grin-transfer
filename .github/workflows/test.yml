@@ -90,14 +90,14 @@ jobs:
         docker compose --profile minio up -d
         
         # Wait for setup to complete
-        while docker compose ps minio-setup | grep -q "running"; do
+        while docker compose ps minio-client | grep -q "running"; do
           echo "Waiting for MinIO setup..."
           sleep 2
         done
         
         # Show setup logs for debugging
         echo "MinIO setup logs:"
-        docker compose logs minio-setup
+        docker compose logs minio-client
         
         # Verify MinIO server is running
         docker compose ps | grep -q "minio.*Up"
@@ -134,7 +134,7 @@ jobs:
         docker compose --profile minio up -d
         
         # Wait for setup to complete
-        while docker compose ps minio-setup | grep -q "running"; do
+        while docker compose ps minio-client | grep -q "running"; do
           echo "Waiting for MinIO setup..."
           sleep 2
         done
@@ -172,7 +172,7 @@ jobs:
         docker compose --profile minio up -d
         
         # Wait for setup to complete
-        while docker compose ps minio-setup | grep -q "running"; do
+        while docker compose ps minio-client | grep -q "running"; do
           echo "Waiting for MinIO setup..."
           sleep 2
         done

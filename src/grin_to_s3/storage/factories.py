@@ -10,11 +10,19 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from grin_to_s3.docker import process_local_storage_path
+
 from .base import Storage, StorageConfig
 from .book_manager import BookManager, BucketConfig
 
 logger = logging.getLogger(__name__)
 
+# Default directory names for local storage
+LOCAL_STORAGE_DEFAULTS = {
+    "bucket_raw": "raw",
+    "bucket_meta": "meta",
+    "bucket_full": "full"
+}
 
 def get_storage_protocol(storage_type: str) -> str:
     """
@@ -305,3 +313,27 @@ def create_book_manager_with_full_text(storage_type: str, config: dict, base_pre
     }
 
     return BookManager(storage=storage, bucket_config=bucket_config, base_prefix=base_prefix)
+
+
+async def create_local_storage_directories(storage_config: dict) -> None:
+    """Create all required directories for local storage.
+
+    Args:
+        storage_config: Local storage configuration dictionary
+    """
+    # Create directories for local storage
+    base_path_str = storage_config.get("base_path")
+    if not base_path_str:
+        raise ValueError("Local storage requires base_path in configuration")
+
+    # Process path with Docker translation and validation
+    base_path = process_local_storage_path(base_path_str)
+
+    # Update config with resolved path for consistency
+    storage_config["base_path"] = str(base_path)
+
+    # Create the main directories using default names
+    (base_path / LOCAL_STORAGE_DEFAULTS["bucket_raw"]).mkdir(parents=True, exist_ok=True)
+    (base_path / LOCAL_STORAGE_DEFAULTS["bucket_meta"]).mkdir(parents=True, exist_ok=True)
+    (base_path / LOCAL_STORAGE_DEFAULTS["bucket_full"]).mkdir(parents=True, exist_ok=True)
+    print(f"Created local storage directories at {base_path}")
