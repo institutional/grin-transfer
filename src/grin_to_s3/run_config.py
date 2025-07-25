@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .storage.factories import load_json_credentials
+from .storage.factories import find_credential_file, load_json_credentials
 
 # Sync configuration defaults
 DEFAULT_SYNC_CONCURRENT_DOWNLOADS = 5
@@ -370,8 +370,8 @@ def validate_bucket_arguments(args: Any, storage_type: str | None = None) -> lis
     Returns:
         List of missing bucket argument names (empty if all present)
     """
-    # For R2 and S3, bucket names are optional as they can be specified in the config file
-    if storage_type in ["r2", "s3"]:
+    # For cloud storage, bucket names are optional as they can be specified in the config file
+    if storage_type in ["r2", "s3", "gcs"]:
         return []
 
     # For local storage, buckets are not needed
@@ -432,19 +432,11 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
                 # Determine credentials file path using the same logic as storage factories
                 credentials_file = getattr(args, "credentials_file", None)
                 if not credentials_file:
-                    from .storage.factories import find_credential_file
                     credentials_file = find_credential_file("r2_credentials.json")
-                    if not credentials_file:
-                        # Fall back to checking secrets_dir if specified
-                        secrets_dir = getattr(args, "secrets_dir", None)
-                        if secrets_dir:
-                            credentials_file = Path(secrets_dir) / "r2-credentials.json"
-                            if not credentials_file.exists():
-                                credentials_file = Path(secrets_dir) / "r2_credentials.json"
 
                 if not credentials_file:
-                    # If still no file found, skip credential loading
-                    pass
+                    # If still no file found, skip credential loading but warn
+                    print("WARNING: R2 credentials file not found, file syncing will not work properly.", file=sys.stderr)
                 else:
                     # Load credentials and extract bucket information
                     creds = load_json_credentials(str(credentials_file))
