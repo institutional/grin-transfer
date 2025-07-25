@@ -13,6 +13,7 @@ from typing import Any
 
 from grin_to_s3.docker import process_local_storage_path
 
+from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR
 from .base import Storage, StorageConfig
 from .book_manager import BookManager, BucketConfig
 
@@ -73,8 +74,6 @@ def find_credential_file(filename: str) -> Path | None:
     Returns:
         Path to the credential file if found, None otherwise
     """
-    from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR
-
     # Check credentials directory (defaults to standard location if not set)
     creds_dir = os.environ.get("GRIN_CREDENTIALS_DIR", str(DEFAULT_CREDENTIALS_DIR))
     creds_path = Path(creds_dir) / filename
@@ -173,7 +172,6 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
                 credentials_file = find_credential_file("r2_credentials.json")
                 if not credentials_file:
                     # File not found, provide helpful error with host path
-                    from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR
                     host_path = DEFAULT_CREDENTIALS_DIR / "r2_credentials.json"
                     raise ValueError(
                         f"R2 credentials file not found at {host_path}. "
@@ -289,7 +287,6 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
                 credentials_file = find_credential_file("r2_credentials.json")
                 if not credentials_file:
                     # File not found, provide helpful error with host path
-                    from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR
                     host_path = DEFAULT_CREDENTIALS_DIR / "r2_credentials.json"
                     raise ValueError(
                         f"R2 credentials file not found at {host_path}. "
