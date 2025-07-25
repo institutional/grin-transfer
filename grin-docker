@@ -22,15 +22,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
 SERVICE_NAME="${SERVICE_NAME:-grin-to-s3}"
 
-# Generate unique instance ID if not provided
-if [ -z "$GRIN_INSTANCE_ID" ]; then
-    # Use combination of username and timestamp for uniqueness
-    GRIN_INSTANCE_ID="${USER:-user}-$(date +%s)"
-    export GRIN_INSTANCE_ID
-fi
-
-# Set container prefix if not provided
+# Set container prefix and instance ID if not provided
 export GRIN_CONTAINER_PREFIX="${GRIN_CONTAINER_PREFIX:-grin-to-s3}"
+export GRIN_INSTANCE_ID="${GRIN_INSTANCE_ID:-dev}"
 
 # Full path to compose file
 COMPOSE_PATH="$SCRIPT_DIR/$COMPOSE_FILE"
@@ -123,7 +117,10 @@ fi
 
 # Check if services are already running
 if ! docker compose -f "$COMPOSE_PATH" ps "$SERVICE_NAME" 2>/dev/null | grep -q "Up"; then
-    echo "Starting Docker services with instance ID: $GRIN_INSTANCE_ID"
+    echo "Starting Docker services..."
+    if [ "$GRIN_INSTANCE_ID" != "dev" ]; then
+        echo "Using instance ID: $GRIN_INSTANCE_ID"
+    fi
     if [ -n "$PROFILES" ]; then
         echo "Starting with MinIO profile..."
     fi
