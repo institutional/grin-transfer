@@ -48,7 +48,7 @@ class E2ETestRunner:
         self.temp_dir: Path | None = None
         self.original_dir = Path.cwd()
 
-    def _run_command(self, cmd: list[str], cwd: Path = None, check: bool = True, quiet: bool = False, timeout: int = 300) -> subprocess.CompletedProcess:
+    def _run_command(self, cmd: list[str], cwd: Path = None, check: bool = True, quiet: bool = False, timeout: int = 300, env: dict = None) -> subprocess.CompletedProcess:
         """Run a command and log the output."""
         cmd_str = " ".join(cmd)
 
@@ -63,7 +63,8 @@ class E2ETestRunner:
                 text=True,
                 check=check,
                 timeout=timeout,
-                stdin=subprocess.DEVNULL  # Prevent hanging on input prompts
+                stdin=subprocess.DEVNULL,  # Prevent hanging on input prompts
+                env=env
             )
 
             # Only show output for non-quiet commands or if there are errors
@@ -307,6 +308,13 @@ class E2ETestRunner:
         """Test the pipeline in Docker with multiple storage configurations."""
         logger.info("Testing Docker pipeline with multiple configurations...")
 
+        # Set unique Docker instance ID for this test run
+        import os
+        test_instance_id = f"e2e-{self.run_name}-{int(time.time())}"
+        docker_env = os.environ.copy()
+        docker_env["GRIN_INSTANCE_ID"] = test_instance_id
+        logger.info(f"Using Docker instance ID: {test_instance_id}")
+
         # Clean up any existing Docker containers first
         logger.info("Cleaning up existing Docker containers...")
         self._run_command([
@@ -365,7 +373,7 @@ class E2ETestRunner:
             "--bucket-meta", "grin-meta",
             "--bucket-full", "grin-full",
             "--library-directory", "Harvard"
-        ], cwd=repo_dir)
+        ], cwd=repo_dir, env=docker_env)
 
         # Wait a moment for MinIO to be fully ready for the next command
         logger.info("Waiting for MinIO to be ready for sync...")
@@ -376,7 +384,7 @@ class E2ETestRunner:
             "./grin-docker", "sync", "pipeline",
             "--run-name", docker_minio_run_name,
             "--limit", "1"
-        ], cwd=repo_dir, timeout=120)
+        ], cwd=repo_dir, timeout=120, env=docker_env)
 
         # Configuration 2: R2 storage in Docker (if credentials available)
         logger.info("=== Testing Docker with R2 storage ===")
@@ -391,14 +399,14 @@ class E2ETestRunner:
                 "--limit", str(self.limit),
                 "--storage", "r2",
                 "--library-directory", "Harvard"
-            ], cwd=repo_dir)
+            ], cwd=repo_dir, env=docker_env)
 
             # Sync with R2 storage in Docker (longer timeout for network operations)
             self._run_command([
                 "./grin-docker", "sync", "pipeline",
                 "--run-name", docker_r2_run_name,
                 "--limit", "1"
-            ], cwd=repo_dir, timeout=180)
+            ], cwd=repo_dir, timeout=180, env=docker_env)
         else:
             logger.warning("R2 credentials not found, skipping Docker R2 storage test")
 
@@ -408,7 +416,7 @@ class E2ETestRunner:
         logger.info("Cleaning up Docker containers...")
         self._run_command([
             "docker", "compose", "down", "--remove-orphans", "--volumes"
-        ], cwd=repo_dir, check=False, quiet=True)
+        ], cwd=repo_dir, check=False, quiet=True, env=docker_env)
 
         # Also clean up any leftover containers that might conflict
         self._run_command([
@@ -481,6 +489,11 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Generate run name if not provided
+    if not args.run_name:
+        import os
+        args.run_name = f"e2e_test_{os.getenv('USER', 'user')}_{int(time.time())}"
 
     runner = E2ETestRunner(
         run_name=args.run_name,
