@@ -148,17 +148,13 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
 
         case "r2":
             # Check for credentials file (custom path or default)
-            credentials_file = config.get("credentials_file")
+            credentials_file = config.get("credentials_file") or find_credential_file("r2_credentials.json")
             if not credentials_file:
-                # Use helper to find credential file in standard locations
-                credentials_file = find_credential_file("r2_credentials.json")
-                if not credentials_file:
-                    # File not found, provide helpful error with host path
-                    host_path = DEFAULT_CREDENTIALS_DIR / "r2_credentials.json"
-                    raise ValueError(
-                        f"R2 credentials file not found at {host_path}. "
-                        f"Copy examples/auth/r2-credentials-template.json to this location and edit with your R2 credentials."
-                    )
+                host_path = DEFAULT_CREDENTIALS_DIR / "r2_credentials.json"
+                raise ValueError(
+                    f"R2 credentials file not found at {host_path}. "
+                    f"Copy examples/auth/r2-credentials-template.json to this location and edit with your R2 credentials."
+                )
 
             try:
                 creds = load_json_credentials(str(credentials_file))
@@ -167,15 +163,10 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
                     endpoint_url=creds["endpoint_url"], access_key=creds["access_key"], secret_key=creds["secret_key"]
                 )
             except FileNotFoundError as e:
-                if config.get("credentials_file"):
-                    # Custom path was specified but file doesn't exist
-                    raise ValueError(f"R2 credentials file not found: {credentials_file}") from e
-                else:
-                    # Default path doesn't exist, provide helpful error
-                    raise ValueError(
-                        f"R2 credentials file not found at {credentials_file}. "
-                        f"Create this file with your R2 credentials."
-                    ) from e
+                error_msg = f"R2 credentials file not found: {credentials_file}"
+                if not config.get("credentials_file"):
+                    error_msg += ". Create this file with your R2 credentials."
+                raise ValueError(error_msg) from e
             except (ValueError, KeyError) as e:
                 raise ValueError(f"Invalid R2 credentials file {credentials_file}: {e}") from e
 
@@ -264,16 +255,13 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
 
         case "r2":
             # Get R2 credentials from file
-            credentials_file = config.get("credentials_file")
+            credentials_file = config.get("credentials_file") or find_credential_file("r2_credentials.json")
             if not credentials_file:
-                credentials_file = find_credential_file("r2_credentials.json")
-                if not credentials_file:
-                    # File not found, provide helpful error with host path
-                    host_path = DEFAULT_CREDENTIALS_DIR / "r2_credentials.json"
-                    raise ValueError(
-                        f"R2 credentials file not found at {host_path}. "
-                        f"Copy examples/auth/r2-credentials-template.json to this location and edit with your R2 credentials."
-                    )
+                host_path = DEFAULT_CREDENTIALS_DIR / "r2_credentials.json"
+                raise ValueError(
+                    f"R2 credentials file not found at {host_path}. "
+                    f"Copy examples/auth/r2-credentials-template.json to this location and edit with your R2 credentials."
+                )
 
             try:
                 creds = load_json_credentials(str(credentials_file))
@@ -284,13 +272,10 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
                     secret_key=creds["secret_key"],
                 )
             except FileNotFoundError as e:
-                if config.get("credentials_file"):
-                    raise ValueError(f"R2 credentials file not found: {credentials_file}") from e
-                else:
-                    raise ValueError(
-                        f"R2 credentials file not found at {credentials_file}. "
-                        f"Create this file with your R2 credentials."
-                    ) from e
+                error_msg = f"R2 credentials file not found: {credentials_file}"
+                if not config.get("credentials_file"):
+                    error_msg += ". Create this file with your R2 credentials."
+                raise ValueError(error_msg) from e
             except (ValueError, KeyError) as e:
                 raise ValueError(f"Invalid R2 credentials file {credentials_file}: {e}") from e
 
