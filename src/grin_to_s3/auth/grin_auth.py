@@ -16,7 +16,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
-from ..common import is_docker_environment
+from ..docker import is_docker_environment
 from .exceptions import AuthError, CredentialsMissingError, GRINPermissionError
 
 logger = logging.getLogger(__name__)

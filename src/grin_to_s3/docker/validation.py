@@ -14,8 +14,9 @@ def is_docker_environment() -> bool:
     return os.path.exists("/.dockerenv") or os.environ.get("DOCKER_ENV") == "true"
 
 
-def translate_docker_data_path(original_path: str) -> str:
-    """Translate docker-data relative paths to container paths.
+
+def translate_docker_data_path_for_local_storage(original_path: str) -> str:
+    """Translate docker-data relative paths to container paths for local storage.
 
     Args:
         original_path: The original path string from user
@@ -23,9 +24,6 @@ def translate_docker_data_path(original_path: str) -> str:
     Returns:
         Translated path for container use, or original path if no translation needed
     """
-    if not is_docker_environment():
-        return original_path
-
     # Handle docker-data relative paths from host perspective
     if original_path.startswith("docker-data/"):
         # Map docker-data subdirectories to their /app equivalents
@@ -49,19 +47,39 @@ def translate_docker_data_path(original_path: str) -> str:
     return original_path
 
 
-def validate_docker_storage_path(original_path: str, expanded_path: Path) -> None:
-    """Validate that storage path is mounted and will persist to host.
+def process_local_storage_path(base_path_str: str) -> Path:
+    """Process and validate a local storage path for Docker environments.
 
     Args:
-        original_path: The original path string provided by user
+        base_path_str: The original path string from user
+
+    Returns:
+        Fully processed and validated Path object
+
+    Raises:
+        ValueError: If path is not accessible in Docker environment
+    """
+    if is_docker_environment():
+        translated_path = translate_docker_data_path_for_local_storage(base_path_str)
+        # Always expand paths (handles ~, relative paths, etc.)
+        base_path = Path(translated_path).expanduser().resolve()
+        # Validate path accessibility for Docker local storage
+        validate_docker_local_storage_path(base_path)
+        return base_path
+    else:
+        # Always expand paths (handles ~, relative paths, etc.)
+        return Path(base_path_str).expanduser().resolve()
+
+
+def validate_docker_local_storage_path(expanded_path: Path) -> None:
+    """Validate that local storage path is mounted and will persist to host.
+
+    Args:
         expanded_path: The fully expanded and resolved path
 
     Raises:
         ValueError: If path is not mounted and won't persist to host
     """
-    if not is_docker_environment():
-        return
-
     expanded_str = str(expanded_path)
 
     # Only allow paths that are specifically mounted volumes (persist to host)

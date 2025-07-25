@@ -16,7 +16,6 @@ import aiofiles
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
-    LOCAL_STORAGE_DEFAULTS,
     create_http_session,
     decrypt_gpg_file,
     extract_bucket_config,
@@ -26,6 +25,7 @@ from grin_to_s3.extract.tracking import ExtractionStatus, write_status
 from grin_to_s3.metadata.marc_extraction import extract_marc_metadata
 from grin_to_s3.storage import BookManager, create_storage_from_config
 from grin_to_s3.storage.book_manager import BucketConfig
+from grin_to_s3.storage.factories import LOCAL_STORAGE_DEFAULTS
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .models import BookSyncResult, create_book_sync_result

@@ -9,7 +9,6 @@ import logging
 import os
 import shutil
 import subprocess
-import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -18,16 +17,10 @@ from pathlib import Path
 import aiofiles
 import aiohttp
 
+from grin_to_s3.docker import is_docker_environment
 from grin_to_s3.storage.book_manager import BucketConfig
 
 logger = logging.getLogger(__name__)
-
-# Default directory names for local storage
-LOCAL_STORAGE_DEFAULTS = {
-    "bucket_raw": "raw",
-    "bucket_meta": "meta",
-    "bucket_full": "full"
-}
 
 
 def extract_bucket_config(storage_type: str, config_dict: dict) -> BucketConfig:
@@ -48,6 +41,7 @@ def extract_bucket_config(storage_type: str, config_dict: dict) -> BucketConfig:
     """
     if storage_type == "local":
         # For local storage, use standard directory names as defaults
+        from grin_to_s3.storage.factories import LOCAL_STORAGE_DEFAULTS
         local_config: BucketConfig = {
             "bucket_raw": config_dict.get("bucket_raw", LOCAL_STORAGE_DEFAULTS["bucket_raw"]),
             "bucket_meta": config_dict.get("bucket_meta", LOCAL_STORAGE_DEFAULTS["bucket_meta"]),
@@ -783,9 +777,6 @@ def auto_configure_minio(storage_config: dict) -> None:
     print(f"Auto-configured MinIO for {endpoint_type} at {storage_config['endpoint_url']}")
 
 
-def is_docker_environment() -> bool:
-    """Check if we're running inside a Docker container."""
-    return os.path.exists("/.dockerenv") or os.environ.get("DOCKER_ENV") == "true"
 
 
 def print_oauth_setup_instructions() -> None:
@@ -863,46 +854,6 @@ async def check_minio_connectivity(storage_config: dict) -> None:
     print("   Or use local storage: --storage local")
     print("   Or provide different MinIO credentials with --endpoint-url")
     exit(1)
-
-
-async def create_storage_buckets_or_directories(storage_type: str, storage_config: dict) -> None:
-    """Create all required buckets or directories for the storage type.
-
-    Args:
-        storage_type: Type of storage ("minio", "r2", "s3", "local")
-        storage_config: Storage configuration dictionary
-    """
-    if storage_type == "local":
-        # Create directories for local storage
-        base_path_str = storage_config.get("base_path")
-        if not base_path_str:
-            raise ValueError("Local storage requires base_path in configuration")
-
-        # Translate docker-data paths for Docker environments
-        from grin_to_s3.docker import translate_docker_data_path, validate_docker_storage_path
-        translated_path = translate_docker_data_path(base_path_str)
-
-        # Always expand paths (handles ~, relative paths, etc.)
-        base_path = Path(translated_path).expanduser().resolve()
-
-        # Validate path accessibility for Docker environments
-        try:
-            validate_docker_storage_path(base_path_str, base_path)
-        except ValueError:
-            sys.exit(1)
-
-        # Update config with resolved path for consistency
-        storage_config["base_path"] = str(base_path)
-
-        # Create the main directories using default names
-        (base_path / LOCAL_STORAGE_DEFAULTS["bucket_raw"]).mkdir(parents=True, exist_ok=True)
-        (base_path / LOCAL_STORAGE_DEFAULTS["bucket_meta"]).mkdir(parents=True, exist_ok=True)
-        (base_path / LOCAL_STORAGE_DEFAULTS["bucket_full"]).mkdir(parents=True, exist_ok=True)
-        print(f"Created local storage directories at {base_path}")
-
-    else:
-        print(f"Configured with {storage_type} cloud storage")
-
 
 
 class RateLimiter:
