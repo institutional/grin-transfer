@@ -429,25 +429,32 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
         # Load R2 credentials if buckets are missing OR credentials are missing
         if missing_buckets or not all(key in storage_dict for key in ["access_key", "secret_key", "endpoint_url"]):
             try:
-                # Determine credentials file path
+                # Determine credentials file path using the same logic as storage factories
                 credentials_file = getattr(args, "credentials_file", None)
                 if not credentials_file:
-                    secrets_dir = getattr(args, "secrets_dir", None)
-                    if secrets_dir:
-                        credentials_file = Path(secrets_dir) / "r2-credentials.json"
-                    else:
-                        home = Path.home()
-                        credentials_file = home / ".config" / "grin-to-s3" / "r2_credentials.json"
+                    from .storage.factories import find_credential_file
+                    credentials_file = find_credential_file("r2_credentials.json")
+                    if not credentials_file:
+                        # Fall back to checking secrets_dir if specified
+                        secrets_dir = getattr(args, "secrets_dir", None)
+                        if secrets_dir:
+                            credentials_file = Path(secrets_dir) / "r2-credentials.json"
+                            if not credentials_file.exists():
+                                credentials_file = Path(secrets_dir) / "r2_credentials.json"
 
-                # Load credentials and extract bucket information
-                creds = load_json_credentials(str(credentials_file))
-                for bucket_attr in missing_buckets:
-                    if bucket_attr in creds:
-                        storage_dict[bucket_attr] = creds[bucket_attr]
+                if not credentials_file:
+                    # If still no file found, skip credential loading
+                    pass
+                else:
+                    # Load credentials and extract bucket information
+                    creds = load_json_credentials(str(credentials_file))
+                    for bucket_attr in missing_buckets:
+                        if bucket_attr in creds:
+                            storage_dict[bucket_attr] = creds[bucket_attr]
 
-                # Include endpoint_url but NOT credentials - those should only be read from secrets dirs
-                if "endpoint_url" in creds:
-                    storage_dict["endpoint_url"] = creds["endpoint_url"]
+                    # Include endpoint_url but NOT credentials - those should only be read from secrets dirs
+                    if "endpoint_url" in creds:
+                        storage_dict["endpoint_url"] = creds["endpoint_url"]
             except Exception:
                 # If we can't load credentials, that's ok - validation will catch missing buckets later
                 pass
