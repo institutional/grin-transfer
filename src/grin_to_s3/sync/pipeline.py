@@ -818,33 +818,15 @@ class SyncPipeline:
             # Ensure shutdown is requested
             self._shutdown_requested = True
 
-            # Cancel progress reporter with timeout
-            if hasattr(self, "_progress_reporter_task") and not self._progress_reporter_task.done():
-                self._progress_reporter_task.cancel()
-                try:
-                    # Wait for cancellation with timeout to prevent hanging
-                    await asyncio.wait_for(self._progress_reporter_task, timeout=2.0)
-                except (TimeoutError, asyncio.CancelledError):
-                    pass
+            # Cancel progress reporter
+            await self._cancel_progress_reporter()
 
             # Clean up resources
             await self.cleanup()
 
-            # Final statistics
+            # Final statistics and outputs
             total_elapsed = time.time() - start_time
-
-            print("\nSync completed:")
-            print(f"  Runtime: {format_duration(total_elapsed)}")
-            print(f"  Books processed: {processed_count:,}")
-            print(f"  Successfully synced: {self.stats['completed']:,}")
-            print(f"  Failed: {self.stats['failed']:,}")
-
-            if total_elapsed > 0 and self.stats["completed"] > 0:
-                avg_rate = self.stats["completed"] / total_elapsed
-                print(f"  Average rate: {avg_rate:.1f} books/second")
-
-            # Export CSV if enabled
-            await self._export_csv_and_upload_database_result()
+            await self._print_final_stats_and_outputs(total_elapsed, processed_count)
 
             logger.info("Sync completed")
 
@@ -994,14 +976,8 @@ class SyncPipeline:
             # Ensure shutdown is requested
             self._shutdown_requested = True
 
-            # Cancel progress reporter with timeout
-            if hasattr(self, "_progress_reporter_task") and not self._progress_reporter_task.done():
-                self._progress_reporter_task.cancel()
-                try:
-                    # Wait for cancellation with timeout to prevent hanging
-                    await asyncio.wait_for(self._progress_reporter_task, timeout=2.0)
-                except (TimeoutError, asyncio.CancelledError):
-                    pass
+            # Cancel progress reporter
+            await self._cancel_progress_reporter()
 
             # Cancel remaining tasks
             for task in active_downloads.values():
@@ -1016,26 +992,59 @@ class SyncPipeline:
             if all_tasks:
                 await asyncio.gather(*all_tasks, return_exceptions=True)
 
-            # Print final statistics
+            # Final statistics and outputs
             total_elapsed = time.time() - start_time
-            print(f"\nSync completed in {format_duration(total_elapsed)}")
-            print(f"  Successfully synced: {self.stats['completed']:,}")
-            print(f"  Failed: {self.stats['failed']:,}")
-            print(f"  Skipped (ETag match): {self.stats['skipped']:,}")
-
-            if total_elapsed > 0 and self.stats["completed"] > 0:
-                avg_rate = self.stats["completed"] / total_elapsed
-                print(f"  Average rate: {avg_rate:.1f} books/second")
-
-            # Export CSV if enabled
-            await self._export_csv_and_upload_database_result()
-
-            # Point to process summary file
-            run_name = Path(self.db_path).parent.name
-            process_summary_path = f"output/{run_name}/process_summary.json"
-            print(f"\nProcess summary: {process_summary_path}")
+            await self._print_final_stats_and_outputs(total_elapsed, books_to_process)
 
             logger.info("Sync completed")
+
+    async def _print_final_stats_and_outputs(self, total_elapsed: float, books_processed: int) -> None:
+        """Print comprehensive final statistics and output locations."""
+        run_name = Path(self.db_path).parent.name
+
+        print(f"\nSync completed for run: {run_name}")
+        print(f"  Runtime: {format_duration(total_elapsed)}")
+        print(f"  Books processed: {books_processed:,}")
+        print(f"  Successfully synced: {self.stats['completed']:,}")
+        print(f"  Failed: {self.stats['failed']:,}")
+
+        # Show skipped count only for block storage (has ETag matching)
+        if self.storage_protocol != "local" and self.stats.get("skipped", 0) > 0:
+            print(f"  Skipped (ETag match): {self.stats['skipped']:,}")
+
+        if total_elapsed > 0 and self.stats["completed"] > 0:
+            avg_rate = self.stats["completed"] / total_elapsed
+            print(f"  Average rate: {avg_rate:.1f} books/second")
+
+        # Export CSV and database
+        await self._export_csv_and_upload_database_result()
+        # Point to process summary file
+        process_summary_path = f"output/{run_name}/process_summary.json"
+        print(f"  Process summary: {process_summary_path}")
+        # Print storage locations
+        print("\nOutput locations:")
+
+        if self.storage_protocol == "local":
+            base_path = self.storage_config.get("base_path", "")
+            print(f"  Raw data: {base_path}/raw/")
+            print(f"  Metadata: {base_path}/meta/")
+            print(f"  Full-text: {base_path}/full/")
+            print(f"  CSV export: {base_path}/meta/books_latest.csv")
+        else:
+            print(f"  Raw data bucket: {self.storage_config["bucket_raw"]}")
+            print(f"  Metadata bucket: {self.storage_config["bucket_meta"]}")
+            print(f"  Full-text bucket: {self.storage_config["bucket_full"]}")
+            print(f"  CSV export: {self.storage_config["bucket_meta"]}/books_latest.csv")
+
+    async def _cancel_progress_reporter(self) -> None:
+        """Cancel the background progress reporter with timeout."""
+        if hasattr(self, "_progress_reporter_task") and not self._progress_reporter_task.done():
+            self._progress_reporter_task.cancel()
+            try:
+                # Wait for cancellation with timeout to prevent hanging
+                await asyncio.wait_for(self._progress_reporter_task, timeout=2.0)
+            except (TimeoutError, asyncio.CancelledError):
+                pass
 
     async def _process_book_with_staging(self, barcode: str) -> dict[str, Any]:
         """Process a single book using staging directory."""

@@ -503,6 +503,8 @@ Examples:
             # Track completion status
             if completed:
                 collect_stage.add_progress_update("Collection completed successfully")
+                # Show next step command for successful completion
+                collector.print_next_step_command(run_name)
             else:
                 collect_stage.add_progress_update("Collection incomplete - interrupted or limited")
 

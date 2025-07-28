@@ -15,7 +15,7 @@ import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from grin_to_s3.collect_books.collector import BookCollector, RateLimiter
+from grin_to_s3.collect_books.collector import BookCollector, RateLimiter, SourceFormat
 from grin_to_s3.collect_books.config import ExportConfig
 from grin_to_s3.collect_books.models import BookRecord
 from tests.mocks import get_test_data, setup_mock_exporter
@@ -221,31 +221,34 @@ class TestBookCollector:
 
     def test_parse_grin_line(self):
         """Test GRIN line parsing."""
-        grin_line = "TEST123\t2024/01/01 10:00\t2024/01/02 11:00\t2024/01/03 12:00\t2024/01/04 13:00\t2024/01/05 14:00\t\t2024/01/06 15:00\thttps://books.google.com/books?id=test"
+        grin_line = "TEST123\tTest Title\t2024/01/01 10:00\t2024/01/02 11:00\t2024/01/03 12:00\t2024/01/04 13:00\t2024/01/05 14:00\t2024/01/06 15:00\thttps://books.google.com/books?id=test"
 
-        parsed = self.exporter.parse_grin_line(grin_line)
+        parsed = self.exporter.parse_grin_line(grin_line, SourceFormat.CONVERTED)
 
         assert parsed["barcode"] == "TEST123"
+        assert parsed["title"] == "Test Title"
         assert parsed["scanned_date"] == "2024-01-01T10:00:00"
-        assert parsed["converted_date"] == "2024-01-02T11:00:00"
+        assert parsed["processed_date"] == "2024-01-02T11:00:00"
+        assert parsed["analyzed_date"] == "2024-01-03T12:00:00"
         assert parsed["google_books_link"] == "https://books.google.com/books?id=test"
 
     def test_parse_grin_line_with_missing_fields(self):
         """Test GRIN line parsing with missing fields."""
-        grin_line = "TEST456\t\t2024/01/02 11:00\t\t\t\t\t\t"
+        grin_line = "TEST456\t\t\t2024/01/02 11:00\t\t\t\t\t"
 
-        parsed = self.exporter.parse_grin_line(grin_line)
+        parsed = self.exporter.parse_grin_line(grin_line, SourceFormat.CONVERTED)
 
         assert parsed["barcode"] == "TEST456"
+        assert parsed["title"] == ""
         assert parsed["scanned_date"] is None
-        assert parsed["converted_date"] == "2024-01-02T11:00:00"
-        assert parsed["downloaded_date"] is None
+        assert parsed["processed_date"] == "2024-01-02T11:00:00"
+        assert parsed["analyzed_date"] is None
 
     def test_parse_grin_line_invalid_format(self):
         """Test GRIN line parsing with invalid format."""
         grin_line = ""  # Empty line
 
-        parsed = self.exporter.parse_grin_line(grin_line)
+        parsed = self.exporter.parse_grin_line(grin_line, SourceFormat.CONVERTED)
 
         assert parsed == {}
 
@@ -253,86 +256,96 @@ class TestBookCollector:
         """Test GRIN line parsing with minimal valid data."""
         grin_line = "MINIMAL"  # Just barcode
 
-        parsed = self.exporter.parse_grin_line(grin_line)
+        parsed = self.exporter.parse_grin_line(grin_line, SourceFormat.CONVERTED)
 
         assert parsed["barcode"] == "MINIMAL"
         assert parsed["scanned_date"] is None
         assert parsed["google_books_link"] == ""
 
     def test_parse_grin_line_html_format(self):
-        """Test GRIN line parsing with HTML table format (production)."""
-        # HTML format: BARCODE\tBARCODE\tTITLE\t\tSCANNED_DATE\tANALYZED_DATE\tCONVERTED_DATE\tDOWNLOADED_DATE
-        grin_line = "RSMD7D\tRSMD7D\tThose Preston Twins\t\t2008/04/17\t2024/11/18\t2025/01/17\t2023/09/18"
+        """Test GRIN line parsing with all_books format (production)."""
+        # All_books format: BARCODE\tTITLE\tSTATUS\tSCANNED_DATE\tANALYZED_DATE\tCONVERTED_DATE\tDOWNLOADED_DATE\tPROCESSED_DATE\tOCR_DATE
+        grin_line = "RSMD7D\tThose Preston Twins\tAVAILABLE\t2008/04/17\t2024/11/18\t2025/01/17\t2023/09/18\t2024/01/01\t2024/02/01"
 
-        parsed = self.exporter.parse_grin_line(grin_line)
+        parsed = self.exporter.parse_grin_line(grin_line, SourceFormat.ALL_BOOKS)
 
         assert parsed["barcode"] == "RSMD7D"
+        assert parsed["title"] == "Those Preston Twins"
+        assert parsed["grin_state"] == "AVAILABLE"
         assert parsed["scanned_date"] == "2008/04/17"
         assert parsed["analyzed_date"] == "2024/11/18"
         assert parsed["converted_date"] == "2025/01/17"
         assert parsed["downloaded_date"] == "2023/09/18"
-        assert parsed["processed_date"] is None  # Not available in HTML format
-        assert parsed["ocr_date"] is None  # Not available in HTML format
-        assert parsed["google_books_link"] == ""  # Not available in HTML format
+        assert parsed["processed_date"] == "2024/01/01"
+        assert parsed["ocr_date"] == "2024/02/01"
 
     def test_parse_grin_line_html_format_with_dates(self):
-        """Test HTML format parsing with proper date conversion."""
-        grin_line = "TEST789\tTEST789\tExample Book Title\t\t2024/06/15 14:30\t2024/06/16 09:15\t2024/06/17 16:45\t2024/06/18 11:20"
+        """Test all_books format parsing with proper date conversion."""
+        grin_line = "TEST789\tExample Book Title\tAVAILABLE\t2024/06/15 14:30\t2024/06/16 09:15\t2024/06/17 16:45\t2024/06/18 11:20"
 
-        parsed = self.exporter.parse_grin_line(grin_line)
+        parsed = self.exporter.parse_grin_line(grin_line, SourceFormat.ALL_BOOKS)
 
         assert parsed["barcode"] == "TEST789"
+        assert parsed["title"] == "Example Book Title"
+        assert parsed["grin_state"] == "AVAILABLE"
         assert parsed["scanned_date"] == "2024-06-15T14:30:00"
         assert parsed["analyzed_date"] == "2024-06-16T09:15:00"
         assert parsed["converted_date"] == "2024-06-17T16:45:00"
         assert parsed["downloaded_date"] == "2024-06-18T11:20:00"
 
     def test_parse_grin_line_html_format_missing_fields(self):
-        """Test HTML format with missing date fields."""
-        grin_line = "INCOMPLETE\tINCOMPLETE\tIncomplete Book\t\t\t2024/05/01 10:00\t\t2024/05/03 15:30"
+        """Test all_books format with missing date fields."""
+        grin_line = "INCOMPLETE\tIncomplete Book\tAVAILABLE\t\t2024/05/01 10:00\t\t2024/05/03 15:30"
 
-        parsed = self.exporter.parse_grin_line(grin_line)
+        parsed = self.exporter.parse_grin_line(grin_line, SourceFormat.ALL_BOOKS)
 
         assert parsed["barcode"] == "INCOMPLETE"
-        assert parsed["scanned_date"] is None  # Empty field[4]
+        assert parsed["title"] == "Incomplete Book"
+        assert parsed["grin_state"] == "AVAILABLE"
+        assert parsed["scanned_date"] is None  # Empty field[3]
         assert parsed["analyzed_date"] == "2024-05-01T10:00:00"
-        assert parsed["converted_date"] is None  # Empty field[6]
+        assert parsed["converted_date"] is None  # Empty field[5]
         assert parsed["downloaded_date"] == "2024-05-03T15:30:00"
 
-    def test_parse_grin_line_html_vs_text_format_detection(self):
-        """Test that format detection correctly distinguishes HTML vs text format."""
-        # Text format (legacy) - has date in field[2]
-        text_line = "TEXT001\t2024/01/01 10:00\t2024/01/02 11:00\t2024/01/03 12:00"
-        text_parsed = self.exporter.parse_grin_line(text_line)
+    def test_parse_grin_line_explicit_format_specification(self):
+        """Test that explicit format specification works correctly."""
+        # Converted format - expect title to be parsed from field[1]
+        converted_line = "CONV001\tConverted Book Title\t2024/01/01 10:00\t2024/01/02 11:00\t2024/01/03 12:00"
+        converted_parsed = self.exporter.parse_grin_line(converted_line, SourceFormat.CONVERTED)
 
-        # HTML format - has title in field[2]
-        html_line = "HTML001\tHTML001\tBook Title Here\t\t2024/01/01 10:00\t2024/01/02 11:00"
-        html_parsed = self.exporter.parse_grin_line(html_line)
+        # All_books format - expect title to be parsed from field[1], status from field[2]
+        all_books_line = "ALL001\tAll Books Title\tAVAILABLE\t2024/01/01 10:00\t2024/01/02 11:00"
+        all_books_parsed = self.exporter.parse_grin_line(all_books_line, SourceFormat.ALL_BOOKS)
 
-        # Text format should parse field[1] as scanned_date
-        assert text_parsed["scanned_date"] == "2024-01-01T10:00:00"
-        assert text_parsed["converted_date"] == "2024-01-02T11:00:00"
+        # Converted format parsing
+        assert converted_parsed["barcode"] == "CONV001"
+        assert converted_parsed["title"] == "Converted Book Title"
+        assert converted_parsed["scanned_date"] == "2024-01-01T10:00:00"
 
-        # HTML format should parse field[4] as scanned_date
-        assert html_parsed["scanned_date"] == "2024-01-01T10:00:00"
-        assert html_parsed["analyzed_date"] == "2024-01-02T11:00:00"
+        # All_books format parsing
+        assert all_books_parsed["barcode"] == "ALL001"
+        assert all_books_parsed["title"] == "All Books Title"
+        assert all_books_parsed["grin_state"] == "AVAILABLE"
 
     def test_parse_grin_line_html_format_edge_cases(self):
-        """Test HTML format edge cases."""
-        # Very short HTML line
-        short_html = "SHORT\tSHORT\tTitle Only"
-        parsed_short = self.exporter.parse_grin_line(short_html)
+        """Test all_books format edge cases."""
+        # Very short all_books line
+        short_html = "SHORT\tTitle Only\tAVAILABLE"
+        parsed_short = self.exporter.parse_grin_line(short_html, SourceFormat.ALL_BOOKS)
 
         assert parsed_short["barcode"] == "SHORT"
+        assert parsed_short["title"] == "Title Only"
+        assert parsed_short["grin_state"] == "AVAILABLE"
         assert parsed_short["scanned_date"] is None
         assert parsed_short["converted_date"] is None
 
-        # HTML line with numeric title (should still be detected as HTML)
-        numeric_title = "NUM123\tNUM123\t12345 Main Street Guide"
-        parsed_numeric = self.exporter.parse_grin_line(numeric_title)
+        # All_books line with numeric title
+        numeric_title = "NUM123\t12345 Main Street Guide\tAVAILABLE"
+        parsed_numeric = self.exporter.parse_grin_line(numeric_title, SourceFormat.ALL_BOOKS)
 
         assert parsed_numeric["barcode"] == "NUM123"
-        # Should be detected as HTML format because title doesn't look like date
+        assert parsed_numeric["title"] == "12345 Main Street Guide"
+        assert parsed_numeric["grin_state"] == "AVAILABLE"
 
     @pytest.mark.asyncio
     async def test_progress_save_and_load(self, mock_process_stage):
@@ -405,12 +418,13 @@ class TestBookCollector:
     @pytest.mark.asyncio
     async def test_process_book(self):
         """Test individual book processing."""
-        grin_line = "PROC001\t2024/01/01 10:00\t2024/01/02 11:00\t\t\t\t\t\thttps://books.google.com/books?id=test"
+        grin_line = "PROC001\tProcess Book Title\t2024/01/01 10:00\t2024/01/02 11:00\t\t\t\t\t\thttps://books.google.com/books?id=test"
 
-        record = await self.exporter.process_book(grin_line)
+        record = await self.exporter.process_book(grin_line, SourceFormat.CONVERTED)
 
         assert record is not None
         assert record.barcode == "PROC001"
+        assert record.title == "Process Book Title"
         # processing state is now tracked in status history, not in the record
         assert record.scanned_date == "2024-01-01T10:00:00"
         assert record.csv_exported  # Should have timestamp
@@ -424,7 +438,7 @@ class TestBookCollector:
         """Test processing invalid GRIN line."""
         grin_line = ""  # Empty line
 
-        record = await self.exporter.process_book(grin_line)
+        record = await self.exporter.process_book(grin_line, SourceFormat.CONVERTED)
 
         assert record is None
 
@@ -436,7 +450,7 @@ class TestBookCollector:
         # Mark as already processed in SQLite
         await self.exporter.sqlite_tracker.mark_processed("SKIP001")
 
-        record = await self.exporter.process_book(grin_line)
+        record = await self.exporter.process_book(grin_line, SourceFormat.CONVERTED)
 
         assert record is None
 
@@ -560,6 +574,52 @@ class TestBookCollectionIntegration:
             assert collector.book_manager.bucket_meta == "test-meta"
             assert collector.book_manager.bucket_full == "test-full"
             assert collector.book_manager.base_prefix == "test-prefix"
+
+
+    def test_parse_grin_line_converted_format_title_extraction(self):
+        """Test that converted format correctly extracts titles from field 1."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            exporter = setup_mock_exporter(temp_dir)
+            grin_line = "TITLE001\tConverted Book Title With Special Chars & Symbols\t2024/01/01 10:00\t2024/01/02 11:00"
+
+            parsed = exporter.parse_grin_line(grin_line, SourceFormat.CONVERTED)
+
+            assert parsed["barcode"] == "TITLE001"
+            assert parsed["title"] == "Converted Book Title With Special Chars & Symbols"
+            assert parsed["scanned_date"] == "2024-01-01T10:00:00"
+
+    def test_parse_grin_line_all_books_format_title_extraction(self):
+        """Test that all_books format correctly extracts titles from field 1."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            exporter = setup_mock_exporter(temp_dir)
+            grin_line = "TITLE002\tAll Books Title: A Comprehensive Guide\tAVAILABLE\t2024/01/01 10:00\t2024/01/02 11:00"
+
+            parsed = exporter.parse_grin_line(grin_line, SourceFormat.ALL_BOOKS)
+
+            assert parsed["barcode"] == "TITLE002"
+            assert parsed["title"] == "All Books Title: A Comprehensive Guide"
+            assert parsed["grin_state"] == "AVAILABLE"
+            assert parsed["scanned_date"] == "2024-01-01T10:00:00"
+
+    def test_parse_grin_line_empty_title_handling(self):
+        """Test handling of empty titles in both formats."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            exporter = setup_mock_exporter(temp_dir)
+
+            # Converted format with empty title
+            converted_line = "EMPTY001\t\t2024/01/01 10:00\t2024/01/02 11:00"
+            converted_parsed = exporter.parse_grin_line(converted_line, SourceFormat.CONVERTED)
+
+            assert converted_parsed["barcode"] == "EMPTY001"
+            assert converted_parsed["title"] == ""
+
+            # All_books format with empty title
+            all_books_line = "EMPTY002\t\tAVAILABLE\t2024/01/01 10:00"
+            all_books_parsed = exporter.parse_grin_line(all_books_line, SourceFormat.ALL_BOOKS)
+
+            assert all_books_parsed["barcode"] == "EMPTY002"
+            assert all_books_parsed["title"] == ""
+            assert all_books_parsed["grin_state"] == "AVAILABLE"
 
 
 # Pytest configuration for async tests

@@ -134,6 +134,14 @@ class BookRecord:
         for f in fields(self):
             if "csv" in f.metadata:
                 value = getattr(self, f.name)
+
+                # Use marc_title as fallback when title is empty
+                if f.name == "title" and (not value or value == ""):
+                    marc_title = getattr(self, "marc_title", None)
+                    if marc_title:
+                        # Clean up marc_title (remove trailing slash and whitespace)
+                        value = marc_title.rstrip("/ ")
+
                 if value is None:
                     values.append("")
                 elif isinstance(value, bool):

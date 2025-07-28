@@ -9,6 +9,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -798,14 +799,25 @@ def auto_configure_minio(storage_config: dict) -> None:
 
 
 
+def get_command_prefix() -> str:
+    """Get the appropriate command prefix based on environment."""
+    if is_docker_environment():
+        return "./grin-docker"
+    else:
+        # Use the same Python executable that was used to run this script
+        python_exe = os.path.basename(sys.executable)
+        return f"{python_exe} grin.py"
+
+
 def print_oauth_setup_instructions() -> None:
     """Print appropriate OAuth setup instructions based on environment."""
+    command_prefix = get_command_prefix()
     if is_docker_environment():
         print("\nTo set up OAuth credentials in Docker:")
-        print("./grin-docker auth setup")
+        print(f"{command_prefix} auth setup")
     else:
         print("\nTo set up OAuth credentials:")
-        print("python grin.py auth setup")
+        print(f"{command_prefix} auth setup")
 
 
 async def setup_storage_with_checks(storage_type: str, storage_config: dict,
