@@ -488,11 +488,6 @@ class BookCollector:
         return self._parse_grin_date(field) if field else None
 
 
-    def _extract_google_books_link(self, text: str) -> str:
-        """Extract Google Books link if valid."""
-        if text and ("books.google.com" in text or text.startswith("http")):
-            return text
-        return ""
 
 
 
@@ -531,7 +526,7 @@ class BookCollector:
             key_lower = key.lower()
 
             # Map title field (usually first column after barcode)
-            if "title" in key_lower or key.startswith("1"):  # Often title is in column 1
+            if "title" in key_lower:
                 result["title"] = str(value).strip()
             # Map various date fields
             elif "scanned" in key_lower:
@@ -554,30 +549,10 @@ class BookCollector:
             elif "state" in key_lower or "status" in key_lower:
                 result["grin_state"] = str(value).strip()
 
-        # If no title found in named fields, try position-based fallback only
-        if not result["title"]:
-            # Try any key that starts with "1" (first column after barcode)
-            for key in row:
-                if key.startswith("1") and row[key]:
-                    result["title"] = str(row[key]).strip()
-                    break
+
 
         return result
 
-    async def enrich_book_record(self, record: BookRecord) -> BookRecord:
-        """Enrich book record with storage and metadata information."""
-
-        # Note: Storage checks removed since BookRecord doesn't have
-        # archive_exists, archive_retrieved, text_json_exists attributes
-        # Storage functionality should be handled separately if needed
-
-        # Set timestamps
-        now = datetime.now(UTC).isoformat()
-        if not record.csv_exported:
-            record.csv_exported = now
-        record.csv_updated = now
-
-        return record
 
     async def collect_books(self, output_file: str, limit: int | None = None) -> bool:
         """
@@ -637,10 +612,6 @@ class BookCollector:
             # Initialize session timing
             self.progress_tracker.start_session()
             self.session_start_time = datetime.now(UTC)  # Keep for backward compatibility
-
-            # Runtime tracking is now handled by progress_tracker
-
-            # Book conversion status is determined from converted_date field in all_books data
 
             # Prepare CSV file
             output_path = Path(output_file)
@@ -862,12 +833,7 @@ class BookCollector:
 
             # Warn if GRIN returned empty title
             if not record.title or record.title.strip() == "":
-                logger.warning(f"[{barcode}] GRIN returned empty title field - may need MARC fallback in CSV export")
-
-            # Book conversion status is available in converted_date field
-
-            # Enrich record with timestamps and storage info
-            record = await self.enrich_book_record(record)
+                logger.warning(f"[{barcode}] GRIN returned empty title field; okay only if book is not available for download")
 
             # Save book record to SQLite database (blocking to ensure data integrity)
             # Note: Main network/processing work remains parallel; only DB writes are synchronous

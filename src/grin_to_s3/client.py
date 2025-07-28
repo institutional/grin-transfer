@@ -300,14 +300,15 @@ class GRINClient:
                 cell_text = cell.text(strip=True) if cell.text() else ""
 
                 # Special handling for barcode extraction
-                if header_key == "filename" and cell_text.endswith(".tar.gz.gpg"):
-                    # For converted books: filename contains barcode
-                    record["barcode"] = cell_text.replace(".tar.gz.gpg", "")
-                elif header_key == "barcode":
-                    # For all_books: direct barcode field
-                    record["barcode"] = cell_text
-                elif cell_text:
-                    record[header_key] = cell_text
+                match header_key:
+                    case "filename" if cell_text.endswith(".tar.gz.gpg"):
+                        # For converted books: filename contains barcode
+                        record["barcode"] = cell_text.replace(".tar.gz.gpg", "")
+                    case "barcode":
+                        # For all_books: direct barcode field
+                        record["barcode"] = cell_text
+                    case _ if cell_text:
+                        record[header_key] = cell_text
 
         # Must have a barcode to be valid
         if not record.get("barcode"):

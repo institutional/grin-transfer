@@ -223,7 +223,7 @@ class TestBookCollector:
         """Test GRINRow dict processing."""
         grin_row = {
             "barcode": "TEST123",
-            "1": "Test Title",  # Title often in column 1
+            "title": "Test Title",
             "scanned_date": "2024/01/01 10:00",
             "processed_date": "2024/01/02 11:00",
             "analyzed_date": "2024/01/03 12:00",
@@ -350,24 +350,24 @@ class TestBookCollector:
         }
         named_parsed = self.exporter.process_grin_row(named_field_row)
 
-        # Test title in column position (fallback)
-        column_position_row = {
+        # Test title in different named field
+        alt_title_row = {
             "barcode": "ALL001",
-            "1": "All Books Title",  # Title in position 1
+            "book_title": "All Books Title",  # Title with different name containing "title"
             "status": "AVAILABLE",
             "scanned_date": "2024/01/01 10:00"
         }
-        column_parsed = self.exporter.process_grin_row(column_position_row)
+        alt_parsed = self.exporter.process_grin_row(alt_title_row)
 
         # Named field parsing
         assert named_parsed["barcode"] == "CONV001"
         assert named_parsed["title"] == "Converted Book Title"
         assert named_parsed["scanned_date"] == "2024-01-01T10:00:00"
 
-        # Column position parsing
-        assert column_parsed["barcode"] == "ALL001"
-        assert column_parsed["title"] == "All Books Title"
-        assert column_parsed["grin_state"] == "AVAILABLE"
+        # Alternative title field parsing
+        assert alt_parsed["barcode"] == "ALL001"
+        assert alt_parsed["title"] == "All Books Title"
+        assert alt_parsed["grin_state"] == "AVAILABLE"
 
     def test_process_grin_row_edge_cases(self):
         """Test GRINRow processing edge cases."""
@@ -434,21 +434,6 @@ class TestBookCollector:
             assert await exporter2.sqlite_tracker.is_processed("TEST002")
             assert await exporter2.sqlite_tracker.is_failed("FAILED001")
 
-    @pytest.mark.asyncio
-    async def test_enrich_book_record(self):
-        """Test book record enrichment without storage."""
-        record = BookRecord(barcode="TEST123")
-
-        enriched = await self.exporter.enrich_book_record(record)
-
-        # Should add timestamps
-        assert enriched.csv_exported
-        assert enriched.csv_updated
-        assert enriched.csv_exported == enriched.csv_updated
-
-        # Should preserve other fields
-        assert enriched.barcode == "TEST123"
-
 
     @pytest.mark.asyncio
     async def test_process_book(self):
@@ -468,7 +453,6 @@ class TestBookCollector:
         assert record.title == "Process Book Title"
         # processing state is now tracked in status history, not in the record
         assert record.scanned_date == "2024-01-01T10:00:00"
-        assert record.csv_exported  # Should have timestamp
 
         # Ensure all background tasks complete before test ends
         if hasattr(self.exporter, "_background_tasks") and self.exporter._background_tasks:
