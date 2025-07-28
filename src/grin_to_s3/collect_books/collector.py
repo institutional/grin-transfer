@@ -18,12 +18,11 @@ import sys
 import time
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from enum import Enum
 from pathlib import Path
 
 import aiofiles
 
-from grin_to_s3.client import GRINClient
+from grin_to_s3.client import GRINClient, GRINRow
 from grin_to_s3.common import (
     ProgressReporter,
     RateLimiter,
@@ -44,10 +43,6 @@ from .progress import PaginationState, ProgressTracker
 logger = logging.getLogger(__name__)
 
 
-class SourceFormat(Enum):
-    """GRIN data source format types."""
-    CONVERTED = "converted"
-    ALL_BOOKS = "all_books"
 
 
 # PaginationState moved to progress.py
@@ -330,39 +325,6 @@ class BookCollector:
         """Save current progress to resume file."""
         await self.progress_tracker.save_progress(self._calculate_performance_metrics)
 
-    async def get_processing_states(self) -> dict[str, set[str]]:
-        """Get book processing states from GRIN endpoints."""
-        states: dict[str, set[str]] = {"converted": set(), "failed": set(), "all_books": set()}
-
-        logger.info("Fetching processing states from GRIN...")
-
-        # Get converted books
-        try:
-            await self.rate_limiter.acquire()
-            converted_text = await self.client.fetch_resource(self.directory, "_converted?format=text")
-            for line in converted_text.strip().split("\n"):
-                if line.strip():
-                    barcode = line.split("\t")[0]
-                    states["converted"].add(barcode)
-            converted_count = len(states["converted"])
-            logger.info(f"Found {converted_count} converted {pluralize(converted_count, 'book')}")
-        except Exception as e:
-            logger.warning(f"Could not fetch converted books: {e}")
-
-        # Get failed books
-        try:
-            await self.rate_limiter.acquire()
-            failed_text = await self.client.fetch_resource(self.directory, "_failed?format=text")
-            for line in failed_text.strip().split("\n"):
-                if line.strip():
-                    barcode = line.split("\t")[0]
-                    states["failed"].add(barcode)
-            failed_count = len(states["failed"])
-            logger.info(f"Found {failed_count} failed {pluralize(failed_count, 'book')}")
-        except Exception as e:
-            logger.warning(f"Could not fetch failed books: {e}")
-
-        return states
 
     async def save_pagination_state(self, pagination_state: PaginationState):
         """Save pagination state for resume functionality."""
@@ -370,7 +332,7 @@ class BookCollector:
         # Update local state for backward compatibility
         self.pagination_state.update(pagination_state)
 
-    async def get_converted_books_html(self) -> AsyncGenerator[tuple[str, set[str]], None]:
+    async def get_converted_books_html(self) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
         """Stream converted books from GRIN using HTML pagination with full metadata."""
         logger.info("Streaming converted books from GRIN...")
 
@@ -378,7 +340,7 @@ class BookCollector:
         pagination_config = self.config.pagination or PaginationConfig()
 
         book_count = 0
-        async for book_line, known_barcodes in self.client.stream_book_list_html_prefetch(
+        async for book_row, known_barcodes in self.client.stream_book_list_html_prefetch(
             self.directory,
             list_type="_converted",
             page_size=pagination_config.page_size,
@@ -387,13 +349,13 @@ class BookCollector:
             pagination_callback=None,  # Don't save pagination state for converted books
             sqlite_tracker=self.sqlite_tracker,
         ):
-            yield book_line.strip(), known_barcodes
+            yield book_row, known_barcodes
             book_count += 1
 
             if book_count % 1000 == 0:
                 logger.info(f"Streamed {book_count:,} converted {pluralize(book_count, 'book')}...")
 
-    async def get_all_books_html(self) -> AsyncGenerator[tuple[str, set[str]], None]:
+    async def get_all_books_html(self) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
         """Stream non-converted books from GRIN using HTML pagination with large page sizes.
 
         Note: _all_books endpoint actually returns 'all books except converted', not truly all books.
@@ -410,7 +372,7 @@ class BookCollector:
             print(f"Resuming pagination from page {start_page}")
 
         book_count = 0
-        async for book_line, known_barcodes in self.client.stream_book_list_html_prefetch(
+        async for book_row, known_barcodes in self.client.stream_book_list_html_prefetch(
             self.directory,
             list_type="_all_books",
             page_size=page_size or pagination_config.page_size,
@@ -420,7 +382,7 @@ class BookCollector:
             pagination_callback=self.save_pagination_state,
             sqlite_tracker=self.sqlite_tracker,
         ):
-            yield book_line.strip(), known_barcodes
+            yield book_row, known_barcodes
             book_count += 1
 
             # Update total estimate as we stream
@@ -458,7 +420,7 @@ class BookCollector:
             print(f"Warning: Could not fetch converted books: {e}")
             # Continue without converted books rather than failing
 
-    async def get_all_books(self) -> AsyncGenerator[tuple[str, set[str], SourceFormat], None]:
+    async def get_all_books(self) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
         """Stream all book data from GRIN using two-pass collection with full metadata.
 
         First pass: Collect converted books with full metadata from _converted endpoint
@@ -467,13 +429,13 @@ class BookCollector:
         Note: _all_books endpoint actually returns 'all books except converted', not truly all books.
 
         Yields:
-            tuple[str, set[str], SourceFormat]: (book_line, known_barcodes, source_format)
+            tuple[GRINRow, set[str]]: (book_row, known_barcodes)
         """
         # First pass: Get converted books with full metadata
         print("Phase 1: Collecting converted books with full metadata...")
         converted_count = 0
-        async for book_line, known_barcodes in self.get_converted_books_html():
-            yield book_line, known_barcodes, SourceFormat.CONVERTED
+        async for book_row, known_barcodes in self.get_converted_books_html():
+            yield book_row, known_barcodes
             converted_count += 1
 
         if converted_count > 0:
@@ -482,8 +444,8 @@ class BookCollector:
         # Second pass: Get non-converted books from _all_books
         print("Phase 2: Collecting non-converted books...")
         non_converted_count = 0
-        async for book_line, known_barcodes in self.get_all_books_html():
-            yield book_line, known_barcodes, SourceFormat.ALL_BOOKS
+        async for book_row, known_barcodes in self.get_all_books_html():
+            yield book_row, known_barcodes
             non_converted_count += 1
 
         if non_converted_count > 0:
@@ -533,74 +495,21 @@ class BookCollector:
         return ""
 
 
-    def _parse_converted_format(self, fields: list[str]) -> dict:
-        """Parse _converted HTML format."""
-        # _converted HTML format:
-        # fields[0] = barcode
-        # fields[1] = title
-        # fields[2] = scanned_date
-        # fields[3] = processed_date
-        # fields[4] = analyzed_date
-        # fields[5] = ? (additional date)
-        # fields[6] = ? (additional date)
-        # fields[7] = ? (additional date)
-        # fields[8] = google_books_link
-        return {
-            "barcode": fields[0],
-            "title": self._get_field_or_none(fields, 1) or "",
-            "scanned_date": self._parse_date_field(fields, 2),
-            "processed_date": self._parse_date_field(fields, 3),
-            "analyzed_date": self._parse_date_field(fields, 4),
-            "converted_date": None,  # Not directly available in _converted format
-            "downloaded_date": None,
-            "ocr_date": None,
-            "google_books_link": self._get_field_or_none(fields, 8) or "",
-        }
-
-    def _parse_all_books_no_checkbox(self, fields: list[str]) -> dict:
-        """Parse _all_books HTML format without checkbox."""
-        # _all_books HTML format without checkbox:
-        # fields[0] = barcode
-        # fields[1] = title
-        # fields[2] = status
-        # fields[3] = dates (if present)
-        # Limited date information available
-        return {
-            "barcode": fields[0],
-            "title": self._get_field_or_none(fields, 1) or "",
-            "grin_state": self._get_field_or_none(fields, 2),
-            "scanned_date": self._parse_date_field(fields, 3),
-            "analyzed_date": self._parse_date_field(fields, 4),
-            "converted_date": self._parse_date_field(fields, 5),
-            "downloaded_date": self._parse_date_field(fields, 6),
-            "processed_date": self._parse_date_field(fields, 7),
-            "ocr_date": self._parse_date_field(fields, 8),
-            "google_books_link": self._get_field_or_none(fields, 9) or "",
-        }
-
-    def _parse_html_table_format(self, fields: list[str]) -> dict:
-        """Parse HTML table format."""
-        # HTML table format - title in field[2]
-        # Extract Google Books link from field 10
-        google_link = self._extract_google_books_link(self._get_field_or_none(fields, 10) or "")
-
-        return {
-            "barcode": fields[0],  # Barcode from checkbox input
-            "title": fields[2],
-            "grin_state": self._get_field_or_none(fields, 3),  # Status field
-            "scanned_date": self._parse_date_field(fields, 4),
-            "analyzed_date": self._parse_date_field(fields, 5),
-            "converted_date": self._parse_date_field(fields, 6),
-            "downloaded_date": self._parse_date_field(fields, 7),
-            "processed_date": self._parse_date_field(fields, 8),
-            "ocr_date": self._parse_date_field(fields, 9),
-            "google_books_link": google_link,
-        }
 
 
-    def _create_barcode_only_record(self, barcode: str) -> dict:
-        """Create minimal record for barcode-only input."""
-        return {
+    def process_grin_row(self, row: GRINRow) -> dict:
+        """Process a GRINRow dict from the client and map to BookRecord field names.
+
+        Args:
+            row: GRINRow dict from client with unstructured field names from HTML
+        """
+        if not row or not row.get("barcode"):
+            return {}
+
+        barcode = row.get("barcode", "unknown")
+
+        # Create result with standard BookRecord field names
+        result = {
             "barcode": barcode,
             "title": "",
             "scanned_date": None,
@@ -610,43 +519,48 @@ class BookCollector:
             "analyzed_date": None,
             "ocr_date": None,
             "google_books_link": "",
+            "grin_state": None,
         }
 
-    def parse_grin_line(self, line: str, source_format: SourceFormat) -> dict:
-        """Parse a line from GRIN endpoint.
+        # Map unstructured field names to standard ones
+        # Try different possible field names that might contain title
+        for key, value in row.items():
+            if not value:
+                continue
 
-        Args:
-            line: Raw line from GRIN
-            source_format: SourceFormat enum value based on the endpoint
-        """
-        fields = line.strip().split("\t")
-        if len(fields) < 1 or not fields[0]:  # Must have at least barcode
-            return {}
+            key_lower = key.lower()
 
-        # Handle barcode-only input (from converted books list)
-        if len(fields) == 1 and not any("\t" in line for line in [line]):
-            return self._create_barcode_only_record(fields[0])
+            # Map title field (usually first column after barcode)
+            if "title" in key_lower or key.startswith("1"):  # Often title is in column 1
+                result["title"] = str(value).strip()
+            # Map various date fields
+            elif "scanned" in key_lower:
+                result["scanned_date"] = self._parse_date_field([value], 0)
+            elif "converted" in key_lower:
+                result["converted_date"] = self._parse_date_field([value], 0)
+            elif "downloaded" in key_lower:
+                result["downloaded_date"] = self._parse_date_field([value], 0)
+            elif "processed" in key_lower:
+                result["processed_date"] = self._parse_date_field([value], 0)
+            elif "analyzed" in key_lower:
+                result["analyzed_date"] = self._parse_date_field([value], 0)
+            elif "ocr" in key_lower:
+                result["ocr_date"] = self._parse_date_field([value], 0)
+            # Map Google Books link
+            elif "google" in key_lower or "books" in key_lower:
+                if "http" in str(value):
+                    result["google_books_link"] = str(value).strip()
+            # Map state field
+            elif "state" in key_lower or "status" in key_lower:
+                result["grin_state"] = str(value).strip()
 
-        # Pad fields to ensure we have at least 11 elements
-        while len(fields) < 11:
-            fields.append("")
-
-        barcode = fields[0] if len(fields) > 0 else "unknown"
-        logger.debug(f"[{barcode}] Parsing {source_format.value} format: {repr(line[:200])}")
-
-        if source_format == SourceFormat.CONVERTED:
-            result = self._parse_converted_format(fields)
-        elif source_format == SourceFormat.ALL_BOOKS:
-            result = self._parse_all_books_no_checkbox(fields)
-        else:
-            # This should never happen with proper enum usage
-            raise ValueError(f"Unknown source_format: {source_format}")
-
-        # Debug the extracted title
-        if result.get("title"):
-            logger.debug(f"[{barcode}] Extracted title: {repr(result['title'])}")
-        else:
-            logger.warning(f"[{barcode}] No title extracted - field 1 was: {repr(fields[1] if len(fields) > 1 else 'N/A')}")
+        # If no title found in named fields, try position-based fallback only
+        if not result["title"]:
+            # Try any key that starts with "1" (first column after barcode)
+            for key in row:
+                if key.startswith("1") and row[key]:
+                    result["title"] = str(row[key]).strip()
+                    break
 
         return result
 
@@ -763,7 +677,7 @@ class BookCollector:
                 # Process books one by one using configured data mode
                 last_book_time = time.time()
                 book_count_in_loop = 0
-                async for grin_line, known_barcodes_on_page, source_format in self.get_all_books():
+                async for grin_row, known_barcodes_on_page in self.get_all_books():
                     current_time = time.time()
                     time_since_last = current_time - last_book_time
                     book_count_in_loop += 1
@@ -795,7 +709,7 @@ class BookCollector:
                         break
 
                     # Extract barcode for checking
-                    barcode = grin_line.split("\t")[0] if grin_line else ""
+                    barcode = grin_row.get("barcode", "")
                     if not barcode:
                         continue
 
@@ -805,7 +719,7 @@ class BookCollector:
 
                     # Process the book
                     try:
-                        record = await self.process_book(grin_line, source_format)
+                        record = await self.process_book(grin_row)
                         if record:
                             # Write to CSV immediately
                             csv_line = ",".join(f'"{field}"' for field in record.to_csv_row()) + "\n"
@@ -926,15 +840,14 @@ class BookCollector:
         print(f"{base_cmd} sync pipeline --run-name {run_name}")
         print()
 
-    async def process_book(self, grin_line: str, source_format: SourceFormat) -> BookRecord | None:
-        """Process a single book line from GRIN and return its record.
+    async def process_book(self, grin_row: GRINRow) -> BookRecord | None:
+        """Process a single GRINRow from GRIN and return its record.
         Args:
-            grin_line: Raw line from GRIN
-            source_format: SourceFormat enum value based on the endpoint
+            grin_row: GRINRow dict from client with parsed book data
         """
 
-        # Parse GRIN data directly from the line
-        parsed_data = self.parse_grin_line(grin_line, source_format)
+        # Process GRIN data directly from the row
+        parsed_data = self.process_grin_row(grin_row)
         if not parsed_data or not parsed_data.get("barcode"):
             return None
 

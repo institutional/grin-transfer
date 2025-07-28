@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 ALL_BOOKS_ENDPOINT = "_all_books"
 
 
+GRINRow = dict[str, str]  # Type alias for book data with dynamic keys
+
+
 class GRINClient:
     """Async client for GRIN API operations."""
 
@@ -65,12 +68,12 @@ class GRINClient:
         start_url: str | None = None,
         pagination_callback: Callable | None = None,
         sqlite_tracker: Any = None,
-    ) -> AsyncGenerator[tuple[str, set[str]], None]:
+    ) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
         """
         Stream book list from GRIN with prefetching and SQLite batch optimization.
 
         Prefetches the next page while processing the current page's data.
-        Returns tuples of (book_line, known_barcodes_set) for batch SQLite optimization.
+        Returns tuples of (book_dict, known_barcodes_set) for batch SQLite optimization.
         """
         page_count = start_page - 1
         current_url: str | None = start_url or f"{self.base_url}/{directory}/{list_type}?result_count={page_size}"
@@ -121,8 +124,8 @@ class GRINClient:
 
             # Extract all barcodes from this page for batch SQLite query
             page_barcodes = set()
-            for book_line in books:
-                if barcode := (book_line.split("\t")[0] if book_line else ""):
+            for book_dict in books:
+                if barcode := book_dict.get("barcode", ""):
                     page_barcodes.add(barcode)
 
             # Batch query SQLite for all barcodes on this page
@@ -147,8 +150,8 @@ class GRINClient:
             # Yield books with their known barcode set for efficient checking
             yield_start_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
             logger.debug(f"Page {page_count}: Starting to yield {len(books)} books at {yield_start_time}")
-            for i, book_line in enumerate(books):
-                yield book_line, known_barcodes_on_page
+            for i, book_dict in enumerate(books):
+                yield book_dict, known_barcodes_on_page
                 # Add small yield every 1000 books to let prefetch progress
                 if i % 1000 == 0:
                     await asyncio.sleep(0.001)  # 1ms yield to event loop
@@ -242,104 +245,75 @@ class GRINClient:
             cell_texts.append(text)
         return cell_texts
 
-    def _debug_log_cells(self, barcode: str, cell_texts: list[str], books_count: int) -> None:
-        """Log cell structure for debugging (first few books only)."""
-        if books_count < 3:
-            logger.debug(f"Book {barcode} has {len(cell_texts)} cells: {cell_texts}")
 
-    def _create_book_line(self, barcode: str, cell_texts: list[str], skip_cells: int = 0) -> str:
-        """Create tab-separated book line from barcode and cell texts."""
-        cell_strings = [cell or "" for cell in cell_texts[skip_cells:]]
-        if skip_cells == 0:
-            return "\t".join(cell_strings)
-        return barcode + "\t" + "\t".join(cell_strings)
 
-    def _handle_checkbox_format(self, row, books_count: int) -> str | None:
-        """Handle _all_books format with checkboxes. Returns book line or None."""
-        if not (barcode_input := row.css_first('input[name="barcodes"]')):
-            return None
-
-        if not (barcode := barcode_input.attributes.get("value")):
-            return None
-
-        cells = row.css("td")
-        cell_texts = self._extract_cell_texts(cells)
-        self._debug_log_cells(barcode, cell_texts, books_count)
-
-        if len(cell_texts) > 1:
-            return self._create_book_line(barcode, cell_texts, skip_cells=1)
-        return None
-
-    def _detect_row_format(self, row) -> tuple[str, str, int]:
-        """Detect format and extract barcode from row. Returns (format, barcode, skip_cells)."""
-        cells = row.css("td")
-        if len(cells) < 3:
-            return "invalid", "", 0
-
-        first_cell = cells[0].text(strip=True) if cells[0].text() else ""
-
-        if first_cell.endswith(".tar.gz.gpg"):
-            return "converted", first_cell.replace(".tar.gz.gpg", ""), 1
-
-        if first_cell and not first_cell.startswith("_") and len(first_cell) > 3:
-            return "all_books_first", first_cell, 0
-
-        if not first_cell and len(cells) > 1:
-            if (
-                (second_cell := cells[1].text(strip=True) if cells[1].text() else "")
-                and len(second_cell) > 3
-                and not second_cell.startswith("_")
-            ):
-                return "all_books_second", second_cell, 2
-
-        return "invalid", "", 0
-
-    def _process_row(self, row, books_count: int) -> str | None:
-        """Process a single table row and return book line if valid."""
-        if row.css_first('input[name="barcodes"]'):
-            return self._handle_checkbox_format(row, books_count)
-
-        format_type, barcode, skip_cells = self._detect_row_format(row)
-        if format_type == "invalid" or not barcode:
-            return None
-
-        cells = row.css("td")
-        cell_texts = self._extract_cell_texts(cells)
-        self._debug_log_cells(barcode, cell_texts, books_count)
-
-        if len(cell_texts) > skip_cells:
-            return self._create_book_line(barcode, cell_texts, skip_cells)
-        return None
-
-    def _parse_books_from_html(self, html_content: str) -> list[str]:
-        """
-        Parse book data from GRIN HTML using fast selectolax parser.
-        """
-
+    def _parse_books_from_html(self, html_content: str) -> list[GRINRow]:
+        """Parse book data from GRIN HTML using CSS selectors to directly extract data."""
         try:
             tree = LexborHTMLParser(html_content)
-            books: list[str] = []
+            books: list[GRINRow] = []
 
-            rows = tree.css("tbody tr")
+            # Find the data table with class="heading" header row
+            for table in tree.css("table"):
+                # Look for header row with class="heading"
+                header_row = table.css_first("tr.heading")
+                if not header_row:
+                    continue
 
-            header_row = tree.css_first("thead tr") or tree.css_first("tr")
-            if header_row and not header_row.css_first('input[name="barcodes"]'):
+                # Extract header names from spans with class="hd3"
                 headers = []
-                for th in header_row.css("th, td"):
-                    if header_text := (th.text(strip=True) if th.text() else ""):
-                        headers.append(header_text)
-                if headers:
-                    logger.debug(f"HTML table headers found: {headers}")
+                for cell in header_row.css("td"):
+                    span = cell.css_first("span.hd3")
+                    if span and span.text():
+                        headers.append(span.text(strip=True))
+                    else:
+                        headers.append("")  # Empty header for checkbox/empty columns
 
-            for row in rows:
-                if book_line := self._process_row(row, len(books)):
-                    books.append(book_line)
+                # Debug: Log the headers we found
+                logger.debug(f"HTML table headers found: {headers}")
+
+                # Process data rows
+                for row in table.css("tbody tr"):
+                    if book_record := self._extract_book_from_row(row, headers):
+                        books.append(book_record)
+
+                break  # Found the right table, stop looking
 
             return books
 
         except Exception as e:
             logger.error(f"selectolax parsing failed: {e}")
             raise
+
+    def _extract_book_from_row(self, row, headers: list[str]) -> GRINRow | None:
+        """Extract book data from a table row using CSS selectors and direct header mapping."""
+        cells = row.css("td")
+        if len(cells) < 2:
+            return None
+
+        # Create record by directly mapping cell values to headers
+        record = {}
+
+        for i, cell in enumerate(cells):
+            if i < len(headers) and headers[i]:  # Skip empty headers
+                header_key = headers[i].lower().replace(" ", "_").replace("-", "_").replace("'", "")
+                cell_text = cell.text(strip=True) if cell.text() else ""
+
+                # Special handling for barcode extraction
+                if header_key == "filename" and cell_text.endswith(".tar.gz.gpg"):
+                    # For converted books: filename contains barcode
+                    record["barcode"] = cell_text.replace(".tar.gz.gpg", "")
+                elif header_key == "barcode":
+                    # For all_books: direct barcode field
+                    record["barcode"] = cell_text
+                elif cell_text:
+                    record[header_key] = cell_text
+
+        # Must have a barcode to be valid
+        if not record.get("barcode"):
+            return None
+
+        return record
 
     def _extract_next_button_url(self, html_content: str, directory: str) -> str | None:
         """

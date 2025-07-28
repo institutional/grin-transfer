@@ -55,10 +55,27 @@ class MockGRINClient:
         pagination_callback=None,
         sqlite_tracker=None,
     ):
-        """Yield test data lines using HTML pagination with prefetch (mock version)"""
-        # Mock the prefetch version - yields (line, known_barcodes_set) tuples
+        """Yield test data as GRINRow dicts using HTML pagination with prefetch (mock version)"""
+        # Mock the prefetch version - yields (grin_row_dict, known_barcodes_set) tuples
         for line in self.test_data:
-            yield line, set()  # Empty set for known barcodes since this is a mock
+            # Convert tab-delimited string to GRINRow dict for compatibility
+            if isinstance(line, str) and "\t" in line:
+                fields = line.split("\t")
+                if len(fields) >= 1:
+                    grin_row = {
+                        "barcode": fields[0],
+                        "title": fields[1] if len(fields) > 1 and fields[1] else "",
+                        "scanned_date": fields[2] if len(fields) > 2 and fields[2] else None,
+                        "processed_date": fields[3] if len(fields) > 3 and fields[3] else None,
+                        "analyzed_date": fields[4] if len(fields) > 4 and fields[4] else None,
+                        "google_books_link": fields[8] if len(fields) > 8 and fields[8] else ""
+                    }
+                    yield grin_row, set()  # Empty set for known barcodes since this is a mock
+            elif isinstance(line, dict):
+                yield line, set()  # Already a dict
+            else:
+                # Fallback for simple string barcodes
+                yield {"barcode": str(line), "title": ""}, set()
 
     async def fetch_resource(self, directory: str, resource: str):
         """Return mock processing state data"""
