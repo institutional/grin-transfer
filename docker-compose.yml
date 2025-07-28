@@ -2,7 +2,7 @@ services:
   # Main grin-to-s3 application
   grin-to-s3:
     build: .
-    container_name: grin-to-s3-dev
+    container_name: ${GRIN_CONTAINER_PREFIX:-grin-to-s3}-${GRIN_INSTANCE_ID:-dev}
     restart: unless-stopped
     
     # OAuth2 server port forwarding (configurable)
@@ -75,7 +75,7 @@ services:
   # MinIO for local S3-compatible storage (optional - use with --profile minio)
   minio:
     image: minio/minio:latest
-    container_name: grin-to-s3-minio-dev
+    container_name: ${GRIN_CONTAINER_PREFIX:-grin-to-s3}-minio-${GRIN_INSTANCE_ID:-dev}
     profiles: ["minio"]
     ports:
       - "9000:9000"  # MinIO API
@@ -97,7 +97,7 @@ services:
   # MinIO client for bucket setup (optional - use with --profile minio)
   minio-client:
     image: minio/mc:latest
-    container_name: grin-to-s3-minio-client
+    container_name: ${GRIN_CONTAINER_PREFIX:-grin-to-s3}-minio-client-${GRIN_INSTANCE_ID:-dev}
     profiles: ["minio"]
     networks:
       - grin-dev-network
@@ -132,9 +132,11 @@ services:
 # Named volumes for development
 volumes:
   minio-data:
+    name: ${GRIN_CONTAINER_PREFIX:-grin-to-s3}-minio-data-${GRIN_INSTANCE_ID:-dev}
     driver: local
 
 # Network configuration
 networks:
   grin-dev-network:
+    name: ${GRIN_CONTAINER_PREFIX:-grin-to-s3}-network-${GRIN_INSTANCE_ID:-dev}
     driver: bridge
