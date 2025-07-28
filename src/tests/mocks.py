@@ -21,14 +21,14 @@ class MockAuth:
 class MockGRINClient:
     """Mock GRIN client for controlled testing without network calls"""
 
-    def __init__(self, test_data: list[str] = None):
+    def __init__(self, test_data: list[dict[str, str]] = None):
         self.test_data = test_data or []
         self.auth = MockAuth()
 
     async def stream_book_list(self, directory: str, list_type: str, mode_all: bool = False):
-        """Yield test data lines"""
-        for line in self.test_data:
-            yield line
+        """Yield test data as GRINRow dicts"""
+        for grin_row in self.test_data:
+            yield grin_row
 
     async def stream_book_list_html(
         self,
@@ -40,9 +40,9 @@ class MockGRINClient:
         start_url: str = None,
         pagination_callback=None,
     ):
-        """Yield test data lines using HTML pagination"""
-        for line in self.test_data:
-            yield line
+        """Yield test data as GRINRow dicts using HTML pagination"""
+        for grin_row in self.test_data:
+            yield grin_row
 
     async def stream_book_list_html_prefetch(
         self,
@@ -57,25 +57,8 @@ class MockGRINClient:
     ):
         """Yield test data as GRINRow dicts using HTML pagination with prefetch (mock version)"""
         # Mock the prefetch version - yields (grin_row_dict, known_barcodes_set) tuples
-        for line in self.test_data:
-            # Convert tab-delimited string to GRINRow dict for compatibility
-            if isinstance(line, str) and "\t" in line:
-                fields = line.split("\t")
-                if len(fields) >= 1:
-                    grin_row = {
-                        "barcode": fields[0],
-                        "title": fields[1] if len(fields) > 1 and fields[1] else "",
-                        "scanned_date": fields[2] if len(fields) > 2 and fields[2] else None,
-                        "processed_date": fields[3] if len(fields) > 3 and fields[3] else None,
-                        "analyzed_date": fields[4] if len(fields) > 4 and fields[4] else None,
-                        "google_books_link": fields[8] if len(fields) > 8 and fields[8] else ""
-                    }
-                    yield grin_row, set()  # Empty set for known barcodes since this is a mock
-            elif isinstance(line, dict):
-                yield line, set()  # Already a dict
-            else:
-                # Fallback for simple string barcodes
-                yield {"barcode": str(line), "title": ""}, set()
+        for grin_row in self.test_data:
+            yield grin_row, set()  # Empty set for known barcodes since this is a mock
 
     async def fetch_resource(self, directory: str, resource: str):
         """Return mock processing state data"""
@@ -125,54 +108,54 @@ class MockStorage:
 def get_test_data():
     """Standard test data for consistent testing - kept small for speed"""
     return [
-        "TEST001\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test001",
-        "TEST002\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test002",
-        "TEST003\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test003",
-        "TEST004\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test004",
-        "TEST005\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test005",
+        {"barcode": "TEST001", "title": "Test Book 001", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test001"},
+        {"barcode": "TEST002", "title": "Test Book 002", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test002"},
+        {"barcode": "TEST003", "title": "Test Book 003", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test003"},
+        {"barcode": "TEST004", "title": "Test Book 004", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test004"},
+        {"barcode": "TEST005", "title": "Test Book 005", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test005"},
     ]
 
 
 def get_large_test_data():
     """Larger test data for specific tests that need more records"""
     return [
-        "TEST001\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test001",
-        "TEST002\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test002",
-        "TEST003\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test003",
-        "TEST004\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test004",
-        "TEST005\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test005",
-        "TEST006\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test006",
-        "TEST007\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test007",
-        "TEST008\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test008",
-        "TEST009\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test009",
-        "TEST010\t2023-01-01 12:00\t2023-01-02 12:00\t2023-01-03 12:00\t\t\t\t2023-01-04 12:00\thttps://books.google.com/books?id=test010",
+        {"barcode": "TEST001", "title": "Test Book 001", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test001"},
+        {"barcode": "TEST002", "title": "Test Book 002", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test002"},
+        {"barcode": "TEST003", "title": "Test Book 003", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test003"},
+        {"barcode": "TEST004", "title": "Test Book 004", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test004"},
+        {"barcode": "TEST005", "title": "Test Book 005", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test005"},
+        {"barcode": "TEST006", "title": "Test Book 006", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test006"},
+        {"barcode": "TEST007", "title": "Test Book 007", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test007"},
+        {"barcode": "TEST008", "title": "Test Book 008", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test008"},
+        {"barcode": "TEST009", "title": "Test Book 009", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test009"},
+        {"barcode": "TEST010", "title": "Test Book 010", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test010"},
     ]
 
 
 def get_html_test_data():
     """HTML format test data matching GRIN HTML table output"""
     return [
-        "HTML001\tHTML001\tThe Great Gatsby\t\t2023-01-01 12:00\t2023-01-05 14:30\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML002\tHTML002\tTo Kill a Mockingbird\t\t2023-01-01 12:00\t2023-01-06 09:15\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML003\tHTML003\t1984 by George Orwell\t\t2023-01-01 12:00\t2023-01-07 16:45\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML004\tHTML004\tPride and Prejudice\t\t2023-01-01 12:00\t2023-01-08 11:20\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML005\tHTML005\tThe Catcher in the Rye\t\t2023-01-01 12:00\t2023-01-09 13:45\t2023-01-02 12:00\t2023-01-03 12:00",
+        {"barcode": "HTML001", "title": "The Great Gatsby", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-05 14:30", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML002", "title": "Beloved", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-06 09:15", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML003", "title": "1984 by George Orwell", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-07 16:45", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML004", "title": "Pride and Prejudice", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-08 11:20", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML005", "title": "The Left Hand of Darkness", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-09 13:45", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
     ]
 
 
 def get_large_html_test_data():
     """Larger HTML format test data for tests that need more records"""
     return [
-        "HTML001\tHTML001\tThe Great Gatsby\t\t2023-01-01 12:00\t2023-01-05 14:30\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML002\tHTML002\tTo Kill a Mockingbird\t\t2023-01-01 12:00\t2023-01-06 09:15\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML003\tHTML003\t1984 by George Orwell\t\t2023-01-01 12:00\t2023-01-07 16:45\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML004\tHTML004\tPride and Prejudice\t\t2023-01-01 12:00\t2023-01-08 11:20\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML005\tHTML005\tThe Catcher in the Rye\t\t2023-01-01 12:00\t2023-01-09 13:45\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML006\tHTML006\tLord of the Flies\t\t2023-01-01 12:00\t2023-01-10 10:30\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML007\tHTML007\tThe Hobbit\t\t2023-01-01 12:00\t2023-01-11 15:20\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML008\tHTML008\tHarry Potter and the Sorcerer's Stone\t\t2023-01-01 12:00\t2023-01-12 08:45\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML009\tHTML009\tThe Chronicles of Narnia\t\t2023-01-01 12:00\t2023-01-13 12:15\t2023-01-02 12:00\t2023-01-03 12:00",
-        "HTML010\tHTML010\tJane Eyre\t\t2023-01-01 12:00\t2023-01-14 17:00\t2023-01-02 12:00\t2023-01-03 12:00",
+        {"barcode": "HTML001", "title": "The Great Gatsby", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-05 14:30", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML002", "title": "Beloved", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-06 09:15", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML003", "title": "1984 by George Orwell", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-07 16:45", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML004", "title": "Pride and Prejudice", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-08 11:20", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML005", "title": "The Left Hand of Darkness", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-09 13:45", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML006", "title": "Dune", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-10 10:30", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML007", "title": "The Hobbit", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-11 15:20", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML008", "title": "The Fifth Season", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-12 08:45", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML009", "title": "The Handmaid's Tale", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-13 12:15", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {"barcode": "HTML010", "title": "Jane Eyre", "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-14 17:00", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
     ]
 
 
