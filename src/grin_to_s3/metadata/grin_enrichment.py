@@ -264,7 +264,6 @@ class GRINEnrichmentPipeline:
         else:
             # Multiple books or batches - show details
             avg_batch_size = sum(batch_sizes) / len(batch_sizes) if batch_sizes else 0
-            from grin_to_s3.common import pluralize
 
             split_info = (
                 f"  → Enriching {total_books} {pluralize(total_books, 'book')} via "

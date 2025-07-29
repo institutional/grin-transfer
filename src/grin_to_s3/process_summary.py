@@ -17,6 +17,7 @@ from typing import Any
 import aiofiles
 
 from .common import extract_bucket_config
+from .compression import TempCompressedFile, get_compressed_filename
 
 logger = logging.getLogger(__name__)
 
@@ -317,20 +318,31 @@ class RunSummaryManager:
             logger.error(f"Failed to save run summary: {e}")
 
     async def _upload_to_storage(self) -> None:
-        """Upload process summary to metadata bucket."""
+        """Upload compressed process summary to metadata bucket."""
         if not self._book_manager:
             logger.warning("Storage upload requested but no book storage configured")
             return
 
         try:
-            # Generate storage path for process summary
-            filename = f"process_summary_{self.run_name}.json"
-            storage_path = self._book_manager._meta_path(filename)
+            # Generate storage path for compressed process summary
+            base_filename = f"process_summary_{self.run_name}.json"
+            compressed_filename = get_compressed_filename(base_filename)
+            storage_path = self._book_manager._meta_path(compressed_filename)
 
-            # Upload the local summary file
-            await self._book_manager.storage.write_file(storage_path, str(self.summary_file))
+            # Get original file size for logging
+            original_size = self.summary_file.stat().st_size
 
-            logger.info(f"Uploaded process summary to storage: {storage_path}")
+            # Upload the compressed local summary file
+            async with TempCompressedFile(self.summary_file) as compressed_path:
+                compressed_size = compressed_path.stat().st_size
+                compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
+
+                await self._book_manager.storage.write_file(storage_path, str(compressed_path))
+
+                logger.info(
+                    f"Uploaded compressed process summary to storage: {storage_path} "
+                    f"({original_size:,} -> {compressed_size:,} bytes, {compression_ratio:.1f}% compression)"
+                )
 
         except Exception as e:
             logger.error(f"Failed to upload process summary to storage: {e}")

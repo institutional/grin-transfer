@@ -70,11 +70,12 @@ class TestProcessSummaryUpload:
             # Verify storage upload was called
             mock_book_manager.storage.write_file.assert_called_once()
 
-            # Verify the storage path is correct
+            # Verify the storage path is correct (now compressed)
             call_args = mock_book_manager.storage.write_file.call_args
             storage_path, local_path = call_args[0]
-            assert storage_path == "test-meta/test_run/process_summary_test_run_upload.json"
-            assert local_path == str(manager.summary_file)
+            assert storage_path == "test-meta/test_run/process_summary_test_run_upload.json.gz"
+            # local_path should be a compressed temp file, not the original summary file
+            assert local_path.endswith(".gz")
 
     @pytest.mark.asyncio
     async def test_run_summary_manager_upload_error_handling(self, temp_dir, mock_run_name, mock_book_manager):
@@ -191,22 +192,32 @@ class TestProcessSummaryUpload:
             assert book_manager is None
 
     @pytest.mark.asyncio
-    async def test_upload_path_generation(self, mock_run_name, mock_book_manager):
+    async def test_upload_path_generation(self, temp_dir, mock_run_name, mock_book_manager):
         """Test that upload paths are generated correctly."""
-        manager = RunSummaryManager(mock_run_name)
-        manager.enable_storage_upload(mock_book_manager)
+        with patch("grin_to_s3.process_summary.Path") as mock_path:
+            summary_dir = temp_dir / mock_run_name
+            summary_dir.mkdir(parents=True, exist_ok=True)
+            summary_file = summary_dir / "process_summary.json"
+            mock_path.return_value = summary_file
 
-        # Test the private method directly
-        await manager._upload_to_storage()
+            manager = RunSummaryManager(mock_run_name)
+            manager.enable_storage_upload(mock_book_manager)
 
-        # Verify the path structure
-        mock_book_manager.storage.write_file.assert_called_once()
-        call_args = mock_book_manager.storage.write_file.call_args
-        storage_path = call_args[0][0]
+            # Create a summary file first
+            summary = RunSummary(mock_run_name)
+            await manager.save_summary(summary)
 
-        # Should follow the pattern: bucket_meta/base_prefix/process_summary_run_name.json
-        expected_path = f"test-meta/test_run/process_summary_{mock_run_name}.json"
-        assert storage_path == expected_path
+            # Test the private method directly
+            await manager._upload_to_storage()
+
+            # Verify the path structure
+            mock_book_manager.storage.write_file.assert_called()
+            call_args = mock_book_manager.storage.write_file.call_args
+            storage_path = call_args[0][0]
+
+            # Should follow the pattern: bucket_meta/base_prefix/process_summary_run_name.json.gz (now compressed)
+            expected_path = f"test-meta/test_run/process_summary_{mock_run_name}.json.gz"
+            assert storage_path == expected_path
 
     @pytest.mark.asyncio
     async def test_upload_disabled_by_default(self, temp_dir, mock_run_name):
