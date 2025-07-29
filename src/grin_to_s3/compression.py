@@ -16,6 +16,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_COMPRESSION_LEVEL = 1  # Fastest
 
 class CompressionError(Exception):
     """Raised when compression operations fail."""
@@ -38,89 +39,10 @@ def get_compressed_filename(original_filename: str) -> str:
     return f"{original_filename}.gz"
 
 
-async def compress_file_gzip(
-    source_path: str | Path,
-    target_path: str | Path | None = None,
-    compression_level: int = 9,
-    cleanup_source: bool = False
-) -> Path:
-    """Compress a file using gzip compression.
-
-    Args:
-        source_path: Path to source file to compress
-        target_path: Optional target path for compressed file (defaults to source + .gz)
-        compression_level: Compression level 1-9 (9 = maximum compression)
-        cleanup_source: Whether to delete source file after successful compression
-
-    Returns:
-        Path to the compressed file
-
-    Raises:
-        CompressionError: If compression fails
-        FileNotFoundError: If source file doesn't exist
-    """
-    source_path = Path(source_path)
-
-    if not source_path.exists():
-        raise FileNotFoundError(f"Source file not found: {source_path}")
-
-    if target_path is None:
-        target_path = source_path.with_suffix(source_path.suffix + ".gz")
-    else:
-        target_path = Path(target_path)
-
-    # Ensure target directory exists
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-
-    try:
-        logger.debug(f"Compressing {source_path} to {target_path} (level {compression_level})")
-
-        # Get original file size for logging
-        original_size = source_path.stat().st_size
-
-        # Perform compression in executor to avoid blocking
-        def _compress():
-            with open(source_path, "rb") as f_in:
-                with gzip.open(target_path, "wb", compresslevel=compression_level) as f_out:
-                    shutil.copyfileobj(f_in, f_out)
-
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, _compress)
-
-        # Verify compressed file was created and get compression stats
-        if not target_path.exists():
-            raise CompressionError(f"Compressed file was not created: {target_path}")
-
-        compressed_size = target_path.stat().st_size
-        compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
-
-        logger.info(
-            f"Compression completed: {source_path.name} "
-            f"({original_size:,} bytes -> {compressed_size:,} bytes, "
-            f"{compression_ratio:.1f}% reduction)"
-        )
-
-        # Clean up source file if requested
-        if cleanup_source:
-            source_path.unlink()
-            logger.debug(f"Cleaned up source file: {source_path}")
-
-        return target_path
-
-    except Exception as e:
-        # Clean up target file if compression failed
-        if target_path.exists():
-            try:
-                target_path.unlink()
-            except Exception:
-                pass  # Ignore cleanup errors
-
-        raise CompressionError(f"Failed to compress {source_path}: {e}") from e
-
 
 async def compress_file_to_temp(
     source_path: str | Path,
-    compression_level: int = 9,
+    compression_level: int = DEFAULT_COMPRESSION_LEVEL,
     temp_dir: str | Path | None = None
 ) -> Path:
     """Compress a file to a temporary location.
@@ -142,26 +64,57 @@ async def compress_file_to_temp(
     """
     source_path = Path(source_path)
 
+    if not source_path.exists():
+        raise FileNotFoundError(f"Source file not found: {source_path}")
+
     if temp_dir is None:
         temp_dir = Path(tempfile.gettempdir())
     else:
         temp_dir = Path(temp_dir)
+        temp_dir.mkdir(parents=True, exist_ok=True)
 
     # Use a unique temporary filename to avoid conflicts
     temp_file = temp_dir / f"grin_compress_{source_path.stem}_{id(source_path)}.gz"
 
     try:
-        compressed_path = await compress_file_gzip(
-            source_path,
-            temp_file,
-            compression_level=compression_level,
-            cleanup_source=False  # Never clean up source when using temp
+        logger.debug(f"Compressing {source_path} to {temp_file} (level {compression_level})")
+
+        # Get original file size for logging
+        original_size = source_path.stat().st_size
+
+        # Perform compression in executor to avoid blocking
+        def _compress():
+            with open(source_path, "rb") as f_in:
+                with gzip.open(temp_file, "wb", compresslevel=compression_level) as f_out:
+                    shutil.copyfileobj(f_in, f_out)
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _compress)
+
+        # Verify compressed file was created and get compression stats
+        if not temp_file.exists():
+            raise CompressionError(f"Compressed file was not created: {temp_file}")
+
+        compressed_size = temp_file.stat().st_size
+        compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
+
+        logger.info(
+            f"Compression completed: {source_path.name} "
+            f"({original_size:,} bytes -> {compressed_size:,} bytes, "
+            f"{compression_ratio:.1f}% reduction)"
         )
 
-        logger.debug(f"Created temporary compressed file: {compressed_path}")
-        return compressed_path
+        logger.debug(f"Created temporary compressed file: {temp_file}")
+        return temp_file
 
     except Exception as e:
+        # Clean up temp file if compression failed
+        if temp_file.exists():
+            try:
+                temp_file.unlink()
+            except Exception:
+                pass  # Ignore cleanup errors
+
         raise CompressionError(f"Failed to create temporary compressed file: {e}") from e
 
 
@@ -171,7 +124,7 @@ class TempCompressedFile:
     def __init__(
         self,
         source_path: str | Path,
-        compression_level: int = 9,
+        compression_level: int = DEFAULT_COMPRESSION_LEVEL,
         temp_dir: str | Path | None = None
     ):
         self.source_path = source_path
@@ -188,7 +141,7 @@ class TempCompressedFile:
         )
         return self.compressed_path
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:  # noqa: ARG002
         """Clean up temporary compressed file."""
         if self.compressed_path and self.compressed_path.exists():
             try:
