@@ -589,7 +589,9 @@ class GRINEnrichmentPipeline:
                 enriched_in_batch = await self.enrich_books_batch(processing_barcodes)
 
                 batch_elapsed = time.time() - batch_start
-                processed_count += len(processing_barcodes) - len(new_leftovers)
+                # Count only fresh books that were completed (not carried over)
+                fresh_books_completed = len(fresh_barcodes) - max(0, len(new_leftovers) - previous_leftovers_count)
+                processed_count += max(0, fresh_books_completed)
                 total_enriched += enriched_in_batch
 
                 # Track batch completion for sliding window rate calculation
