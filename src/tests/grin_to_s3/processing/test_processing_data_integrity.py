@@ -8,7 +8,7 @@ incorrect status tracking in the processing pipeline.
 
 import pytest
 
-from grin_to_s3.processing import ProcessingClient, ProcessingRequestError
+from grin_to_s3.processing import ProcessingClient, ProcessingPipeline, ProcessingRequestError
 from tests.mocks import MockGRINClient
 
 
@@ -268,3 +268,113 @@ class TestProcessingClientDataIntegrity:
 
         result = await processing_client.get_converted_books()
         assert result == set()
+
+
+class TestProcessingPipelineBarcodeFunctionality:
+    """Test ProcessingPipeline barcode-related functionality."""
+
+    @pytest.fixture
+    async def processing_pipeline(self, tmp_path):
+        """Create a ProcessingPipeline for testing with proper database setup."""
+        from unittest.mock import Mock
+
+        from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+
+        db_path = tmp_path / "test.db"
+
+        # Use the real SQLiteProgressTracker to initialize the database with proper schema
+        tracker = SQLiteProgressTracker(str(db_path))
+        await tracker.init_db()
+
+        # Create test book records and save them properly
+        test_books = [
+            BookRecord(barcode="TEST001", title="Test Book 1"),
+            BookRecord(barcode="TEST002", title="Test Book 2", grin_state="NOT_AVAILABLE_FOR_DOWNLOAD"),
+            BookRecord(barcode="TEST003", title="Test Book 3", processing_request_timestamp="2024-01-03T10:00:00"),
+            BookRecord(barcode="TEST004", title="Test Book 4", converted_date="2024-01-04T10:00:00"),
+            BookRecord(barcode="TEST005", title="Test Book 5"),
+            BookRecord(barcode="TEST006", title="Test Book 6", grin_state="CHECKED_IN"),
+        ]
+
+        for book in test_books:
+            await tracker.save_book(book)
+
+        # Mock the process summary stage
+        mock_stage = Mock()
+        mock_stage.increment_items = Mock()
+        mock_stage.add_progress_update = Mock()
+        mock_stage.add_error = Mock()
+
+        pipeline = ProcessingPipeline(
+            db_path=str(db_path),
+            directory="test_dir",
+            process_summary_stage=mock_stage,
+            rate_limit_delay=0
+        )
+
+        # Replace grin_client with mock to avoid authentication issues
+        pipeline.processing_client.grin_client = MockProcessingClient()  # type: ignore
+
+        return pipeline
+
+    @pytest.mark.asyncio
+    async def test_get_candidate_barcodes_with_explicit_barcodes(self, processing_pipeline):
+        """Test _get_candidate_barcodes returns explicit barcodes unchanged."""
+        barcodes = ["EXPLICIT1", "EXPLICIT2", "EXPLICIT3"]
+
+        result = await processing_pipeline._get_candidate_barcodes(
+            limit=10, barcodes=barcodes, in_process_books=set()
+        )
+
+        assert result == barcodes
+
+    @pytest.mark.asyncio
+    async def test_get_candidate_barcodes_database_query(self, processing_pipeline):
+        """Test _get_candidate_barcodes uses database query when no barcodes provided."""
+        result = await processing_pipeline._get_candidate_barcodes(
+            limit=10, barcodes=None, in_process_books=set()
+        )
+
+        # Should return TEST001 and TEST005 (available books)
+        # TEST002 is NOT_AVAILABLE_FOR_DOWNLOAD
+        # TEST003 already has processing_request_timestamp
+        # TEST004 already has converted_date
+        # TEST006 is CHECKED_IN
+        expected = ["TEST001", "TEST005"]
+        assert result == expected
+
+    @pytest.mark.asyncio
+    async def test_get_candidate_barcodes_filters_in_process(self, processing_pipeline):
+        """Test _get_candidate_barcodes filters out books in GRIN processing queue."""
+        in_process_books = {"TEST001"}
+
+        result = await processing_pipeline._get_candidate_barcodes(
+            limit=10, barcodes=None, in_process_books=in_process_books
+        )
+
+        # Should only return TEST005 (TEST001 is filtered out)
+        expected = ["TEST005"]
+        assert result == expected
+
+    @pytest.mark.asyncio
+    async def test_get_candidate_barcodes_respects_limit(self, processing_pipeline):
+        """Test _get_candidate_barcodes respects the limit parameter."""
+        result = await processing_pipeline._get_candidate_barcodes(
+            limit=1, barcodes=None, in_process_books=set()
+        )
+
+        # Should only return one book (TEST001)
+        assert len(result) == 1
+        assert result == ["TEST001"]
+
+    @pytest.mark.asyncio
+    async def test_get_candidate_barcodes_explicit_ignores_limit(self, processing_pipeline):
+        """Test _get_candidate_barcodes ignores limit when explicit barcodes provided."""
+        barcodes = ["EXP1", "EXP2", "EXP3", "EXP4", "EXP5"]
+
+        result = await processing_pipeline._get_candidate_barcodes(
+            limit=2, barcodes=barcodes, in_process_books=set()
+        )
+
+        # Should return all barcodes despite limit=2
+        assert result == barcodes
