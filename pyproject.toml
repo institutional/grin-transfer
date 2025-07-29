@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12,<4.0"
 license = {text = "MIT"}
 authors = [
-    {name = "Harvard Library Innovation Lab"}
+    {name = "Harvard Institutional Data Initiative"}
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

@@ -341,3 +341,38 @@ class TestBatchOptimization:
         # First book in second processing batch should be from leftovers
         if leftovers1 and processing2:
             assert processing2[0] in first_fresh, "Should start with leftover from first batch"
+
+    def test_leftover_books_are_actually_processed(self, pipeline):
+        """Test that leftover books from previous batch are included in processing."""
+        # Set up scenario with specific, identifiable leftovers
+        leftover_books = [f"LEFTOVER_{i:03d}" for i in range(150)]
+        fresh_books = [f"FRESH_{i:04d}" for i in range(2350)]
+
+        # Set leftover state
+        pipeline.leftover_barcodes = leftover_books
+
+        # Prepare combined batch
+        processing_barcodes, new_leftovers = pipeline._prepare_combined_batch(fresh_books)
+
+        # Verify leftover books are included in processing
+        leftover_books_in_processing = [b for b in processing_barcodes if b.startswith("LEFTOVER_")]
+
+        assert len(leftover_books_in_processing) == 150, f"Expected 150 leftover books in processing, got {len(leftover_books_in_processing)}"
+
+        # Verify they maintain their original order and content
+        expected_leftovers = leftover_books  # All 150 should be processed
+        actual_leftovers = [b for b in processing_barcodes if b.startswith("LEFTOVER_")]
+
+        assert actual_leftovers == expected_leftovers, "Leftover books should be processed in original order"
+
+        # Verify the first books in processing are the leftovers (order preservation)
+        assert processing_barcodes[:150] == leftover_books, "First 150 books should be the leftovers"
+
+        # Verify fresh books come after leftovers
+        fresh_books_in_processing = [b for b in processing_barcodes if b.startswith("FRESH_")]
+        assert len(fresh_books_in_processing) > 0, "Should also include some fresh books"
+
+        # Verify total count matches expectation
+        total_expected = len(leftover_books) + len(fresh_books)
+        total_actual = len(processing_barcodes) + len(new_leftovers)
+        assert total_actual == total_expected, f"Total books should be preserved: {total_actual} vs {total_expected}"

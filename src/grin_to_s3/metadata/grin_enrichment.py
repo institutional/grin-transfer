@@ -566,6 +566,9 @@ class GRINEnrichmentPipeline:
                     print("✅ No more books to enrich")
                     break
 
+                # Track leftovers from previous batch for logging
+                previous_leftovers_count = len(self.leftover_barcodes)
+
                 # Combine leftovers with fresh books for optimal processing
                 processing_barcodes, new_leftovers = self._prepare_combined_batch(fresh_barcodes)
 
@@ -577,8 +580,9 @@ class GRINEnrichmentPipeline:
                     continue
 
                 batch_start = time.time()
-                leftover_info = f" (+{len(new_leftovers)} carried over)" if new_leftovers else ""
-                logger.info(f"Processing batch of {len(processing_barcodes)} books{leftover_info}...")
+                leftover_info = f" (including {previous_leftovers_count} from previous batch)" if previous_leftovers_count > 0 else ""
+                carryover_info = f" (+{len(new_leftovers)} carried to next batch)" if new_leftovers else ""
+                logger.info(f"Processing batch of {len(processing_barcodes)} books{leftover_info}{carryover_info}...")
 
                 # Enrich the batch
                 enriched_in_batch = await self.enrich_books_batch(processing_barcodes)
