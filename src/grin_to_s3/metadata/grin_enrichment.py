@@ -32,6 +32,7 @@ from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_p
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_BATCH_SIZE = 6_000  # Will be dynamically split up to optimize concurrency without exceeding URL limits
 
 class GRINEnrichmentPipeline:
     """Pipeline for enriching book records with detailed GRIN metadata."""
@@ -42,7 +43,7 @@ class GRINEnrichmentPipeline:
         process_summary_stage,
         db_path: str = "output/default/books.db",
         rate_limit_delay: float = 0.2,  # 5 QPS
-        batch_size: int = 2000,
+        batch_size: int = DEFAULT_BATCH_SIZE,
         max_concurrent_requests: int = 5,  # Concurrent GRIN requests
         secrets_dir: str | None = None,  # Directory containing secrets files
         timeout: int = 60,
@@ -65,6 +66,9 @@ class GRINEnrichmentPipeline:
 
         # Track if pipeline is shutting down for cleanup
         self._shutdown_requested = False
+
+        # Buffer for leftover books from previous batches to improve efficiency
+        self.leftover_barcodes: list[str] = []
 
     async def cleanup(self) -> None:
         """Clean up resources and close connections safely."""
@@ -121,6 +125,127 @@ class GRINEnrichmentPipeline:
         result = max(1, max_batch_size)
         logger.debug(f"Calculated max batch size: {result} (total URL length: {len(base_url + barcode_string)})")
         return result
+
+    def _create_optimal_batch_composition(self, barcodes: list[str]) -> list[list[str]]:
+        """Create batches optimized for both URL capacity and concurrency.
+
+        Returns batches sized to maximize concurrent request utilization while
+        staying within URL length limits.
+        """
+        if not barcodes:
+            return []
+
+        # Calculate max URL capacity using a representative sample
+        sample_size = min(len(barcodes), 1000)  # Use sample to avoid expensive calculation
+        max_url_capacity = self._calculate_max_batch_size(barcodes[:sample_size])
+
+        # Calculate optimal batch composition
+        total_books = len(barcodes)
+        optimal_concurrent_batches = min(self.max_concurrent_requests,
+                                       (total_books + max_url_capacity - 1) // max_url_capacity)
+
+        # Create batches that maximize both concurrency and per-request capacity
+        batches = []
+        remaining_barcodes = barcodes[:]
+
+        while remaining_barcodes:
+            # Create up to max_concurrent_requests batches at optimal capacity
+            current_round_batches = []
+
+            for _ in range(min(optimal_concurrent_batches, len(remaining_barcodes) // max_url_capacity + 1)):
+                if not remaining_barcodes:
+                    break
+
+                # Calculate actual capacity for this specific batch
+                actual_capacity = self._calculate_max_batch_size(remaining_barcodes)
+                batch_size = min(actual_capacity, len(remaining_barcodes))
+
+                batch = remaining_barcodes[:batch_size]
+                current_round_batches.append(batch)
+                remaining_barcodes = remaining_barcodes[batch_size:]
+
+                # If we've created max_concurrent_requests batches, process them
+                if len(current_round_batches) >= self.max_concurrent_requests:
+                    break
+
+            batches.extend(current_round_batches)
+
+        return batches
+
+    def get_optimal_batch_size_recommendation(self, sample_barcodes: list[str] | None = None) -> int:
+        """Get recommended batch size for optimal capacity utilization.
+
+        Returns a batch size that would result in exactly max_concurrent_requests
+        batches at maximum URL capacity.
+        """
+        if sample_barcodes:
+            # Use provided sample to calculate capacity
+            max_url_capacity = self._calculate_max_batch_size(sample_barcodes[:1000])
+        else:
+            # Use conservative estimate based on typical barcode lengths
+            # Typical barcode: ~15 chars, URL capacity ~492 barcodes
+            max_url_capacity = 490  # Conservative estimate
+
+        # Optimal batch size = max_concurrent_requests * max_url_capacity
+        optimal_batch_size = self.max_concurrent_requests * max_url_capacity
+
+        return optimal_batch_size
+
+    def _calculate_optimal_fetch_size(self, target_batch_size: int) -> int:
+        """Calculate optimal database fetch size accounting for existing leftovers.
+
+        Args:
+            target_batch_size: Desired total batch size for processing
+
+        Returns:
+            Number of fresh books to fetch from database
+        """
+        leftover_count = len(self.leftover_barcodes)
+
+        if leftover_count >= target_batch_size:
+            # We already have enough leftovers, don't fetch any new books
+            return 0
+
+        # Fetch just enough to reach target batch size
+        return target_batch_size - leftover_count
+
+    def _prepare_combined_batch(self, fresh_barcodes: list[str]) -> tuple[list[str], list[str]]:
+        """Combine leftover barcodes with fresh barcodes for optimal processing.
+
+        Args:
+            fresh_barcodes: Newly fetched barcodes from database
+
+        Returns:
+            Tuple of (processing_batch, new_leftovers)
+        """
+        # Combine leftovers with fresh books
+        all_barcodes = self.leftover_barcodes + fresh_barcodes
+
+        if not all_barcodes:
+            return [], []
+
+        # Calculate optimal batch composition for combined books
+        optimal_batches = self._create_optimal_batch_composition(all_barcodes)
+
+        if not optimal_batches:
+            return [], all_barcodes
+
+        # Process batches up to max_concurrent_requests, save remainder as leftovers
+        batches_to_process = min(len(optimal_batches), self.max_concurrent_requests)
+
+        processing_batches = optimal_batches[:batches_to_process]
+        leftover_batches = optimal_batches[batches_to_process:]
+
+        # Convert batches to flat lists
+        processing_barcodes = []
+        for batch in processing_batches:
+            processing_barcodes.extend(batch)
+
+        new_leftovers = []
+        for batch in leftover_batches:
+            new_leftovers.extend(batch)
+
+        return processing_barcodes, new_leftovers
 
     async def fetch_grin_metadata_batch(self, barcodes: list[str]) -> dict[str, dict | None]:
         """Fetch detailed GRIN metadata for a batch of barcodes."""
@@ -237,23 +362,8 @@ class GRINEnrichmentPipeline:
         """Enrich a batch of books with GRIN metadata using concurrent requests."""
         enriched_count = 0
 
-        # Split barcodes into GRIN batches, calculating max size for each batch
-        grin_batches = []
-        remaining_barcodes = barcodes[:]
-
-        while remaining_barcodes:
-            # Calculate maximum batch size that fits in URL for remaining barcodes
-            max_url_batch_size = self._calculate_max_batch_size(remaining_barcodes)
-
-            # Use the maximum possible URL batch size (ignore user setting, maximize throughput)
-            effective_batch_size = min(max_url_batch_size, len(remaining_barcodes))
-
-            # Take the calculated number of barcodes for this batch
-            grin_batch = remaining_barcodes[:effective_batch_size]
-            grin_batches.append(grin_batch)
-
-            # Remove processed barcodes
-            remaining_barcodes = remaining_barcodes[effective_batch_size:]
+        # Create optimal batch composition that maximizes both URL capacity and concurrency
+        grin_batches = self._create_optimal_batch_composition(barcodes)
 
         batch_sizes = [len(batch) for batch in grin_batches]
         total_books = sum(batch_sizes)
@@ -262,12 +372,14 @@ class GRINEnrichmentPipeline:
             # Single book case - keep it simple
             logger.debug("  → Enriching 1 book via GRIN API")
         else:
-            # Multiple books or batches - show details
+            # Multiple books or batches - show details with capacity optimization info
             avg_batch_size = sum(batch_sizes) / len(batch_sizes) if batch_sizes else 0
+            concurrent_rounds = (len(grin_batches) + self.max_concurrent_requests - 1) // self.max_concurrent_requests
 
             split_info = (
                 f"  → Enriching {total_books} {pluralize(total_books, 'book')} via "
                 f"{len(grin_batches)} GRIN API {pluralize(len(grin_batches), 'call')} "
+                f"in {concurrent_rounds} concurrent {pluralize(concurrent_rounds, 'round')} "
                 f"(batch sizes: {batch_sizes}, avg: {avg_batch_size:.1f})"
             )
             logger.info(split_info)
@@ -365,7 +477,13 @@ class GRINEnrichmentPipeline:
         logger.info(f"Directory: {self.directory}")
         logger.info(f"Rate limit: {self.rate_limiter.requests_per_second:.1f} requests/second")
         logger.info(f"Concurrent requests: {self.max_concurrent_requests}")
-        logger.info("GRIN batch size: Dynamic (maximum URL length)")
+
+        # Show optimization info
+        optimal_batch_size = self.get_optimal_batch_size_recommendation()
+        logger.info(f"Database batch size: {self.batch_size:,} books")
+        logger.info(f"Optimal batch size for max concurrency: {optimal_batch_size:,} books")
+        logger.info("GRIN URL batches: Dynamic sizing optimized for concurrency")
+
         if limit:
             logger.info(f"Limit: {limit:,} {pluralize(limit, 'book')}")
         if reset:
@@ -415,6 +533,9 @@ class GRINEnrichmentPipeline:
         # Initialize sliding window rate calculator (larger window for more stable ETA)
         rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
+        # Reset leftover buffer at start of enrichment
+        self.leftover_barcodes = []
+
         logger.info(f"Starting enrichment of {remaining_books:,} books...")
 
         try:
@@ -424,27 +545,51 @@ class GRINEnrichmentPipeline:
                     print("Shutdown requested, stopping enrichment...")
                     break
 
-                # Get batch of books that need enrichment
+                # Calculate optimal fetch size accounting for leftovers
                 if limit:
-                    batch_limit = min(self.batch_size, limit - processed_count)
-                    if batch_limit <= 0:
+                    remaining_limit = limit - processed_count
+                    if remaining_limit <= 0:
                         break
+                    target_batch_size = min(self.batch_size, remaining_limit)
                 else:
-                    batch_limit = self.batch_size
+                    target_batch_size = self.batch_size
 
-                barcodes = await self.sqlite_tracker.get_books_for_enrichment(batch_limit)
-                if not barcodes:
+                # Calculate how many fresh books to fetch from database
+                fetch_size = self._calculate_optimal_fetch_size(target_batch_size)
+
+                # Get fresh books from database if needed
+                fresh_barcodes = []
+                if fetch_size > 0:
+                    fresh_barcodes = await self.sqlite_tracker.get_books_for_enrichment(fetch_size)
+
+                # If no fresh books and no leftovers, we're done
+                if not fresh_barcodes and not self.leftover_barcodes:
                     print("✅ No more books to enrich")
                     break
 
+                # Track leftovers from previous batch for logging
+                previous_leftovers_count = len(self.leftover_barcodes)
+
+                # Combine leftovers with fresh books for optimal processing
+                processing_barcodes, new_leftovers = self._prepare_combined_batch(fresh_barcodes)
+
+                # Update leftover buffer
+                self.leftover_barcodes = new_leftovers
+
+                # If no books to process in this round, continue to next iteration
+                if not processing_barcodes:
+                    continue
+
                 batch_start = time.time()
-                logger.info(f"Processing batch of {len(barcodes)} books...")
+                leftover_info = f" (including {previous_leftovers_count} from previous batch)" if previous_leftovers_count > 0 else ""
+                carryover_info = f" (+{len(new_leftovers)} carried to next batch)" if new_leftovers else ""
+                logger.info(f"Processing batch of {len(processing_barcodes)} books{leftover_info}{carryover_info}...")
 
                 # Enrich the batch
-                enriched_in_batch = await self.enrich_books_batch(barcodes)
+                enriched_in_batch = await self.enrich_books_batch(processing_barcodes)
 
                 batch_elapsed = time.time() - batch_start
-                processed_count += len(barcodes)
+                processed_count += len(processing_barcodes) - len(new_leftovers)
                 total_enriched += enriched_in_batch
 
                 # Track batch completion for sliding window rate calculation
@@ -461,7 +606,7 @@ class GRINEnrichmentPipeline:
                     eta_seconds = books_remaining / rate
                     eta_text = f" (ETA: {format_duration(eta_seconds)})"
 
-                logger.info(f"  Batch completed: {enriched_in_batch}/{len(barcodes)} enriched in {batch_elapsed:.1f}s")
+                logger.info(f"  Batch completed: {enriched_in_batch}/{len(processing_barcodes)} enriched in {batch_elapsed:.1f}s")
                 print(f"Progress: {processed_count:,}/{remaining_books:,} processed ({rate:.1f} books/sec){eta_text}")
                 progress_msg = f"  Overall progress: {processed_count:,}/{remaining_books:,} processed"
                 rate_msg = f" ({rate:.1f} books/sec){eta_text}"
@@ -473,6 +618,20 @@ class GRINEnrichmentPipeline:
 
                 # Small delay between batches
                 await asyncio.sleep(0.1)
+
+            # Process any remaining leftovers at end of stream
+            if self.leftover_barcodes and not self._shutdown_requested:
+                logger.info(f"Processing final {len(self.leftover_barcodes)} leftover books...")
+                try:
+                    enriched_leftovers = await self.enrich_books_batch(self.leftover_barcodes)
+                    processed_count += len(self.leftover_barcodes)
+                    total_enriched += enriched_leftovers
+                    logger.info(f"  Final batch completed: {enriched_leftovers}/{len(self.leftover_barcodes)} enriched")
+                    print(f"Final progress: {processed_count:,} books processed total")
+                except Exception as e:
+                    logger.error(f"Failed to process leftover books: {e}")
+                finally:
+                    self.leftover_barcodes = []
 
         except KeyboardInterrupt:
             print("\nEnrichment interrupted by user")
@@ -543,7 +702,7 @@ Examples:
     enrich_parser.add_argument(
         "--rate-limit", type=float, default=0.2, help="Delay between requests (default: 0.2s for 5 QPS)"
     )
-    enrich_parser.add_argument("--batch-size", type=int, default=2000, help="Batch size for processing")
+    enrich_parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Database batch size for processing books")
     enrich_parser.add_argument(
         "--max-concurrent", type=int, default=5, help="Maximum concurrent GRIN requests (default: 5)"
     )
