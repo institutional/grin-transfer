@@ -5,12 +5,16 @@ Storage abstraction specifically for book archive operations.
 Implements storage patterns for book data organization.
 """
 
+import json
 import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TypedDict
 
-from ..compression import TempCompressedFile, get_compressed_filename
+import aiofiles
+
+from ..compression import compress_file_to_temp, get_compressed_filename
 from .base import Storage
 
 logger = logging.getLogger(__name__)
@@ -92,7 +96,6 @@ class BookManager:
 
         if self.storage.config.protocol == "s3" and encrypted_etag:
             # For S3 with metadata, we need to read the file and use write_bytes_with_metadata
-            import aiofiles
 
             async with aiofiles.open(archive_file_path, "rb") as f:
                 archive_data = await f.read()
@@ -123,7 +126,6 @@ class BookManager:
 
         if self.storage.is_s3_compatible() and encrypted_etag:
             # For S3-compatible storage with metadata, read file and use write_bytes_with_metadata
-            import aiofiles
 
             async with aiofiles.open(archive_file_path, "rb") as f:
                 archive_data = await f.read()
@@ -135,7 +137,6 @@ class BookManager:
 
     async def save_text_jsonl(self, barcode: str, pages: list[str]) -> str:
         """Save page text as JSONL file (one JSON string per line)."""
-        import json
 
         filename = f"{barcode}.jsonl"
         path = self._raw_archive_path(barcode, filename)
@@ -162,10 +163,9 @@ class BookManager:
         if metadata is None:
             metadata = {}
 
-        from pathlib import Path
         original_size = Path(jsonl_file_path).stat().st_size
 
-        async with TempCompressedFile(jsonl_file_path) as compressed_path:
+        async with compress_file_to_temp(jsonl_file_path) as compressed_path:
             compressed_size = compressed_path.stat().st_size
             compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
 
@@ -183,7 +183,6 @@ class BookManager:
 
             if self.storage.is_s3_compatible() and metadata:
                 # For S3-compatible storage with metadata, read compressed file and use write_bytes_with_metadata
-                import aiofiles
 
                 async with aiofiles.open(compressed_path, "rb") as f:
                     file_data = await f.read()
@@ -311,9 +310,8 @@ class BookManager:
 
         try:
             # Use temporary compressed file for both uploads
-            async with TempCompressedFile(local_csv_path) as compressed_path:
+            async with compress_file_to_temp(local_csv_path) as compressed_path:
                 # Get compression statistics
-                from pathlib import Path
                 original_size = Path(local_csv_path).stat().st_size
                 compressed_size = compressed_path.stat().st_size
                 compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0

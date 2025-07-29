@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from grin_to_s3.common import BackupManager
-from grin_to_s3.compression import TempCompressedFile, get_compressed_filename
+from grin_to_s3.compression import compress_file_to_temp, get_compressed_filename
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
 logger = logging.getLogger(__name__)
@@ -149,17 +149,9 @@ async def upload_database_to_storage(
         result["file_size"] = db_path_obj.stat().st_size
 
         # Upload compressed database
-        if staging_manager is None:
-            # Local storage - compress directly and upload
-            async with TempCompressedFile(db_path_obj) as compressed_path:
-                result["compressed_size"] = compressed_path.stat().st_size
-                await book_manager.storage.write_file(storage_path, str(compressed_path))
-        else:
-            # Cloud storage - compress in staging directory
-            async with TempCompressedFile(db_path_obj, temp_dir=staging_manager.staging_path) as compressed_path:
-                result["compressed_size"] = compressed_path.stat().st_size
-                # Upload compressed file from staging
-                await book_manager.storage.write_file(storage_path, str(compressed_path))
+        async with compress_file_to_temp(db_path_obj) as compressed_path:
+            result["compressed_size"] = compressed_path.stat().st_size
+            await book_manager.storage.write_file(storage_path, str(compressed_path))
 
         result["status"] = "completed"
         compression_ratio = (1 - result["compressed_size"] / result["file_size"]) * 100 if result["file_size"] > 0 else 0

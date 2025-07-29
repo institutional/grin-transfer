@@ -17,7 +17,7 @@ from typing import Any
 import aiofiles
 
 from .common import extract_bucket_config
-from .compression import TempCompressedFile, get_compressed_filename
+from .compression import compress_file_to_temp, get_compressed_filename
 
 logger = logging.getLogger(__name__)
 
@@ -333,7 +333,7 @@ class RunSummaryManager:
             original_size = self.summary_file.stat().st_size
 
             # Upload the compressed local summary file
-            async with TempCompressedFile(self.summary_file) as compressed_path:
+            async with compress_file_to_temp(self.summary_file) as compressed_path:
                 compressed_size = compressed_path.stat().st_size
                 compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
 

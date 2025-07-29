@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 from grin_to_s3.compression import (
-    TempCompressedFile,
     compress_file_to_temp,
     get_compressed_filename,
 )
@@ -30,28 +29,26 @@ async def test_compress_file_to_temp():
         source_file = Path(temp_dir) / "test.txt"
         source_file.write_text("Test content for temporary compression")
 
-        # Compress to temp
-        compressed_file = await compress_file_to_temp(source_file)
+        # Compress to temp using context manager
+        async with compress_file_to_temp(source_file) as compressed_file:
+            # Verify temp file exists and source is untouched
+            assert compressed_file.exists()
+            assert source_file.exists()
+            assert compressed_file.name.endswith(".gz")
 
-        # Verify temp file exists and source is untouched
-        assert compressed_file.exists()
-        assert source_file.exists()
-        assert compressed_file.name.endswith(".gz")
-
-        # Clean up temp file
-        compressed_file.unlink()
+        # File should be cleaned up after context exits
+        assert not compressed_file.exists()
 
 
-@pytest.mark.asyncio
-async def test_compress_file_to_temp_missing_source():
+def test_compress_file_to_temp_missing_source():
     """Test compression with missing source file."""
     with pytest.raises(FileNotFoundError):
-        await compress_file_to_temp("/nonexistent/file.txt")
+        compress_file_to_temp("/nonexistent/file.txt")
 
 
 @pytest.mark.asyncio
-async def test_temp_compressed_file_context_manager():
-    """Test TempCompressedFile context manager."""
+async def test_compress_file_to_temp_context_manager():
+    """Test compress_file_to_temp context manager functionality."""
     with tempfile.TemporaryDirectory() as temp_dir:
         # Create source file
         source_file = Path(temp_dir) / "test.txt"
@@ -61,7 +58,7 @@ async def test_temp_compressed_file_context_manager():
         compressed_path = None
 
         # Use context manager
-        async with TempCompressedFile(source_file) as temp_compressed:
+        async with compress_file_to_temp(source_file) as temp_compressed:
             compressed_path = temp_compressed
 
             # File should exist during context
@@ -79,24 +76,5 @@ async def test_temp_compressed_file_context_manager():
 
         # Source should still exist
         assert source_file.exists()
-
-
-@pytest.mark.asyncio
-async def test_temp_compressed_file_custom_temp_dir():
-    """Test TempCompressedFile with custom temp directory."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Create source file
-        source_file = Path(temp_dir) / "test.txt"
-        source_file.write_text("Test content")
-
-        # Create custom temp directory
-        custom_temp = Path(temp_dir) / "custom_temp"
-        custom_temp.mkdir()
-
-        # Use context manager with custom temp dir
-        async with TempCompressedFile(source_file, temp_dir=custom_temp) as temp_compressed:
-            # Verify it's in the custom temp directory
-            assert temp_compressed.parent == custom_temp
-            assert temp_compressed.exists()
 
 
