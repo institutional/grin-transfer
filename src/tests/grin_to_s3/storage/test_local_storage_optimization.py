@@ -200,7 +200,7 @@ class TestLocalStorageErrorHandling:
 
                 # Should fail with permission error
                 with pytest.raises((PermissionError, OSError)):
-                    await book_manager.save_archive("TEST", b"data")
+                    await book_manager.save_decrypted_archive("TEST", b"data")
             finally:
                 # Restore permissions for cleanup
                 readonly_dir.chmod(0o755)

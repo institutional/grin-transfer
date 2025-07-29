@@ -75,35 +75,6 @@ class BookManager:
             return f"{self.bucket_meta}/{self.base_prefix}/{filename}"
         return f"{self.bucket_meta}/{filename}"
 
-    async def save_archive(self, barcode: str, archive_data: bytes, encrypted_etag: str | None = None) -> str:
-        """Save encrypted archive (.tar.gz.gpg) with optional encrypted ETag metadata."""
-        filename = f"{barcode}.tar.gz.gpg"
-        path = self._raw_archive_path(barcode, filename)
-
-        if self.storage.config.protocol == "s3" and encrypted_etag:
-            # Store encrypted file's ETag as metadata for future comparison
-            await self.storage.write_bytes_with_metadata(path, archive_data, {"encrypted-etag": encrypted_etag})
-        else:
-            await self.storage.write_bytes(path, archive_data)
-        return path
-
-    async def save_archive_from_file(
-        self, barcode: str, archive_file_path: str, encrypted_etag: str | None = None
-    ) -> str:
-        """Save encrypted archive (.tar.gz.gpg) from file with optional encrypted ETag metadata."""
-        filename = f"{barcode}.tar.gz.gpg"
-        path = self._raw_archive_path(barcode, filename)
-
-        if self.storage.config.protocol == "s3" and encrypted_etag:
-            # For S3 with metadata, we need to read the file and use write_bytes_with_metadata
-
-            async with aiofiles.open(archive_file_path, "rb") as f:
-                archive_data = await f.read()
-            await self.storage.write_bytes_with_metadata(path, archive_data, {"encrypted-etag": encrypted_etag})
-        else:
-            # Stream upload directly from file
-            await self.storage.write_file(path, archive_file_path)
-        return path
 
     async def save_decrypted_archive(self, barcode: str, archive_data: bytes, encrypted_etag: str | None = None) -> str:
         """Save decrypted archive (.tar.gz) with optional encrypted ETag metadata."""
