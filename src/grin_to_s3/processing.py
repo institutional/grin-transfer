@@ -19,6 +19,7 @@ from grin_to_s3.common import RateLimiter, format_duration, pluralize, print_oau
 from grin_to_s3.database_utils import validate_database_file
 from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
+from grin_to_s3.sync.models import validate_and_parse_barcodes
 
 from .database import connect_async, connect_sync
 
@@ -81,6 +82,9 @@ class ProcessingClient:
             barcodes_param = ",".join(barcodes)
             process_url = f"_process?barcodes={barcodes_param}"
             response_text = await self.grin_client.fetch_resource(self.directory, process_url)
+
+            # Log full GRIN response for debugging
+            logger.debug(f"Full GRIN response for {len(barcodes)} barcodes:\n{response_text}")
 
             # Parse TSV response (should be "Barcode\tStatus" format)
             lines = response_text.strip().split("\n")
@@ -247,7 +251,81 @@ class ProcessingPipeline:
             "queue_space": max(0, self.max_in_process - len(in_process)),
         }
 
-    async def run_processing_requests(self, limit: int | None = None) -> None:
+    async def _get_candidate_barcodes(
+        self, limit: int, barcodes: list[str] | None = None, in_process_books: set[str] | None = None
+    ) -> list[str]:
+        """Get candidate barcodes for processing requests.
+
+        Args:
+            limit: Maximum number of barcodes to return
+            barcodes: If provided, return these barcodes directly (overrides database search)
+            in_process_books: Books currently in GRIN processing queue to filter out
+
+        Returns:
+            List of candidate barcodes for processing
+        """
+        # If specific barcodes provided, return them directly (no filtering)
+        if barcodes:
+            print(f"Using {len(barcodes)} explicitly specified barcodes")
+            return barcodes
+
+        # Otherwise, use database query logic
+        in_process_books = in_process_books or set()
+        total_books = await self.db_tracker.get_book_count()
+
+        candidate_barcodes: list[str] = []
+        fetch_offset = 0
+        fetch_batch_size = min(limit * 100, 50000)  # Start with reasonable batch
+
+        print("Searching for books that haven't been requested for processing...")
+
+        while len(candidate_barcodes) < limit and fetch_offset < total_books:
+            # Fetch next batch of books from database that haven't been requested
+            # Skip books marked as NOT_AVAILABLE_FOR_DOWNLOAD or CHECKED_IN
+            async with connect_async(self.db_path) as db:
+                cursor = await db.execute(
+                    """
+                    SELECT barcode FROM books
+                    WHERE processing_request_timestamp IS NULL
+                    AND converted_date IS NULL
+                    AND (grin_state IS NULL OR grin_state NOT IN ('NOT_AVAILABLE_FOR_DOWNLOAD', 'CHECKED_IN'))
+                    ORDER BY created_at LIMIT ? OFFSET ?
+                    """,
+                    (fetch_batch_size, fetch_offset),
+                )
+                rows = await cursor.fetchall()
+                batch_barcodes = [row[0] for row in rows]
+
+            if not batch_barcodes:
+                # No more unrequested books in database
+                break
+
+            # Filter out books currently in GRIN's processing queue
+            new_candidates = [barcode for barcode in batch_barcodes if barcode not in in_process_books]
+
+            candidate_barcodes.extend(new_candidates)
+            fetch_offset += len(batch_barcodes)
+
+            print(
+                f"  Searched {fetch_offset:,}/{total_books:,} books, "
+                f"found {len(candidate_barcodes):,} new candidates"
+            )
+
+            # If we found enough candidates, we can stop
+            if len(candidate_barcodes) >= limit:
+                break
+
+            # If we didn't find any new candidates in this batch, try a larger batch
+            if not new_candidates and len(batch_barcodes) == fetch_batch_size:
+                fetch_batch_size = min(fetch_batch_size * 2, 100000)
+                print(f"  No new candidates found, increasing batch size to {fetch_batch_size:,}")
+
+        # Limit to the requested number
+        candidate_barcodes = candidate_barcodes[:limit]
+
+        return candidate_barcodes
+
+    async def run_processing_requests(self, limit: int | None = None, barcodes: list[str] | None = None) -> None:
         """Run the complete processing request pipeline."""
         print("Starting GRIN book processing request pipeline")
         print(f"Database: {self.db_path}")
@@ -298,89 +376,50 @@ class ProcessingPipeline:
                 print("GRIN processing queue is full. Cannot submit new requests.")
                 return
 
-            # Get books from database that could be processed
-            total_books = await self.db_tracker.get_book_count()
-            print(f"Database contains {total_books:,} books")
+            # Determine how many books to request
+            if barcodes:
+                books_to_request = len(barcodes)
+                print(f"Will request processing for {books_to_request} explicitly specified books")
+            else:
+                # Get books from database that could be processed
+                total_books = await self.db_tracker.get_book_count()
+                print(f"Database contains {total_books:,} books")
 
-            # Get current GRIN in-process books to avoid duplicate requests
-            print("Getting current GRIN in-process books to avoid duplicates...")
-            try:
-                in_process_books = await asyncio.wait_for(self.processing_client.get_in_process_books(), timeout=60.0)
-                print(f"Found {len(in_process_books):,} books currently in GRIN processing queue")
-            except TimeoutError:
-                print("❌ Getting in-process books timed out after 60 seconds")
-                print("Proceeding without filtering duplicates...")
-                in_process_books = set()
-            except Exception as e:
-                print(f"❌ Failed to get in-process books: {e}")
-                print("Proceeding without filtering duplicates...")
-                in_process_books = set()
+                books_to_request = min(limit or status["queue_space"], status["queue_space"])
+                if books_to_request <= 0:
+                    print("No requests to make")
+                    return
+
+                print(f"Will attempt to request processing for up to {books_to_request:,} new books")
             print()
 
-            books_to_request = min(limit or status["queue_space"], status["queue_space"])
-            if books_to_request <= 0:
-                print("No requests to make")
-                return
+            # Get current GRIN in-process books to avoid duplicate requests (unless using explicit barcodes)
+            in_process_books = set()
+            if not barcodes:
+                print("Getting current GRIN in-process books to avoid duplicates...")
+                try:
+                    in_process_books = await asyncio.wait_for(self.processing_client.get_in_process_books(), timeout=60.0)
+                    print(f"Found {len(in_process_books):,} books currently in GRIN processing queue")
+                except TimeoutError:
+                    print("❌ Getting in-process books timed out after 60 seconds")
+                    print("Proceeding without filtering duplicates...")
+                    in_process_books = set()
+                except Exception as e:
+                    print(f"❌ Failed to get in-process books: {e}")
+                    print("Proceeding without filtering duplicates...")
+                    in_process_books = set()
+                print()
 
-            print(f"Will attempt to request processing for up to {books_to_request:,} new books")
-            print()
-
-            # Get books from database, filtering out those already in GRIN
-            candidate_barcodes: list[str] = []
-            fetch_offset = 0
-            fetch_batch_size = min(books_to_request * 100, 50000)  # Start with reasonable batch
-
-            print("Searching for books that haven't been requested for processing...")
-
-            while len(candidate_barcodes) < books_to_request and fetch_offset < total_books:
-                # Fetch next batch of books from database that haven't been requested
-                async with connect_async(self.db_path) as db:
-                    cursor = await db.execute(
-                        """
-                        SELECT barcode FROM books
-                        WHERE processing_request_timestamp IS NULL
-                        AND converted_date IS NULL
-                        ORDER BY created_at LIMIT ? OFFSET ?
-                        """,
-                        (fetch_batch_size, fetch_offset),
-                    )
-                    rows = await cursor.fetchall()
-                    batch_barcodes = [row[0] for row in rows]
-
-                if not batch_barcodes:
-                    # No more unrequested books in database
-                    break
-
-                # Filter out books currently in GRIN's processing queue
-                new_candidates = [barcode for barcode in batch_barcodes if barcode not in in_process_books]
-
-                candidate_barcodes.extend(new_candidates)
-                fetch_offset += len(batch_barcodes)
-
-                print(
-                    f"  Searched {fetch_offset:,}/{total_books:,} books, "
-                    f"found {len(candidate_barcodes):,} new candidates"
-                )
-
-                # If we found enough candidates, we can stop
-                if len(candidate_barcodes) >= books_to_request:
-                    break
-
-                # If we didn't find any new candidates in this batch, try a larger batch
-                if not new_candidates and len(batch_barcodes) == fetch_batch_size:
-                    fetch_batch_size = min(fetch_batch_size * 2, 100000)
-                    print(f"  No new candidates found, increasing batch size to {fetch_batch_size:,}")
-
-            # Limit to the requested number
-            candidate_barcodes = candidate_barcodes[:books_to_request]
+            # Get candidate barcodes using helper method
+            candidate_barcodes = await self._get_candidate_barcodes(books_to_request, barcodes, in_process_books)
 
             print(f"Final result: {len(candidate_barcodes):,} books ready for processing requests")
 
             if not candidate_barcodes:
-                print("No new books to request processing for - all searched books are already in GRIN system")
-                print(f"Searched {fetch_offset:,}/{total_books:,} books in database")
-                if fetch_offset < total_books:
-                    print("You may want to try again with a higher limit to search more books")
+                if barcodes:
+                    print("No barcodes provided for processing")
+                else:
+                    print("No new books to request processing for - all searched books are already in GRIN system")
                 return
 
             # Process requests with async concurrency
@@ -450,11 +489,15 @@ class ProcessingPipeline:
                             self.process_summary_stage.increment_items(processed=1, successful=1)
                         else:
                             failed += 1
-                            logger.error(f"Failed to request processing for {barcode}: {status}")
+                            error_msg = f"Failed to request processing for {barcode}: {status}"
+                            logger.error(error_msg)
+                            print(f"❌ {error_msg}")
                             self.process_summary_stage.increment_items(processed=1, failed=1)
                     else:
                         failed += 1
-                        logger.error(f"No result returned for {barcode}")
+                        error_msg = f"No result returned for {barcode}"
+                        logger.error(error_msg)
+                        print(f"❌ {error_msg}")
                         self.process_summary_stage.increment_items(processed=1, failed=1)
 
                 batch_elapsed = time.time() - batch_start
@@ -1014,6 +1057,18 @@ async def cmd_request(args) -> None:
     process_stage.set_command_arg("status_only", args.status_only)
     if args.limit:
         process_stage.set_command_arg("limit", args.limit)
+    if args.barcodes:
+        process_stage.set_command_arg("barcodes", args.barcodes)
+
+    # Parse and validate barcodes if provided
+    parsed_barcodes = None
+    if args.barcodes:
+        try:
+            parsed_barcodes = validate_and_parse_barcodes(args.barcodes)
+            print(f"Parsed {len(parsed_barcodes)} barcodes for processing")
+        except ValueError as e:
+            print(f"❌ Invalid barcodes format: {e}")
+            sys.exit(1)
 
     # Create and run pipeline
     try:
@@ -1082,7 +1137,7 @@ async def cmd_request(args) -> None:
             else:
                 # Run processing requests
                 process_stage.add_progress_update("Starting processing requests")
-                await pipeline.run_processing_requests(limit=args.limit)
+                await pipeline.run_processing_requests(limit=args.limit, barcodes=parsed_barcodes)
                 process_stage.add_progress_update("Processing requests completed")
 
         except KeyboardInterrupt:
@@ -1306,6 +1361,9 @@ Examples:
 
   # Custom rate limiting
   python grin.py process request --run-name harvard_2024 --rate-limit 0.1
+
+  # Process specific barcodes
+  python grin.py process request --run-name harvard_2024 --barcodes "YL1BTJ,ABC123,XYZ789"
         """,
     )
 
@@ -1320,6 +1378,9 @@ Examples:
         "--max-in-process", type=int, default=50000, help="Maximum books in GRIN queue (default: 50000)"
     )
     request_parser.add_argument("--limit", type=int, help="Limit number of processing requests to make")
+    request_parser.add_argument(
+        "--barcodes", help="Comma-separated list of specific barcodes to process (e.g., '12345,67890,abcde')"
+    )
     request_parser.add_argument(
         "--status-only", action="store_true", help="Only check current status, don't make requests"
     )
