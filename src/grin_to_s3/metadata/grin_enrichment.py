@@ -32,6 +32,7 @@ from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_p
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_BATCH_SIZE = 6_000  # Will be dynamically split up to optimize concurrency without exceeding URL limits
 
 class GRINEnrichmentPipeline:
     """Pipeline for enriching book records with detailed GRIN metadata."""
@@ -42,7 +43,7 @@ class GRINEnrichmentPipeline:
         process_summary_stage,
         db_path: str = "output/default/books.db",
         rate_limit_delay: float = 0.2,  # 5 QPS
-        batch_size: int = 2500,
+        batch_size: int = DEFAULT_BATCH_SIZE,
         max_concurrent_requests: int = 5,  # Concurrent GRIN requests
         secrets_dir: str | None = None,  # Directory containing secrets files
         timeout: int = 60,
@@ -588,7 +589,7 @@ class GRINEnrichmentPipeline:
                 enriched_in_batch = await self.enrich_books_batch(processing_barcodes)
 
                 batch_elapsed = time.time() - batch_start
-                processed_count += len(processing_barcodes)
+                processed_count += len(processing_barcodes) - len(new_leftovers)
                 total_enriched += enriched_in_batch
 
                 # Track batch completion for sliding window rate calculation
@@ -701,7 +702,7 @@ Examples:
     enrich_parser.add_argument(
         "--rate-limit", type=float, default=0.2, help="Delay between requests (default: 0.2s for 5 QPS)"
     )
-    enrich_parser.add_argument("--batch-size", type=int, default=2500, help="Database batch size for processing books")
+    enrich_parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Database batch size for processing books")
     enrich_parser.add_argument(
         "--max-concurrent", type=int, default=5, help="Maximum concurrent GRIN requests (default: 5)"
     )
