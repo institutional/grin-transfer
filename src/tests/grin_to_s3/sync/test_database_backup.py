@@ -67,7 +67,7 @@ async def test_upload_database_to_storage_latest():
     # Mock setup
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager._meta_path.return_value = "meta/books_latest.db"
+    mock_book_manager._meta_path.return_value = "meta/books_latest.db.gz"
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
@@ -85,8 +85,9 @@ async def test_upload_database_to_storage_latest():
         )
 
         assert result["status"] == "completed"
-        assert result["backup_filename"] == "books_latest.db"
+        assert result["backup_filename"] == "books_latest.db.gz"
         assert result["file_size"] > 0
+        assert result["compressed_size"] > 0
         mock_storage.write_file.assert_called_once()
 
 
@@ -96,7 +97,7 @@ async def test_upload_database_to_storage_timestamped():
     # Mock setup
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager._meta_path.return_value = "meta/database_backups/books_backup_20240101_120000.db"
+    mock_book_manager._meta_path.return_value = "meta/database_backups/books_backup_20240101_120000.db.gz"
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
@@ -115,8 +116,9 @@ async def test_upload_database_to_storage_timestamped():
 
         assert result["status"] == "completed"
         assert "books_backup_" in result["backup_filename"]
-        assert result["backup_filename"].endswith(".db")
+        assert result["backup_filename"].endswith(".db.gz")
         assert result["file_size"] > 0
+        assert result["compressed_size"] > 0
         mock_storage.write_file.assert_called_once()
 
 
@@ -126,7 +128,7 @@ async def test_upload_database_to_storage_with_staging():
     # Mock setup
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager._meta_path.return_value = "meta/books_latest.db"
+    mock_book_manager._meta_path.return_value = "meta/books_latest.db.gz"
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
@@ -151,13 +153,16 @@ async def test_upload_database_to_storage_with_staging():
         )
 
         assert result["status"] == "completed"
-        assert result["backup_filename"] == "books_latest.db"
+        assert result["backup_filename"] == "books_latest.db.gz"
         assert result["file_size"] > 0
+        assert result["compressed_size"] > 0
         mock_storage.write_file.assert_called_once()
 
-        # Verify staging file was cleaned up
-        staging_files = list(staging_dir.glob("*.db"))
-        assert len(staging_files) == 0
+        # Verify no staging files remain (compressed temp files are cleaned up)
+        db_files = list(staging_dir.glob("*.db"))
+        gz_files = list(staging_dir.glob("*.gz"))
+        assert len(db_files) == 0
+        assert len(gz_files) == 0
 
 
 @pytest.mark.asyncio
@@ -183,7 +188,7 @@ async def test_upload_database_to_storage_upload_error():
     # Mock setup with failing storage
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager._meta_path.return_value = "meta/books_latest.db"
+    mock_book_manager._meta_path.return_value = "meta/books_latest.db.gz"
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock(side_effect=Exception("Storage error"))
 
@@ -201,5 +206,5 @@ async def test_upload_database_to_storage_upload_error():
         )
 
         assert result["status"] == "failed"
-        assert result["backup_filename"] == "books_latest.db"  # Filename set before failure
+        assert result["backup_filename"] == "books_latest.db.gz"  # Filename set before failure
         assert result["file_size"] > 0  # File size calculated before failure

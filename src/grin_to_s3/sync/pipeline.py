@@ -1029,12 +1029,12 @@ class SyncPipeline:
             print(f"  Raw data: {base_path}/raw/")
             print(f"  Metadata: {base_path}/meta/")
             print(f"  Full-text: {base_path}/full/")
-            print(f"  CSV export: {base_path}/meta/books_latest.csv")
+            print(f"  CSV export: {base_path}/meta/books_latest.csv.gz")
         else:
             print(f"  Raw data bucket: {self.storage_config["bucket_raw"]}")
             print(f"  Metadata bucket: {self.storage_config["bucket_meta"]}")
             print(f"  Full-text bucket: {self.storage_config["bucket_full"]}")
-            print(f"  CSV export: {self.storage_config["bucket_meta"]}/books_latest.csv")
+            print(f"  CSV export: {self.storage_config["bucket_meta"]}/books_latest.csv.gz")
 
     async def _cancel_progress_reporter(self) -> None:
         """Cancel the background progress reporter with timeout."""

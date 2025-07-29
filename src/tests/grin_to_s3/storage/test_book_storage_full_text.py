@@ -69,51 +69,76 @@ class TestBookManagerFullText:
 
     @pytest.mark.asyncio
     async def test_save_ocr_text_jsonl_from_file_success(self):
-        """Test successful OCR text JSONL file upload."""
-        mock_storage = MagicMock()
+        """Test successful OCR text JSONL file upload with compression."""
+        import tempfile
+
         mock_storage = AsyncMock()
         mock_storage.is_s3_compatible = MagicMock(return_value=False)
 
         book_manager = BookManager(storage=mock_storage, bucket_config=standard_bucket_config())
 
-        jsonl_file_path = "/path/to/12345.jsonl"
+        # Create a real temporary JSONL file for compression
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as temp_file:
+            temp_file.write('"Page 1 content"\n"Page 2 content"\n')
+            temp_file.flush()
+            jsonl_file_path = temp_file.name
 
-        result = await book_manager.save_ocr_text_jsonl_from_file("12345", jsonl_file_path)
+        try:
+            result = await book_manager.save_ocr_text_jsonl_from_file("12345", jsonl_file_path)
 
-        # Verify correct path generated
-        assert result == "test-full/12345.jsonl"
+            # Verify correct compressed path generated
+            assert result == "test-full/12345.jsonl.gz"
 
-        # Verify write_file called with correct file path
-        mock_storage.write_file.assert_called_once_with("test-full/12345.jsonl", jsonl_file_path)
+            # Verify write_file called with compressed file
+            mock_storage.write_file.assert_called_once()
+            args, kwargs = mock_storage.write_file.call_args
+            assert args[0] == "test-full/12345.jsonl.gz"
+            assert args[1].endswith(".gz")  # Should be a compressed temp file
+        finally:
+            # Clean up temp file
+            import os
+            os.unlink(jsonl_file_path)
 
     @pytest.mark.asyncio
     async def test_save_ocr_text_jsonl_from_file_with_metadata(self):
         """Test OCR text JSONL file upload with metadata on S3-compatible storage."""
-        mock_storage = MagicMock()
+        import tempfile
+
         mock_storage = AsyncMock()
         mock_storage.is_s3_compatible = MagicMock(return_value=True)
 
         book_manager = BookManager(storage=mock_storage, bucket_config=standard_bucket_config())
 
-        jsonl_file_path = "/path/to/12345.jsonl"
+        # Create a real temporary JSONL file for compression
+        jsonl_content = '"Page 1 content"\n"Page 2 content"\n'
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as temp_file:
+            temp_file.write(jsonl_content)
+            temp_file.flush()
+            jsonl_file_path = temp_file.name
+
         metadata = {"page_count": 2, "extraction_time_ms": 1500}
 
-        # Mock file reading
-        with patch("aiofiles.open") as mock_open:
-            mock_file = AsyncMock()
-            mock_file.read.return_value = b'"Page 1 content"\n"Page 2 content"\n'
-            mock_open.return_value.__aenter__.return_value = mock_file
-
+        try:
             result = await book_manager.save_ocr_text_jsonl_from_file("12345", jsonl_file_path, metadata)
 
-        # Verify correct path generated
-        assert result == "test-full/12345.jsonl"
+            # Verify correct compressed path generated
+            assert result == "test-full/12345.jsonl.gz"
 
-        # Verify write_bytes_with_metadata called
-        expected_bytes = b'"Page 1 content"\n"Page 2 content"\n'
-        mock_storage.write_bytes_with_metadata.assert_called_once_with(
-            "test-full/12345.jsonl", expected_bytes, metadata
-        )
+            # Verify write_bytes_with_metadata called with compressed file and extended metadata
+            mock_storage.write_bytes_with_metadata.assert_called_once()
+            args, kwargs = mock_storage.write_bytes_with_metadata.call_args
+            assert args[0] == "test-full/12345.jsonl.gz"
+            # Verify original metadata plus compression info is included
+            call_metadata = args[2]
+            assert call_metadata["page_count"] == 2
+            assert call_metadata["extraction_time_ms"] == 1500
+            assert "original_size" in call_metadata
+            assert "compressed_size" in call_metadata
+            assert "compression_ratio" in call_metadata
+        finally:
+            # Clean up temp file
+            import os
+            os.unlink(jsonl_file_path)
 
     @pytest.mark.asyncio
     async def test_save_ocr_text_jsonl_from_file_no_full_text_storage(self):

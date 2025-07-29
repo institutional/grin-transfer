@@ -7,13 +7,13 @@ error handling and cleanup.
 """
 
 import logging
-import shutil
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TypedDict
 
 from grin_to_s3.common import BackupManager
+from grin_to_s3.compression import compress_file_to_temp, get_compressed_filename
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ class DatabaseBackupResult(TypedDict):
 
     status: str  # "completed", "failed", "skipped"
     file_size: int
+    compressed_size: int
     backup_time: float
     backup_filename: str | None
 
@@ -45,6 +46,7 @@ async def create_local_database_backup(
     result: DatabaseBackupResult = {
         "status": "pending",
         "file_size": 0,
+        "compressed_size": 0,
         "backup_time": 0.0,
         "backup_filename": None
     }
@@ -77,6 +79,7 @@ async def create_local_database_backup(
                 # Get most recent backup
                 latest_backup = max(backup_files, key=lambda f: f.stat().st_mtime)
                 result["file_size"] = latest_backup.stat().st_size
+                result["compressed_size"] = latest_backup.stat().st_size  # Local backups are not compressed
                 result["backup_filename"] = latest_backup.name
                 result["status"] = "completed"
                 logger.info(f"Database backup created: {latest_backup.name} ({result['file_size']} bytes)")
@@ -101,13 +104,13 @@ async def upload_database_to_storage(
     staging_manager: StagingDirectoryManager | None = None,
     upload_type: str = "latest"
 ) -> DatabaseBackupResult:
-    """Upload database file to metadata bucket.
+    """Upload database file to metadata bucket with compression.
 
     Args:
         db_path: Path to SQLite database file
         book_manager: BookManager instance for upload operations
         staging_manager: StagingDirectoryManager for cloud storage (None for local)
-        upload_type: "latest" for books_latest.db or "timestamped" for books_backup_{timestamp}.db
+        upload_type: "latest" for books_latest.db.gz or "timestamped" for books_backup_{timestamp}.db.gz
 
     Returns:
         Dict with upload operation results
@@ -116,6 +119,7 @@ async def upload_database_to_storage(
     result: DatabaseBackupResult = {
         "status": "pending",
         "file_size": 0,
+        "compressed_size": 0,
         "backup_time": 0.0,
         "backup_filename": None
     }
@@ -128,41 +132,33 @@ async def upload_database_to_storage(
             result["backup_time"] = time.time() - start_time
             return result
 
-        # Generate filename based on upload type
+        # Generate filename based on upload type (with compression)
         if upload_type == "latest":
-            target_filename = "books_latest.db"
-            storage_path = book_manager._meta_path(target_filename)
+            base_filename = "books_latest.db"
+            compressed_filename = get_compressed_filename(base_filename)
+            storage_path = book_manager._meta_path(compressed_filename)
         else:  # timestamped
             timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-            target_filename = f"books_backup_{timestamp}.db"
-            storage_path = book_manager._meta_path(f"database_backups/{target_filename}")
+            base_filename = f"books_backup_{timestamp}.db"
+            compressed_filename = get_compressed_filename(base_filename)
+            storage_path = book_manager._meta_path(f"database_backups/{compressed_filename}")
 
-        result["backup_filename"] = target_filename
+        result["backup_filename"] = compressed_filename
 
-        # Get file size
+        # Get original file size
         result["file_size"] = db_path_obj.stat().st_size
 
-        # Upload database
-        if staging_manager is None:
-            # Local storage - direct upload
-            await book_manager.storage.write_file(storage_path, str(db_path_obj))
-        else:
-            # Cloud storage - use staging
-            staging_db_path = staging_manager.staging_path / target_filename
-
-            # Copy to staging
-            shutil.copy2(db_path_obj, staging_db_path)
-
-            try:
-                # Upload from staging
-                await book_manager.storage.write_file(storage_path, str(staging_db_path))
-            finally:
-                # Clean up staging file
-                if staging_db_path.exists():
-                    staging_db_path.unlink()
+        # Upload compressed database
+        async with compress_file_to_temp(db_path_obj) as compressed_path:
+            result["compressed_size"] = compressed_path.stat().st_size
+            await book_manager.storage.write_file(storage_path, str(compressed_path))
 
         result["status"] = "completed"
-        logger.info(f"Database uploaded to storage: {target_filename} ({result['file_size']} bytes)")
+        compression_ratio = (1 - result["compressed_size"] / result["file_size"]) * 100 if result["file_size"] > 0 else 0
+        logger.info(
+            f"Database uploaded to storage: {compressed_filename} "
+            f"({result['file_size']:,} -> {result['compressed_size']:,} bytes, {compression_ratio:.1f}% compression)"
+        )
 
     except Exception as e:
         result["status"] = "failed"

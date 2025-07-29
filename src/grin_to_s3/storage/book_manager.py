@@ -5,11 +5,16 @@ Storage abstraction specifically for book archive operations.
 Implements storage patterns for book data organization.
 """
 
+import json
 import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TypedDict
 
+import aiofiles
+
+from ..compression import compress_file_to_temp, get_compressed_filename
 from .base import Storage
 
 logger = logging.getLogger(__name__)
@@ -70,36 +75,6 @@ class BookManager:
             return f"{self.bucket_meta}/{self.base_prefix}/{filename}"
         return f"{self.bucket_meta}/{filename}"
 
-    async def save_archive(self, barcode: str, archive_data: bytes, encrypted_etag: str | None = None) -> str:
-        """Save encrypted archive (.tar.gz.gpg) with optional encrypted ETag metadata."""
-        filename = f"{barcode}.tar.gz.gpg"
-        path = self._raw_archive_path(barcode, filename)
-
-        if self.storage.config.protocol == "s3" and encrypted_etag:
-            # Store encrypted file's ETag as metadata for future comparison
-            await self.storage.write_bytes_with_metadata(path, archive_data, {"encrypted-etag": encrypted_etag})
-        else:
-            await self.storage.write_bytes(path, archive_data)
-        return path
-
-    async def save_archive_from_file(
-        self, barcode: str, archive_file_path: str, encrypted_etag: str | None = None
-    ) -> str:
-        """Save encrypted archive (.tar.gz.gpg) from file with optional encrypted ETag metadata."""
-        filename = f"{barcode}.tar.gz.gpg"
-        path = self._raw_archive_path(barcode, filename)
-
-        if self.storage.config.protocol == "s3" and encrypted_etag:
-            # For S3 with metadata, we need to read the file and use write_bytes_with_metadata
-            import aiofiles
-
-            async with aiofiles.open(archive_file_path, "rb") as f:
-                archive_data = await f.read()
-            await self.storage.write_bytes_with_metadata(path, archive_data, {"encrypted-etag": encrypted_etag})
-        else:
-            # Stream upload directly from file
-            await self.storage.write_file(path, archive_file_path)
-        return path
 
     async def save_decrypted_archive(self, barcode: str, archive_data: bytes, encrypted_etag: str | None = None) -> str:
         """Save decrypted archive (.tar.gz) with optional encrypted ETag metadata."""
@@ -122,7 +97,6 @@ class BookManager:
 
         if self.storage.is_s3_compatible() and encrypted_etag:
             # For S3-compatible storage with metadata, read file and use write_bytes_with_metadata
-            import aiofiles
 
             async with aiofiles.open(archive_file_path, "rb") as f:
                 archive_data = await f.read()
@@ -134,7 +108,6 @@ class BookManager:
 
     async def save_text_jsonl(self, barcode: str, pages: list[str]) -> str:
         """Save page text as JSONL file (one JSON string per line)."""
-        import json
 
         filename = f"{barcode}.jsonl"
         path = self._raw_archive_path(barcode, filename)
@@ -152,20 +125,42 @@ class BookManager:
     async def save_ocr_text_jsonl_from_file(
         self, barcode: str, jsonl_file_path: str, metadata: dict | None = None
     ) -> str:
-        """Upload JSONL file from local path to full-text bucket."""
-        filename = f"{barcode}.jsonl"
-        path = self._full_text_path(barcode, filename)
+        """Upload compressed JSONL file from local path to full-text bucket."""
+        base_filename = f"{barcode}.jsonl"
+        compressed_filename = get_compressed_filename(base_filename)
+        path = self._full_text_path(barcode, compressed_filename)
 
-        if self.storage.is_s3_compatible() and metadata:
-            # For S3-compatible storage with metadata, read file and use write_bytes_with_metadata
-            import aiofiles
+        # Add compression statistics to metadata
+        if metadata is None:
+            metadata = {}
 
-            async with aiofiles.open(jsonl_file_path, "rb") as f:
-                file_data = await f.read()
-            await self.storage.write_bytes_with_metadata(path, file_data, metadata)
-        else:
-            # Stream upload directly from file
-            await self.storage.write_file(path, jsonl_file_path)
+        original_size = Path(jsonl_file_path).stat().st_size
+
+        async with compress_file_to_temp(jsonl_file_path) as compressed_path:
+            compressed_size = compressed_path.stat().st_size
+            compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
+
+            # Add compression info to metadata
+            metadata.update({
+                "original_size": str(original_size),
+                "compressed_size": str(compressed_size),
+                "compression_ratio": f"{compression_ratio:.1f}%"
+            })
+
+            logger.debug(
+                f"JSONL compression for {barcode}: {original_size:,} -> {compressed_size:,} bytes "
+                f"({compression_ratio:.1f}% reduction)"
+            )
+
+            if self.storage.is_s3_compatible() and metadata:
+                # For S3-compatible storage with metadata, read compressed file and use write_bytes_with_metadata
+
+                async with aiofiles.open(compressed_path, "rb") as f:
+                    file_data = await f.read()
+                await self.storage.write_bytes_with_metadata(path, file_data, metadata)
+            else:
+                # Stream upload compressed file directly
+                await self.storage.write_file(path, str(compressed_path))
 
         return path
 
@@ -255,7 +250,7 @@ class BookManager:
             yield chunk
 
     async def upload_csv_file(self, local_csv_path: str, filename: str | None = None) -> tuple[str, str]:
-        """Upload CSV file to metadata bucket with both latest and timestamped versions.
+        """Upload compressed CSV file to metadata bucket with both latest and timestamped versions.
 
         Args:
             local_csv_path: Path to local CSV file to upload
@@ -270,29 +265,43 @@ class BookManager:
         if filename is None:
             filename = "books_latest.csv"
 
-        # Generate filename-safe timestamp
+        # Generate compressed filenames
+        compressed_filename = get_compressed_filename(filename)
         timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-        timestamped_filename = f"books_{timestamp}.csv"
+        timestamped_base = f"books_{timestamp}.csv"
+        compressed_timestamped_filename = get_compressed_filename(timestamped_base)
 
-        # Generate paths for both versions
-        latest_path = self._meta_path(filename)
-        timestamped_path = self._meta_path(f"timestamped/{timestamped_filename}")
+        # Generate paths for both versions (compressed)
+        latest_path = self._meta_path(compressed_filename)
+        timestamped_path = self._meta_path(f"timestamped/{compressed_timestamped_filename}")
 
-        logger.info(f"Uploading CSV file {local_csv_path} to metadata bucket")
+        logger.info(f"Uploading compressed CSV file {local_csv_path} to metadata bucket")
         logger.debug(f"Latest version: {latest_path}")
         logger.debug(f"Timestamped version: {timestamped_path}")
 
         try:
-            # Upload to both locations
-            await self.storage.write_file(latest_path, local_csv_path)
-            logger.debug(f"Successfully uploaded latest CSV to {latest_path}")
+            # Use temporary compressed file for both uploads
+            async with compress_file_to_temp(local_csv_path) as compressed_path:
+                # Get compression statistics
+                original_size = Path(local_csv_path).stat().st_size
+                compressed_size = compressed_path.stat().st_size
+                compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
 
-            await self.storage.write_file(timestamped_path, local_csv_path)
-            logger.debug(f"Successfully uploaded timestamped CSV to {timestamped_path}")
+                logger.debug(
+                    f"CSV compression: {original_size:,} -> {compressed_size:,} bytes "
+                    f"({compression_ratio:.1f}% reduction)"
+                )
 
-            logger.info(f"CSV upload completed: {latest_path} and {timestamped_path}")
+                # Upload compressed file to both locations
+                await self.storage.write_file(latest_path, str(compressed_path))
+                logger.debug(f"Successfully uploaded latest compressed CSV to {latest_path}")
+
+                await self.storage.write_file(timestamped_path, str(compressed_path))
+                logger.debug(f"Successfully uploaded timestamped compressed CSV to {timestamped_path}")
+
+            logger.info(f"Compressed CSV upload completed: {latest_path} and {timestamped_path}")
             return latest_path, timestamped_path
 
         except Exception as e:
-            logger.error(f"Failed to upload CSV file: {e}")
+            logger.error(f"Failed to upload compressed CSV file: {e}")
             raise
