@@ -204,7 +204,8 @@ class TestProcessingClientDataIntegrity:
                 return await super().fetch_resource(directory, resource)
 
         processing_client.grin_client = ConvertedMockClient()
-        result = await processing_client.get_converted_books()
+        from grin_to_s3.sync.utils import get_converted_books
+        result = await get_converted_books(processing_client.grin_client, "test_dir")
 
         # Should remove suffix and include books with suffix only
         expected = {"TEST001", "TEST002"}
@@ -223,7 +224,8 @@ class TestProcessingClientDataIntegrity:
                 return await super().fetch_resource(directory, resource)
 
         processing_client.grin_client = MalformedMockClient()
-        result = await processing_client.get_converted_books()
+        from grin_to_s3.sync.utils import get_converted_books
+        result = await get_converted_books(processing_client.grin_client, "test_dir")
 
         # Current behavior includes empty string from .tar.gz.gpg -> ""
         # This reveals a minor edge case in the production code
@@ -266,7 +268,8 @@ class TestProcessingClientDataIntegrity:
         result = await processing_client.get_failed_books()
         assert result == set()
 
-        result = await processing_client.get_converted_books()
+        from grin_to_s3.sync.utils import get_converted_books
+        result = await get_converted_books(processing_client.grin_client, "test_dir")
         assert result == set()
 
 

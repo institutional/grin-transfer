@@ -20,6 +20,7 @@ from grin_to_s3.database_utils import validate_database_file
 from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
 from grin_to_s3.sync.models import validate_and_parse_barcodes
+from grin_to_s3.sync.utils import get_converted_books
 
 from .database import connect_async, connect_sync
 
@@ -173,21 +174,6 @@ class ProcessingClient:
             logger.warning(f"Failed to get failed books: {e}")
             return set()
 
-    async def get_converted_books(self) -> set[str]:
-        """Get list of books that have been converted (available for download)."""
-        try:
-            response_text = await self.grin_client.fetch_resource(self.directory, "_converted?format=text")
-            lines = response_text.strip().split("\n")
-            # Remove .tar.gz.gpg suffix to get barcodes
-            converted_barcodes = set()
-            for line in lines:
-                if line.strip() and ".tar.gz.gpg" in line:
-                    barcode = line.strip().replace(".tar.gz.gpg", "")
-                    converted_barcodes.add(barcode)
-            return converted_barcodes
-        except Exception as e:
-            logger.warning(f"Failed to get converted books: {e}")
-            return set()
 
 
 class ProcessingPipeline:
@@ -688,20 +674,6 @@ class ProcessingMonitor:
         except Exception as e:
             print(f"Warning: Error closing GRIN client session: {e}")
 
-    async def get_converted_books(self) -> list[str]:
-        """Get list of books that have been converted (ready for download)."""
-        try:
-            response_text = await self.grin_client.fetch_resource(self.directory, "_converted?format=text")
-            lines = response_text.strip().split("\n")
-            converted_barcodes = []
-            for line in lines:
-                if line.strip() and ".tar.gz.gpg" in line:
-                    barcode = line.strip().replace(".tar.gz.gpg", "")
-                    converted_barcodes.append(barcode)
-            return converted_barcodes
-        except Exception as e:
-            print(f"Error getting converted books: {e}")
-            return []
 
     async def get_in_process_books(self) -> list[str]:
         """Get list of books currently in processing queue."""
@@ -770,7 +742,7 @@ class ProcessingMonitor:
         print()
 
         # Get all GRIN status
-        all_converted = await self.get_converted_books()
+        all_converted = await get_converted_books(self.grin_client, self.directory)
         all_in_process = await self.get_in_process_books()
         all_failed = await self.get_failed_books()
 
@@ -802,7 +774,7 @@ class ProcessingMonitor:
 
     async def show_converted_books(self, limit: int = 50) -> None:
         """Show list of converted books ready for download."""
-        converted = await self.get_converted_books()
+        converted = await get_converted_books(self.grin_client, self.directory)
 
         print(f"\nConverted Books Ready for Download ({len(converted):,} total)")
         print("=" * 60)
@@ -857,7 +829,7 @@ class ProcessingMonitor:
         print(f"Searching for barcode: {barcode}")
         print("=" * 40)
 
-        converted = await self.get_converted_books()
+        converted = await get_converted_books(self.grin_client, self.directory)
         in_process = await self.get_in_process_books()
         failed = await self.get_failed_books()
 
@@ -880,7 +852,7 @@ class ProcessingMonitor:
 
     async def export_converted_list(self, output_file: str) -> None:
         """Export list of converted books to a file."""
-        converted = await self.get_converted_books()
+        converted = await get_converted_books(self.grin_client, self.directory)
 
         output_path = Path(output_file)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -899,7 +871,7 @@ class ProcessingMonitor:
         """Get GRIN processing status as a dictionary for change tracking."""
         try:
             # Get all GRIN status
-            all_converted = await self.get_converted_books()
+            all_converted = await get_converted_books(self.grin_client, self.directory)
             all_in_process = await self.get_in_process_books()
             all_failed = await self.get_failed_books()
 
@@ -962,7 +934,7 @@ class ProcessingMonitor:
                 return {}
 
             # Get current GRIN state
-            converted_books = set(await self.get_converted_books())
+            converted_books = set(await get_converted_books(self.grin_client, self.directory))
             in_process_books = set(await self.get_in_process_books())
             failed_books = set(await self.get_failed_books())
 
