@@ -66,7 +66,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         failed_books = []
 
         with (
-            patch.object(self.monitor, "get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch("grin_to_s3.processing.get_converted_books", new_callable=AsyncMock) as mock_converted,
             patch.object(self.monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
             patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
         ):
@@ -118,7 +118,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         failed_books = []
 
         with (
-            patch.object(self.monitor, "get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch("grin_to_s3.processing.get_converted_books", new_callable=AsyncMock) as mock_converted,
             patch.object(self.monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
             patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
         ):
@@ -166,7 +166,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         failed_books = ["FAIL001", "FAIL002"]
 
         with (
-            patch.object(self.monitor, "get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch("grin_to_s3.processing.get_converted_books", new_callable=AsyncMock) as mock_converted,
             patch.object(self.monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
             patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
         ):
@@ -209,7 +209,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
 
         # Mock GRIN responses - book is still converted
         with (
-            patch.object(self.monitor, "get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch("grin_to_s3.processing.get_converted_books", new_callable=AsyncMock) as mock_converted,
             patch.object(self.monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
             patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
         ):
@@ -272,7 +272,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         failed_books = ["MIX003"]
 
         with (
-            patch.object(self.monitor, "get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch("grin_to_s3.processing.get_converted_books", new_callable=AsyncMock) as mock_converted,
             patch.object(self.monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
             patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
         ):
@@ -342,7 +342,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
 
         # Mock GRIN responses
         with (
-            patch.object(bad_monitor, "get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch("grin_to_s3.processing.get_converted_books", new_callable=AsyncMock) as mock_converted,
             patch.object(bad_monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
             patch.object(bad_monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
         ):
