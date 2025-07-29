@@ -165,6 +165,9 @@ async def cmd_pipeline(args) -> None:
                 skip_csv_export=args.skip_csv_export,
                 skip_staging_cleanup=args.skip_staging_cleanup,
                 skip_database_backup=args.skip_database_backup,
+                download_timeout=args.download_timeout,
+                download_retries=args.download_retries,
+                max_sequential_failures=args.max_sequential_failures,
             )
 
             # Set up signal handlers for graceful shutdown
@@ -220,6 +223,9 @@ async def cmd_pipeline(args) -> None:
                     skip_csv_export=args.skip_csv_export,
                     skip_staging_cleanup=args.skip_staging_cleanup,
                     skip_database_backup=args.skip_database_backup,
+                    download_timeout=args.download_timeout,
+                    download_retries=args.download_retries,
+                    max_sequential_failures=args.max_sequential_failures,
                 )
                 print("  - Concurrent downloads: 1")
                 print("  - Concurrent uploads: 1")
@@ -365,6 +371,20 @@ Examples:
     # GRIN options
     pipeline_parser.add_argument(
         "--secrets-dir", help="Directory containing GRIN secrets (auto-detected from run config if not specified)"
+    )
+
+    # Download options
+    pipeline_parser.add_argument(
+        "--download-timeout", type=int, default=300,
+        help="Timeout for book downloads in seconds (default: 300, separate from HTML requests)"
+    )
+    pipeline_parser.add_argument(
+        "--download-retries", type=int, default=2,
+        help="Number of retry attempts for failed downloads (default: 2)"
+    )
+    pipeline_parser.add_argument(
+        "--max-sequential-failures", type=int, default=10,
+        help="Exit pipeline after this many consecutive failures (default: 10)"
     )
 
     # Staging cleanup
