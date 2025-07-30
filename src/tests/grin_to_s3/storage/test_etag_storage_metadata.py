@@ -7,6 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from grin_to_s3.database_utils import batch_write_status_updates
+from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.sync.utils import should_skip_download
 from tests.test_utils.unified_mocks import create_fresh_tracker
 
@@ -244,9 +246,8 @@ class TestHybridETagApproach:
         await tracker.init_db()
 
         # Add some test metadata
-        await tracker.add_status_change(
-            "BOOK_WITH_ETAG", "sync", "completed", metadata={"encrypted_etag": '"stored_etag"'}
-        )
+        status_updates = [collect_status("BOOK_WITH_ETAG", "sync", "completed", metadata={"encrypted_etag": '"stored_etag"'})]
+        await batch_write_status_updates(tracker.db_path, status_updates)
 
         storage_config = {"bucket_raw": "test-bucket"}
 
@@ -285,9 +286,8 @@ class TestHybridETagApproach:
         await tracker.init_db()
 
         # Add some test metadata
-        await tracker.add_status_change(
-            "BOOK_WITH_ETAG", "sync", "completed", metadata={"encrypted_etag": '"stored_etag"'}
-        )
+        status_updates = [collect_status("BOOK_WITH_ETAG", "sync", "completed", metadata={"encrypted_etag": '"stored_etag"'})]
+        await batch_write_status_updates(tracker.db_path, status_updates)
 
         storage_config = {"base_path": "/tmp/test"}
 

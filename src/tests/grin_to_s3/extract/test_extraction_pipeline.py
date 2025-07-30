@@ -16,6 +16,8 @@ from pathlib import Path
 import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
+from grin_to_s3.database_utils import batch_write_status_updates
+from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.extract.text_extraction import (
     TextExtractionError,
     extract_ocr_pages,
@@ -251,12 +253,13 @@ class TestQueryFunctionsIntegration:
 
         # Another successful extraction (different barcode)
         # We'll simulate this by directly adding to database since we need different barcodes
-        await temp_db_tracker.add_status_change(
+        status_updates = [collect_status(
             "book2",
             TEXT_EXTRACTION_STATUS_TYPE,
             ExtractionStatus.COMPLETED.value,
             metadata={"page_count": 100, "extraction_time_ms": 2000},
-        )
+        )]
+        await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Failed extraction
         await temp_db_tracker.add_status_change(

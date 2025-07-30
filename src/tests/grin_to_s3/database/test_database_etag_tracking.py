@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
+from grin_to_s3.database_utils import batch_write_status_updates
+from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.sync.operations import check_and_handle_etag_skip
 from grin_to_s3.sync.utils import should_skip_download
 
@@ -31,17 +33,20 @@ class TestDatabaseETagTracking:
         assert not should_skip and reason == "no_metadata"
 
         # Metadata without ETag - should download
-        await tracker.add_status_change("TEST2", "sync", "completed", metadata={"storage_type": "local"})
+        status_updates = [collect_status("TEST2", "sync", "completed", metadata={"storage_type": "local"})]
+        await batch_write_status_updates(tracker.db_path, status_updates)
         should_skip, reason = await should_skip_download("TEST2", '"abc"', "local", {}, tracker, False)
         assert not should_skip and reason == "no_stored_etag"
 
         # Matching ETag - should skip
-        await tracker.add_status_change("TEST3", "sync", "completed", metadata={"encrypted_etag": '"abc"'})
+        status_updates = [collect_status("TEST3", "sync", "completed", metadata={"encrypted_etag": '"abc"'})]
+        await batch_write_status_updates(tracker.db_path, status_updates)
         should_skip, reason = await should_skip_download("TEST3", '"abc"', "local", {}, tracker, False)
         assert should_skip and reason == "database_etag_match"
 
         # Different ETag - should download
-        await tracker.add_status_change("TEST4", "sync", "completed", metadata={"encrypted_etag": '"xyz"'})
+        status_updates = [collect_status("TEST4", "sync", "completed", metadata={"encrypted_etag": '"xyz"'})]
+        await batch_write_status_updates(tracker.db_path, status_updates)
         should_skip, reason = await should_skip_download("TEST4", '"abc"', "local", {}, tracker, False)
         assert not should_skip and reason == "database_etag_mismatch"
 
@@ -69,7 +74,8 @@ class TestDatabaseETagTracking:
 
         for i, (db_etag, encrypted_etag, expected) in enumerate(cases):
             barcode = f"TEST{i:03d}"
-            await tracker.add_status_change(barcode, "sync", "completed", metadata={"encrypted_etag": db_etag})
+            status_updates = [collect_status(barcode, "sync", "completed", metadata={"encrypted_etag": db_etag})]
+            await batch_write_status_updates(tracker.db_path, status_updates)
             should_skip, _ = await should_skip_download(barcode, encrypted_etag, "local", {}, tracker, False)
             assert should_skip == expected
 
@@ -89,7 +95,8 @@ class TestETagSkipHandling:
         tracker = await self.make_tracker()
 
         # Test ETag match - should skip
-        await tracker.add_status_change("TEST1", "sync", "completed", metadata={"encrypted_etag": '"abc"'})
+        status_updates = [collect_status("TEST1", "sync", "completed", metadata={"encrypted_etag": '"abc"'})]
+        await batch_write_status_updates(tracker.db_path, status_updates)
 
         # Set up a properly mocked grin_client
         mock_grin_client = AsyncMock()
@@ -109,14 +116,14 @@ class TestETagSkipHandling:
 
             # Write the status updates to database
             if status_updates:
-                from grin_to_s3.database_utils import batch_write_status_updates
                 await batch_write_status_updates(tracker.db_path, status_updates)
 
             status, metadata = await tracker.get_latest_status_with_metadata("TEST1", "sync")
             assert status == "skipped" and metadata and metadata.get("skipped")
 
         # Test ETag mismatch - should not skip
-        await tracker.add_status_change("TEST2", "sync", "completed", metadata={"encrypted_etag": '"xyz"'})
+        status_updates = [collect_status("TEST2", "sync", "completed", metadata={"encrypted_etag": '"xyz"'})]
+        await batch_write_status_updates(tracker.db_path, status_updates)
 
         # Set up another properly mocked grin_client with different ETag
         mock_grin_client2 = AsyncMock()
@@ -151,12 +158,14 @@ class TestGetLatestStatusWithMetadata:
 
         # Test with metadata
         metadata = {"encrypted_etag": '"abc"', "storage_type": "local"}
-        await tracker.add_status_change("TEST1", "sync", "completed", metadata=metadata)
+        status_updates = [collect_status("TEST1", "sync", "completed", metadata=metadata)]
+        await batch_write_status_updates(tracker.db_path, status_updates)
         status, retrieved_metadata = await tracker.get_latest_status_with_metadata("TEST1", "sync")
         assert status == "completed" and retrieved_metadata == metadata
 
         # Test without metadata
-        await tracker.add_status_change("TEST2", "sync", "completed")
+        status_updates = [collect_status("TEST2", "sync", "completed")]
+        await batch_write_status_updates(tracker.db_path, status_updates)
         status, metadata = await tracker.get_latest_status_with_metadata("TEST2", "sync")
         assert status == "completed" and metadata is None
 
@@ -165,8 +174,11 @@ class TestGetLatestStatusWithMetadata:
         assert status is None and metadata is None
 
         # Test multiple entries - should get latest
-        await tracker.add_status_change("TEST3", "sync", "started", metadata={"encrypted_etag": '"old"'})
-        await tracker.add_status_change("TEST3", "sync", "completed", metadata={"encrypted_etag": '"new"'})
+        status_updates = [
+            collect_status("TEST3", "sync", "started", metadata={"encrypted_etag": '"old"'}),
+            collect_status("TEST3", "sync", "completed", metadata={"encrypted_etag": '"new"'})
+        ]
+        await batch_write_status_updates(tracker.db_path, status_updates)
         status, metadata = await tracker.get_latest_status_with_metadata("TEST3", "sync")
         assert status == "completed" and metadata and metadata.get("encrypted_etag") == '"new"'
 
