@@ -85,17 +85,17 @@ async def extract_ocr_pages(
     archive_path_obj = Path(archive_path)
 
     # Set up tracking variables for database operations
+    from ..database_utils import batch_write_status_updates
     from .tracking import (
         ExtractionMethod,
         track_completion_collect,
         track_failure_collect,
         track_start_collect,
     )
-    from ..database_utils import batch_write_status_updates
 
     barcode = get_barcode_from_path(archive_path)
     method = ExtractionMethod.DISK if extract_to_disk else ExtractionMethod.MEMORY
-    
+
     # Collect status updates for batching
     status_updates = []
 
@@ -136,7 +136,7 @@ async def extract_ocr_pages(
                 file_size,
                 str(output_file),
             ))
-            
+
             # Write all status updates
             await batch_write_status_updates(db_path, status_updates)
 
@@ -154,7 +154,7 @@ async def extract_ocr_pages(
             # Track completion
             extraction_time_ms = int((time.time() - start_time) * 1000)
             status_updates.append(track_completion_collect(barcode, len(result), extraction_time_ms, method, session_id))
-            
+
             # Write all status updates
             await batch_write_status_updates(db_path, status_updates)
 

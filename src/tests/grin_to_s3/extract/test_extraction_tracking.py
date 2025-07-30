@@ -8,6 +8,7 @@ import sqlite3
 
 import pytest
 
+from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.tracking import (
     TEXT_EXTRACTION_STATUS_TYPE,
     ExtractionMethod,
@@ -17,7 +18,6 @@ from grin_to_s3.extract.tracking import (
     get_status_summary,
     track_start_collect,
 )
-from grin_to_s3.database_utils import batch_write_status_updates
 from tests.test_utils.unified_mocks import create_progress_tracker_with_db_mock
 
 
