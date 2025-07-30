@@ -621,15 +621,17 @@ async def upload_book_from_staging(
             logger.error(f"[{barcode}] Decrypted archive upload failed: {e}")
             raise Exception(f"Upload failed - decrypted: {e}") from e
 
-        # Success - update status tracking with ETag
+        # Collect sync completion status updates for batching
         metadata = {
             "encrypted_etag": encrypted_etag,
             "etag_stored_at": datetime.now(UTC).isoformat(),
             "storage_type": storage_type,
             "decrypted_success": True,
         }
-        await db_tracker.add_status_change(barcode, "sync", "decrypted", metadata=metadata)
-        await db_tracker.add_status_change(barcode, "sync", "completed", metadata=metadata)
+        sync_completion_status_updates = [
+            collect_status(barcode, "sync", "decrypted", metadata=metadata),
+            collect_status(barcode, "sync", "completed", metadata=metadata),
+        ]
 
         # Update book record with sync data including encrypted ETag
         sync_data: dict[str, Any] = {
@@ -656,6 +658,9 @@ async def upload_book_from_staging(
                     elif isinstance(result, Exception):
                         logger.warning(f"[{barcode}] Extraction task failed: {result}")
 
+                # Add sync completion status updates
+                all_status_updates.extend(sync_completion_status_updates)
+
                 # Batch write all status updates
                 if all_status_updates:
                     await batch_write_status_updates(db_tracker.db_path, all_status_updates)
@@ -663,6 +668,9 @@ async def upload_book_from_staging(
             except Exception as e:
                 # Log extraction failure but don't fail the sync
                 logger.warning(f"[{barcode}] Extraction tasks failed: {e}")
+        else:
+            # No extraction tasks, but still need to write sync completion status
+            await batch_write_status_updates(db_tracker.db_path, sync_completion_status_updates)
 
         # Clean up staging files after successful uploads
         if not skip_staging_cleanup:
@@ -806,15 +814,17 @@ async def sync_book_to_local_storage(
             final_encrypted_path.unlink(missing_ok=True)
             raise
 
-        # Update status tracking with ETag
+        # Collect sync completion status updates for batching
         metadata = {
             "encrypted_etag": encrypted_etag,
             "etag_stored_at": datetime.now(UTC).isoformat(),
             "storage_type": "local",
             "decrypted_success": True,
         }
-        await db_tracker.add_status_change(barcode, "sync", "decrypted", metadata=metadata)
-        await db_tracker.add_status_change(barcode, "sync", "completed", metadata=metadata)
+        sync_completion_status_updates = [
+            collect_status(barcode, "sync", "decrypted", metadata=metadata),
+            collect_status(barcode, "sync", "completed", metadata=metadata),
+        ]
 
         # Update book record with sync data
         sync_data: dict[str, Any] = {
@@ -855,6 +865,9 @@ async def sync_book_to_local_storage(
                     elif isinstance(result, Exception):
                         logger.warning(f"[{barcode}] Extraction task failed: {result}")
 
+                # Add sync completion status updates
+                all_status_updates.extend(sync_completion_status_updates)
+
                 # Batch write all status updates
                 if all_status_updates:
                     await batch_write_status_updates(db_tracker.db_path, all_status_updates)
@@ -862,6 +875,9 @@ async def sync_book_to_local_storage(
                 logger.info(f"[{barcode}] Extraction tasks completed")
             except Exception as e:
                 logger.warning(f"[{barcode}] Some extraction tasks failed: {e}")
+        else:
+            # No extraction tasks, but still need to write sync completion status
+            await batch_write_status_updates(db_tracker.db_path, sync_completion_status_updates)
 
         logger.info(f"[{barcode}] ✅ Successfully synced to local storage")
 
