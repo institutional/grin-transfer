@@ -14,7 +14,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from grin_to_s3.common import setup_logging
+from grin_to_s3.common import (
+    DEFAULT_DOWNLOAD_RETRIES,
+    DEFAULT_DOWNLOAD_TIMEOUT,
+    DEFAULT_MAX_SEQUENTIAL_FAILURES,
+    setup_logging,
+)
 from grin_to_s3.process_summary import (
     create_book_manager_for_uploads,
     create_process_summary,
@@ -375,16 +380,16 @@ Examples:
 
     # Download options
     pipeline_parser.add_argument(
-        "--download-timeout", type=int, default=300,
-        help="Timeout for book downloads in seconds (default: 300, separate from HTML requests)"
+        "--download-timeout", type=int, default=DEFAULT_DOWNLOAD_TIMEOUT,
+        help=f"Timeout for book downloads in seconds (default: {DEFAULT_DOWNLOAD_TIMEOUT}, separate from HTML requests)"
     )
     pipeline_parser.add_argument(
-        "--download-retries", type=int, default=2,
-        help="Number of retry attempts for failed downloads (default: 2)"
+        "--download-retries", type=int, default=DEFAULT_DOWNLOAD_RETRIES,
+        help=f"Number of retry attempts for failed downloads (default: {DEFAULT_DOWNLOAD_RETRIES})"
     )
     pipeline_parser.add_argument(
-        "--max-sequential-failures", type=int, default=10,
-        help="Exit pipeline after this many consecutive failures (default: 10)"
+        "--max-sequential-failures", type=int, default=DEFAULT_MAX_SEQUENTIAL_FAILURES,
+        help=f"Exit pipeline after this many consecutive failures (default: {DEFAULT_MAX_SEQUENTIAL_FAILURES})"
     )
 
     # Staging cleanup

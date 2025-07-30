@@ -17,6 +17,9 @@ from typing import Any
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.common import (
+    DEFAULT_DOWNLOAD_RETRIES,
+    DEFAULT_DOWNLOAD_TIMEOUT,
+    DEFAULT_MAX_SEQUENTIAL_FAILURES,
     RateLimiter,
     SlidingWindowRateCalculator,
     extract_bucket_config,
@@ -62,9 +65,9 @@ class SyncPipeline:
         skip_csv_export: bool = False,
         skip_staging_cleanup: bool = False,
         skip_database_backup: bool = False,
-        download_timeout: int = 300,
-        download_retries: int = 2,
-        max_sequential_failures: int = 10,
+        download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
+        download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
+        max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
     ) -> "SyncPipeline":
         """Create SyncPipeline from RunConfig.
 
@@ -111,9 +114,9 @@ class SyncPipeline:
         skip_csv_export: bool = False,
         skip_staging_cleanup: bool = False,
         skip_database_backup: bool = False,
-        download_timeout: int = 300,
-        download_retries: int = 2,
-        max_sequential_failures: int = 10,
+        download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
+        download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
+        max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
     ):
         # Store configuration and runtime parameters
         self.config = config

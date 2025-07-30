@@ -17,6 +17,9 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fi
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
+    DEFAULT_DOWNLOAD_RETRIES,
+    DEFAULT_DOWNLOAD_TIMEOUT,
+    DEFAULT_RETRY_WAIT_SECONDS,
     create_http_session,
     decrypt_gpg_file,
     extract_bucket_config,
@@ -33,7 +36,7 @@ from .models import BookSyncResult, create_book_sync_result
 from .utils import check_encrypted_etag, should_skip_download
 
 
-def create_download_retry_decorator(max_retries: int = 2):
+def create_download_retry_decorator(max_retries: int = DEFAULT_DOWNLOAD_RETRIES):
     """
     Create a retry decorator for download operations.
 
@@ -46,7 +49,7 @@ def create_download_retry_decorator(max_retries: int = 2):
     return retry(
         stop=stop_after_attempt(max_retries + 1),  # +1 because tenacity counts initial attempt
         retry=retry_if_exception_type((Exception,)),  # Retry on any exception
-        wait=wait_fixed(2),  # Wait 2 seconds between retries
+        wait=wait_fixed(DEFAULT_RETRY_WAIT_SECONDS),  # Wait between retries
         reraise=True,  # Re-raise the exception after max attempts
     )
 
@@ -160,8 +163,8 @@ async def download_book_to_staging(
     staging_manager,
     encrypted_etag: str | None,
     secrets_dir: str | None = None,
-    download_timeout: int = 300,
-    download_retries: int = 2,
+    download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
+    download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
 ) -> tuple[str, str, dict[str, Any]]:
     """Download a book to staging directory.
 
@@ -697,8 +700,8 @@ async def sync_book_to_local_storage(
     secrets_dir: str | None = None,
     skip_extract_ocr: bool = False,
     skip_extract_marc: bool = False,
-    download_timeout: int = 300,
-    download_retries: int = 2,
+    download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
+    download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
 ) -> dict[str, Any]:
     """Sync a book directly to local storage without staging.
 
