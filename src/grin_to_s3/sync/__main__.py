@@ -14,7 +14,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from grin_to_s3.common import setup_logging
+from grin_to_s3.common import (
+    DEFAULT_DOWNLOAD_RETRIES,
+    DEFAULT_DOWNLOAD_TIMEOUT,
+    DEFAULT_MAX_SEQUENTIAL_FAILURES,
+    setup_logging,
+)
 from grin_to_s3.process_summary import (
     create_book_manager_for_uploads,
     create_process_summary,
@@ -165,6 +170,9 @@ async def cmd_pipeline(args) -> None:
                 skip_csv_export=args.skip_csv_export,
                 skip_staging_cleanup=args.skip_staging_cleanup,
                 skip_database_backup=args.skip_database_backup,
+                download_timeout=args.download_timeout,
+                download_retries=args.download_retries,
+                max_sequential_failures=args.max_sequential_failures,
             )
 
             # Set up signal handlers for graceful shutdown
@@ -220,6 +228,9 @@ async def cmd_pipeline(args) -> None:
                     skip_csv_export=args.skip_csv_export,
                     skip_staging_cleanup=args.skip_staging_cleanup,
                     skip_database_backup=args.skip_database_backup,
+                    download_timeout=args.download_timeout,
+                    download_retries=args.download_retries,
+                    max_sequential_failures=args.max_sequential_failures,
                 )
                 print("  - Concurrent downloads: 1")
                 print("  - Concurrent uploads: 1")
@@ -365,6 +376,20 @@ Examples:
     # GRIN options
     pipeline_parser.add_argument(
         "--secrets-dir", help="Directory containing GRIN secrets (auto-detected from run config if not specified)"
+    )
+
+    # Download options
+    pipeline_parser.add_argument(
+        "--download-timeout", type=int, default=DEFAULT_DOWNLOAD_TIMEOUT,
+        help=f"Timeout for book downloads in seconds (default: {DEFAULT_DOWNLOAD_TIMEOUT}, separate from HTML requests)"
+    )
+    pipeline_parser.add_argument(
+        "--download-retries", type=int, default=DEFAULT_DOWNLOAD_RETRIES,
+        help=f"Number of retry attempts for failed downloads (default: {DEFAULT_DOWNLOAD_RETRIES})"
+    )
+    pipeline_parser.add_argument(
+        "--max-sequential-failures", type=int, default=DEFAULT_MAX_SEQUENTIAL_FAILURES,
+        help=f"Exit pipeline after this many consecutive failures (default: {DEFAULT_MAX_SEQUENTIAL_FAILURES})"
     )
 
     # Staging cleanup

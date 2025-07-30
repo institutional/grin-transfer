@@ -17,6 +17,9 @@ from typing import Any
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.common import (
+    DEFAULT_DOWNLOAD_RETRIES,
+    DEFAULT_DOWNLOAD_TIMEOUT,
+    DEFAULT_MAX_SEQUENTIAL_FAILURES,
     RateLimiter,
     SlidingWindowRateCalculator,
     extract_bucket_config,
@@ -62,6 +65,9 @@ class SyncPipeline:
         skip_csv_export: bool = False,
         skip_staging_cleanup: bool = False,
         skip_database_backup: bool = False,
+        download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
+        download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
+        max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
     ) -> "SyncPipeline":
         """Create SyncPipeline from RunConfig.
 
@@ -75,6 +81,9 @@ class SyncPipeline:
             skip_csv_export: Skip CSV export after sync
             skip_staging_cleanup: Skip deletion of files in staging directory
             skip_database_backup: Skip database backup and upload
+            download_timeout: Timeout for book downloads in seconds
+            download_retries: Number of retry attempts for failed downloads
+            max_sequential_failures: Exit pipeline after this many consecutive failures
 
         Returns:
             Configured SyncPipeline instance
@@ -89,6 +98,9 @@ class SyncPipeline:
             skip_csv_export=skip_csv_export,
             skip_staging_cleanup=skip_staging_cleanup,
             skip_database_backup=skip_database_backup,
+            download_timeout=download_timeout,
+            download_retries=download_retries,
+            max_sequential_failures=max_sequential_failures,
         )
 
     def __init__(
@@ -102,6 +114,9 @@ class SyncPipeline:
         skip_csv_export: bool = False,
         skip_staging_cleanup: bool = False,
         skip_database_backup: bool = False,
+        download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
+        download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
+        max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
     ):
         # Store configuration and runtime parameters
         self.config = config
@@ -112,6 +127,9 @@ class SyncPipeline:
         self.skip_csv_export = skip_csv_export
         self.skip_staging_cleanup = skip_staging_cleanup
         self.skip_database_backup = skip_database_backup
+        self.download_timeout = download_timeout
+        self.download_retries = download_retries
+        self.max_sequential_failures = max_sequential_failures
         self.process_summary_stage = process_summary_stage
 
         # Extract commonly used config values
@@ -175,6 +193,7 @@ class SyncPipeline:
         self._processed_count = 0  # Track total processed (downloaded) books
         self._completed_count = 0  # Track fully synced books (upload completed/failed)
         self._has_started_work = False  # Track if any work has begun
+        self._sequential_failures = 0  # Track consecutive failures for exit logic
 
         # Worker management
         self._enrichment_workers: list[asyncio.Task] = []
@@ -185,6 +204,44 @@ class SyncPipeline:
         self.bucket_config = extract_bucket_config(self.storage_type, self.storage_config or {})
         self.book_manager = BookManager(self.storage, bucket_config=self.bucket_config, base_prefix=self.base_prefix)
 
+    def _handle_failure(self, barcode: str, error_msg: str) -> bool:
+        """
+        Handle a failure and check if pipeline should exit due to sequential failures.
+
+        Args:
+            barcode: The barcode that failed
+            error_msg: Error message
+
+        Returns:
+            True if pipeline should exit, False otherwise
+        """
+        self.stats["failed"] += 1
+        self._sequential_failures += 1
+
+        logger.error(f"[{barcode}] ❌ Failed: {error_msg}")
+        logger.warning(f"Sequential failures: {self._sequential_failures}/{self.max_sequential_failures}")
+
+        # Live user reporting of failures
+        print(f"❌ [{barcode}] Failed: {error_msg}")
+        if self._sequential_failures > 1:
+            print(f"⚠️  Sequential failures: {self._sequential_failures}/{self.max_sequential_failures}")
+
+        if self._sequential_failures >= self.max_sequential_failures:
+            logger.error(f"🛑 Exiting pipeline: {self.max_sequential_failures} consecutive failures reached")
+            print(f"🛑 Exiting pipeline: {self.max_sequential_failures} consecutive failures reached")
+            return True
+
+        return False
+
+    def _handle_success(self, barcode: str) -> None:
+        """
+        Handle a successful operation and reset sequential failure counter.
+
+        Args:
+            barcode: The barcode that succeeded
+        """
+        self._sequential_failures = 0  # Reset on any success
+        logger.info(f"[{barcode}] ✅ Success (failure counter reset)")
 
     async def cleanup(self, sync_successful: bool = False) -> None:
         """Clean up resources and close connections safely.
@@ -618,7 +675,7 @@ class SyncPipeline:
                     self.db_path,
                     self.book_manager,
                     self.staging_manager if hasattr(self, "staging_manager") else None,
-                    upload_type="timestamped"
+                    upload_type="timestamped",
                 )
 
                 if upload_result["status"] == "completed":
@@ -646,7 +703,7 @@ class SyncPipeline:
                 self.db_path,
                 self.book_manager,
                 self.staging_manager if hasattr(self, "staging_manager") else None,
-                upload_type="latest"
+                upload_type="latest",
             )
 
             if upload_result["status"] == "completed":
@@ -729,6 +786,8 @@ class SyncPipeline:
                             self.secrets_dir,
                             self.skip_extract_ocr,
                             self.skip_extract_marc,
+                            self.download_timeout,
+                            self.download_retries,
                         )
                     )
                     active_tasks[barcode] = task
@@ -765,18 +824,22 @@ class SyncPipeline:
                                 self.stats["completed"] += 1
                                 self.stats["uploaded"] += 1
                                 rate_calculator.add_batch(time.time(), processed_count)
-                                logger.info(f"[{completed_barcode}] ✅ Local storage sync completed")
+                                self._handle_success(completed_barcode)
                                 # Queue for enrichment after successful sync
                                 await self.queue_book_for_enrichment(completed_barcode)
                             else:
-                                self.stats["failed"] += 1
-                                error_msg = result.get("error")
-                                logger.error(f"[{completed_barcode}] ❌ Local storage sync failed: {error_msg}")
+                                error_msg = result.get("error", "Unknown error")
+                                should_exit = self._handle_failure(
+                                    completed_barcode, f"Local storage sync failed: {error_msg}"
+                                )
+                                if should_exit:
+                                    return
 
                         except Exception as e:
                             self._completed_count += 1  # Book is fully processed (failed)
-                            self.stats["failed"] += 1
-                            logger.error(f"[{completed_barcode}] ❌ Local storage sync failed: {e}")
+                            should_exit = self._handle_failure(completed_barcode, f"Local storage sync exception: {e}")
+                            if should_exit:
+                                return
 
                         # Start next book if available
                         try:
@@ -793,6 +856,8 @@ class SyncPipeline:
                                     self.secrets_dir,
                                     self.skip_extract_ocr,
                                     self.skip_extract_marc,
+                                    self.download_timeout,
+                                    self.download_retries,
                                 )
                             )
                             active_tasks[next_barcode] = task
@@ -915,15 +980,16 @@ class SyncPipeline:
                                     # Download skipped due to ETag match, count as completed
                                     self._completed_count += 1  # Book is fully processed (already up to date)
                                     self.stats["skipped"] += 1
-                                    logger.info(f"[{barcode}] Download skipped (already up to date)")
+                                    self._handle_success(barcode)  # Reset failure counter for skipped items
 
                                     # Track skipped as successful in process summary
                                     self.process_summary_stage.increment_items(successful=1)
                                 else:
                                     # Download failed, update stats
                                     self._completed_count += 1  # Book is fully processed (failed)
-                                    self.stats["failed"] += 1
-                                    logger.warning(f"[{barcode}] Download failed, not starting upload")
+                                    should_exit = self._handle_failure(barcode, "Download failed")
+                                    if should_exit:
+                                        return
 
                                     # Track download failure in process summary
                                     self.process_summary_stage.increment_items(failed=1)
@@ -948,22 +1014,25 @@ class SyncPipeline:
                                 # Update stats based on upload result
                                 if result.get("upload_success"):
                                     self.stats["completed"] += 1
-                                    logger.info(f"[{barcode}] Book sync fully completed")
+                                    self._handle_success(barcode)
                                     # Queue for enrichment after successful sync
                                     await self.queue_book_for_enrichment(barcode)
 
                                     # Track success in process summary
                                     self.process_summary_stage.increment_items(successful=1)
                                 else:
-                                    self.stats["failed"] += 1
-                                    logger.warning(f"[{barcode}] Upload failed")
+                                    should_exit = self._handle_failure(barcode, "Upload failed")
+                                    if should_exit:
+                                        return
 
                                     # Track failure in process summary
                                     self.process_summary_stage.increment_items(failed=1)
 
                     except Exception as e:
                         logger.error(f"Error processing completed task: {e}", exc_info=True)
-                        self.stats["failed"] += 1
+                        should_exit = self._handle_failure("unknown", f"Task processing exception: {e}")
+                        if should_exit:
+                            return
 
                         # Track exception as failure in process summary
                         self.process_summary_stage.increment_items(failed=1)
@@ -1031,10 +1100,10 @@ class SyncPipeline:
             print(f"  Full-text: {base_path}/full/")
             print(f"  CSV export: {base_path}/meta/books_latest.csv.gz")
         else:
-            print(f"  Raw data bucket: {self.storage_config["bucket_raw"]}")
-            print(f"  Metadata bucket: {self.storage_config["bucket_meta"]}")
-            print(f"  Full-text bucket: {self.storage_config["bucket_full"]}")
-            print(f"  CSV export: {self.storage_config["bucket_meta"]}/books_latest.csv.gz")
+            print(f"  Raw data bucket: {self.storage_config['bucket_raw']}")
+            print(f"  Metadata bucket: {self.storage_config['bucket_meta']}")
+            print(f"  Full-text bucket: {self.storage_config['bucket_full']}")
+            print(f"  CSV export: {self.storage_config['bucket_meta']}/books_latest.csv.gz")
 
     async def _cancel_progress_reporter(self) -> None:
         """Cancel the background progress reporter with timeout."""
@@ -1084,6 +1153,8 @@ class SyncPipeline:
                     self.staging_manager,
                     encrypted_etag,
                     self.secrets_dir,
+                    self.download_timeout,
+                    self.download_retries,
                 )
 
                 return {

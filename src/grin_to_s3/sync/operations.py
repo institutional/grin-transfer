@@ -13,9 +13,13 @@ from pathlib import Path
 from typing import Any
 
 import aiofiles
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
+    DEFAULT_DOWNLOAD_RETRIES,
+    DEFAULT_DOWNLOAD_TIMEOUT,
+    DEFAULT_RETRY_WAIT_SECONDS,
     create_http_session,
     decrypt_gpg_file,
     extract_bucket_config,
@@ -30,6 +34,24 @@ from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .models import BookSyncResult, create_book_sync_result
 from .utils import check_encrypted_etag, should_skip_download
+
+
+def create_download_retry_decorator(max_retries: int = DEFAULT_DOWNLOAD_RETRIES):
+    """
+    Create a retry decorator for download operations.
+
+    Args:
+        max_retries: Maximum number of retry attempts
+
+    Returns:
+        Tenacity retry decorator configured for download failures
+    """
+    return retry(
+        stop=stop_after_attempt(max_retries + 1),  # +1 because tenacity counts initial attempt
+        retry=retry_if_exception_type((Exception,)),  # Retry on any exception
+        wait=wait_fixed(DEFAULT_RETRY_WAIT_SECONDS),  # Wait between retries
+        reraise=True,  # Re-raise the exception after max attempts
+    )
 
 
 def _convert_marc_keys_to_db_fields(marc_data: dict[str, str | None]) -> dict[str, str | None]:
@@ -70,6 +92,7 @@ def _convert_marc_keys_to_db_fields(marc_data: dict[str, str | None]) -> dict[st
     db_data["marc_extraction_timestamp"] = datetime.now(UTC).isoformat()
 
     return db_data
+
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +163,8 @@ async def download_book_to_staging(
     staging_manager,
     encrypted_etag: str | None,
     secrets_dir: str | None = None,
+    download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
+    download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
 ) -> tuple[str, str, dict[str, Any]]:
     """Download a book to staging directory.
 
@@ -150,58 +175,79 @@ async def download_book_to_staging(
         staging_manager: Staging directory manager
         encrypted_etag: Encrypted ETag for the file
         secrets_dir: Secrets directory path
+        download_timeout: Timeout for download request in seconds
+        download_retries: Number of retry attempts for failed downloads
 
     Returns:
         tuple: (barcode, staging_file_path, metadata)
     """
 
-    client = grin_client
-    grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
+    # Create retry decorator with specified retries
+    retry_decorator = create_download_retry_decorator(download_retries)
 
-    logger.info(f"[{barcode}] Starting download from {grin_url}")
+    @retry_decorator
+    async def _download_with_retry():
+        """Inner function with retry logic for download."""
+        client = grin_client
+        grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
 
-    # Get staging file path
-    staging_file = staging_manager.get_encrypted_file_path(barcode)
+        logger.info(f"[{barcode}] Starting download from {grin_url}")
 
-    # Download directly to staging file
-    async with create_http_session() as session:
-        response = await client.auth.make_authenticated_request(session, grin_url)
+        # Get staging file path
+        staging_file = staging_manager.get_encrypted_file_path(barcode)
 
-        total_bytes = 0
-        async with aiofiles.open(staging_file, "wb") as f:
-            async for chunk in response.content.iter_chunked(1024 * 1024):
-                await f.write(chunk)
-                total_bytes += len(chunk)
+        # Download directly to staging file with specified timeout
+        async with create_http_session(timeout=download_timeout) as session:
+            response = await client.auth.make_authenticated_request(session, grin_url)
 
-                # Check disk space periodically during download
-                if total_bytes % (50 * 1024 * 1024) == 0:  # Every 50MB
-                    if not staging_manager.check_disk_space():
-                        # Clean up partial file and wait for space
-                        staging_file.unlink(missing_ok=True)
-                        logger.warning(f"[{barcode}] Disk space exhausted during download, cleaning up and waiting for space...")
-                        await staging_manager.wait_for_disk_space(check_interval=60)
-                        return await download_book_to_staging(
-                            barcode, grin_client, library_directory, staging_manager, encrypted_etag, secrets_dir
-                        )
+            total_bytes = 0
+            async with aiofiles.open(staging_file, "wb") as f:
+                async for chunk in response.content.iter_chunked(1024 * 1024):
+                    await f.write(chunk)
+                    total_bytes += len(chunk)
 
-            # Ensure all data is flushed to disk
-            await f.flush()
+                    # Check disk space periodically during download
+                    if total_bytes % (50 * 1024 * 1024) == 0:  # Every 50MB
+                        if not staging_manager.check_disk_space():
+                            # Clean up partial file and wait for space
+                            staging_file.unlink(missing_ok=True)
+                            logger.warning(
+                                f"[{barcode}] Disk space exhausted during download, cleaning up and waiting for space..."
+                            )
+                            await staging_manager.wait_for_disk_space(check_interval=60)
+                            # Retry the download with the same parameters
+                            return await download_book_to_staging(
+                                barcode,
+                                grin_client,
+                                library_directory,
+                                staging_manager,
+                                encrypted_etag,
+                                secrets_dir,
+                                download_timeout,
+                                download_retries,
+                            )
 
-        # Verify file size matches what we downloaded
-        actual_size = staging_file.stat().st_size
-        if actual_size != total_bytes:
-            staging_file.unlink(missing_ok=True)
-            raise Exception(f"File size mismatch: expected {total_bytes}, got {actual_size}")
+                # Ensure all data is flushed to disk
+                await f.flush()
 
-        return (
-            barcode,
-            str(staging_file),
-            {
-                "file_size": total_bytes,
-                "total_time": 0,  # We'll track this separately
-                "google_etag": encrypted_etag,
-            },
-        )
+            # Verify file size matches what we downloaded
+            actual_size = staging_file.stat().st_size
+            if actual_size != total_bytes:
+                staging_file.unlink(missing_ok=True)
+                raise Exception(f"File size mismatch: expected {total_bytes}, got {actual_size}")
+
+            return (
+                barcode,
+                str(staging_file),
+                {
+                    "file_size": total_bytes,
+                    "total_time": 0,  # We'll track this separately
+                    "google_etag": encrypted_etag,
+                },
+            )
+
+    # Execute the download with retry logic
+    return await _download_with_retry()
 
 
 async def extract_and_upload_ocr_text(
@@ -395,7 +441,11 @@ async def extract_and_update_marc_metadata(
                         db_tracker.db_path,
                         barcode,
                         ExtractionStatus.FAILED,
-                        metadata={"error_type": "NoMARCDataFound", "error_message": "No MARC metadata found", "extraction_type": "marc"},
+                        metadata={
+                            "error_type": "NoMARCDataFound",
+                            "error_message": "No MARC metadata found",
+                            "extraction_type": "marc",
+                        },
                         session_id=session_id,
                     )
                 return
@@ -406,7 +456,11 @@ async def extract_and_update_marc_metadata(
                     db_tracker.db_path,
                     barcode,
                     ExtractionStatus.EXTRACTING,
-                    metadata={"extraction_type": "marc", "fields_count": len(marc_metadata), "stage": "database_update"},
+                    metadata={
+                        "extraction_type": "marc",
+                        "fields_count": len(marc_metadata),
+                        "stage": "database_update",
+                    },
                     session_id=session_id,
                 )
 
@@ -416,7 +470,9 @@ async def extract_and_update_marc_metadata(
                 # Update database using the tracker's method
                 await db_tracker.update_book_marc_metadata(barcode, db_marc_data)
 
-                logger.info(f"[{barcode}] Successfully updated database with MARC metadata ({len(marc_metadata)} fields)")
+                logger.info(
+                    f"[{barcode}] Successfully updated database with MARC metadata ({len(marc_metadata)} fields)"
+                )
 
                 # Track completion
                 await write_status(
@@ -550,9 +606,7 @@ async def upload_book_from_staging(
 
         if not skip_extract_marc:
             # Run MARC extraction concurrently with upload for better performance
-            marc_task = asyncio.create_task(
-                extract_and_update_marc_metadata(barcode, decrypted_file, db_tracker)
-            )
+            marc_task = asyncio.create_task(extract_and_update_marc_metadata(barcode, decrypted_file, db_tracker))
             extraction_tasks.append(marc_task)
 
         # Upload decrypted file
@@ -646,6 +700,8 @@ async def sync_book_to_local_storage(
     secrets_dir: str | None = None,
     skip_extract_ocr: bool = False,
     skip_extract_marc: bool = False,
+    download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
+    download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
 ) -> dict[str, Any]:
     """Sync a book directly to local storage without staging.
 
@@ -658,6 +714,10 @@ async def sync_book_to_local_storage(
         encrypted_etag: Encrypted ETag for the file
         gpg_key_file: GPG key file path
         secrets_dir: Secrets directory path
+        skip_extract_ocr: Skip OCR text extraction
+        skip_extract_marc: Skip MARC metadata extraction
+        download_timeout: Timeout for download request in seconds
+        download_retries: Number of retry attempts for failed downloads
 
     Returns:
         dict: Sync result
@@ -694,21 +754,30 @@ async def sync_book_to_local_storage(
         # Ensure directory exists
         final_encrypted_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Download directly to final location
-        client = grin_client
-        grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
+        # Download directly to final location with retry logic
+        retry_decorator = create_download_retry_decorator(download_retries)
 
-        logger.info(f"[{barcode}] Downloading directly to {final_encrypted_path}")
+        @retry_decorator
+        async def _download_local_with_retry():
+            """Inner function with retry logic for local download."""
+            client = grin_client
+            grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
 
-        async with create_http_session() as session:
-            response = await client.auth.make_authenticated_request(session, grin_url)
+            logger.info(f"[{barcode}] Downloading directly to {final_encrypted_path}")
 
-            total_bytes = 0
-            async with aiofiles.open(final_encrypted_path, "wb") as f:
-                async for chunk in response.content.iter_chunked(1024 * 1024):
-                    await f.write(chunk)
-                    total_bytes += len(chunk)
-                await f.flush()
+            async with create_http_session(timeout=download_timeout) as session:
+                response = await client.auth.make_authenticated_request(session, grin_url)
+
+                total_bytes = 0
+                async with aiofiles.open(final_encrypted_path, "wb") as f:
+                    async for chunk in response.content.iter_chunked(1024 * 1024):
+                        await f.write(chunk)
+                        total_bytes += len(chunk)
+                    await f.flush()
+
+                return total_bytes
+
+        total_bytes = await _download_local_with_retry()
 
         logger.info(f"[{barcode}] Downloaded {total_bytes / (1024 * 1024):.1f} MB")
 
@@ -758,9 +827,7 @@ async def sync_book_to_local_storage(
 
         if not skip_extract_marc:
             # Run MARC extraction for local storage
-            marc_task = asyncio.create_task(
-                extract_and_update_marc_metadata(barcode, final_decrypted_path, db_tracker)
-            )
+            marc_task = asyncio.create_task(extract_and_update_marc_metadata(barcode, final_decrypted_path, db_tracker))
             extraction_tasks.append(marc_task)
 
         # Wait for extraction tasks to complete (non-blocking for sync success)

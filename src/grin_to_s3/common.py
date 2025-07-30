@@ -65,6 +65,12 @@ def extract_bucket_config(storage_type: str, config_dict: dict) -> BucketConfig:
 DEFAULT_TIMEOUT = 60
 DEFAULT_CONNECTOR_LIMITS = {"limit": 10, "limit_per_host": 5}
 
+# Download and Retry Configuration
+DEFAULT_DOWNLOAD_TIMEOUT = 300
+DEFAULT_DOWNLOAD_RETRIES = 2
+DEFAULT_MAX_SEQUENTIAL_FAILURES = 10
+DEFAULT_RETRY_WAIT_SECONDS = 2
+
 
 @asynccontextmanager
 async def create_http_session(timeout: int | None = None):
