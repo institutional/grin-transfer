@@ -109,7 +109,7 @@ class TestSyncOCRPipelineIntegration:
             patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
         ):
             mock_decrypt.return_value = None
-            mock_extract_marc.return_value = None
+            mock_extract_marc.return_value = []
 
             # Set up storage mocks using unified factory
             mock_storage = create_storage_mock(storage_type=storage_type)
@@ -191,7 +191,7 @@ class TestSyncOCRPipelineIntegration:
             patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
         ):
             mock_decrypt.return_value = None
-            mock_extract_marc.return_value = None
+            mock_extract_marc.return_value = []
 
             # Set up storage mocks using unified factory
             mock_storage = create_storage_mock(storage_type=storage_type)

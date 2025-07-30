@@ -336,7 +336,7 @@ def mock_upload_operations(
         else:
             mock_decrypt.return_value = None
             mock_extract_ocr.return_value = None if not skip_ocr else None
-            mock_extract_marc.return_value = None if not skip_marc else None
+            mock_extract_marc.return_value = [] if not skip_marc else []
 
         # Return a simple namespace object instead of dataclass
         class MockBundle:

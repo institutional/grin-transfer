@@ -26,7 +26,7 @@ from grin_to_s3.common import (
 )
 from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.text_extraction import extract_ocr_pages
-from grin_to_s3.extract.tracking import ExtractionStatus, StatusUpdate, collect_status, write_status
+from grin_to_s3.extract.tracking import ExtractionStatus, StatusUpdate, collect_status
 from grin_to_s3.metadata.marc_extraction import extract_marc_metadata
 from grin_to_s3.storage import BookManager, create_storage_from_config
 from grin_to_s3.storage.book_manager import BucketConfig
@@ -393,7 +393,7 @@ async def extract_and_update_marc_metadata(
     barcode: str,
     decrypted_file: Path,
     db_tracker,
-) -> None:
+) -> list[StatusUpdate]:
     """
     Extract MARC metadata from decrypted archive and update database (non-blocking).
 
@@ -404,66 +404,67 @@ async def extract_and_update_marc_metadata(
         barcode: Book barcode
         decrypted_file: Path to decrypted tar.gz archive
         db_tracker: Database tracker for status updates
+
+    Returns:
+        List of status updates to be written by caller
     """
     session_id = f"marc_sync_{int(time.time())}"
+    status_updates = []
 
     try:
         logger.info(f"[{barcode}] Starting MARC metadata extraction from decrypted archive")
 
-        # Track extraction start
-        if db_tracker:
-            await write_status(
-                db_tracker.db_path,
-                barcode,
-                ExtractionStatus.STARTING,
-                metadata={"session_id": session_id, "source": "sync_pipeline", "extraction_type": "marc"},
-                session_id=session_id,
-            )
+        # Collect extraction start status
+        status_updates.append(collect_status(
+            barcode,
+            "text_extraction",
+            ExtractionStatus.STARTING.value,
+            metadata={"session_id": session_id, "source": "sync_pipeline", "extraction_type": "marc"},
+            session_id=session_id,
+        ))
 
         # Extract MARC metadata
         try:
-            # Track extraction progress
-            if db_tracker:
-                await write_status(
-                    db_tracker.db_path,
-                    barcode,
-                    ExtractionStatus.EXTRACTING,
-                    metadata={"extraction_type": "marc", "archive_path": str(decrypted_file)},
-                    session_id=session_id,
-                )
+            # Collect extraction progress status
+            status_updates.append(collect_status(
+                barcode,
+                "text_extraction",
+                ExtractionStatus.EXTRACTING.value,
+                metadata={"extraction_type": "marc", "archive_path": str(decrypted_file)},
+                session_id=session_id,
+            ))
 
             # Extract MARC metadata from the archive
             marc_metadata = extract_marc_metadata(str(decrypted_file))
 
             if not marc_metadata:
                 logger.warning(f"[{barcode}] No MARC metadata found in archive")
-                if db_tracker:
-                    await write_status(
-                        db_tracker.db_path,
-                        barcode,
-                        ExtractionStatus.FAILED,
-                        metadata={
-                            "error_type": "NoMARCDataFound",
-                            "error_message": "No MARC metadata found",
-                            "extraction_type": "marc",
-                        },
-                        session_id=session_id,
-                    )
-                return
+                status_updates.append(collect_status(
+                    barcode,
+                    "text_extraction",
+                    ExtractionStatus.FAILED.value,
+                    metadata={
+                        "error_type": "NoMARCDataFound",
+                        "error_message": "No MARC metadata found",
+                        "extraction_type": "marc",
+                    },
+                    session_id=session_id,
+                ))
+                return status_updates
 
             # Update database with MARC metadata
             if db_tracker:
-                await write_status(
-                    db_tracker.db_path,
+                status_updates.append(collect_status(
                     barcode,
-                    ExtractionStatus.EXTRACTING,
+                    "text_extraction",
+                    ExtractionStatus.EXTRACTING.value,
                     metadata={
                         "extraction_type": "marc",
                         "fields_count": len(marc_metadata),
                         "stage": "database_update",
                     },
                     session_id=session_id,
-                )
+                ))
 
                 # Convert MARC extraction keys to database field names
                 db_marc_data = _convert_marc_keys_to_db_fields(marc_metadata)
@@ -475,53 +476,50 @@ async def extract_and_update_marc_metadata(
                     f"[{barcode}] Successfully updated database with MARC metadata ({len(marc_metadata)} fields)"
                 )
 
-                # Track completion
-                await write_status(
-                    db_tracker.db_path,
+                # Collect completion status
+                status_updates.append(collect_status(
                     barcode,
-                    ExtractionStatus.COMPLETED,
+                    "text_extraction",
+                    ExtractionStatus.COMPLETED.value,
                     metadata={
                         "extraction_type": "marc",
                         "fields_extracted": len(marc_metadata),
                         "completion_time": datetime.now(UTC).isoformat(),
                     },
                     session_id=session_id,
-                )
+                ))
 
         except Exception as extraction_error:
             logger.error(f"[{barcode}] MARC extraction failed: {extraction_error}")
-            if db_tracker:
-                await write_status(
-                    db_tracker.db_path,
-                    barcode,
-                    ExtractionStatus.FAILED,
-                    metadata={
-                        "error_type": type(extraction_error).__name__,
-                        "error_message": str(extraction_error),
-                        "extraction_type": "marc",
-                        "error_time": datetime.now(UTC).isoformat(),
-                    },
-                    session_id=session_id,
-                )
+            status_updates.append(collect_status(
+                barcode,
+                "text_extraction",
+                ExtractionStatus.FAILED.value,
+                metadata={
+                    "error_type": type(extraction_error).__name__,
+                    "error_message": str(extraction_error),
+                    "extraction_type": "marc",
+                    "error_time": datetime.now(UTC).isoformat(),
+                },
+                session_id=session_id,
+            ))
 
     except Exception as outer_error:
         logger.error(f"[{barcode}] MARC extraction workflow failed: {outer_error}")
-        if db_tracker:
-            try:
-                await write_status(
-                    db_tracker.db_path,
-                    barcode,
-                    ExtractionStatus.FAILED,
-                    metadata={
-                        "error_type": type(outer_error).__name__,
-                        "error_message": str(outer_error),
-                        "extraction_type": "marc",
-                        "workflow_error": True,
-                    },
-                    session_id=session_id,
-                )
-            except Exception as db_error:
-                logger.warning(f"⚠️ [{barcode}] Failed to track MARC extraction failure in database: {db_error}")
+        status_updates.append(collect_status(
+            barcode,
+            "text_extraction",
+            ExtractionStatus.FAILED.value,
+            metadata={
+                "error_type": type(outer_error).__name__,
+                "error_message": str(outer_error),
+                "extraction_type": "marc",
+                "workflow_error": True,
+            },
+            session_id=session_id,
+        ))
+
+    return status_updates
 
 
 async def upload_book_from_staging(
@@ -648,7 +646,20 @@ async def upload_book_from_staging(
         # Wait for extraction tasks to complete before cleanup
         if extraction_tasks:
             try:
-                await asyncio.gather(*extraction_tasks, return_exceptions=True)
+                extraction_results = await asyncio.gather(*extraction_tasks, return_exceptions=True)
+
+                # Collect all status updates from extraction tasks
+                all_status_updates = []
+                for result in extraction_results:
+                    if isinstance(result, list):  # Status updates from extraction tasks
+                        all_status_updates.extend(result)
+                    elif isinstance(result, Exception):
+                        logger.warning(f"[{barcode}] Extraction task failed: {result}")
+
+                # Batch write all status updates
+                if all_status_updates:
+                    await batch_write_status_updates(db_tracker.db_path, all_status_updates)
+
             except Exception as e:
                 # Log extraction failure but don't fail the sync
                 logger.warning(f"[{barcode}] Extraction tasks failed: {e}")
@@ -834,7 +845,20 @@ async def sync_book_to_local_storage(
         # Wait for extraction tasks to complete (non-blocking for sync success)
         if extraction_tasks:
             try:
-                await asyncio.gather(*extraction_tasks, return_exceptions=True)
+                extraction_results = await asyncio.gather(*extraction_tasks, return_exceptions=True)
+
+                # Collect all status updates from extraction tasks
+                all_status_updates = []
+                for result in extraction_results:
+                    if isinstance(result, list):  # Status updates from extraction tasks
+                        all_status_updates.extend(result)
+                    elif isinstance(result, Exception):
+                        logger.warning(f"[{barcode}] Extraction task failed: {result}")
+
+                # Batch write all status updates
+                if all_status_updates:
+                    await batch_write_status_updates(db_tracker.db_path, all_status_updates)
+
                 logger.info(f"[{barcode}] Extraction tasks completed")
             except Exception as e:
                 logger.warning(f"[{barcode}] Some extraction tasks failed: {e}")
