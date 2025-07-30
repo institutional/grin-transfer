@@ -1434,9 +1434,7 @@ class SyncPipeline:
                 print(f"{i+1:3d}. {barcode} - Unknown Title")
 
         print("-" * 60)
-        print("Operations that would be performed:")
-        print("• Database backup creation and upload (SKIPPED in dry-run)")
-        print("Per book operations:")
+        print("Operations that would be performed per book:")
         print("  1. Download encrypted archive from GRIN")
         print("  2. Decrypt and extract archive")
         if not self.skip_extract_ocr:
