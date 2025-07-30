@@ -475,10 +475,11 @@ class SyncPipeline:
 
                     logger.debug(f"[{worker_name}] Processing {barcode}")
 
-                    # Update status to in_progress
-                    await self.db_tracker.add_status_change(
-                        barcode, "enrichment", "in_progress", metadata={"worker_id": worker_id}
-                    )
+                    # Collect enrichment status updates for batching
+                    from grin_to_s3.extract.tracking import collect_status
+                    enrichment_status_updates = [
+                        collect_status(barcode, "enrichment", "in_progress", metadata={"worker_id": worker_id})
+                    ]
 
                     # Apply rate limiting
                     await rate_limiter.acquire()
@@ -489,26 +490,32 @@ class SyncPipeline:
 
                         if enrichment_results > 0:
                             # Successfully enriched
-                            await self.db_tracker.add_status_change(
-                                barcode, "enrichment", "completed", metadata={"worker_id": worker_id}
+                            enrichment_status_updates.append(
+                                collect_status(barcode, "enrichment", "completed", metadata={"worker_id": worker_id})
                             )
                             logger.info(f"[{worker_name}] ✅ Enriched {barcode}")
                         else:
                             # No enrichment data found, but mark as processed
-                            await self.db_tracker.add_status_change(
-                                barcode,
-                                "enrichment",
-                                "completed",
-                                metadata={"worker_id": worker_id, "result": "no_data"},
+                            enrichment_status_updates.append(
+                                collect_status(
+                                    barcode, "enrichment", "completed", metadata={"worker_id": worker_id, "result": "no_data"}
+                                )
                             )
                             logger.debug(f"[{worker_name}] No enrichment data for {barcode}")
 
                     except Exception as e:
                         # Mark as failed with error details
-                        await self.db_tracker.add_status_change(
-                            barcode, "enrichment", "failed", metadata={"worker_id": worker_id, "error": str(e)}
+                        enrichment_status_updates.append(
+                            collect_status(barcode, "enrichment", "failed", metadata={"worker_id": worker_id, "error": str(e)})
                         )
                         logger.error(f"[{worker_name}] ❌ Failed to enrich {barcode}: {e}")
+
+                    # Batch write all enrichment status updates
+                    try:
+                        from grin_to_s3.database_utils import batch_write_status_updates
+                        await batch_write_status_updates(str(self.db_tracker.db_path), enrichment_status_updates)
+                    except Exception as status_error:
+                        logger.warning(f"[{worker_name}] Failed to write enrichment status for {barcode}: {status_error}")
 
                     # Mark queue task as done
                     self.enrichment_queue.task_done()
