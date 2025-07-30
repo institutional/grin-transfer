@@ -1415,26 +1415,22 @@ class SyncPipeline:
         if limit and limit < len(available_to_sync):
             print(f"Limited to first {limit:,} books")
 
-        print(f"\nFirst {min(10, books_to_process)} books that would be processed:")
+        print(f"\nAll {books_to_process} books that would be processed:")
         print("-" * 60)
 
-        # Get book records for the first few barcodes to show titles
-        sample_barcodes = available_to_sync[:min(10, books_to_process)]
+        # Get book records for all barcodes to show titles
         try:
-            sample_books = await self.db_tracker.get_books_by_barcodes(sample_barcodes)
+            sample_books = await self.db_tracker.get_books_by_barcodes(available_to_sync[:books_to_process])
             for i, book in enumerate(sample_books):
                 title = book.title or "Unknown Title"
                 if len(title) > 40:
                     title = title[:37] + "..."
 
-                print(f"{i+1:2d}. {book.barcode} - {title}")
+                print(f"{i+1:3d}. {book.barcode} - {title}")
         except Exception:
             # Fallback if we can't get book records
-            for i, barcode in enumerate(sample_barcodes):
-                print(f"{i+1:2d}. {barcode} - Unknown Title")
-
-        if books_to_process > 10:
-            print(f"    ... and {books_to_process - 10:,} more books")
+            for i, barcode in enumerate(available_to_sync[:books_to_process]):
+                print(f"{i+1:3d}. {barcode} - Unknown Title")
 
         print("-" * 60)
         print("Operations that would be performed:")

@@ -135,8 +135,8 @@ async def cmd_pipeline(args) -> None:
     logger.info(f"SYNC PIPELINE STARTED - storage={args.storage} force={args.force}{barcodes_info}{limit_info}")
     logger.info(f"Command: {' '.join(sys.argv)}")
 
-    # Create book storage for process summary uploads
-    book_manager = await create_book_manager_for_uploads(args.run_name)
+    # Create book storage for process summary uploads (skip in dry-run)
+    book_manager = None if args.dry_run else await create_book_manager_for_uploads(args.run_name)
 
     # Create or load process summary
     run_summary = await create_process_summary(args.run_name, "sync", book_manager)
@@ -256,9 +256,10 @@ async def cmd_pipeline(args) -> None:
             sys.exit(1)
 
     finally:
-        # Always end the stage and save summary
+        # Always end the stage and save summary (skip upload in dry-run)
         run_summary.end_stage("sync")
-        await save_process_summary(run_summary, book_manager)
+        if not args.dry_run:
+            await save_process_summary(run_summary, book_manager)
 
 
 async def cmd_status(args) -> None:
