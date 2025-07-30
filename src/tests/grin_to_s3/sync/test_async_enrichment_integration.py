@@ -517,8 +517,8 @@ class TestAsyncEnrichmentErrorHandling:
         barcode = "TEST123456789"
         await pipeline.queue_book_for_enrichment(barcode)
 
-        # Wait for processing
-        await asyncio.sleep(0.5)
+        # Wait for processing (increased time to ensure async status write completes)
+        await asyncio.sleep(1.0)
 
         # Verify enrichment was attempted
         assert mock_grin_enrichment_pipeline.enrich_books_batch.call_count == 1
@@ -626,24 +626,25 @@ class TestAsyncEnrichmentErrorHandling:
         # Configure mock to return successful enrichment
         mock_grin_enrichment_pipeline.enrich_books_batch.return_value = 1
 
-        # Mock database tracker to simulate database error
-        tracker.add_status_change = AsyncMock(side_effect=Exception("Database connection failed"))
+        # Mock batch_write_status_updates to simulate database error
+        with patch("grin_to_s3.database_utils.batch_write_status_updates", new_callable=AsyncMock) as mock_batch_write:
+            mock_batch_write.side_effect = Exception("Database connection failed")
 
-        # Start workers
-        await pipeline.start_enrichment_workers()
+            # Start workers
+            await pipeline.start_enrichment_workers()
 
-        # Queue a book
-        barcode = "TEST123456789"
-        await pipeline.queue_book_for_enrichment(barcode)
+            # Queue a book
+            barcode = "TEST123456789"
+            await pipeline.queue_book_for_enrichment(barcode)
 
-        # Wait for processing
-        await asyncio.sleep(0.5)
+            # Wait for processing
+            await asyncio.sleep(0.5)
 
-        # Verify enrichment was attempted despite database error
-        assert mock_grin_enrichment_pipeline.enrich_books_batch.call_count == 1
+            # Verify enrichment was attempted despite database error
+            assert mock_grin_enrichment_pipeline.enrich_books_batch.call_count == 1
 
-        # Cleanup
-        await pipeline.stop_enrichment_workers()
+            # Cleanup
+            await pipeline.stop_enrichment_workers()
 
 
 class TestAsyncEnrichmentDatabaseIntegration:

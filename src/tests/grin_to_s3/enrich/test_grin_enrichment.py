@@ -124,7 +124,7 @@ class TestGRINEnrichmentPipeline:
 
         for book in test_books:
             await tracker.save_book(book)
-        
+
         # Add processing status using batched status history
         status_updates = [collect_status(book.barcode, "processing_request", "converted") for book in test_books]
         await batch_write_status_updates(str(temp_db), status_updates)

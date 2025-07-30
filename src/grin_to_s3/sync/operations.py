@@ -272,7 +272,7 @@ async def extract_and_upload_ocr_text(
         book_manager: BookStorage instance for uploading
         db_tracker: Database tracker for status updates
         staging_manager: Staging manager for temp file handling
-        
+
     Returns:
         List of status updates to be written by caller
     """

@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from aioresponses import aioresponses
 
+from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.sync.operations import (
     check_and_handle_etag_skip,
     download_book_to_staging,
@@ -151,9 +152,12 @@ class TestBookUpload:
 
     @pytest.mark.asyncio
     async def test_upload_book_from_staging_success(
-        self, mock_storage_config, mock_staging_manager, mock_progress_tracker
+        self, mock_storage_config, mock_staging_manager, temp_db
     ):
         """Test successful book upload from staging."""
+        # Create real progress tracker with proper database
+        progress_tracker = SQLiteProgressTracker(temp_db)
+
         # Set up properly configured mock staging manager
         mock_staging_manager.cleanup_files.return_value = 1024 * 1024  # Return int, not MagicMock
 
@@ -164,7 +168,7 @@ class TestBookUpload:
                 "minio",
                 mock_storage_config,
                 mock_staging_manager,
-                mock_progress_tracker,
+                progress_tracker,
                 "encrypted_etag_123",
                 "gpg_key_file",
                 "secrets_dir",
@@ -477,9 +481,12 @@ class TestOCRExtractionIntegration:
     @pytest.mark.asyncio
     @extraction_scenarios_parametrize()
     async def test_upload_book_from_staging_extraction_scenarios(
-        self, skip_ocr, skip_marc, mock_storage_config, mock_staging_manager, mock_progress_tracker
+        self, skip_ocr, skip_marc, mock_storage_config, mock_staging_manager, temp_db
     ):
         """Test upload_book_from_staging with different extraction scenarios."""
+        # Create real progress tracker with proper database
+        progress_tracker = SQLiteProgressTracker(temp_db)
+
         # Set up properly configured mock staging manager
         mock_staging_manager.cleanup_files.return_value = 1024 * 1024  # Return int, not MagicMock
 
@@ -490,7 +497,7 @@ class TestOCRExtractionIntegration:
                 "minio",
                 mock_storage_config,
                 mock_staging_manager,
-                mock_progress_tracker,
+                progress_tracker,
                 "encrypted_etag_123",
                 "gpg_key_file",
                 "secrets_dir",
@@ -590,7 +597,6 @@ class TestBookStorageIntegrationInSync:
 
             mock_progress_tracker = MagicMock()
             mock_progress_tracker.db_path = "/tmp/test.db"  # Fixed: provide proper string path
-            mock_progress_tracker.add_status_change = AsyncMock()
             mock_progress_tracker.update_sync_data = AsyncMock()
 
             # Create dummy files for encryption and decryption

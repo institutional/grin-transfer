@@ -422,8 +422,8 @@ class SyncPipeline:
         """Mark a book as converted in our database after successful download."""
         try:
             # Use batched status change
-            from grin_to_s3.extract.tracking import collect_status
             from grin_to_s3.database_utils import batch_write_status_updates
+            from grin_to_s3.extract.tracking import collect_status
             status_updates = [collect_status(barcode, "processing_request", "converted")]
             await batch_write_status_updates(str(self.db_tracker.db_path), status_updates)
         except Exception as e:

@@ -174,11 +174,11 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
 
             # Add processing status using batched approach
             status_updates = [collect_status(barcode, "processing_request", "converted")]
-            
+
             # Add sync status if specified
             if sync_status:
                 status_updates.append(collect_status(barcode, "sync", sync_status))
-            
+
             await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test with no status filter (default: pending or NULL)

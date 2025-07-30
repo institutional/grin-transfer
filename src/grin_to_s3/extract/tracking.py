@@ -10,9 +10,6 @@ from datetime import UTC, datetime
 from enum import Enum
 from typing import NamedTuple
 
-import aiosqlite
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
-
 from ..database import connect_async
 
 logger = logging.getLogger(__name__)

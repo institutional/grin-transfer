@@ -54,10 +54,12 @@ class TestSyncPipelineConcurrency:
                 sync_pipeline.db_tracker.get_sync_stats = AsyncMock(
                     return_value={"total_converted": 5, "synced": 0, "failed": 0, "pending": 5}
                 )
-                sync_pipeline.db_tracker.add_status_change = AsyncMock()
+                # Mock batch_write_status_updates instead of add_status_change
+                with patch("grin_to_s3.database_utils.batch_write_status_updates", new_callable=AsyncMock) as mock_batch_write:
+                    mock_batch_write.return_value = None
 
-                # Run sync with limit
-                await sync_pipeline.run_sync(limit=5)
+                    # Run sync with limit
+                    await sync_pipeline.run_sync(limit=5)
 
         # Verify concurrency was respected
         assert max_concurrent <= sync_pipeline.concurrent_downloads, (
@@ -104,10 +106,12 @@ class TestSyncPipelineConcurrency:
                 mock_pipeline_dependencies["tracker"].get_sync_stats = AsyncMock(
                     return_value={"total_converted": 2, "synced": 0, "failed": 0, "pending": 2}
                 )
-                mock_pipeline_dependencies["tracker"].add_status_change = AsyncMock()
+                # Mock batch_write_status_updates instead of add_status_change
+                with patch("grin_to_s3.database_utils.batch_write_status_updates", new_callable=AsyncMock) as mock_batch_write:
+                    mock_batch_write.return_value = None
 
-                # Run sync
-                await pipeline.run_sync(limit=2)
+                    # Run sync
+                    await pipeline.run_sync(limit=2)
 
         # Verify progress reports had consistent data
         for report in progress_reports:

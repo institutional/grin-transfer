@@ -25,8 +25,8 @@ logger = logging.getLogger(__name__)
 def retry_database_operation(func):
     """
     Decorator to retry database operations that fail due to database locks.
-    
-    Retries both sqlite3.OperationalError and aiosqlite.OperationalError with 
+
+    Retries both sqlite3.OperationalError and aiosqlite.OperationalError with
     "database is locked" message up to 3 times with exponential backoff.
     """
     @retry(

@@ -214,7 +214,6 @@ def create_progress_tracker_mock(db_path: str = "/tmp/test.db") -> MagicMock:
     tracker.db_path = db_path
 
     # Configure async methods
-    tracker.add_status_change = AsyncMock()
     tracker.update_sync_data = AsyncMock()
     tracker.get_books_for_sync = AsyncMock(return_value=[])
     tracker.get_sync_stats = AsyncMock(
