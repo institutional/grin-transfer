@@ -517,8 +517,10 @@ class TestAsyncEnrichmentErrorHandling:
         barcode = "TEST123456789"
         await pipeline.queue_book_for_enrichment(barcode)
 
-        # Wait for processing (increased time to ensure async status write completes)
-        await asyncio.sleep(1.0)
+        # Wait for the queue to be fully processed
+        await pipeline.enrichment_queue.join()
+        # Brief additional wait to ensure database writes are flushed
+        await asyncio.sleep(0.1)
 
         # Verify enrichment was attempted
         assert mock_grin_enrichment_pipeline.enrich_books_batch.call_count == 1
