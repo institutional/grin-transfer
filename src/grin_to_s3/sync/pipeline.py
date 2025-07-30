@@ -1420,13 +1420,14 @@ class SyncPipeline:
 
         # Get book records for all barcodes to show titles
         try:
-            sample_books = await self.db_tracker.get_books_by_barcodes(available_to_sync[:books_to_process])
-            for i, book in enumerate(sample_books):
-                title = book.title or "Unknown Title"
-                if len(title) > 40:
-                    title = title[:37] + "..."
+            for i, barcode in enumerate(available_to_sync[:books_to_process]):
+                book = await self.db_tracker.get_book(barcode)
+                if book and book.title:
+                    title = book.title
+                else:
+                    title = "Unknown Title"
 
-                print(f"{i+1:3d}. {book.barcode} - {title}")
+                print(f"{i+1:3d}. {barcode} - {title}")
         except Exception:
             # Fallback if we can't get book records
             for i, barcode in enumerate(available_to_sync[:books_to_process]):
