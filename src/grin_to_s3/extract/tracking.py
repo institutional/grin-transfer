@@ -8,6 +8,10 @@ import json
 import logging
 from datetime import UTC, datetime
 from enum import Enum
+from typing import NamedTuple
+
+import aiosqlite
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from ..database import connect_async
 
@@ -32,6 +36,15 @@ class ExtractionMethod(Enum):
     STREAMING = "streaming"
 
 
+# Status update tuple for collecting updates before writing
+class StatusUpdate(NamedTuple):
+    barcode: str
+    status_type: str
+    status_value: str
+    metadata: dict | None = None
+    session_id: str | None = None
+
+
 async def write_status(
     db_path: str, barcode: str, status: ExtractionStatus, metadata: dict | None = None, session_id: str | None = None
 ) -> None:
@@ -54,6 +67,13 @@ async def write_status(
             await conn.commit()
     except Exception as e:
         logger.warning(f"⚠️ Failed to write extraction status for {barcode}: {e}")
+
+
+def collect_status(
+    barcode: str, status_type: str, status_value: str, metadata: dict | None = None, session_id: str | None = None
+) -> StatusUpdate:
+    """Collect a status update without writing to database."""
+    return StatusUpdate(barcode, status_type, status_value, metadata, session_id)
 
 
 async def track_start(db_path: str, barcode: str, session_id: str | None = None) -> None:

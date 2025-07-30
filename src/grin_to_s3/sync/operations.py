@@ -24,8 +24,9 @@ from grin_to_s3.common import (
     decrypt_gpg_file,
     extract_bucket_config,
 )
+from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.text_extraction import extract_ocr_pages
-from grin_to_s3.extract.tracking import ExtractionStatus, write_status
+from grin_to_s3.extract.tracking import ExtractionStatus, StatusUpdate, collect_status, write_status
 from grin_to_s3.metadata.marc_extraction import extract_marc_metadata
 from grin_to_s3.storage import BookManager, create_storage_from_config
 from grin_to_s3.storage.book_manager import BucketConfig
@@ -105,7 +106,7 @@ async def check_and_handle_etag_skip(
     storage_config: dict[str, Any],
     db_tracker,
     force: bool = False,
-) -> tuple[BookSyncResult | None, str | None, int]:
+) -> tuple[BookSyncResult | None, str | None, int, list]:
     """Check ETag and handle skip scenario if applicable.
 
     Args:
@@ -118,10 +119,11 @@ async def check_and_handle_etag_skip(
         force: Force download even if ETag matches
 
     Returns:
-        tuple: (skip_result, encrypted_etag, encrypted_file_size)
+        tuple: (skip_result, encrypted_etag, encrypted_file_size, sync_status_updates)
         - skip_result: Skip result if file should be skipped, None if processing should continue
         - encrypted_etag: Encrypted ETag for this file
         - encrypted_file_size: File size for this file
+        - sync_status_updates: List of status updates to be written by caller
     """
     # Check encrypted ETag first
     encrypted_etag, encrypted_file_size = await check_encrypted_etag(grin_client, library_directory, barcode)
@@ -133,8 +135,8 @@ async def check_and_handle_etag_skip(
     if should_skip:
         logger.info(f"[{barcode}] Skipping download - {skip_reason}")
 
-        # Record ETag check in status history with metadata
-        await db_tracker.add_status_change(
+        # Collect ETag check status for batch writing
+        sync_status_updates = [collect_status(
             barcode,
             "sync",
             "skipped",
@@ -145,15 +147,16 @@ async def check_and_handle_etag_skip(
                 "skipped": True,
                 "skip_reason": skip_reason,
             },
-        )
+        )]
 
         return (
             create_book_sync_result(barcode, "completed", True, encrypted_etag, encrypted_file_size or 0, 0),
             encrypted_etag,
             encrypted_file_size or 0,
+            sync_status_updates,
         )
 
-    return None, encrypted_etag, encrypted_file_size or 0
+    return None, encrypted_etag, encrypted_file_size or 0, []
 
 
 async def download_book_to_staging(
@@ -256,7 +259,7 @@ async def extract_and_upload_ocr_text(
     book_manager: BookManager,
     db_tracker,
     staging_manager: StagingDirectoryManager | None,
-) -> None:
+) -> list[StatusUpdate]:
     """
     Extract OCR text from decrypted archive and upload to full-text bucket (non-blocking).
 
@@ -269,36 +272,38 @@ async def extract_and_upload_ocr_text(
         book_manager: BookStorage instance for uploading
         db_tracker: Database tracker for status updates
         staging_manager: Staging manager for temp file handling
+        
+    Returns:
+        List of status updates to be written by caller
     """
     session_id = f"sync_{int(time.time())}"
+    status_updates = []
 
     try:
         logger.info(f"[{barcode}] Starting OCR text extraction from decrypted archive")
 
-        # Track extraction start
-        if db_tracker:
-            await write_status(
-                db_tracker.db_path,
-                barcode,
-                ExtractionStatus.STARTING,
-                metadata={"session_id": session_id, "source": "sync_pipeline"},
-                session_id=session_id,
-            )
+        # Collect extraction start status
+        status_updates.append(collect_status(
+            barcode,
+            "text_extraction",
+            ExtractionStatus.STARTING.value,
+            metadata={"session_id": session_id, "source": "sync_pipeline"},
+            session_id=session_id
+        ))
 
         # Create temporary JSONL file in staging directory
         staging_dir = staging_manager.staging_path if staging_manager else Path(decrypted_file).parent
         jsonl_file = staging_dir / f"{barcode}_ocr_temp.jsonl"
 
         try:
-            # Track extraction progress
-            if db_tracker:
-                await write_status(
-                    db_tracker.db_path,
-                    barcode,
-                    ExtractionStatus.EXTRACTING,
-                    metadata={"jsonl_file": str(jsonl_file)},
-                    session_id=session_id,
-                )
+            # Collect extraction progress status
+            status_updates.append(collect_status(
+                barcode,
+                "text_extraction",
+                ExtractionStatus.EXTRACTING.value,
+                metadata={"jsonl_file": str(jsonl_file)},
+                session_id=session_id,
+            ))
 
             # Extract OCR text to JSONL file
             start_time = time.time()
@@ -332,33 +337,31 @@ async def extract_and_upload_ocr_text(
                 f"({jsonl_file_size / 1024:.1f} KB, {extraction_time_ms}ms)"
             )
 
-            # Track successful completion
-            if db_tracker:
-                await write_status(
-                    db_tracker.db_path,
-                    barcode,
-                    ExtractionStatus.COMPLETED,
-                    metadata={
-                        "page_count": page_count,
-                        "extraction_time_ms": extraction_time_ms,
-                        "jsonl_file_size": jsonl_file_size,
-                    },
-                    session_id=session_id,
-                )
+            # Collect successful completion status
+            status_updates.append(collect_status(
+                barcode,
+                "text_extraction",
+                ExtractionStatus.COMPLETED.value,
+                metadata={
+                    "page_count": page_count,
+                    "extraction_time_ms": extraction_time_ms,
+                    "jsonl_file_size": jsonl_file_size,
+                },
+                session_id=session_id,
+            ))
 
         except Exception as extraction_error:
             logger.error(f"[{barcode}] OCR extraction failed but sync continues: {extraction_error}")
-            if db_tracker:
-                await write_status(
-                    db_tracker.db_path,
-                    barcode,
-                    ExtractionStatus.FAILED,
-                    metadata={
-                        "error_type": type(extraction_error).__name__,
-                        "error_message": str(extraction_error),
-                    },
-                    session_id=session_id,
-                )
+            status_updates.append(collect_status(
+                barcode,
+                "text_extraction",
+                ExtractionStatus.FAILED.value,
+                metadata={
+                    "error_type": type(extraction_error).__name__,
+                    "error_message": str(extraction_error),
+                },
+                session_id=session_id,
+            ))
 
         finally:
             # Clean up temporary JSONL file
@@ -371,21 +374,19 @@ async def extract_and_upload_ocr_text(
     except Exception as e:
         logger.error(f"[{barcode}] OCR extraction failed but sync continues: {e}")
 
-        # Track failure but don't raise - this is non-blocking
-        if db_tracker:
-            try:
-                await write_status(
-                    db_tracker.db_path,
-                    barcode,
-                    ExtractionStatus.FAILED,
-                    metadata={
-                        "error_type": type(e).__name__,
-                        "error_message": str(e),
-                    },
-                    session_id=session_id,
-                )
-            except Exception as db_error:
-                logger.warning(f"⚠️ [{barcode}] Failed to track extraction failure in database: {db_error}")
+        # Collect failure status but don't raise - this is non-blocking
+        status_updates.append(collect_status(
+            barcode,
+            "text_extraction",
+            ExtractionStatus.FAILED.value,
+            metadata={
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            },
+            session_id=session_id,
+        ))
+
+    return status_updates
 
 
 async def extract_and_update_marc_metadata(

@@ -1131,7 +1131,7 @@ class SyncPipeline:
                 )
 
                 # Check ETag and handle skip scenario
-                skip_result, encrypted_etag, _ = await check_and_handle_etag_skip(
+                skip_result, encrypted_etag, _, sync_status_updates = await check_and_handle_etag_skip(
                     barcode,
                     self.grin_client,
                     self.library_directory,
@@ -1142,6 +1142,13 @@ class SyncPipeline:
                 )
 
                 if skip_result:
+                    # Write sync status updates for skipped books
+                    if sync_status_updates and self.db_tracker:
+                        try:
+                            from grin_to_s3.database_utils import batch_write_status_updates
+                            await batch_write_status_updates(str(self.db_tracker.db_path), sync_status_updates)
+                        except Exception as e:
+                            logger.warning(f"[{barcode}] Failed to write skip status updates: {e}")
                     self.stats["skipped"] += 1
                     return {"barcode": barcode, "download_success": False, "skipped": True, "skip_result": skip_result}
 

@@ -100,12 +100,17 @@ class TestETagSkipHandling:
         with patch("grin_to_s3.common.create_http_session") as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
-            skip_result, etag, size = await check_and_handle_etag_skip(
+            skip_result, etag, size, status_updates = await check_and_handle_etag_skip(
                 "TEST1", mock_grin_client, "Harvard", "local", {}, tracker, False
             )
 
             assert skip_result is not None and skip_result["skipped"]
             assert etag == "abc" and size == 1000
+
+            # Write the status updates to database
+            if status_updates:
+                from grin_to_s3.database_utils import batch_write_status_updates
+                await batch_write_status_updates(tracker.db_path, status_updates)
 
             status, metadata = await tracker.get_latest_status_with_metadata("TEST1", "sync")
             assert status == "skipped" and metadata and metadata.get("skipped")
@@ -122,7 +127,7 @@ class TestETagSkipHandling:
         with patch("grin_to_s3.common.create_http_session") as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
-            skip_result, etag, size = await check_and_handle_etag_skip(
+            skip_result, etag, size, status_updates = await check_and_handle_etag_skip(
                 "TEST2", mock_grin_client2, "Harvard", "local", {}, tracker, False
             )
 

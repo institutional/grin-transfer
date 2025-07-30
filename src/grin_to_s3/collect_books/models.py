@@ -16,6 +16,7 @@ from typing import Any
 import aiosqlite
 
 from ..database import connect_async
+from ..database_utils import retry_database_operation
 
 logger = logging.getLogger(__name__)
 
@@ -537,6 +538,7 @@ class SQLiteProgressTracker:
                 return BookRecord(*row)
             return None
 
+    @retry_database_operation
     async def update_book_enrichment(self, barcode: str, enrichment_data: dict) -> bool:
         """Update enrichment fields for an existing book record."""
         await self.init_db()
@@ -557,6 +559,7 @@ class SQLiteProgressTracker:
             await db.commit()
             return rows_affected > 0
 
+    @retry_database_operation
     async def update_book_marc_metadata(self, barcode: str, marc_data: dict) -> bool:
         """Update MARC metadata fields for an existing book record."""
         await self.init_db()
@@ -625,6 +628,7 @@ class SQLiteProgressTracker:
             row = await cursor.fetchone()
             return row[0] if row else 0
 
+    @retry_database_operation
     async def update_sync_data(self, barcode: str, sync_data: dict) -> bool:
         """Update sync tracking fields for a book record."""
         await self.init_db()
@@ -1059,6 +1063,7 @@ class SQLiteProgressTracker:
             row = await cursor.fetchone()
             return row[0] if row else 0
 
+    @retry_database_operation
     async def add_status_change(
         self,
         barcode: str,

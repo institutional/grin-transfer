@@ -37,7 +37,7 @@ class TestETagSkipHandling:
             mock_check_etag.return_value = ("abc123", 1024)
             mock_should_skip.return_value = (False, "no_skip_reason")
 
-            result, etag, file_size = await check_and_handle_etag_skip(
+            result, etag, file_size, status_updates = await check_and_handle_etag_skip(
                 "TEST123", mock_grin_client, "Harvard", "minio", mock_storage_config, mock_progress_tracker
             )
 
@@ -57,7 +57,7 @@ class TestETagSkipHandling:
             mock_check_etag.return_value = ("abc123", 1024)
             mock_should_skip.return_value = (True, "etag_match")
 
-            result, etag, file_size = await check_and_handle_etag_skip(
+            result, etag, file_size, status_updates = await check_and_handle_etag_skip(
                 "TEST123", mock_grin_client, "Harvard", "minio", mock_storage_config, mock_progress_tracker
             )
 
@@ -324,7 +324,6 @@ class TestOCRExtractionIntegration:
         """Test successful OCR extraction and upload."""
         with (
             patch("grin_to_s3.sync.operations.extract_ocr_pages") as mock_extract,
-            patch("grin_to_s3.sync.operations.write_status") as mock_write_status,
             patch("grin_to_s3.sync.operations.time.time") as mock_time,
         ):
             # Mock extraction success
@@ -336,15 +335,18 @@ class TestOCRExtractionIntegration:
             jsonl_file.parent.mkdir(parents=True, exist_ok=True)
             jsonl_file.write_text('{"page": 1, "text": "Test content"}\n')
 
-            await extract_and_upload_ocr_text(
+            status_updates = await extract_and_upload_ocr_text(
                 "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager
             )
 
             # Verify extraction was called
             mock_extract.assert_called_once()
 
-            # Verify database status tracking
-            assert mock_write_status.call_count == 3  # starting, extracting, completed
+            # Verify status updates were collected (starting, extracting, completed)
+            assert len(status_updates) == 3
+            assert status_updates[0].status_value == "starting"
+            assert status_updates[1].status_value == "extracting"
+            assert status_updates[2].status_value == "completed"
 
             # Verify upload was called
             mock_book_manager.save_ocr_text_jsonl_from_file.assert_called_once()
@@ -363,7 +365,6 @@ class TestOCRExtractionIntegration:
         """Test OCR extraction failure handling (non-blocking)."""
         with (
             patch("grin_to_s3.sync.operations.extract_ocr_pages") as mock_extract,
-            patch("grin_to_s3.sync.operations.write_status") as mock_write_status,
         ):
             # Mock extraction failure
             mock_extract.side_effect = Exception("Archive corrupted")
@@ -374,19 +375,15 @@ class TestOCRExtractionIntegration:
             jsonl_file.write_text('{"page": 1, "text": "Test"}\n')
 
             # This should not raise an exception (non-blocking)
-            await extract_and_upload_ocr_text(
+            status_updates = await extract_and_upload_ocr_text(
                 "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager
             )
 
-            # Verify failure was tracked in database
-            # Check that write_status was called with FAILED status
-            calls = mock_write_status.call_args_list
-            failed_calls = [
-                call
-                for call in calls
-                if len(call[0]) >= 3 and "FAILED" in str(call[0][2]) or "failed" in str(call[0][2])
-            ]
-            assert len(failed_calls) > 0, f"Expected FAILED status call, but got: {calls}"
+            # Verify failure was tracked (starting, extracting, failed)
+            assert len(status_updates) == 3
+            assert status_updates[0].status_value == "starting"
+            assert status_updates[1].status_value == "extracting"
+            assert status_updates[2].status_value == "failed"
 
             # Verify error was logged but didn't raise
             assert "OCR extraction failed but sync continues" in caplog.text
@@ -401,7 +398,6 @@ class TestOCRExtractionIntegration:
         """Test OCR upload failure handling (non-blocking)."""
         with (
             patch("grin_to_s3.sync.operations.extract_ocr_pages") as mock_extract,
-            patch("grin_to_s3.sync.operations.write_status"),
         ):
             # Mock extraction success but upload failure
             mock_extract.return_value = 100
@@ -413,9 +409,15 @@ class TestOCRExtractionIntegration:
             jsonl_file.write_text('{"page": 1, "text": "Test"}\n')
 
             # This should not raise an exception (non-blocking)
-            await extract_and_upload_ocr_text(
+            status_updates = await extract_and_upload_ocr_text(
                 "TEST123", test_decrypted_file, mock_book_manager, mock_progress_tracker, mock_staging_manager
             )
+
+            # Verify failure was tracked (starting, extracting, failed)
+            assert len(status_updates) == 3
+            assert status_updates[0].status_value == "starting"
+            assert status_updates[1].status_value == "extracting"
+            assert status_updates[2].status_value == "failed"
 
             # Verify failure was logged
             assert "OCR extraction failed but sync continues" in caplog.text
@@ -587,6 +589,7 @@ class TestBookStorageIntegrationInSync:
             mock_staging_manager.cleanup_files.return_value = 1024
 
             mock_progress_tracker = MagicMock()
+            mock_progress_tracker.db_path = "/tmp/test.db"  # Fixed: provide proper string path
             mock_progress_tracker.add_status_change = AsyncMock()
             mock_progress_tracker.update_sync_data = AsyncMock()
 
