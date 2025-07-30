@@ -160,6 +160,39 @@ async def cmd_pipeline(args) -> None:
                     "prefix": "",
                 }
 
+            # Parse barcodes if provided
+            specific_barcodes = None
+            if hasattr(args, "barcodes") and args.barcodes:
+                try:
+                    specific_barcodes = validate_and_parse_barcodes(args.barcodes)
+                    print(f"Filtering to specific barcodes: {', '.join(specific_barcodes)}")
+                    sync_stage.set_command_arg("specific_barcodes", len(specific_barcodes))
+                    sync_stage.add_progress_update(f"Filtering to {len(specific_barcodes)} specific barcodes")
+                except ValueError as e:
+                    sync_stage.add_error("BarcodeValidationError", str(e))
+                    print(f"Error: Invalid barcodes: {e}")
+                    sys.exit(1)
+
+            # Auto-optimization for single barcode processing
+            if specific_barcodes and len(specific_barcodes) == 1:
+                print(f"Single barcode detected: {specific_barcodes[0]}")
+                print("Auto-optimizing settings for single book processing...")
+
+                # Clone run config and modify sync settings for single book
+                run_config = RunConfig(run_config.config_dict.copy())
+                run_config.config_dict["sync_config"] = {
+                    **run_config.config_dict.get("sync_config", {}),
+                    "concurrent_downloads": 1,  # Optimal for single book
+                    "concurrent_uploads": 1,  # Optimal for single book
+                    "batch_size": 1,  # Single book batch
+                }
+                print("  - Concurrent downloads: 1")
+                print("  - Concurrent uploads: 1")
+                print("  - Batch size: 1")
+                print()
+                sync_stage.add_progress_update("Single book mode optimization applied")
+
+            # Create pipeline with final configuration
             pipeline = SyncPipeline.from_run_config(
                 config=run_config,
                 process_summary_stage=sync_stage,
@@ -190,55 +223,6 @@ async def cmd_pipeline(args) -> None:
 
             signal.signal(signal.SIGINT, signal_handler)
             signal.signal(signal.SIGTERM, signal_handler)
-
-            # Parse barcodes if provided
-            specific_barcodes = None
-            if hasattr(args, "barcodes") and args.barcodes:
-                try:
-                    specific_barcodes = validate_and_parse_barcodes(args.barcodes)
-                    print(f"Filtering to specific barcodes: {', '.join(specific_barcodes)}")
-                    sync_stage.set_command_arg("specific_barcodes", len(specific_barcodes))
-                    sync_stage.add_progress_update(f"Filtering to {len(specific_barcodes)} specific barcodes")
-                except ValueError as e:
-                    sync_stage.add_error("BarcodeValidationError", str(e))
-                    print(f"Error: Invalid barcodes: {e}")
-                    sys.exit(1)
-
-            # Auto-optimization for single barcode processing
-            if specific_barcodes and len(specific_barcodes) == 1:
-                print(f"Single barcode detected: {specific_barcodes[0]}")
-                print("Auto-optimizing settings for single book processing...")
-
-                # Create optimized pipeline for single book
-                # Clone run config and modify sync settings for single book
-                single_book_config = RunConfig(run_config.config_dict.copy())
-                single_book_config.config_dict["sync_config"] = {
-                    **single_book_config.config_dict.get("sync_config", {}),
-                    "concurrent_downloads": 1,  # Optimal for single book
-                    "concurrent_uploads": 1,  # Optimal for single book
-                    "batch_size": 1,  # Single book batch
-                }
-
-                pipeline = SyncPipeline.from_run_config(
-                    config=single_book_config,
-                    process_summary_stage=sync_stage,
-                    force=args.force,
-                    dry_run=args.dry_run,
-                    skip_extract_ocr=args.skip_extract_ocr,
-                    skip_extract_marc=args.skip_extract_marc,
-                    skip_enrichment=args.skip_enrichment,
-                    skip_csv_export=args.skip_csv_export,
-                    skip_staging_cleanup=args.skip_staging_cleanup,
-                    skip_database_backup=args.skip_database_backup,
-                    download_timeout=args.download_timeout,
-                    download_retries=args.download_retries,
-                    max_sequential_failures=args.max_sequential_failures,
-                )
-                print("  - Concurrent downloads: 1")
-                print("  - Concurrent uploads: 1")
-                print("  - Batch size: 1")
-                print()
-                sync_stage.add_progress_update("Single book mode optimization applied")
 
             sync_stage.add_progress_update("Starting sync pipeline")
             await pipeline.run_sync(limit=args.limit, specific_barcodes=specific_barcodes)
