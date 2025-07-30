@@ -61,6 +61,7 @@ class SyncPipeline:
         config: RunConfig,
         process_summary_stage,
         force: bool = False,
+        dry_run: bool = False,
         skip_extract_ocr: bool = False,
         skip_extract_marc: bool = False,
         skip_enrichment: bool = False,
@@ -77,6 +78,7 @@ class SyncPipeline:
             config: RunConfig containing all pipeline configuration
             process_summary_stage: Process summary stage for tracking
             force: Force re-download even if ETags match
+            dry_run: Show what would be processed without downloading or uploading
             skip_extract_ocr: Skip OCR text extraction
             skip_extract_marc: Skip MARC metadata extraction
             skip_enrichment: Skip enrichment processing
@@ -94,6 +96,7 @@ class SyncPipeline:
             config=config,
             process_summary_stage=process_summary_stage,
             force=force,
+            dry_run=dry_run,
             skip_extract_ocr=skip_extract_ocr,
             skip_extract_marc=skip_extract_marc,
             skip_enrichment=skip_enrichment,
@@ -110,6 +113,7 @@ class SyncPipeline:
         config: RunConfig,
         process_summary_stage,
         force: bool = False,
+        dry_run: bool = False,
         skip_extract_ocr: bool = False,
         skip_extract_marc: bool = False,
         skip_enrichment: bool = False,
@@ -123,6 +127,7 @@ class SyncPipeline:
         # Store configuration and runtime parameters
         self.config = config
         self.force = force
+        self.dry_run = dry_run
         self.skip_extract_ocr = skip_extract_ocr
         self.skip_extract_marc = skip_extract_marc
         self.enrichment_enabled = not skip_enrichment
@@ -1238,6 +1243,8 @@ class SyncPipeline:
             specific_barcodes: Optional list of specific barcodes to sync
         """
         print("Starting GRIN-to-Storage sync pipeline")
+        if self.dry_run:
+            print("🔍 DRY-RUN MODE: No files will be downloaded or uploaded")
         print(f"Database: {self.db_path}")
 
         # Display storage configuration details
@@ -1274,8 +1281,9 @@ class SyncPipeline:
         # Reset bucket cache at start of sync
         reset_bucket_cache()
 
-        # Create and upload database backup before starting sync
-        await self._backup_database_at_start()
+        # Create and upload database backup before starting sync (skip in dry-run)
+        if not self.dry_run:
+            await self._backup_database_at_start()
 
         sync_successful = False
         try:
@@ -1307,15 +1315,24 @@ class SyncPipeline:
                 )
                 await self.start_enrichment_workers()
 
-            # Check how many requested books need syncing (only those actually converted by GRIN)
-            available_to_sync = await self.db_tracker.get_books_for_sync(
-                storage_type=self.storage_protocol,
-                limit=999999,  # Get all available
-                converted_barcodes=converted_barcodes,  # Only sync books that GRIN reports as converted
-                specific_barcodes=specific_barcodes,  # Optionally limit to specific barcodes
-            )
+            # Check how many requested books need syncing
+            if specific_barcodes:
+                # When specific barcodes are provided, use them directly without database filtering
+                available_to_sync = specific_barcodes
+            else:
+                # Standard mode: query database for books that need syncing
+                available_to_sync = await self.db_tracker.get_books_for_sync(
+                    storage_type=self.storage_protocol,
+                    converted_barcodes=converted_barcodes,
+                )
 
             print(f"Found {len(available_to_sync):,} converted books that need syncing")
+
+            # Handle dry-run mode
+            if self.dry_run:
+                await self._show_dry_run_preview(available_to_sync, limit, specific_barcodes)
+                sync_successful = True
+                return
 
             if not available_to_sync:
                 if len(converted_barcodes) == 0:
@@ -1374,3 +1391,69 @@ class SyncPipeline:
             logger.error(f"Pipeline failed: {e}", exc_info=True)
         finally:
             await self.cleanup(sync_successful)
+
+    async def _show_dry_run_preview(
+        self, available_to_sync: list[str], limit: int | None, specific_barcodes: list[str] | None
+    ) -> None:
+        """Show what would be processed in dry-run mode without actually doing it."""
+        books_to_process = min(limit or len(available_to_sync), len(available_to_sync))
+
+        print(f"\n{'='*60}")
+        print("DRY-RUN PREVIEW: Books that would be processed")
+        print(f"{'='*60}")
+
+        if books_to_process == 0:
+            print("No books would be processed.")
+            return
+
+        print(f"Total books that would be processed: {books_to_process:,}")
+        print(f"Storage type: {self.storage_type}")
+        print(f"Concurrent downloads: {self.concurrent_downloads}")
+        print(f"Concurrent uploads: {self.concurrent_uploads}")
+        print(f"Batch size: {self.batch_size}")
+
+        if specific_barcodes:
+            print(f"Filtered to specific barcodes: {len(specific_barcodes) if specific_barcodes else 0}")
+
+        if limit and limit < len(available_to_sync):
+            print(f"Limited to first {limit:,} books")
+
+        print(f"\nAll {books_to_process} books that would be processed:")
+        print("-" * 60)
+
+        # Get book records for all barcodes to show titles
+        try:
+            for i, barcode in enumerate(available_to_sync[:books_to_process]):
+                book = await self.db_tracker.get_book(barcode)
+                if book and book.title:
+                    title = book.title
+                else:
+                    title = "Unknown Title"
+
+                print(f"{i+1:3d}. {barcode} - {title}")
+        except Exception:
+            # Fallback if we can't get book records
+            for i, barcode in enumerate(available_to_sync[:books_to_process]):
+                print(f"{i+1:3d}. {barcode} - Unknown Title")
+
+        print("-" * 60)
+        print("Operations that would be performed per book:")
+        print("  1. Download encrypted archive from GRIN")
+        print("  2. Decrypt and extract archive")
+        if not self.skip_extract_ocr:
+            print("  3. Extract OCR text to JSON/JSONL")
+        if not self.skip_extract_marc:
+            print("  4. Extract MARC metadata from METS XML")
+        print("  5. Upload decrypted archive to storage")
+        print("  6. Upload extracted files to storage")
+        if self.enrichment_enabled:
+            print("  7. Queue for background enrichment")
+        if not self.skip_csv_export:
+            print("  8. Update CSV export")
+        if not self.skip_staging_cleanup:
+            print("  9. Clean up staging files")
+
+        print("\nDRY-RUN COMPLETE: No actual processing performed")
+        print(f"{'='*60}")
+
+        logger.info(f"DRY-RUN: Would process {books_to_process} books with storage type {self.storage_type}")

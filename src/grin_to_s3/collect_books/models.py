@@ -666,7 +666,7 @@ class SQLiteProgressTracker:
     async def get_books_for_sync(
         self,
         storage_type: str,
-        limit: int = 100,
+        limit: int | None = None,
         status_filter: str | None = None,
         converted_barcodes: set[str] | None = None,
         specific_barcodes: list[str] | None = None,
@@ -675,7 +675,7 @@ class SQLiteProgressTracker:
 
         Args:
             storage_type: Target storage type ("r2", "minio", "s3", "local")
-            limit: Maximum number of books to return
+            limit: Maximum number of books to return (no limit if None)
             status_filter: Optional sync status filter ("pending", "failed", etc.)
             converted_barcodes: Optional set of barcodes known to be converted/ready for download
             specific_barcodes: Optional list of specific barcodes to sync
@@ -759,8 +759,10 @@ class SQLiteProgressTracker:
             base_query += " AND (storage_type IS NULL OR storage_type = ?)"
             params.append(storage_type)
 
-        base_query += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
+        base_query += " ORDER BY created_at DESC"
+        if limit is not None:
+            base_query += " LIMIT ?"
+            params.append(limit)
 
         async with connect_async(self.db_path) as db:
             cursor = await db.execute(base_query, params)

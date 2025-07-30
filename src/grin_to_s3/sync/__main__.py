@@ -41,6 +41,109 @@ from grin_to_s3.sync.status import show_sync_status, validate_database_file
 logger = logging.getLogger(__name__)
 
 
+def _parse_and_validate_barcodes(args, sync_stage) -> list[str] | None:
+    """Parse and validate barcode arguments."""
+    if not (hasattr(args, "barcodes") and args.barcodes):
+        return None
+
+    try:
+        specific_barcodes = validate_and_parse_barcodes(args.barcodes)
+        print(f"Filtering to specific barcodes: {', '.join(specific_barcodes)}")
+        sync_stage.set_command_arg("specific_barcodes", len(specific_barcodes))
+        sync_stage.add_progress_update(f"Filtering to {len(specific_barcodes)} specific barcodes")
+        return specific_barcodes
+    except ValueError as e:
+        sync_stage.add_error("BarcodeValidationError", str(e))
+        print(f"Error: Invalid barcodes: {e}")
+        sys.exit(1)
+
+
+def _apply_single_book_optimization(run_config: RunConfig, specific_barcodes: list[str] | None, sync_stage) -> RunConfig:
+    """Apply single-book optimization if only one barcode is specified."""
+    if not (specific_barcodes and len(specific_barcodes) == 1):
+        return run_config
+
+    # Create optimized config for single book
+    optimized_config = RunConfig(run_config.config_dict.copy())
+    optimized_config.config_dict["sync_config"] = {
+        **optimized_config.config_dict.get("sync_config", {}),
+        "concurrent_downloads": 1,  # Optimal for single book
+        "concurrent_uploads": 1,  # Optimal for single book
+        "batch_size": 1,  # Single book batch
+    }
+    print("  - Concurrent downloads: 1")
+    print("  - Concurrent uploads: 1")
+    print("  - Batch size: 1")
+    print()
+    sync_stage.add_progress_update("Single book mode optimization applied")
+    return optimized_config
+
+
+def _setup_signal_handlers(pipeline, sync_stage) -> None:
+    """Set up signal handlers for graceful shutdown."""
+    def signal_handler(signum: int, frame: Any) -> None:
+        if pipeline._shutdown_requested:
+            # Second interrupt - hard exit
+            print(f"\nReceived second signal {signum}, forcing immediate exit...")
+            sync_stage.add_progress_update("Force exit requested")
+            sys.exit(1)
+        print(f"\nReceived signal {signum}, shutting down gracefully...")
+        print("Press Control-C again to force immediate exit")
+        sync_stage.add_progress_update("Graceful shutdown requested")
+        pipeline._shutdown_requested = True
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+
+async def _run_sync_pipeline(args, run_config: RunConfig, sync_stage) -> None:
+    """Execute the main sync pipeline logic."""
+    # Parse and validate barcodes
+    specific_barcodes = _parse_and_validate_barcodes(args, sync_stage)
+
+    # Apply single-book optimization if needed
+    run_config = _apply_single_book_optimization(run_config, specific_barcodes, sync_stage)
+
+    # Create pipeline with final configuration
+    pipeline = SyncPipeline.from_run_config(
+        config=run_config,
+        process_summary_stage=sync_stage,
+        force=args.force,
+        dry_run=args.dry_run,
+        skip_extract_ocr=args.skip_extract_ocr,
+        skip_extract_marc=args.skip_extract_marc,
+        skip_enrichment=args.skip_enrichment,
+        skip_csv_export=args.skip_csv_export,
+        skip_staging_cleanup=args.skip_staging_cleanup,
+        skip_database_backup=args.skip_database_backup,
+        download_timeout=args.download_timeout,
+        download_retries=args.download_retries,
+        max_sequential_failures=args.max_sequential_failures,
+    )
+
+    # Set up signal handlers for graceful shutdown
+    _setup_signal_handlers(pipeline, sync_stage)
+
+    # Execute the sync pipeline
+    sync_stage.add_progress_update("Starting sync pipeline")
+    await pipeline.run_sync(limit=args.limit, specific_barcodes=specific_barcodes)
+    sync_stage.add_progress_update("Sync pipeline completed successfully")
+
+
+def _handle_pipeline_error(e: Exception, sync_stage) -> None:
+    """Handle pipeline execution errors."""
+    if isinstance(e, KeyboardInterrupt):
+        sync_stage.add_progress_update("Operation cancelled by user")
+        sync_stage.add_error("KeyboardInterrupt", "User cancelled operation")
+        print("\nOperation cancelled by user")
+    else:
+        error_type = type(e).__name__
+        sync_stage.add_error(error_type, str(e))
+        sync_stage.add_progress_update(f"Pipeline failed: {error_type}")
+        print(f"Pipeline failed: {e}")
+        sys.exit(1)
+
+
 async def cmd_pipeline(args) -> None:
     """Handle the 'pipeline' command."""
     # Set up database path
@@ -135,8 +238,8 @@ async def cmd_pipeline(args) -> None:
     logger.info(f"SYNC PIPELINE STARTED - storage={args.storage} force={args.force}{barcodes_info}{limit_info}")
     logger.info(f"Command: {' '.join(sys.argv)}")
 
-    # Create book storage for process summary uploads
-    book_manager = await create_book_manager_for_uploads(args.run_name)
+    # Create book storage for process summary uploads (skip in dry-run)
+    book_manager = None if args.dry_run else await create_book_manager_for_uploads(args.run_name)
 
     # Create or load process summary
     run_summary = await create_process_summary(args.run_name, "sync", book_manager)
@@ -147,116 +250,30 @@ async def cmd_pipeline(args) -> None:
         sync_stage.set_command_arg("limit", args.limit)
 
     try:
-        try:
-            # Load run config for factory method
-            config_path = Path(args.db_path).parent / "run_config.json"
-            run_config = load_run_config(str(config_path))
+        # Load run config and update storage configuration
+        config_path = Path(args.db_path).parent / "run_config.json"
+        run_config = load_run_config(str(config_path))
 
-            # Update storage config in run_config if it was modified above
-            if existing_storage_config != run_config.config_dict.get("storage_config", {}):
-                run_config.config_dict["storage_config"] = {
-                    "type": args.storage,
-                    "config": storage_config,
-                    "prefix": "",
-                }
+        # Update storage config if it was modified above
+        if existing_storage_config != run_config.config_dict.get("storage_config", {}):
+            run_config.config_dict["storage_config"] = {
+                "type": args.storage,
+                "config": storage_config,
+                "prefix": "",
+            }
 
-            pipeline = SyncPipeline.from_run_config(
-                config=run_config,
-                process_summary_stage=sync_stage,
-                force=args.force,
-                skip_extract_ocr=args.skip_extract_ocr,
-                skip_extract_marc=args.skip_extract_marc,
-                skip_enrichment=args.skip_enrichment,
-                skip_csv_export=args.skip_csv_export,
-                skip_staging_cleanup=args.skip_staging_cleanup,
-                skip_database_backup=args.skip_database_backup,
-                download_timeout=args.download_timeout,
-                download_retries=args.download_retries,
-                max_sequential_failures=args.max_sequential_failures,
-            )
+        # Execute the main sync pipeline
+        await _run_sync_pipeline(args, run_config, sync_stage)
 
-            # Set up signal handlers for graceful shutdown
-            def signal_handler(signum: int, frame: Any) -> None:
-                if pipeline._shutdown_requested:
-                    # Second interrupt - hard exit
-                    print(f"\nReceived second signal {signum}, forcing immediate exit...")
-                    sync_stage.add_progress_update("Force exit requested")
-                    sys.exit(1)
-                print(f"\nReceived signal {signum}, shutting down gracefully...")
-                print("Press Control-C again to force immediate exit")
-                sync_stage.add_progress_update("Graceful shutdown requested")
-                pipeline._shutdown_requested = True
-
-            signal.signal(signal.SIGINT, signal_handler)
-            signal.signal(signal.SIGTERM, signal_handler)
-
-            # Parse barcodes if provided
-            specific_barcodes = None
-            if hasattr(args, "barcodes") and args.barcodes:
-                try:
-                    specific_barcodes = validate_and_parse_barcodes(args.barcodes)
-                    print(f"Filtering to specific barcodes: {', '.join(specific_barcodes)}")
-                    sync_stage.set_command_arg("specific_barcodes", len(specific_barcodes))
-                    sync_stage.add_progress_update(f"Filtering to {len(specific_barcodes)} specific barcodes")
-                except ValueError as e:
-                    sync_stage.add_error("BarcodeValidationError", str(e))
-                    print(f"Error: Invalid barcodes: {e}")
-                    sys.exit(1)
-
-            # Auto-optimization for single barcode processing
-            if specific_barcodes and len(specific_barcodes) == 1:
-                print(f"Single barcode detected: {specific_barcodes[0]}")
-                print("Auto-optimizing settings for single book processing...")
-
-                # Create optimized pipeline for single book
-                # Clone run config and modify sync settings for single book
-                single_book_config = RunConfig(run_config.config_dict.copy())
-                single_book_config.config_dict["sync_config"] = {
-                    **single_book_config.config_dict.get("sync_config", {}),
-                    "concurrent_downloads": 1,  # Optimal for single book
-                    "concurrent_uploads": 1,  # Optimal for single book
-                    "batch_size": 1,  # Single book batch
-                }
-
-                pipeline = SyncPipeline.from_run_config(
-                    config=single_book_config,
-                    process_summary_stage=sync_stage,
-                    force=args.force,
-                    skip_extract_ocr=args.skip_extract_ocr,
-                    skip_extract_marc=args.skip_extract_marc,
-                    skip_enrichment=args.skip_enrichment,
-                    skip_csv_export=args.skip_csv_export,
-                    skip_staging_cleanup=args.skip_staging_cleanup,
-                    skip_database_backup=args.skip_database_backup,
-                    download_timeout=args.download_timeout,
-                    download_retries=args.download_retries,
-                    max_sequential_failures=args.max_sequential_failures,
-                )
-                print("  - Concurrent downloads: 1")
-                print("  - Concurrent uploads: 1")
-                print("  - Batch size: 1")
-                print()
-                sync_stage.add_progress_update("Single book mode optimization applied")
-
-            sync_stage.add_progress_update("Starting sync pipeline")
-            await pipeline.run_sync(limit=args.limit, specific_barcodes=specific_barcodes)
-            sync_stage.add_progress_update("Sync pipeline completed successfully")
-
-        except KeyboardInterrupt:
-            sync_stage.add_progress_update("Operation cancelled by user")
-            sync_stage.add_error("KeyboardInterrupt", "User cancelled operation")
-            print("\nOperation cancelled by user")
-        except Exception as e:
-            error_type = type(e).__name__
-            sync_stage.add_error(error_type, str(e))
-            sync_stage.add_progress_update(f"Pipeline failed: {error_type}")
-            print(f"Pipeline failed: {e}")
-            sys.exit(1)
+    except Exception as e:
+        # Handle all pipeline errors with appropriate error recording
+        _handle_pipeline_error(e, sync_stage)
 
     finally:
-        # Always end the stage and save summary
+        # Always finalize process summary regardless of success/failure/interruption
         run_summary.end_stage("sync")
-        await save_process_summary(run_summary, book_manager)
+        if not args.dry_run:
+            await save_process_summary(run_summary, book_manager)
 
 
 async def cmd_status(args) -> None:
@@ -322,6 +339,9 @@ Examples:
 
   # Sync with limit and force overwrite
   python grin.py sync pipeline --run-name harvard_2024 --limit 100 --force
+
+  # Preview what would be processed without actually doing it
+  python grin.py sync pipeline --run-name harvard_2024 --dry-run --limit 10
         """,
     )
 
@@ -351,6 +371,7 @@ Examples:
     )
     pipeline_parser.add_argument("--status", help="Filter books by sync status (e.g., 'failed', 'pending')")
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
+    pipeline_parser.add_argument("--dry-run", action="store_true", help="Show what would be processed without downloading or uploading files")
     pipeline_parser.add_argument(
         "--grin-library-directory", help="GRIN library directory name (auto-detected from run config if not specified)"
     )
