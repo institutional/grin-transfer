@@ -6,14 +6,70 @@ Contains shared database validation and utility functions to eliminate
 duplication and local imports across the codebase.
 """
 
+import json
 import logging
 import sqlite3
 import sys
+from datetime import UTC, datetime
+from functools import wraps
 from pathlib import Path
 
-from .database import connect_sync
+import aiosqlite
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+from .database import connect_async, connect_sync
 
 logger = logging.getLogger(__name__)
+
+
+def retry_database_operation(func):
+    """
+    Decorator to retry database operations that fail due to database locks.
+
+    Retries both sqlite3.OperationalError and aiosqlite.OperationalError with
+    "database is locked" message up to 3 times with exponential backoff.
+    """
+    @retry(
+        stop=stop_after_attempt(5),
+        retry=retry_if_exception_type((sqlite3.OperationalError, aiosqlite.OperationalError)),
+        wait=wait_exponential(multiplier=0.2, min=0.2, max=2.0),
+        reraise=True
+    )
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except (sqlite3.OperationalError, aiosqlite.OperationalError) as e:
+            if "database is locked" not in str(e).lower():
+                raise
+            logger.warning(f"Database lock detected in {func.__name__}, retrying... ({str(e)})")
+            raise
+
+    return wrapper
+
+
+@retry_database_operation
+async def batch_write_status_updates(db_path: str, status_updates: list) -> None:
+    """Write multiple status updates in a single transaction."""
+    if not status_updates:
+        return
+
+    async with connect_async(db_path) as conn:
+        for status_update in status_updates:
+            await conn.execute(
+                """INSERT INTO book_status_history
+                   (barcode, status_type, status_value, timestamp, session_id, metadata)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    status_update.barcode,
+                    status_update.status_type,
+                    status_update.status_value,
+                    datetime.now(UTC).isoformat(),
+                    status_update.session_id,
+                    json.dumps(status_update.metadata) if status_update.metadata else None,
+                ),
+            )
+        await conn.commit()
 
 
 def validate_database_file(db_path: str, check_tables: bool = False, check_books_count: bool = False) -> None:

@@ -9,13 +9,14 @@ import json
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field, fields
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import aiosqlite
 
 from ..database import connect_async
+from ..database_utils import retry_database_operation
 
 logger = logging.getLogger(__name__)
 
@@ -537,6 +538,7 @@ class SQLiteProgressTracker:
                 return BookRecord(*row)
             return None
 
+    @retry_database_operation
     async def update_book_enrichment(self, barcode: str, enrichment_data: dict) -> bool:
         """Update enrichment fields for an existing book record."""
         await self.init_db()
@@ -557,6 +559,7 @@ class SQLiteProgressTracker:
             await db.commit()
             return rows_affected > 0
 
+    @retry_database_operation
     async def update_book_marc_metadata(self, barcode: str, marc_data: dict) -> bool:
         """Update MARC metadata fields for an existing book record."""
         await self.init_db()
@@ -625,6 +628,7 @@ class SQLiteProgressTracker:
             row = await cursor.fetchone()
             return row[0] if row else 0
 
+    @retry_database_operation
     async def update_sync_data(self, barcode: str, sync_data: dict) -> bool:
         """Update sync tracking fields for a book record."""
         await self.init_db()
@@ -1019,8 +1023,6 @@ class SQLiteProgressTracker:
 
         async with connect_async(self.db_path) as db:
             # Get enrichments completed in the time window
-            from datetime import datetime, timedelta
-
             cutoff_time = datetime.now(UTC) - timedelta(hours=time_window_hours)
             cutoff_iso = cutoff_time.isoformat()
 
@@ -1058,47 +1060,6 @@ class SQLiteProgressTracker:
             """)
             row = await cursor.fetchone()
             return row[0] if row else 0
-
-    async def add_status_change(
-        self,
-        barcode: str,
-        status_type: str,
-        status_value: str,
-        session_id: str | None = None,
-        metadata: dict | None = None,
-    ) -> bool:
-        """Atomically record a status change for a book.
-
-        Args:
-            barcode: Book barcode
-            status_type: Type of status ("processing_request", "sync", "enrichment", etc.)
-            status_value: New status value
-            session_id: Optional session identifier for batch tracking
-            metadata: Optional metadata as dict (will be JSON encoded)
-
-        Returns:
-            True if status was recorded successfully
-        """
-        await self.init_db()
-
-        now = datetime.now(UTC).isoformat()
-        metadata_json = json.dumps(metadata) if metadata else None
-
-        async with connect_async(self.db_path) as db:
-            await db.execute(
-                """
-                INSERT INTO book_status_history
-                (barcode, status_type, status_value, timestamp, session_id, metadata)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (barcode, status_type, status_value, now, session_id, metadata_json),
-            )
-
-            # Update the updated_at timestamp in books table
-            await db.execute("UPDATE books SET updated_at = ? WHERE barcode = ?", (now, barcode))
-
-            await db.commit()
-            return True
 
     async def get_latest_status(self, barcode: str, status_type: str) -> str | None:
         """Get the latest status value for a book and status type.

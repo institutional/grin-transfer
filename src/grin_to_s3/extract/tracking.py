@@ -8,6 +8,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from enum import Enum
+from typing import NamedTuple
 
 from ..database import connect_async
 
@@ -32,51 +33,50 @@ class ExtractionMethod(Enum):
     STREAMING = "streaming"
 
 
-async def write_status(
-    db_path: str, barcode: str, status: ExtractionStatus, metadata: dict | None = None, session_id: str | None = None
-) -> None:
-    """Write a status row to the database."""
-    try:
-        async with connect_async(db_path) as conn:
-            await conn.execute(
-                """INSERT INTO book_status_history
-                   (barcode, status_type, status_value, timestamp, session_id, metadata)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (
-                    barcode,
-                    TEXT_EXTRACTION_STATUS_TYPE,
-                    status.value,
-                    datetime.now(UTC).isoformat(),
-                    session_id,
-                    json.dumps(metadata) if metadata else None,
-                ),
-            )
-            await conn.commit()
-    except Exception as e:
-        logger.warning(f"⚠️ Failed to write extraction status for {barcode}: {e}")
+# Status update tuple for collecting updates before writing
+class StatusUpdate(NamedTuple):
+    barcode: str
+    status_type: str
+    status_value: str
+    metadata: dict | None = None
+    session_id: str | None = None
 
 
-async def track_start(db_path: str, barcode: str, session_id: str | None = None) -> None:
-    """Track extraction start."""
+
+
+def collect_status(
+    barcode: str, status_type: str, status_value: str, metadata: dict | None = None, session_id: str | None = None
+) -> StatusUpdate:
+    """Collect a status update without writing to database."""
+    return StatusUpdate(barcode, status_type, status_value, metadata, session_id)
+
+
+
+
+def track_start_collect(barcode: str, session_id: str | None = None) -> StatusUpdate:
+    """Collect extraction start status update (recommended)."""
     metadata: dict[str, str] = {
         "started_at": datetime.now(UTC).isoformat(),
         "extraction_stage": "initialization",
     }
-    await write_status(db_path, barcode, ExtractionStatus.STARTING, metadata, session_id)
+    return collect_status(barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.STARTING.value, metadata, session_id)
 
 
-async def track_progress(db_path: str, barcode: str, page_count: int, session_id: str | None = None) -> None:
-    """Track extraction progress."""
+
+
+def track_progress_collect(barcode: str, page_count: int, session_id: str | None = None) -> StatusUpdate:
+    """Collect extraction progress status update (recommended)."""
     metadata: dict[str, str | int] = {
         "page_count": page_count,
         "extraction_stage": "processing_pages",
         "progress_at": datetime.now(UTC).isoformat(),
     }
-    await write_status(db_path, barcode, ExtractionStatus.EXTRACTING, metadata, session_id)
+    return collect_status(barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.EXTRACTING.value, metadata, session_id)
 
 
-async def track_completion(
-    db_path: str,
+
+
+def track_completion_collect(
     barcode: str,
     page_count: int,
     extraction_time_ms: int,
@@ -84,8 +84,8 @@ async def track_completion(
     session_id: str | None = None,
     file_size: int = 0,
     output_path: str = "",
-) -> None:
-    """Track successful extraction completion."""
+) -> StatusUpdate:
+    """Collect successful extraction completion status update (recommended)."""
     metadata: dict[str, str | int] = {
         "page_count": page_count,
         "extraction_time_ms": extraction_time_ms,
@@ -97,18 +97,19 @@ async def track_completion(
     if output_path:
         metadata["output_path"] = output_path
 
-    await write_status(db_path, barcode, ExtractionStatus.COMPLETED, metadata, session_id)
+    return collect_status(barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.COMPLETED.value, metadata, session_id)
 
 
-async def track_failure(
-    db_path: str,
+
+
+def track_failure_collect(
     barcode: str,
     error: Exception,
     method: ExtractionMethod,
     session_id: str | None = None,
     partial_page_count: int = 0,
-) -> None:
-    """Track extraction failure."""
+) -> StatusUpdate:
+    """Collect extraction failure status update (recommended)."""
     metadata: dict[str, str | int] = {
         "error_type": type(error).__name__,
         "error_message": str(error),
@@ -117,7 +118,7 @@ async def track_failure(
         "partial_page_count": partial_page_count,
     }
 
-    await write_status(db_path, barcode, ExtractionStatus.FAILED, metadata, session_id)
+    return collect_status(barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.FAILED.value, metadata, session_id)
 
 
 # Query functions for monitoring

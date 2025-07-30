@@ -39,7 +39,7 @@ class TestSyncPipelineConcurrency:
         # Mock the actual download operation
         with (
             patch("grin_to_s3.sync.pipeline.download_book_to_staging", side_effect=mock_download_with_delay),
-            patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000)),
+            patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000, [])),
             patch("grin_to_s3.sync.pipeline.upload_book_from_staging", return_value={"success": True}),
         ):
             # Mock get_converted_books to return test books
@@ -54,10 +54,12 @@ class TestSyncPipelineConcurrency:
                 sync_pipeline.db_tracker.get_sync_stats = AsyncMock(
                     return_value={"total_converted": 5, "synced": 0, "failed": 0, "pending": 5}
                 )
-                sync_pipeline.db_tracker.add_status_change = AsyncMock()
+                # Mock batch_write_status_updates instead of add_status_change
+                with patch("grin_to_s3.database_utils.batch_write_status_updates", new_callable=AsyncMock) as mock_batch_write:
+                    mock_batch_write.return_value = None
 
-                # Run sync with limit
-                await sync_pipeline.run_sync(limit=5)
+                    # Run sync with limit
+                    await sync_pipeline.run_sync(limit=5)
 
         # Verify concurrency was respected
         assert max_concurrent <= sync_pipeline.concurrent_downloads, (
@@ -94,7 +96,7 @@ class TestSyncPipelineConcurrency:
         # Mock download/upload operations
         with (
             patch("grin_to_s3.sync.pipeline.download_book_to_staging", return_value=("book", "/tmp/test", {})),
-            patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000)),
+            patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000, [])),
             patch("grin_to_s3.sync.pipeline.upload_book_from_staging", return_value={"success": True}),
         ):
             # Mock get_converted_books
@@ -104,10 +106,12 @@ class TestSyncPipelineConcurrency:
                 mock_pipeline_dependencies["tracker"].get_sync_stats = AsyncMock(
                     return_value={"total_converted": 2, "synced": 0, "failed": 0, "pending": 2}
                 )
-                mock_pipeline_dependencies["tracker"].add_status_change = AsyncMock()
+                # Mock batch_write_status_updates instead of add_status_change
+                with patch("grin_to_s3.database_utils.batch_write_status_updates", new_callable=AsyncMock) as mock_batch_write:
+                    mock_batch_write.return_value = None
 
-                # Run sync
-                await pipeline.run_sync(limit=2)
+                    # Run sync
+                    await pipeline.run_sync(limit=2)
 
         # Verify progress reports had consistent data
         for report in progress_reports:
@@ -147,7 +151,7 @@ class TestSyncPipelineConcurrency:
 
         # Mock the actual operations to avoid real network calls
         with (
-            patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag", 1000)),
+            patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag", 1000, [])),
             patch("grin_to_s3.sync.pipeline.download_book_to_staging", return_value=("book", "/tmp/test", {})),
         ):
             # Wait for all tasks
@@ -340,7 +344,7 @@ class TestDiskSpaceRaceConditionFix:
                 pipeline._download_semaphore.acquire = mock_semaphore_acquire
 
                 # Mock the actual operations to avoid network calls
-                with patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000)):
+                with patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000, [])):
                     with patch("grin_to_s3.sync.pipeline.download_book_to_staging", return_value=("book1", "/tmp/test", {})):
 
                             # Start multiple concurrent tasks
@@ -402,7 +406,7 @@ class TestDiskSpaceRaceConditionFix:
                 pipeline._download_semaphore.acquire = track_semaphore_acquire
 
                 # Mock the actual operations
-                with patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000)):
+                with patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000, [])):
                     with patch("grin_to_s3.sync.pipeline.download_book_to_staging", return_value=("book1", "/tmp/test", {})):
 
                             # Start multiple concurrent tasks

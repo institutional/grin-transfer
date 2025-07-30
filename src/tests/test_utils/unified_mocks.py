@@ -214,7 +214,6 @@ def create_progress_tracker_mock(db_path: str = "/tmp/test.db") -> MagicMock:
     tracker.db_path = db_path
 
     # Configure async methods
-    tracker.add_status_change = AsyncMock()
     tracker.update_sync_data = AsyncMock()
     tracker.get_books_for_sync = AsyncMock(return_value=[])
     tracker.get_sync_stats = AsyncMock(
@@ -336,7 +335,7 @@ def mock_upload_operations(
         else:
             mock_decrypt.return_value = None
             mock_extract_ocr.return_value = None if not skip_ocr else None
-            mock_extract_marc.return_value = None if not skip_marc else None
+            mock_extract_marc.return_value = [] if not skip_marc else []
 
         # Return a simple namespace object instead of dataclass
         class MockBundle:

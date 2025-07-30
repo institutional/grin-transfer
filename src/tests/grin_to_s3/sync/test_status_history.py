@@ -3,10 +3,9 @@
 Unit tests for status history system.
 
 Tests the atomic status tracking functionality including:
-- Status change recording
 - Latest status retrieval
 - Status history queries
-- Backwards compatibility
+- Batched status updates integration
 """
 
 import asyncio
@@ -19,6 +18,8 @@ from unittest import IsolatedAsyncioTestCase
 import aiosqlite
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.database_utils import batch_write_status_updates
+from grin_to_s3.extract.tracking import collect_status
 
 
 class TestStatusHistory(IsolatedAsyncioTestCase):
@@ -35,8 +36,8 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         """Clean up test database."""
         self.temp_dir.cleanup()
 
-    async def test_add_status_change_basic(self):
-        """Test basic status change recording."""
+    async def test_batch_status_change_basic(self):
+        """Test basic batched status change recording."""
         barcode = "TEST001"
 
         # Add initial book record
@@ -48,19 +49,16 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         )
         await self.tracker.save_book(book)
 
-        # Add status change
-        result = await self.tracker.add_status_change(
-            barcode=barcode, status_type="processing_request", status_value="requested"
-        )
-
-        self.assertTrue(result)
+        # Add status change using batched approach
+        status_updates = [collect_status(barcode, "processing_request", "requested")]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Verify status was recorded
         latest_status = await self.tracker.get_latest_status(barcode, "processing_request")
         self.assertEqual(latest_status, "requested")
 
-    async def test_add_status_change_with_metadata(self):
-        """Test status change with metadata."""
+    async def test_batch_status_change_with_metadata(self):
+        """Test batched status change with metadata."""
         barcode = "TEST002"
 
         # Add initial book record
@@ -72,20 +70,18 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         )
         await self.tracker.save_book(book)
 
-        # Add status change with metadata
+        # Add status change with metadata using batched approach
         metadata = {"batch_id": "batch_001", "retry_count": 1}
-        result = await self.tracker.add_status_change(
-            barcode=barcode,
-            status_type="processing_request",
-            status_value="requested",
-            session_id="session_123",
+        status_updates = [collect_status(
+            barcode,
+            "processing_request",
+            "requested",
             metadata=metadata,
-        )
-
-        self.assertTrue(result)
+            session_id="session_123"
+        )]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Verify the metadata was stored correctly
-
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 """
@@ -117,10 +113,14 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         # Add sequence of status changes
         statuses = ["requested", "in_process", "converted"]
 
+        # Add sequence of status changes using batched approach
+        status_updates = []
         for status in statuses:
-            await self.tracker.add_status_change(barcode=barcode, status_type="processing_request", status_value=status)
+            status_updates.append(collect_status(barcode, "processing_request", status))
             # Small delay to ensure different timestamps
             await asyncio.sleep(0.001)
+
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Verify latest status is correct
         latest_status = await self.tracker.get_latest_status(barcode, "processing_request")
@@ -155,14 +155,13 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         )
         await self.tracker.save_book(book)
 
-        # Add different types of status changes
-        await self.tracker.add_status_change(
-            barcode=barcode, status_type="processing_request", status_value="requested"
-        )
-
-        await self.tracker.add_status_change(barcode=barcode, status_type="sync", status_value="pending")
-
-        await self.tracker.add_status_change(barcode=barcode, status_type="enrichment", status_value="completed")
+        # Add different types of status changes using batched approach
+        status_updates = [
+            collect_status(barcode, "processing_request", "requested"),
+            collect_status(barcode, "sync", "pending"),
+            collect_status(barcode, "enrichment", "completed")
+        ]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Verify each status type has correct latest value
         processing_status = await self.tracker.get_latest_status(barcode, "processing_request")
@@ -194,8 +193,9 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             )
             await self.tracker.save_book(book)
 
-            # Add status
-            await self.tracker.add_status_change(barcode=barcode, status_type="processing_request", status_value=status)
+            # Add status using batched approach
+            status_updates = [collect_status(barcode, "processing_request", status)]
+            await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Query books with specific statuses
         requested_books = await self.tracker.get_books_with_latest_status(
@@ -234,18 +234,18 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         )
         await self.tracker.save_book(book)
 
-        # Add processing_request status change
-        await self.tracker.add_status_change(
-            barcode=barcode, status_type="processing_request", status_value="converted"
-        )
+        # Add processing_request status change using batched approach
+        status_updates = [collect_status(barcode, "processing_request", "converted")]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Status changes only update status history now
         # Verify processing status is in history
         processing_status = await self.tracker.get_latest_status(barcode, "processing_request")
         self.assertEqual(processing_status, "converted")
 
-        # Add sync status change
-        await self.tracker.add_status_change(barcode=barcode, status_type="sync", status_value="completed")
+        # Add sync status change using batched approach
+        status_updates = [collect_status(barcode, "sync", "completed")]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Verify sync status is in history
         sync_status = await self.tracker.get_latest_status(barcode, "sync")
@@ -269,18 +269,13 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         )
         await self.tracker.save_book(book)
 
-        # Add multiple status changes with same timestamp (edge case)
-        await self.tracker.add_status_change(
-            barcode=barcode, status_type="processing_request", status_value="requested"
-        )
-
-        await self.tracker.add_status_change(
-            barcode=barcode, status_type="processing_request", status_value="in_process"
-        )
-
-        await self.tracker.add_status_change(
-            barcode=barcode, status_type="processing_request", status_value="converted"
-        )
+        # Add multiple status changes using batched approach
+        status_updates = [
+            collect_status(barcode, "processing_request", "requested"),
+            collect_status(barcode, "processing_request", "in_process"),
+            collect_status(barcode, "processing_request", "converted")
+        ]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         # The latest status should be "converted" (last added)
         latest_status = await self.tracker.get_latest_status(barcode, "processing_request")
@@ -307,24 +302,18 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             await self.tracker.save_book(book)
 
             # Add progression: requested -> (in_process) -> final_status
-            await self.tracker.add_status_change(
-                barcode=barcode, status_type="processing_request", status_value="requested"
-            )
+            status_updates = [collect_status(barcode, "processing_request", "requested")]
 
             if final_status != "requested":
                 if final_status in ("converted", "in_process"):
-                    await self.tracker.add_status_change(
-                        barcode=barcode, status_type="processing_request", status_value="in_process"
-                    )
+                    status_updates.append(collect_status(barcode, "processing_request", "in_process"))
 
                 if final_status == "converted":
-                    await self.tracker.add_status_change(
-                        barcode=barcode, status_type="processing_request", status_value="converted"
-                    )
+                    status_updates.append(collect_status(barcode, "processing_request", "converted"))
                 elif final_status == "failed":
-                    await self.tracker.add_status_change(
-                        barcode=barcode, status_type="processing_request", status_value="failed"
-                    )
+                    status_updates.append(collect_status(barcode, "processing_request", "failed"))
+
+            await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test get_books_for_sync - should find books that have been requested
         # and are in valid processing states (excludes failed books)
@@ -347,9 +336,8 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             )
             await self.tracker.save_book(book)
 
-            await self.tracker.add_status_change(
-                barcode=barcode, status_type="processing_request", status_value="requested"
-            )
+            status_updates = [collect_status(barcode, "processing_request", "requested")]
+            await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test with limit
         limited_books = await self.tracker.get_books_with_latest_status(

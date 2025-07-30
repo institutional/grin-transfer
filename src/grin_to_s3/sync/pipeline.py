@@ -26,6 +26,8 @@ from grin_to_s3.common import (
     format_duration,
     pluralize,
 )
+from grin_to_s3.database_utils import batch_write_status_updates
+from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config, get_storage_protocol
@@ -421,8 +423,9 @@ class SyncPipeline:
     async def _mark_book_as_converted(self, barcode: str) -> None:
         """Mark a book as converted in our database after successful download."""
         try:
-            # Use atomic status change
-            await self.db_tracker.add_status_change(barcode, "processing_request", "converted")
+            # Use batched status change
+            status_updates = [collect_status(barcode, "processing_request", "converted")]
+            await batch_write_status_updates(str(self.db_tracker.db_path), status_updates)
         except Exception as e:
             logger.warning(f"[{barcode}] Failed to mark as converted: {e}")
 
@@ -475,10 +478,10 @@ class SyncPipeline:
 
                     logger.debug(f"[{worker_name}] Processing {barcode}")
 
-                    # Update status to in_progress
-                    await self.db_tracker.add_status_change(
-                        barcode, "enrichment", "in_progress", metadata={"worker_id": worker_id}
-                    )
+                    # Collect enrichment status updates for batching
+                    enrichment_status_updates = [
+                        collect_status(barcode, "enrichment", "in_progress", metadata={"worker_id": worker_id})
+                    ]
 
                     # Apply rate limiting
                     await rate_limiter.acquire()
@@ -489,26 +492,31 @@ class SyncPipeline:
 
                         if enrichment_results > 0:
                             # Successfully enriched
-                            await self.db_tracker.add_status_change(
-                                barcode, "enrichment", "completed", metadata={"worker_id": worker_id}
+                            enrichment_status_updates.append(
+                                collect_status(barcode, "enrichment", "completed", metadata={"worker_id": worker_id})
                             )
                             logger.info(f"[{worker_name}] ✅ Enriched {barcode}")
                         else:
                             # No enrichment data found, but mark as processed
-                            await self.db_tracker.add_status_change(
-                                barcode,
-                                "enrichment",
-                                "completed",
-                                metadata={"worker_id": worker_id, "result": "no_data"},
+                            enrichment_status_updates.append(
+                                collect_status(
+                                    barcode, "enrichment", "completed", metadata={"worker_id": worker_id, "result": "no_data"}
+                                )
                             )
                             logger.debug(f"[{worker_name}] No enrichment data for {barcode}")
 
                     except Exception as e:
                         # Mark as failed with error details
-                        await self.db_tracker.add_status_change(
-                            barcode, "enrichment", "failed", metadata={"worker_id": worker_id, "error": str(e)}
+                        enrichment_status_updates.append(
+                            collect_status(barcode, "enrichment", "failed", metadata={"worker_id": worker_id, "error": str(e)})
                         )
                         logger.error(f"[{worker_name}] ❌ Failed to enrich {barcode}: {e}")
+
+                    # Batch write all enrichment status updates
+                    try:
+                        await batch_write_status_updates(str(self.db_tracker.db_path), enrichment_status_updates)
+                    except Exception as status_error:
+                        logger.warning(f"[{worker_name}] Failed to write enrichment status for {barcode}: {status_error}")
 
                     # Mark queue task as done
                     self.enrichment_queue.task_done()
@@ -742,7 +750,9 @@ class SyncPipeline:
         # Add to queue and mark as pending
         try:
             await self.enrichment_queue.put(barcode)
-            await self.db_tracker.add_status_change(barcode, "enrichment", "pending")
+            # Use batched status change
+            status_updates = [collect_status(barcode, "enrichment", "pending")]
+            await batch_write_status_updates(str(self.db_tracker.db_path), status_updates)
             logger.debug(f"Queued {barcode} for enrichment")
         except Exception as e:
             logger.error(f"Failed to queue {barcode} for enrichment: {e}")
@@ -1131,7 +1141,7 @@ class SyncPipeline:
                 )
 
                 # Check ETag and handle skip scenario
-                skip_result, encrypted_etag, _ = await check_and_handle_etag_skip(
+                skip_result, encrypted_etag, _, sync_status_updates = await check_and_handle_etag_skip(
                     barcode,
                     self.grin_client,
                     self.library_directory,
@@ -1142,6 +1152,12 @@ class SyncPipeline:
                 )
 
                 if skip_result:
+                    # Write sync status updates for skipped books
+                    if sync_status_updates and self.db_tracker:
+                        try:
+                            await batch_write_status_updates(str(self.db_tracker.db_path), sync_status_updates)
+                        except Exception as e:
+                            logger.warning(f"[{barcode}] Failed to write skip status updates: {e}")
                     self.stats["skipped"] += 1
                     return {"barcode": barcode, "download_success": False, "skipped": True, "skip_result": skip_result}
 

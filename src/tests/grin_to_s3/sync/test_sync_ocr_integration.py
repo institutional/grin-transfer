@@ -17,7 +17,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.extract.tracking import TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus, write_status
+from grin_to_s3.database_utils import batch_write_status_updates
+from grin_to_s3.extract.tracking import TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus, collect_status
 from grin_to_s3.sync.operations import upload_book_from_staging
 from tests.test_utils.parametrize_helpers import (
     combined_scenarios_parametrize,
@@ -109,7 +110,7 @@ class TestSyncOCRPipelineIntegration:
             patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
         ):
             mock_decrypt.return_value = None
-            mock_extract_marc.return_value = None
+            mock_extract_marc.return_value = []
 
             # Set up storage mocks using unified factory
             mock_storage = create_storage_mock(storage_type=storage_type)
@@ -191,7 +192,7 @@ class TestSyncOCRPipelineIntegration:
             patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
         ):
             mock_decrypt.return_value = None
-            mock_extract_marc.return_value = None
+            mock_extract_marc.return_value = []
 
             # Set up storage mocks using unified factory
             mock_storage = create_storage_mock(storage_type=storage_type)
@@ -397,30 +398,32 @@ class TestOCRExtractionDatabaseTracking:
 
         session_id = "test_session_123"
 
-        # Track the extraction lifecycle
-        await write_status(
-            temp_db_tracker.db_path,
-            barcode,
-            ExtractionStatus.STARTING,
-            {"session_id": session_id, "source": "sync_pipeline"},
-            session_id,
-        )
+        # Track the extraction lifecycle using batched approach
+        status_updates = [
+            collect_status(
+                barcode,
+                TEXT_EXTRACTION_STATUS_TYPE,
+                ExtractionStatus.STARTING.value,
+                {"session_id": session_id, "source": "sync_pipeline"},
+                session_id,
+            ),
+            collect_status(
+                barcode,
+                TEXT_EXTRACTION_STATUS_TYPE,
+                ExtractionStatus.EXTRACTING.value,
+                {"jsonl_file": "/staging/TEST123456789_ocr_temp.jsonl"},
+                session_id,
+            ),
+            collect_status(
+                barcode,
+                TEXT_EXTRACTION_STATUS_TYPE,
+                ExtractionStatus.COMPLETED.value,
+                {"page_count": 342, "extraction_time_ms": 1247, "jsonl_file_size": 46284},
+                session_id,
+            ),
+        ]
 
-        await write_status(
-            temp_db_tracker.db_path,
-            barcode,
-            ExtractionStatus.EXTRACTING,
-            {"jsonl_file": "/staging/TEST123456789_ocr_temp.jsonl"},
-            session_id,
-        )
-
-        await write_status(
-            temp_db_tracker.db_path,
-            barcode,
-            ExtractionStatus.COMPLETED,
-            {"page_count": 342, "extraction_time_ms": 1247, "jsonl_file_size": 46284},
-            session_id,
-        )
+        await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Verify tracking
         with sqlite3.connect(temp_db_tracker.db_path) as conn:
@@ -459,18 +462,25 @@ class TestOCRExtractionDatabaseTracking:
 
         session_id = "test_session_123"
 
-        # Track failure
-        await write_status(
-            temp_db_tracker.db_path, barcode, ExtractionStatus.STARTING, {"session_id": session_id}, session_id
-        )
+        # Track failure using batched approach
+        status_updates = [
+            collect_status(
+                barcode,
+                TEXT_EXTRACTION_STATUS_TYPE,
+                ExtractionStatus.STARTING.value,
+                {"session_id": session_id},
+                session_id,
+            ),
+            collect_status(
+                barcode,
+                TEXT_EXTRACTION_STATUS_TYPE,
+                ExtractionStatus.FAILED.value,
+                {"error": "Archive corrupted: Cannot read tar.gz file"},
+                session_id,
+            ),
+        ]
 
-        await write_status(
-            temp_db_tracker.db_path,
-            barcode,
-            ExtractionStatus.FAILED,
-            {"error": "Archive corrupted: Cannot read tar.gz file"},
-            session_id,
-        )
+        await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Verify failure tracking
         with sqlite3.connect(temp_db_tracker.db_path) as conn:

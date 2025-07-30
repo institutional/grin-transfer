@@ -11,6 +11,8 @@ from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.database_utils import batch_write_status_updates
+from grin_to_s3.extract.tracking import collect_status
 
 
 class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
@@ -48,11 +50,9 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             )
             await self.tracker.save_book(book)
 
-            # Add status progression
-            for status in status_progression:
-                await self.tracker.add_status_change(
-                    barcode=barcode, status_type="processing_request", status_value=status
-                )
+            # Add status progression using batched approach
+            status_updates = [collect_status(barcode, "processing_request", status) for status in status_progression]
+            await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test get_books_for_sync - should include books with valid processing states
         sync_books = await self.tracker.get_books_for_sync(storage_type="test", limit=10)
@@ -77,10 +77,9 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             )
             await self.tracker.save_book(book)
 
-            # Add processing status
-            await self.tracker.add_status_change(
-                barcode=barcode, status_type="processing_request", status_value="converted"
-            )
+            # Add processing status using batched approach
+            status_updates = [collect_status(barcode, "processing_request", "converted")]
+            await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test with converted_barcodes filter (simulating GRIN's converted list)
         converted_barcodes = {"FILT001", "FILT003"}  # Only some books are actually converted
@@ -117,9 +116,8 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         )
         await self.tracker.save_book(book2)
 
-        await self.tracker.add_status_change(
-            barcode=barcode2, status_type="processing_request", status_value="requested"
-        )
+        status_updates = [collect_status(barcode2, "processing_request", "requested")]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test get_books_for_sync
         sync_books = await self.tracker.get_books_for_sync(storage_type="test", limit=10)
@@ -140,16 +138,14 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         )
         await self.tracker.save_book(book)
 
-        # Add processing status
-        await self.tracker.add_status_change(
-            barcode=barcode, status_type="processing_request", status_value="converted"
-        )
+        # Add processing status using batched approach
+        status_updates = [collect_status(barcode, "processing_request", "converted")]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
-        # Add sync status changes
+        # Add sync status changes using batched approach
         sync_statuses = ["pending", "syncing", "completed"]
-
-        for status in sync_statuses:
-            await self.tracker.add_status_change(barcode=barcode, status_type="sync", status_value=status)
+        sync_status_updates = [collect_status(barcode, "sync", status) for status in sync_statuses]
+        await batch_write_status_updates(str(self.db_path), sync_status_updates)
 
         # Verify latest sync status
         latest_sync_status = await self.tracker.get_latest_status(barcode, "sync")
@@ -176,14 +172,14 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             )
             await self.tracker.save_book(book)
 
-            # Add processing status
-            await self.tracker.add_status_change(
-                barcode=barcode, status_type="processing_request", status_value="converted"
-            )
+            # Add processing status using batched approach
+            status_updates = [collect_status(barcode, "processing_request", "converted")]
 
             # Add sync status if specified
             if sync_status:
-                await self.tracker.add_status_change(barcode=barcode, status_type="sync", status_value=sync_status)
+                status_updates.append(collect_status(barcode, "sync", sync_status))
+
+            await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test with no status filter (default: pending or NULL)
         all_sync_books = await self.tracker.get_books_for_sync(storage_type="test", limit=10)
@@ -212,10 +208,9 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         )
         await self.tracker.save_book(book)
 
-        # Add processing status
-        await self.tracker.add_status_change(
-            barcode=barcode, status_type="processing_request", status_value="converted"
-        )
+        # Add processing status using batched approach
+        status_updates = [collect_status(barcode, "processing_request", "converted")]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test with different storage types
         for storage_type in ["r2", "minio", "s3"]:
@@ -257,11 +252,10 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         )
         await self.tracker.save_book(book)
 
-        # Add status changes in sequence
+        # Add status changes in sequence using batched approach
         statuses = ["requested", "in_process", "converted", "failed", "converted"]
-
-        for status in statuses:
-            await self.tracker.add_status_change(barcode=barcode, status_type="processing_request", status_value=status)
+        status_updates = [collect_status(barcode, "processing_request", status) for status in statuses]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         # The latest status should be "converted" (last in sequence)
         latest_status = await self.tracker.get_latest_status(barcode, "processing_request")

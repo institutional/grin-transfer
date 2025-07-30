@@ -12,6 +12,8 @@ import pytest_asyncio
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.database_utils import batch_write_status_updates
+from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from tests.mocks import MockGRINClient
 
@@ -122,8 +124,10 @@ class TestGRINEnrichmentPipeline:
 
         for book in test_books:
             await tracker.save_book(book)
-            # Add processing status using status history
-            await tracker.add_status_change(book.barcode, "processing_request", "converted")
+
+        # Add processing status using batched status history
+        status_updates = [collect_status(book.barcode, "processing_request", "converted") for book in test_books]
+        await batch_write_status_updates(str(temp_db), status_updates)
 
         yield temp_db
 

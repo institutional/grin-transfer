@@ -40,7 +40,6 @@ class TestLocalStorageIntegration:
 
             # Mock database methods
             pipeline.db_tracker.get_books_for_sync = AsyncMock(return_value=["TEST123"])
-            pipeline.db_tracker.add_status_change = AsyncMock()
             pipeline.db_tracker.update_sync_data = AsyncMock()
 
             # Mock converted books

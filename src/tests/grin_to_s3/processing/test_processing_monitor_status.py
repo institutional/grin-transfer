@@ -3,6 +3,7 @@
 Integration tests for ProcessingMonitor status update functionality.
 
 Tests the automatic status updating when monitoring GRIN processing status.
+Updated to use the batch status update system.
 """
 
 import tempfile
@@ -12,6 +13,8 @@ from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.database_utils import batch_write_status_updates
+from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.processing import ProcessingMonitor
 
 
@@ -34,31 +37,33 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         await self.monitor.cleanup()
         self.temp_dir.cleanup()
 
+    async def _add_book_with_status(self, barcode: str, status_progression: list[str]) -> None:
+        """Helper to add a book with given status progression using batch updates."""
+        # Add book record
+        book = BookRecord(
+            barcode=barcode,
+            title=f"Test Book {barcode}",
+            processing_request_timestamp=datetime.now(UTC).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
+            updated_at=datetime.now(UTC).isoformat(),
+        )
+        await self.tracker.save_book(book)
+
+        # Add status progression using batch updates
+        status_updates = []
+        for status in status_progression:
+            status_updates.append(collect_status(barcode, "processing_request", status))
+
+        if status_updates:
+            await batch_write_status_updates(str(self.db_path), status_updates)
+
     async def test_update_book_statuses_to_converted(self):
         """Test updating books from in_process to converted."""
         # Create test books in database
         test_books = ["CONV001", "CONV002", "CONV003"]
 
         for barcode in test_books:
-            # Add book record
-            book = BookRecord(
-                barcode=barcode,
-                title=f"Test Book {barcode}",
-                processing_request_timestamp=datetime.now(UTC).isoformat(),
-                created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat(),
-            )
-            await self.tracker.save_book(book)
-
-            # Add initial status
-            await self.tracker.add_status_change(
-                barcode=barcode, status_type="processing_request", status_value="requested"
-            )
-
-            # Move to in_process
-            await self.tracker.add_status_change(
-                barcode=barcode, status_type="processing_request", status_value="in_process"
-            )
+            await self._add_book_with_status(barcode, ["requested", "in_process"])
 
         # Mock GRIN responses - some books are now converted
         converted_books = ["CONV001", "CONV003"]
@@ -97,20 +102,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         test_books = ["PROC001", "PROC002"]
 
         for barcode in test_books:
-            # Add book record
-            book = BookRecord(
-                barcode=barcode,
-                title=f"Test Book {barcode}",
-                processing_request_timestamp=datetime.now(UTC).isoformat(),
-                created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat(),
-            )
-            await self.tracker.save_book(book)
-
-            # Add initial status
-            await self.tracker.add_status_change(
-                barcode=barcode, status_type="processing_request", status_value="requested"
-            )
+            await self._add_book_with_status(barcode, ["requested"])
 
         # Mock GRIN responses - books are now in process
         converted_books = []
@@ -145,20 +137,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         test_books = ["FAIL001", "FAIL002"]
 
         for barcode in test_books:
-            # Add book record
-            book = BookRecord(
-                barcode=barcode,
-                title=f"Test Book {barcode}",
-                processing_request_timestamp=datetime.now(UTC).isoformat(),
-                created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat(),
-            )
-            await self.tracker.save_book(book)
-
-            # Add initial status
-            await self.tracker.add_status_change(
-                barcode=barcode, status_type="processing_request", status_value="requested"
-            )
+            await self._add_book_with_status(barcode, ["requested"])
 
         # Mock GRIN responses - books have failed
         converted_books = []
@@ -192,20 +171,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         # Create test book
         barcode = "NODUP001"
 
-        # Add book record
-        book = BookRecord(
-            barcode=barcode,
-            title=f"Test Book {barcode}",
-            processing_request_timestamp=datetime.now(UTC).isoformat(),
-            created_at=datetime.now(UTC).isoformat(),
-            updated_at=datetime.now(UTC).isoformat(),
-        )
-        await self.tracker.save_book(book)
-
-        # Add initial status
-        await self.tracker.add_status_change(
-            barcode=barcode, status_type="processing_request", status_value="converted"
-        )
+        await self._add_book_with_status(barcode, ["converted"])
 
         # Mock GRIN responses - book is still converted
         with (
@@ -244,27 +210,14 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         """Test updating multiple books with different status changes."""
         # Create test books with different current statuses
         books_data = [
-            ("MIX001", "requested", "in_process"),
-            ("MIX002", "in_process", "converted"),
-            ("MIX003", "requested", "failed"),
-            ("MIX004", "converted", "converted"),  # No change
+            ("MIX001", ["requested"]),
+            ("MIX002", ["requested", "in_process"]),
+            ("MIX003", ["requested"]),
+            ("MIX004", ["requested", "converted"]),
         ]
 
-        for barcode, initial_status, _final_status in books_data:
-            # Add book record
-            book = BookRecord(
-                barcode=barcode,
-                title=f"Test Book {barcode}",
-                processing_request_timestamp=datetime.now(UTC).isoformat(),
-                created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat(),
-            )
-            await self.tracker.save_book(book)
-
-            # Add initial status
-            await self.tracker.add_status_change(
-                barcode=barcode, status_type="processing_request", status_value=initial_status
-            )
+        for barcode, initial_statuses in books_data:
+            await self._add_book_with_status(barcode, initial_statuses)
 
         # Mock GRIN responses based on final statuses
         converted_books = ["MIX002", "MIX004"]
@@ -311,21 +264,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         ]
 
         for barcode, status_progression in test_books:
-            # Add book record
-            book = BookRecord(
-                barcode=barcode,
-                title=f"Test Book {barcode}",
-                processing_request_timestamp=datetime.now(UTC).isoformat(),
-                created_at=datetime.now(UTC).isoformat(),
-                updated_at=datetime.now(UTC).isoformat(),
-            )
-            await self.tracker.save_book(book)
-
-            # Add status progression
-            for status in status_progression:
-                await self.tracker.add_status_change(
-                    barcode=barcode, status_type="processing_request", status_value=status
-                )
+            await self._add_book_with_status(barcode, status_progression)
 
         # Get requested books (should include all since they all have processing_request_timestamp)
         requested_books = await self.monitor.get_requested_books()
@@ -357,3 +296,53 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         self.assertEqual(updates, {})
 
         await bad_monitor.cleanup()
+
+    async def test_batch_status_updates_integration(self):
+        """Test that the batch status update system works correctly."""
+        # Create test books
+        test_books = ["BATCH001", "BATCH002", "BATCH003"]
+
+        for barcode in test_books:
+            await self._add_book_with_status(barcode, ["requested", "in_process"])
+
+        # Verify all books have in_process status
+        for barcode in test_books:
+            status = await self.tracker.get_latest_status(barcode, "processing_request")
+            self.assertEqual(status, "in_process")
+
+        # Mock GRIN responses - all books converted
+        with (
+            patch("grin_to_s3.processing.get_converted_books", new_callable=AsyncMock) as mock_converted,
+            patch.object(self.monitor, "get_in_process_books", new_callable=AsyncMock) as mock_in_process,
+            patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
+        ):
+            mock_converted.return_value = test_books
+            mock_in_process.return_value = []
+            mock_failed.return_value = []
+
+            # Update all statuses at once
+            updates = await self.monitor.update_book_statuses()
+
+        # Verify batch update worked
+        self.assertEqual(updates["converted"], 3)
+
+        # Verify all books now have converted status
+        for barcode in test_books:
+            status = await self.tracker.get_latest_status(barcode, "processing_request")
+            self.assertEqual(status, "converted")
+
+        # Verify status history shows progression for each book
+        import aiosqlite
+
+        async with aiosqlite.connect(self.db_path) as db:
+            for barcode in test_books:
+                cursor = await db.execute(
+                    """
+                    SELECT status_value FROM book_status_history
+                    WHERE barcode = ? AND status_type = ?
+                    ORDER BY timestamp
+                    """,
+                    (barcode, "processing_request"),
+                )
+                statuses = [row[0] for row in await cursor.fetchall()]
+                self.assertEqual(statuses, ["requested", "in_process", "converted"])

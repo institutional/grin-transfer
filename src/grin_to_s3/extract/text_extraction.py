@@ -9,11 +9,20 @@ files and provides memory-efficient processing for large archives.
 import json
 import logging
 import re
+import shutil
 import tarfile
 import tempfile
 import time
 from collections.abc import Iterator
 from pathlib import Path
+
+from ..database_utils import batch_write_status_updates
+from .tracking import (
+    ExtractionMethod,
+    track_completion_collect,
+    track_failure_collect,
+    track_start_collect,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,23 +94,26 @@ async def extract_ocr_pages(
     archive_path_obj = Path(archive_path)
 
     # Set up tracking variables for database operations
-    from .tracking import ExtractionMethod, track_completion, track_failure, track_start
-
     barcode = get_barcode_from_path(archive_path)
     method = ExtractionMethod.DISK if extract_to_disk else ExtractionMethod.MEMORY
 
+    # Collect status updates for batching
+    status_updates = []
+
     # Track extraction start
-    await track_start(db_path, barcode, session_id)
+    status_updates.append(track_start_collect(barcode, session_id))
     start_time = time.time()
 
     if not archive_path_obj.exists():
         error = TextExtractionError(f"Archive file not found: {archive_path}")
-        await track_failure(db_path, barcode, error, method, session_id)
+        status_updates.append(track_failure_collect(barcode, error, method, session_id))
+        await batch_write_status_updates(db_path, status_updates)
         raise error
 
     if not archive_path_obj.suffix.endswith(".gz"):
         error = TextExtractionError(f"Expected .tar.gz archive, got: {archive_path}")
-        await track_failure(db_path, barcode, error, method, session_id)
+        status_updates.append(track_failure_collect(barcode, error, method, session_id))
+        await batch_write_status_updates(db_path, status_updates)
         raise error
 
     logger.debug(f"Starting OCR text extraction from {archive_path} (extract_to_disk={extract_to_disk})")
@@ -116,8 +128,7 @@ async def extract_ocr_pages(
             # Track completion
             extraction_time_ms = int((time.time() - start_time) * 1000)
             file_size = Path(output_file).stat().st_size
-            await track_completion(
-                db_path,
+            status_updates.append(track_completion_collect(
                 barcode,
                 page_count,
                 extraction_time_ms,
@@ -125,7 +136,10 @@ async def extract_ocr_pages(
                 session_id,
                 file_size,
                 str(output_file),
-            )
+            ))
+
+            # Write all status updates
+            await batch_write_status_updates(db_path, status_updates)
 
             return page_count
         else:
@@ -140,17 +154,22 @@ async def extract_ocr_pages(
 
             # Track completion
             extraction_time_ms = int((time.time() - start_time) * 1000)
-            await track_completion(db_path, barcode, len(result), extraction_time_ms, method, session_id)
+            status_updates.append(track_completion_collect(barcode, len(result), extraction_time_ms, method, session_id))
+
+            # Write all status updates
+            await batch_write_status_updates(db_path, status_updates)
 
             return result
 
     except tarfile.TarError as e:
-        await track_failure(db_path, barcode, e, method, session_id)
+        status_updates.append(track_failure_collect(barcode, e, method, session_id))
+        await batch_write_status_updates(db_path, status_updates)
         raise CorruptedArchiveError(f"Failed to open tar.gz archive: {e}") from e
     except Exception as e:
-        await track_failure(
-            db_path, barcode, e, method if output_file is None else ExtractionMethod.STREAMING, session_id
-        )
+        status_updates.append(track_failure_collect(
+            barcode, e, method if output_file is None else ExtractionMethod.STREAMING, session_id
+        ))
+        await batch_write_status_updates(db_path, status_updates)
         if isinstance(e, TextExtractionError):
             raise
         raise TextExtractionError(f"Unexpected error during extraction: {e}") from e
@@ -270,8 +289,6 @@ def _extract_text_from_disk(
     finally:
         # Cleanup extracted files unless requested to keep them
         if cleanup_temp or not keep_extracted:
-            import shutil
-
             try:
                 if cleanup_temp:
                     # Remove temporary directory entirely (parent of barcode dir)

@@ -8,6 +8,7 @@ Request and monitor book processing via GRIN.
 import argparse
 import asyncio
 import logging
+import signal
 import sys
 import time
 from datetime import UTC, datetime
@@ -16,9 +17,15 @@ from pathlib import Path
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import RateLimiter, format_duration, pluralize, print_oauth_setup_instructions, setup_logging
-from grin_to_s3.database_utils import validate_database_file
-from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
-from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
+from grin_to_s3.database_utils import batch_write_status_updates, validate_database_file
+from grin_to_s3.extract.tracking import collect_status
+from grin_to_s3.process_summary import (
+    create_book_manager_for_uploads,
+    create_process_summary,
+    get_current_stage,
+    save_process_summary,
+)
+from grin_to_s3.run_config import apply_run_config_to_args, find_run_config, setup_run_database_path
 from grin_to_s3.sync.models import validate_and_parse_barcodes
 from grin_to_s3.sync.utils import get_converted_books
 
@@ -701,8 +708,6 @@ class ProcessingMonitor:
             return set()
 
         # Check if database file exists before attempting to connect
-        from pathlib import Path
-
         if not Path(self.db_path).exists():
             return set()
 
@@ -928,8 +933,6 @@ class ProcessingMonitor:
             return {}
 
         try:
-            from pathlib import Path
-
             if not Path(self.db_path).exists():
                 return {}
 
@@ -944,16 +947,17 @@ class ProcessingMonitor:
             updates = {"converted": 0, "in_process": 0, "failed": 0}
 
             # Use the database tracker to make atomic status changes
-            from grin_to_s3.collect_books.models import SQLiteProgressTracker
-
             db_tracker = SQLiteProgressTracker(self.db_path)
+
+            # Collect all processing status updates for batching
+            processing_status_updates = []
 
             # Update books that are now converted
             our_converted = requested_books.intersection(converted_books)
             for barcode in our_converted:
                 current_status = await db_tracker.get_latest_status(barcode, "processing_request")
                 if current_status != "converted":
-                    await db_tracker.add_status_change(barcode, "processing_request", "converted")
+                    processing_status_updates.append(collect_status(barcode, "processing_request", "converted"))
                     updates["converted"] += 1
 
             # Update books that are now in process
@@ -961,7 +965,7 @@ class ProcessingMonitor:
             for barcode in our_in_process:
                 current_status = await db_tracker.get_latest_status(barcode, "processing_request")
                 if current_status not in ("converted", "in_process"):
-                    await db_tracker.add_status_change(barcode, "processing_request", "in_process")
+                    processing_status_updates.append(collect_status(barcode, "processing_request", "in_process"))
                     updates["in_process"] += 1
 
             # Update books that have failed
@@ -969,8 +973,15 @@ class ProcessingMonitor:
             for barcode in our_failed:
                 current_status = await db_tracker.get_latest_status(barcode, "processing_request")
                 if current_status != "failed":
-                    await db_tracker.add_status_change(barcode, "processing_request", "failed")
+                    processing_status_updates.append(collect_status(barcode, "processing_request", "failed"))
                     updates["failed"] += 1
+
+            # Batch write all processing status updates
+            if processing_status_updates:
+                try:
+                    await batch_write_status_updates(str(db_tracker.db_path), processing_status_updates)
+                except Exception as e:
+                    logger.warning(f"Failed to write processing status updates: {e}")
 
             return updates
 
@@ -994,8 +1005,6 @@ async def cmd_request(args) -> None:
     validate_database_file(args.db_path, check_books_count=True)
 
     # Set up logging - use unified log file from run config
-    from grin_to_s3.run_config import find_run_config
-
     run_config = find_run_config(args.db_path)
     if run_config is None:
         print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
@@ -1015,8 +1024,6 @@ async def cmd_request(args) -> None:
     run_name = Path(args.db_path).parent.name
 
     # Create book storage for process summary uploads
-    from grin_to_s3.process_summary import create_book_manager_for_uploads
-
     book_manager = await create_book_manager_for_uploads(run_name)
 
     # Create or load process summary
@@ -1194,9 +1201,6 @@ async def run_single_monitor(monitor: "ProcessingMonitor", args) -> None:
 
 async def run_watch_mode(monitor: "ProcessingMonitor", args) -> None:
     """Run monitor in watch mode with periodic polling."""
-    import signal
-    from datetime import UTC, datetime
-
     print("Starting watch mode - polling GRIN every 5 minutes")
     print("Press Ctrl+C to stop\n")
 

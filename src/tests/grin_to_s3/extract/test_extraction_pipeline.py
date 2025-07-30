@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
+from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.text_extraction import (
     TextExtractionError,
     extract_ocr_pages,
@@ -24,6 +25,7 @@ from grin_to_s3.extract.text_extraction import (
 from grin_to_s3.extract.tracking import (
     TEXT_EXTRACTION_STATUS_TYPE,
     ExtractionStatus,
+    collect_status,
     get_extraction_progress,
     get_failed_extractions,
     get_status_summary,
@@ -251,28 +253,31 @@ class TestQueryFunctionsIntegration:
 
         # Another successful extraction (different barcode)
         # We'll simulate this by directly adding to database since we need different barcodes
-        await temp_db_tracker.add_status_change(
+        status_updates = [collect_status(
             "book2",
             TEXT_EXTRACTION_STATUS_TYPE,
             ExtractionStatus.COMPLETED.value,
             metadata={"page_count": 100, "extraction_time_ms": 2000},
-        )
+        )]
+        await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Failed extraction
-        await temp_db_tracker.add_status_change(
+        status_updates = [collect_status(
             "book3",
             TEXT_EXTRACTION_STATUS_TYPE,
             ExtractionStatus.FAILED.value,
             metadata={"error_type": "CorruptedArchiveError", "error_message": "Archive damaged"},
-        )
+        )]
+        await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # In-progress extraction
-        await temp_db_tracker.add_status_change(
+        status_updates = [collect_status(
             "book4",
             TEXT_EXTRACTION_STATUS_TYPE,
             ExtractionStatus.EXTRACTING.value,
             metadata={"page_count": 50},
-        )
+        )]
+        await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Allow time for async tasks
 
@@ -306,12 +311,13 @@ class TestQueryFunctionsIntegration:
         ]
 
         for case in failure_cases:
-            await temp_db_tracker.add_status_change(
+            status_updates = [collect_status(
                 case["barcode"],
                 TEXT_EXTRACTION_STATUS_TYPE,
                 ExtractionStatus.FAILED.value,
                 metadata=case,
-            )
+            )]
+            await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Query failed extractions
         failures = await get_failed_extractions(temp_db_tracker.db_path, limit=10)
@@ -342,20 +348,22 @@ class TestQueryFunctionsIntegration:
         ]
 
         for i, case in enumerate(completed_cases, 1):
-            await temp_db_tracker.add_status_change(
+            status_updates = [collect_status(
                 f"completed_book_{i}",
                 TEXT_EXTRACTION_STATUS_TYPE,
                 ExtractionStatus.COMPLETED.value,
                 metadata=case,
-            )
+            )]
+            await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Add a failure for comprehensive stats
-        await temp_db_tracker.add_status_change(
+        status_updates = [collect_status(
             "failed_book",
             TEXT_EXTRACTION_STATUS_TYPE,
             ExtractionStatus.FAILED.value,
             metadata={"error_type": "TestError", "partial_page_count": 10},
-        )
+        )]
+        await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Get progress statistics
         progress = await get_extraction_progress(temp_db_tracker.db_path)
@@ -392,13 +400,14 @@ class TestSessionTracking:
         )
 
         # Add another book manually for session2
-        await temp_db_tracker.add_status_change(
+        status_updates = [collect_status(
             "book_session2",
             TEXT_EXTRACTION_STATUS_TYPE,
             ExtractionStatus.COMPLETED.value,
             session_id=session2,
             metadata={"page_count": 75, "extraction_time_ms": 1500},
-        )
+        )]
+        await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Allow time for async tasks
 
