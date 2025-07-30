@@ -1315,13 +1315,16 @@ class SyncPipeline:
                 )
                 await self.start_enrichment_workers()
 
-            # Check how many requested books need syncing (only those actually converted by GRIN)
-            available_to_sync = await self.db_tracker.get_books_for_sync(
-                storage_type=self.storage_protocol,
-                limit=999999,  # Get all available
-                converted_barcodes=converted_barcodes,  # Only sync books that GRIN reports as converted
-                specific_barcodes=specific_barcodes,  # Optionally limit to specific barcodes
-            )
+            # Check how many requested books need syncing
+            if specific_barcodes:
+                # When specific barcodes are provided, use them directly without database filtering
+                available_to_sync = specific_barcodes
+            else:
+                # Standard mode: query database for books that need syncing
+                available_to_sync = await self.db_tracker.get_books_for_sync(
+                    storage_type=self.storage_protocol,
+                    converted_barcodes=converted_barcodes,
+                )
 
             print(f"Found {len(available_to_sync):,} converted books that need syncing")
 
