@@ -164,6 +164,7 @@ async def cmd_pipeline(args) -> None:
                 config=run_config,
                 process_summary_stage=sync_stage,
                 force=args.force,
+                dry_run=args.dry_run,
                 skip_extract_ocr=args.skip_extract_ocr,
                 skip_extract_marc=args.skip_extract_marc,
                 skip_enrichment=args.skip_enrichment,
@@ -222,6 +223,7 @@ async def cmd_pipeline(args) -> None:
                     config=single_book_config,
                     process_summary_stage=sync_stage,
                     force=args.force,
+                    dry_run=args.dry_run,
                     skip_extract_ocr=args.skip_extract_ocr,
                     skip_extract_marc=args.skip_extract_marc,
                     skip_enrichment=args.skip_enrichment,
@@ -322,6 +324,9 @@ Examples:
 
   # Sync with limit and force overwrite
   python grin.py sync pipeline --run-name harvard_2024 --limit 100 --force
+
+  # Preview what would be processed without actually doing it
+  python grin.py sync pipeline --run-name harvard_2024 --dry-run --limit 10
         """,
     )
 
@@ -351,6 +356,7 @@ Examples:
     )
     pipeline_parser.add_argument("--status", help="Filter books by sync status (e.g., 'failed', 'pending')")
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
+    pipeline_parser.add_argument("--dry-run", action="store_true", help="Show what would be processed without downloading or uploading files")
     pipeline_parser.add_argument(
         "--grin-library-directory", help="GRIN library directory name (auto-detected from run config if not specified)"
     )
