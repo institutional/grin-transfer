@@ -9,11 +9,20 @@ files and provides memory-efficient processing for large archives.
 import json
 import logging
 import re
+import shutil
 import tarfile
 import tempfile
 import time
 from collections.abc import Iterator
 from pathlib import Path
+
+from ..database_utils import batch_write_status_updates
+from .tracking import (
+    ExtractionMethod,
+    track_completion_collect,
+    track_failure_collect,
+    track_start_collect,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,14 +94,6 @@ async def extract_ocr_pages(
     archive_path_obj = Path(archive_path)
 
     # Set up tracking variables for database operations
-    from ..database_utils import batch_write_status_updates
-    from .tracking import (
-        ExtractionMethod,
-        track_completion_collect,
-        track_failure_collect,
-        track_start_collect,
-    )
-
     barcode = get_barcode_from_path(archive_path)
     method = ExtractionMethod.DISK if extract_to_disk else ExtractionMethod.MEMORY
 
@@ -288,8 +289,6 @@ def _extract_text_from_disk(
     finally:
         # Cleanup extracted files unless requested to keep them
         if cleanup_temp or not keep_extracted:
-            import shutil
-
             try:
                 if cleanup_temp:
                     # Remove temporary directory entirely (parent of barcode dir)

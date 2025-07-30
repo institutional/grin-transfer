@@ -9,7 +9,7 @@ import json
 import logging
 from collections import OrderedDict
 from dataclasses import dataclass, field, fields
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -1023,8 +1023,6 @@ class SQLiteProgressTracker:
 
         async with connect_async(self.db_path) as db:
             # Get enrichments completed in the time window
-            from datetime import datetime, timedelta
-
             cutoff_time = datetime.now(UTC) - timedelta(hours=time_window_hours)
             cutoff_iso = cutoff_time.isoformat()
 

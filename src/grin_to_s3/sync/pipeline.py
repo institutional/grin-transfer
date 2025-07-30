@@ -26,6 +26,8 @@ from grin_to_s3.common import (
     format_duration,
     pluralize,
 )
+from grin_to_s3.database_utils import batch_write_status_updates
+from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config, get_storage_protocol
@@ -422,8 +424,6 @@ class SyncPipeline:
         """Mark a book as converted in our database after successful download."""
         try:
             # Use batched status change
-            from grin_to_s3.database_utils import batch_write_status_updates
-            from grin_to_s3.extract.tracking import collect_status
             status_updates = [collect_status(barcode, "processing_request", "converted")]
             await batch_write_status_updates(str(self.db_tracker.db_path), status_updates)
         except Exception as e:
@@ -479,7 +479,6 @@ class SyncPipeline:
                     logger.debug(f"[{worker_name}] Processing {barcode}")
 
                     # Collect enrichment status updates for batching
-                    from grin_to_s3.extract.tracking import collect_status
                     enrichment_status_updates = [
                         collect_status(barcode, "enrichment", "in_progress", metadata={"worker_id": worker_id})
                     ]
@@ -515,7 +514,6 @@ class SyncPipeline:
 
                     # Batch write all enrichment status updates
                     try:
-                        from grin_to_s3.database_utils import batch_write_status_updates
                         await batch_write_status_updates(str(self.db_tracker.db_path), enrichment_status_updates)
                     except Exception as status_error:
                         logger.warning(f"[{worker_name}] Failed to write enrichment status for {barcode}: {status_error}")
@@ -753,8 +751,6 @@ class SyncPipeline:
         try:
             await self.enrichment_queue.put(barcode)
             # Use batched status change
-            from grin_to_s3.database_utils import batch_write_status_updates
-            from grin_to_s3.extract.tracking import collect_status
             status_updates = [collect_status(barcode, "enrichment", "pending")]
             await batch_write_status_updates(str(self.db_tracker.db_path), status_updates)
             logger.debug(f"Queued {barcode} for enrichment")
@@ -1159,7 +1155,6 @@ class SyncPipeline:
                     # Write sync status updates for skipped books
                     if sync_status_updates and self.db_tracker:
                         try:
-                            from grin_to_s3.database_utils import batch_write_status_updates
                             await batch_write_status_updates(str(self.db_tracker.db_path), sync_status_updates)
                         except Exception as e:
                             logger.warning(f"[{barcode}] Failed to write skip status updates: {e}")
