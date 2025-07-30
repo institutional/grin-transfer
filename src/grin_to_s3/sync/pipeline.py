@@ -218,8 +218,14 @@ class SyncPipeline:
         logger.error(f"[{barcode}] ❌ Failed: {error_msg}")
         logger.warning(f"Sequential failures: {self._sequential_failures}/{self.max_sequential_failures}")
 
+        # Live user reporting of failures
+        print(f"❌ [{barcode}] Failed: {error_msg}")
+        if self._sequential_failures > 1:
+            print(f"⚠️  Sequential failures: {self._sequential_failures}/{self.max_sequential_failures}")
+
         if self._sequential_failures >= self.max_sequential_failures:
             logger.error(f"🛑 Exiting pipeline: {self.max_sequential_failures} consecutive failures reached")
+            print(f"🛑 Exiting pipeline: {self.max_sequential_failures} consecutive failures reached")
             return True
 
         return False
