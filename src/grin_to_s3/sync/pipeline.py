@@ -421,8 +421,11 @@ class SyncPipeline:
     async def _mark_book_as_converted(self, barcode: str) -> None:
         """Mark a book as converted in our database after successful download."""
         try:
-            # Use atomic status change
-            await self.db_tracker.add_status_change(barcode, "processing_request", "converted")
+            # Use batched status change
+            from grin_to_s3.extract.tracking import collect_status
+            from grin_to_s3.database_utils import batch_write_status_updates
+            status_updates = [collect_status(barcode, "processing_request", "converted")]
+            await batch_write_status_updates(str(self.db_tracker.db_path), status_updates)
         except Exception as e:
             logger.warning(f"[{barcode}] Failed to mark as converted: {e}")
 
@@ -749,7 +752,11 @@ class SyncPipeline:
         # Add to queue and mark as pending
         try:
             await self.enrichment_queue.put(barcode)
-            await self.db_tracker.add_status_change(barcode, "enrichment", "pending")
+            # Use batched status change
+            from grin_to_s3.database_utils import batch_write_status_updates
+            from grin_to_s3.extract.tracking import collect_status
+            status_updates = [collect_status(barcode, "enrichment", "pending")]
+            await batch_write_status_updates(str(self.db_tracker.db_path), status_updates)
             logger.debug(f"Queued {barcode} for enrichment")
         except Exception as e:
             logger.error(f"Failed to queue {barcode} for enrichment: {e}")

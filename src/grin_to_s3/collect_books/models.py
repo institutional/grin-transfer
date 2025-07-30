@@ -1063,48 +1063,6 @@ class SQLiteProgressTracker:
             row = await cursor.fetchone()
             return row[0] if row else 0
 
-    @retry_database_operation
-    async def add_status_change(
-        self,
-        barcode: str,
-        status_type: str,
-        status_value: str,
-        session_id: str | None = None,
-        metadata: dict | None = None,
-    ) -> bool:
-        """Atomically record a status change for a book.
-
-        Args:
-            barcode: Book barcode
-            status_type: Type of status ("processing_request", "sync", "enrichment", etc.)
-            status_value: New status value
-            session_id: Optional session identifier for batch tracking
-            metadata: Optional metadata as dict (will be JSON encoded)
-
-        Returns:
-            True if status was recorded successfully
-        """
-        await self.init_db()
-
-        now = datetime.now(UTC).isoformat()
-        metadata_json = json.dumps(metadata) if metadata else None
-
-        async with connect_async(self.db_path) as db:
-            await db.execute(
-                """
-                INSERT INTO book_status_history
-                (barcode, status_type, status_value, timestamp, session_id, metadata)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (barcode, status_type, status_value, now, session_id, metadata_json),
-            )
-
-            # Update the updated_at timestamp in books table
-            await db.execute("UPDATE books SET updated_at = ? WHERE barcode = ?", (now, barcode))
-
-            await db.commit()
-            return True
-
     async def get_latest_status(self, barcode: str, status_type: str) -> str | None:
         """Get the latest status value for a book and status type.
 

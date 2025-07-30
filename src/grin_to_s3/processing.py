@@ -948,12 +948,16 @@ class ProcessingMonitor:
 
             db_tracker = SQLiteProgressTracker(self.db_path)
 
+            # Collect all processing status updates for batching
+            from grin_to_s3.extract.tracking import collect_status
+            processing_status_updates = []
+
             # Update books that are now converted
             our_converted = requested_books.intersection(converted_books)
             for barcode in our_converted:
                 current_status = await db_tracker.get_latest_status(barcode, "processing_request")
                 if current_status != "converted":
-                    await db_tracker.add_status_change(barcode, "processing_request", "converted")
+                    processing_status_updates.append(collect_status(barcode, "processing_request", "converted"))
                     updates["converted"] += 1
 
             # Update books that are now in process
@@ -961,7 +965,7 @@ class ProcessingMonitor:
             for barcode in our_in_process:
                 current_status = await db_tracker.get_latest_status(barcode, "processing_request")
                 if current_status not in ("converted", "in_process"):
-                    await db_tracker.add_status_change(barcode, "processing_request", "in_process")
+                    processing_status_updates.append(collect_status(barcode, "processing_request", "in_process"))
                     updates["in_process"] += 1
 
             # Update books that have failed
@@ -969,8 +973,16 @@ class ProcessingMonitor:
             for barcode in our_failed:
                 current_status = await db_tracker.get_latest_status(barcode, "processing_request")
                 if current_status != "failed":
-                    await db_tracker.add_status_change(barcode, "processing_request", "failed")
+                    processing_status_updates.append(collect_status(barcode, "processing_request", "failed"))
                     updates["failed"] += 1
+
+            # Batch write all processing status updates
+            if processing_status_updates:
+                try:
+                    from grin_to_s3.database_utils import batch_write_status_updates
+                    await batch_write_status_updates(str(db_tracker.db_path), processing_status_updates)
+                except Exception as e:
+                    logger.warning(f"Failed to write processing status updates: {e}")
 
             return updates
 
