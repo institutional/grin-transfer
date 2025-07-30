@@ -15,8 +15,9 @@ from grin_to_s3.extract.tracking import (
     get_extraction_progress,
     get_failed_extractions,
     get_status_summary,
-    track_start,
+    track_start_collect,
 )
+from grin_to_s3.database_utils import batch_write_status_updates
 from tests.test_utils.unified_mocks import create_progress_tracker_with_db_mock
 
 
@@ -34,7 +35,9 @@ class TestTrackingFunctions:
         barcode = "test_barcode_001"
         session_id = "session_123"
 
-        await track_start(temp_db, barcode, session_id)
+        # Collect status update and write it
+        status_update = track_start_collect(barcode, session_id)
+        await batch_write_status_updates(temp_db, [status_update])
 
         # Verify data was written to database
         conn = sqlite3.connect(temp_db)
