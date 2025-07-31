@@ -656,16 +656,8 @@ class SyncPipeline:
     async def _cleanup_local_backup(self, backup_filename: str) -> None:
         """Remove local database backup file after successful upload to block storage."""
         try:
-            # Find backup directory and backup file
-            db_path_obj = Path(self.db_path)
-            backup_dir = db_path_obj.parent / "backups"
-            backup_file = backup_dir / backup_filename
-
-            if backup_file.exists():
-                backup_file.unlink()
-                logger.info(f"Removed local backup file: {backup_filename}")
-            else:
-                logger.warning(f"Local backup file not found for cleanup: {backup_filename}")
+            backup_file = Path(self.db_path).parent / "backups" / backup_filename
+            backup_file.unlink(missing_ok=True)
         except Exception as e:
             logger.error(f"Failed to cleanup local backup {backup_filename}: {e}", exc_info=True)
 
