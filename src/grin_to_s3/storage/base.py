@@ -198,7 +198,7 @@ class Storage:
 
         await loop.run_in_executor(None, fs.pipe, normalized_path, data)
 
-    async def write_file(self, path: str, file_path: str) -> None:
+    async def write_file(self, path: str, file_path: str, metadata: dict[str, str] | None = None) -> None:
         """Stream upload file directly without loading into memory."""
         if self.config.protocol == "s3":
             try:
@@ -231,14 +231,17 @@ class Storage:
                     # Get file size for multipart decision
                     file_size = os.path.getsize(file_path)
 
-                    if file_size > 50 * 1024 * 1024:
-                        # Use multipart upload for files >50MB
-                        await self._multipart_upload_from_file(s3_client, bucket, key, file_path)
+                    if file_size > 100 * 1024 * 1024:
+                        # Use multipart upload for files >100MB
+                        await self._multipart_upload_from_file(s3_client, bucket, key, file_path, metadata)
                     else:
-                        # Single-part upload for files ≤50MB - much faster, single API call
+                        # Single-part upload for files ≤100MB - much faster, single API call
                         async with aiofiles.open(file_path, "rb") as f:
                             file_data = await f.read()
-                            await s3_client.put_object(Bucket=bucket, Key=key, Body=file_data)
+                            put_kwargs = {"Bucket": bucket, "Key": key, "Body": file_data}
+                            if metadata:
+                                put_kwargs["Metadata"] = metadata
+                            await s3_client.put_object(**put_kwargs)
                     return
             except Exception as e:
                 raise RuntimeError(f"Failed to stream upload file: {e}") from e
@@ -284,61 +287,22 @@ class Storage:
             # Fall back to regular write
             await self.write_bytes(path, data)
 
-    async def _multipart_upload(self, s3_client, bucket: str, key: str, data: bytes) -> None:
-        """Upload large files using multipart upload for better performance."""
-        import io
 
-        # Initiate multipart upload
-        response = await s3_client.create_multipart_upload(Bucket=bucket, Key=key)
-
-        upload_id = response["UploadId"]
-        parts = []
-        part_number = 1
-        chunk_size = 8 * 1024 * 1024  # 8MB chunks
-
-        try:
-            data_stream = io.BytesIO(data)
-
-            while True:
-                chunk = data_stream.read(chunk_size)
-                if not chunk:
-                    break
-
-                # Upload part
-                part_response = await s3_client.upload_part(
-                    Bucket=bucket, Key=key, PartNumber=part_number, UploadId=upload_id, Body=chunk
-                )
-
-                parts.append({"ETag": part_response["ETag"], "PartNumber": part_number})
-
-                part_number += 1
-
-            # Complete multipart upload
-            await s3_client.complete_multipart_upload(
-                Bucket=bucket, Key=key, UploadId=upload_id, MultipartUpload={"Parts": parts}
-            )
-
-        except Exception as e:
-            # Abort multipart upload on error
-            try:
-                await s3_client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
-            except Exception:
-                pass  # Ignore errors when aborting
-
-            raise e
-
-    async def _multipart_upload_from_file(self, s3_client, bucket: str, key: str, file_path: str) -> None:
+    async def _multipart_upload_from_file(self, s3_client, bucket: str, key: str, file_path: str, metadata: dict[str, str] | None = None) -> None:
         """Upload large files using multipart upload directly from file for better performance."""
 
         import aiofiles
 
         # Initiate multipart upload
-        response = await s3_client.create_multipart_upload(Bucket=bucket, Key=key)
+        create_kwargs = {"Bucket": bucket, "Key": key}
+        if metadata:
+            create_kwargs["Metadata"] = metadata
+        response = await s3_client.create_multipart_upload(**create_kwargs)
 
         upload_id = response["UploadId"]
         parts = []
         part_number = 1
-        chunk_size = 50 * 1024 * 1024  # 50MB chunks for better R2 performance
+        chunk_size = 10 * 1024 * 1024  # 10MB chunks for better throughput
 
         try:
             async with aiofiles.open(file_path, "rb") as f:

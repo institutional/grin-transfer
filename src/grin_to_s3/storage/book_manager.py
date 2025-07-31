@@ -96,14 +96,13 @@ class BookManager:
         path = self._raw_archive_path(barcode, filename)
 
         if self.storage.is_s3_compatible() and encrypted_etag:
-            # For S3-compatible storage with metadata, read file and use write_bytes_with_metadata
-
-            async with aiofiles.open(archive_file_path, "rb") as f:
-                archive_data = await f.read()
-            await self.storage.write_bytes_with_metadata(path, archive_data, {"encrypted-etag": encrypted_etag})
+            # For S3-compatible storage with metadata, use streaming upload
+            await self.storage.write_file(path, archive_file_path, {"encrypted-etag": encrypted_etag})
         else:
             # Stream upload directly from file
+            logger.info(f"[{barcode}] Starting stream upload to storage...")
             await self.storage.write_file(path, archive_file_path)
+            logger.info(f"[{barcode}] Stream upload completed")
         return path
 
     async def save_text_jsonl(self, barcode: str, pages: list[str]) -> str:
