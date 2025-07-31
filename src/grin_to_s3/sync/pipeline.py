@@ -6,16 +6,14 @@ Main pipeline orchestration for syncing books from GRIN to storage.
 """
 
 import asyncio
-import csv
 import logging
 import shutil
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from grin_to_s3.client import GRINClient
-from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import (
     DEFAULT_DOWNLOAD_RETRIES,
     DEFAULT_DOWNLOAD_TIMEOUT,
@@ -34,7 +32,7 @@ from grin_to_s3.storage import create_storage_from_config, get_storage_protocol
 from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
-from .csv_export import CSVExportResult, export_and_upload_csv
+from .csv_export import CSVExportResult, export_and_upload_csv, export_csv_local
 from .database_backup import create_local_database_backup, upload_database_to_storage
 from .models import create_sync_stats
 from .operations import (
@@ -50,6 +48,7 @@ logger = logging.getLogger(__name__)
 # Progress reporting intervals
 INITIAL_PROGRESS_INTERVAL = 60  # 1 minute for first few reports
 REGULAR_PROGRESS_INTERVAL = 600  # 10 minutes for subsequent reports
+MAX_INITIAL_REPORTS = 3  # Number of initial reports before switching to regular interval
 
 
 class SyncPipeline:
@@ -211,6 +210,16 @@ class SyncPipeline:
         self.bucket_config = extract_bucket_config(self.storage_type, self.storage_config or {})
         self.book_manager = BookManager(self.storage, bucket_config=self.bucket_config, base_prefix=self.base_prefix)
 
+    @property
+    def uses_block_storage(self) -> bool:
+        """Check if the pipeline uses block storage."""
+        return self.staging_manager is not None and self.storage_protocol != "local"
+
+    @property
+    def uses_local_storage(self) -> bool:
+        """Check if the pipeline uses local storage."""
+        return self.storage_protocol == "local"
+
     def _handle_failure(self, barcode: str, error_msg: str) -> bool:
         """
         Handle a failure and check if pipeline should exit due to sequential failures.
@@ -266,15 +275,14 @@ class SyncPipeline:
         await self.stop_enrichment_workers()
 
         # Final staging cleanup (only if sync was successful and not skipped)
-        if sync_successful and not self.skip_staging_cleanup and self.staging_manager is not None:
-            try:
-                logger.info("Performing final staging directory cleanup...")
-                shutil.rmtree(self.staging_manager.staging_path, ignore_errors=True)
-                logger.info("Staging directory cleaned up")
-            except Exception as e:
-                logger.warning(f"Error during final staging cleanup: {e}")
-        elif not sync_successful and self.staging_manager is not None:
-            logger.info("Staging directory preserved due to sync failure")
+        if self.uses_block_storage:
+            if sync_successful and not self.skip_staging_cleanup:
+                try:
+                    logger.info("Performing final staging directory cleanup...")
+                    shutil.rmtree(self.staging_manager.staging_path, ignore_errors=True)  # type: ignore[union-attr]
+                    logger.info("Staging directory cleaned up")
+                except Exception as e:
+                    logger.warning(f"Error during final staging cleanup: {e}")
 
         try:
             if hasattr(self.db_tracker, "close"):
@@ -282,8 +290,6 @@ class SyncPipeline:
                 logger.debug("Closed database connection")
         except Exception as e:
             logger.warning(f"Error closing database connection: {e}")
-
-        # GRIN client uses session-per-request pattern, no persistent session to close
 
         logger.info("Cleanup completed")
 
@@ -296,14 +302,13 @@ class SyncPipeline:
         """Independent background progress reporter that runs throughout pipeline."""
         last_report_time = 0.0
         initial_reports_count = 0
-        max_initial_reports = 3
         while not self._shutdown_requested:
             try:
                 # Calculate timing for next report
                 current_time = time.time()
                 interval = (
                     INITIAL_PROGRESS_INTERVAL
-                    if initial_reports_count < max_initial_reports
+                    if initial_reports_count < MAX_INITIAL_REPORTS
                     else REGULAR_PROGRESS_INTERVAL
                 )
 
@@ -341,7 +346,7 @@ class SyncPipeline:
 
                     # Update tracking
                     last_report_time = current_time
-                    if initial_reports_count < max_initial_reports:
+                    if initial_reports_count < MAX_INITIAL_REPORTS:
                         initial_reports_count += 1
 
                 # Sleep briefly to avoid busy-waiting, but check for shutdown more frequently
@@ -586,13 +591,11 @@ class SyncPipeline:
 
             if self.storage_protocol == "local":
                 # For local storage, write directly to final location
-                result = await self._export_csv_local(self.book_manager)
+                result = await export_csv_local(self.book_manager, self.db_path)
             else:
-                # For cloud storage, use staging manager
-                assert self.staging_manager is not None, "Staging manager required for cloud storage"
                 result = await export_and_upload_csv(
                     db_path=self.db_path,
-                    staging_manager=self.staging_manager,
+                    staging_manager=self.staging_manager,  # type: ignore[arg-type]
                     book_manager=self.book_manager,
                     skip_export=False,
                 )
@@ -611,63 +614,7 @@ class SyncPipeline:
             logger.error(f"CSV export failed with exception: {e}", exc_info=True)
             return {"status": "failed", "file_size": 0, "num_rows": 0, "export_time": 0.0}
 
-    async def _export_csv_and_print_result(self) -> None:
-        """Export CSV if enabled and print result to console."""
-        csv_result = await self._export_csv_if_enabled()
-        if csv_result["status"] == "completed":
-            print(f"  CSV exported: {csv_result['num_rows']:,} rows ({csv_result['file_size']:,} bytes)")
-        elif csv_result["status"] == "failed":
-            print(f"  CSV export failed: {csv_result.get('error', 'unknown error')}")
 
-    async def _export_csv_local(self, book_manager) -> CSVExportResult:
-        """Export CSV directly to local storage without temporary files."""
-        start_time = time.time()
-        try:
-            # Get database data
-
-            sqlite_tracker = SQLiteProgressTracker(self.db_path)
-            books = await sqlite_tracker.get_all_books_csv_data()
-            logger.info(f"Exporting {len(books)} books to local CSV")
-
-            # For local storage, construct paths directly to avoid absolute path issues
-            timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-            base_path = book_manager.storage.config.options.get("base_path")
-            if not base_path:
-                raise ValueError("Local storage requires base_path in configuration")
-            # Construct relative paths and combine with base_path
-            latest_path = Path(base_path) / "meta" / "books_latest.csv"
-            timestamped_path = Path(base_path) / "meta" / "timestamped" / f"books_{timestamp}.csv"
-
-            latest_path.parent.mkdir(parents=True, exist_ok=True)
-            timestamped_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Write directly to latest CSV file
-            with open(latest_path, "w", encoding="utf-8", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(BookRecord.csv_headers())
-                for book in books:
-                    writer.writerow(book.to_csv_row())
-
-            # Copy to timestamped version
-            shutil.copy2(latest_path, timestamped_path)
-
-            # Get file size
-            file_size = latest_path.stat().st_size
-            num_rows = len(books) + 1  # Include header
-
-            logger.info(f"CSV written directly to {latest_path}")
-            logger.info(f"CSV timestamped copy at {timestamped_path}")
-
-            return {
-                "status": "completed",
-                "num_rows": num_rows,
-                "file_size": file_size,
-                "export_time": time.time() - start_time,
-            }
-
-        except Exception as e:
-            logger.error(f"Local CSV export failed: {e}", exc_info=True)
-            return {"status": "failed", "file_size": 0, "num_rows": 0, "export_time": time.time() - start_time}
 
     async def _backup_database_at_start(self) -> None:
         """Create and upload database backup at start of sync process."""
@@ -693,6 +640,10 @@ class SyncPipeline:
 
                 if upload_result["status"] == "completed":
                     logger.info(f"Database backup uploaded: {upload_result['backup_filename']}")
+
+                    # Clean up local backup after successful upload if using block storage
+                    if self.uses_block_storage and local_backup_result["backup_filename"] is not None:
+                        await self._cleanup_local_backup(local_backup_result["backup_filename"])
                 else:
                     logger.warning(f"Database backup upload failed: {upload_result['status']}")
 
@@ -701,6 +652,22 @@ class SyncPipeline:
 
         except Exception as e:
             logger.error(f"Database backup process failed: {e}", exc_info=True)
+
+    async def _cleanup_local_backup(self, backup_filename: str) -> None:
+        """Remove local database backup file after successful upload to block storage."""
+        try:
+            # Find backup directory and backup file
+            db_path_obj = Path(self.db_path)
+            backup_dir = db_path_obj.parent / "backups"
+            backup_file = backup_dir / backup_filename
+
+            if backup_file.exists():
+                backup_file.unlink()
+                logger.info(f"Removed local backup file: {backup_filename}")
+            else:
+                logger.warning(f"Local backup file not found for cleanup: {backup_filename}")
+        except Exception as e:
+            logger.error(f"Failed to cleanup local backup {backup_filename}: {e}", exc_info=True)
 
     async def _upload_latest_database(self):
         """Upload current database state as 'latest' version."""
@@ -732,14 +699,12 @@ class SyncPipeline:
 
     async def _export_csv_and_upload_database_result(self) -> None:
         """Export CSV if enabled and upload database, print results to console."""
-        # CSV export (existing)
         csv_result = await self._export_csv_if_enabled()
         if csv_result["status"] == "completed":
             print(f"  CSV exported: {csv_result['num_rows']:,} rows ({csv_result['file_size']:,} bytes)")
         elif csv_result["status"] == "failed":
             print(f"  CSV export failed: {csv_result.get('error', 'unknown error')}")
 
-        # Database upload (new)
         db_result = await self._upload_latest_database()
         if db_result and db_result["status"] == "completed":
             print(f"  Database backed up: {db_result['backup_filename']} ({db_result['file_size']:,} bytes)")
@@ -1288,7 +1253,7 @@ class SyncPipeline:
         sync_successful = False
         try:
             # Get list of converted books from GRIN
-            print("Fetching list of converted books from GRIN...")
+            print("Fetching list of known-converted books from GRIN...")
             converted_barcodes = await get_converted_books(self.grin_client, self.library_directory)
             if len(converted_barcodes) == 0:
                 print("Warning: GRIN reports no converted books available (this could indicate an API issue)")
