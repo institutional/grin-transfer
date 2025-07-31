@@ -53,33 +53,26 @@ class InvalidPageFormatError(TextExtractionError):
 
 
 async def extract_ocr_pages(
-    archive_path: str,
+    extracted_dir_path: str,
     db_path: str,
     session_id: str,
     output_file: str | None = None,
-    extraction_dir: str | None = None,
     keep_extracted: bool = False,
-    extract_to_disk: bool = True,
 ) -> list[str] | int:
     """
-    Extract OCR page texts from decrypted tar.gz archive.
+    Extract OCR page texts from extracted archive directory.
 
     Processes sequential page files (00000001.txt, 00000002.txt, etc.) from
     Google Books archives, sorts by page number, and handles missing pages
     by inserting empty strings at correct indices.
 
     Args:
-        archive_path: Path to decrypted tar.gz archive
+        extracted_dir_path: Path to extracted archive directory (not .tar.gz file)
         db_path: Path to SQLite database for tracking extraction status
         session_id: Session ID for grouping related operations
         output_file: If provided, writes pages to JSONL file and returns page count.
                     If None, returns list of page texts in memory.
-        extraction_dir: Directory to extract archive to. If None and extract_to_disk=True,
-                       uses temporary directory. Ignored if extract_to_disk=False.
-        keep_extracted: Whether to keep extracted files after processing.
-                       Only applies when extract_to_disk=True. Default False (cleanup).
-        extract_to_disk: If True (default), extract to disk first for better performance.
-                        If False, extract files directly in memory.
+        keep_extracted: Whether to keep extracted files after processing (default False).
 
     Returns:
         If output_file is None: List of strings where index corresponds to page number (0-indexed)

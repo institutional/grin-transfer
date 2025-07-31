@@ -7,6 +7,7 @@ Core sync functions for downloading and uploading books, extracted from SyncPipe
 
 import asyncio
 import logging
+import tarfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -586,26 +587,39 @@ async def upload_book_from_staging(
         # Decrypt to staging directory
         try:
             await decrypt_gpg_file(str(encrypted_file), str(decrypted_file), gpg_key_file, secrets_dir)
+            
+            # ATOMIC EXTRACTION: Extract archive once for all downstream processes
+            logger.info(f"[{barcode}] Extracting archive for processing")
+            extracted_dir = staging_manager.get_extracted_directory_path(barcode)
+            extracted_dir.mkdir(parents=True, exist_ok=True)
+            
+            extraction_start_time = time.time()
+            with tarfile.open(str(decrypted_file), "r:gz") as tar:
+                tar.extractall(path=extracted_dir)
+            extraction_duration = time.time() - extraction_start_time
+            
+            logger.info(f"[{barcode}] Archive extracted in {extraction_duration:.1f}s")
+            
         except Exception as e:
-            logger.error(f"[{barcode}] Decryption failed: {e}")
-            # Clean up staging files on decryption failure
+            logger.error(f"[{barcode}] Decryption or extraction failed: {e}")
+            # Clean up staging files on decryption/extraction failure
             if not skip_staging_cleanup:
                 freed_bytes = staging_manager.cleanup_files(barcode)
                 logger.info(f"[{barcode}] Freed {freed_bytes / (1024 * 1024):.1f} MB from staging after failure")
-            raise Exception(f"GPG decryption failed for {barcode}: {e}") from e
+            raise Exception(f"GPG decryption or archive extraction failed for {barcode}: {e}") from e
 
         # Start extractions (OCR and MARC) if enabled (non-blocking)
 
         if not skip_extract_ocr:
             # Run OCR extraction concurrently with upload for better performance
             ocr_task = asyncio.create_task(
-                extract_and_upload_ocr_text(barcode, decrypted_file, book_manager, db_tracker, staging_manager)
+                extract_and_upload_ocr_text(barcode, extracted_dir, book_manager, db_tracker, staging_manager)
             )
             extraction_tasks.append(ocr_task)
 
         if not skip_extract_marc:
             # Run MARC extraction concurrently with upload for better performance
-            marc_task = asyncio.create_task(extract_and_update_marc_metadata(barcode, decrypted_file, db_tracker))
+            marc_task = asyncio.create_task(extract_and_update_marc_metadata(barcode, extracted_dir, db_tracker))
             extraction_tasks.append(marc_task)
 
         # Upload decrypted file
