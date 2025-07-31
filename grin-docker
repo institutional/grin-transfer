@@ -78,7 +78,7 @@ if [ "$1" = "auth" ] && [ "$2" = "setup" ]; then
     fi
     
     # Check for optional credential files and inform user
-    if [ ! -f "$CREDS_DIR/gpg_passphrase.asc" ]; then
+if [ ! -f "$CREDS_DIR/gpg_passphrase.asc" ]; then
         echo "Note: GPG passphrase file not found - add $CREDS_DIR/gpg_passphrase.asc if needed for archive decryption"
     fi
     
@@ -98,12 +98,8 @@ else
     COMMAND="python grin.py $*"
 fi
 
-# Check if MinIO storage is being used in the command
-PROFILES=""
-if echo "$COMMAND" | grep -q "storage minio\|--storage=minio"; then
-    PROFILES="--profile minio"
-    echo "Detected MinIO storage - starting MinIO services..."
-fi
+# Start minio service
+PROFILES="--profile minio"
 
 # Check for missing GPG passphrase file and warn
 CREDS_DIR="$HOME/.config/grin-to-s3"
