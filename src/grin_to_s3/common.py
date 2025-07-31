@@ -701,45 +701,36 @@ async def decrypt_gpg_file(
 
     def _decrypt_file_with_gpg():
         try:
-            # Use direct passphrase file (no temp file needed since it already exists)
+            # Require passphrase file for decryption
+            if not passphrase_file_path:
+                raise RuntimeError("GPG passphrase file required for decryption but not found")
+
+            # Use direct passphrase file with performance optimization flags
             env = {**os.environ, "GPG_TTY": ""}
-            if passphrase_file_path:
-                subprocess.run(
-                    [
-                        "gpg",
-                        "--batch",
-                        "--yes",
-                        "--output",
-                        decrypted_file_path,
-                        "--passphrase-file",
-                        passphrase_file_path,
-                        "--quiet",
-                        "--decrypt",
-                        encrypted_file_path,
-                    ],
-                    capture_output=True,
-                    check=True,
-                    timeout=600,  # 10 minute timeout for decryption
-                    env=env,
-                )
-            else:
-                # No passphrase file available - try without passphrase
-                subprocess.run(
-                    [
-                        "gpg",
-                        "--batch",
-                        "--yes",
-                        "--output",
-                        decrypted_file_path,
-                        "--quiet",
-                        "--decrypt",
-                        encrypted_file_path,
-                    ],
-                    capture_output=True,
-                    check=True,
-                    timeout=600,  # 10 minute timeout for decryption
-                    env=env,
-                )
+            subprocess.run(
+                [
+                    "gpg",
+                    "--batch",
+                    "--yes",
+                    "--no-use-agent",
+                    "--trust-model",
+                    "always",
+                    "--no-auto-check-trustdb",
+                    "--pinentry-mode",
+                    "loopback",
+                    "--output",
+                    decrypted_file_path,
+                    "--passphrase-file",
+                    passphrase_file_path,
+                    "--quiet",
+                    "--decrypt",
+                    encrypted_file_path,
+                ],
+                capture_output=True,
+                check=True,
+                timeout=600,  # 10 minute timeout for decryption
+                env=env,
+            )
 
             return True
         except FileNotFoundError:
