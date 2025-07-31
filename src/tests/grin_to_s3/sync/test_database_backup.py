@@ -208,3 +208,122 @@ async def test_upload_database_to_storage_upload_error():
         assert result["status"] == "failed"
         assert result["backup_filename"] == "books_latest.db.gz"  # Filename set before failure
         assert result["file_size"] > 0  # File size calculated before failure
+
+
+@pytest.mark.asyncio
+async def test_cleanup_local_backup_after_upload():
+    """Test that local backup files are cleaned up after successful upload when using block storage."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create mock database file
+        db_path = Path(temp_dir) / "test.db"
+        db_path.write_text("mock database content")
+
+        # Create mock backup directory and backup file
+        backup_dir = db_path.parent / "backups"
+        backup_dir.mkdir()
+        backup_file = backup_dir / "test_backup_20240101_120000.db"
+        backup_file.write_text("backup content")
+
+        # Import here to avoid circular imports in tests
+        from grin_to_s3.sync.pipeline import SyncPipeline
+
+        # Create minimal mock pipeline instance with block storage
+        pipeline = Mock()
+        pipeline.db_path = str(db_path)
+        pipeline.staging_manager = Mock()  # Non-None indicates block storage
+
+        # Call the cleanup method (need to bind it to the mock)
+        cleanup_method = SyncPipeline._cleanup_local_backup.__get__(pipeline, SyncPipeline)
+        await cleanup_method(backup_file.name)
+
+        # Verify backup file was removed
+        assert not backup_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_backup_database_conditional_cleanup():
+    """Test that the backup process conditionally cleans up based on storage type."""
+    from unittest.mock import AsyncMock, patch
+
+    # Test with block storage (should cleanup)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = Path(temp_dir) / "test.db"
+        db_path.write_text("mock database content")
+
+        # Import here to avoid circular imports in tests
+        from grin_to_s3.sync.pipeline import SyncPipeline
+
+        # Create pipeline with block storage
+        pipeline = Mock()
+        pipeline.db_path = str(db_path)
+        pipeline.staging_manager = Mock()  # Non-None indicates block storage
+        pipeline.skip_database_backup = False
+        pipeline.uses_block_storage = True
+
+        # Mock the methods we'll call
+        with patch("grin_to_s3.sync.pipeline.create_local_database_backup") as mock_create, \
+             patch("grin_to_s3.sync.pipeline.upload_database_to_storage") as mock_upload:
+
+            mock_create.return_value = {"status": "completed", "backup_filename": "test_backup.db"}
+            mock_upload.return_value = {"status": "completed", "backup_filename": "test_backup.db.gz"}
+
+
+            with patch.object(pipeline, "_cleanup_local_backup", new=AsyncMock()) as mock_cleanup:
+                # Call the actual backup method
+                backup_method = SyncPipeline._backup_database_at_start.__get__(pipeline, SyncPipeline)
+                await backup_method()
+
+                # Verify cleanup was called for block storage
+                mock_cleanup.assert_called_once_with("test_backup.db")
+
+    # Test with local storage (should NOT cleanup)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        db_path = Path(temp_dir) / "test.db"
+        db_path.write_text("mock database content")
+
+        # Create pipeline with local storage
+        pipeline = Mock()
+        pipeline.db_path = str(db_path)
+        pipeline.staging_manager = None  # None indicates local storage
+        pipeline.skip_database_backup = False
+        pipeline.uses_block_storage = False
+
+        with patch("grin_to_s3.sync.pipeline.create_local_database_backup") as mock_create, \
+             patch("grin_to_s3.sync.pipeline.upload_database_to_storage") as mock_upload:
+
+            mock_create.return_value = {"status": "completed", "backup_filename": "test_backup.db"}
+            mock_upload.return_value = {"status": "completed", "backup_filename": "test_backup.db.gz"}
+
+            with patch.object(pipeline, "_cleanup_local_backup", new=AsyncMock()) as mock_cleanup:
+                # Call the actual backup method
+                backup_method = SyncPipeline._backup_database_at_start.__get__(pipeline, SyncPipeline)
+                await backup_method()
+
+                # Verify cleanup was NOT called for local storage
+                mock_cleanup.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_handles_missing_backup_file():
+    """Test that cleanup handles missing backup files gracefully."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create mock database file
+        db_path = Path(temp_dir) / "test.db"
+        db_path.write_text("mock database content")
+
+        # Create backup directory but no backup file
+        backup_dir = db_path.parent / "backups"
+        backup_dir.mkdir()
+
+        # Import here to avoid circular imports in tests
+        from grin_to_s3.sync.pipeline import SyncPipeline
+
+        # Create minimal mock pipeline instance
+        pipeline = Mock()
+        pipeline.db_path = str(db_path)
+
+        # Call cleanup with non-existent file
+        cleanup_method = SyncPipeline._cleanup_local_backup.__get__(pipeline, SyncPipeline)
+        await cleanup_method("nonexistent_backup.db")
+
+        # Should not raise exception (graceful handling tested via no exception)

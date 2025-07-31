@@ -9,7 +9,9 @@ to CSV format and uploading to storage.
 
 import csv
 import logging
+import shutil
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
@@ -119,3 +121,48 @@ async def export_and_upload_csv(
 
 
     return result
+
+
+async def export_csv_local(book_manager, db_path: str) -> CSVExportResult:
+    """Export CSV directly to local storage without temporary files."""
+    start_time = time.time()
+    try:
+        sqlite_tracker = SQLiteProgressTracker(db_path)
+        books = await sqlite_tracker.get_all_books_csv_data()
+        logger.info(f"Exporting {len(books)} books to local CSV")
+
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        base_path = book_manager.storage.config.options.get("base_path")
+        if not base_path:
+            raise ValueError("Local storage requires base_path in configuration")
+
+        latest_path = Path(base_path) / "meta" / "books_latest.csv"
+        timestamped_path = Path(base_path) / "meta" / "timestamped" / f"books_{timestamp}.csv"
+
+        latest_path.parent.mkdir(parents=True, exist_ok=True)
+        timestamped_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(latest_path, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(BookRecord.csv_headers())
+            for book in books:
+                writer.writerow(book.to_csv_row())
+
+        shutil.copy2(latest_path, timestamped_path)
+
+        file_size = latest_path.stat().st_size
+        num_rows = len(books) + 1
+
+        logger.info(f"CSV written directly to {latest_path}")
+        logger.info(f"CSV timestamped copy at {timestamped_path}")
+
+        return {
+            "status": "completed",
+            "num_rows": num_rows,
+            "file_size": file_size,
+            "export_time": time.time() - start_time,
+        }
+
+    except Exception as e:
+        logger.error(f"Local CSV export failed: {e}", exc_info=True)
+        return {"status": "failed", "file_size": 0, "num_rows": 0, "export_time": time.time() - start_time}

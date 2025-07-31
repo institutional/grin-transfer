@@ -125,7 +125,7 @@ class TestCSVExportIntegration:
             )
 
             # Mock the local CSV export function to raise an exception
-            with patch("grin_to_s3.sync.pipeline.SyncPipeline._export_csv_local") as mock_export_local:
+            with patch("grin_to_s3.sync.pipeline.export_csv_local") as mock_export_local:
                 mock_export_local.side_effect = Exception("Export failed")
 
                 # Mock storage creation

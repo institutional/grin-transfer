@@ -150,16 +150,16 @@ class TestSyncStagingCleanup:
                 mock_cleanup.assert_called_once_with(False)
 
     @pytest.mark.asyncio
-    async def test_cleanup_logs_preservation_message_on_failure(self, sync_pipeline):
-        """Test that cleanup logs preservation message when sync fails."""
+    async def test_cleanup_no_staging_cleanup_on_failure(self, sync_pipeline):
+        """Test that staging directory is not cleaned up when sync fails."""
         self._setup_staging_cleanup_test(sync_pipeline)
 
-        with patch("grin_to_s3.sync.pipeline.logger") as mock_logger:
+        with patch("grin_to_s3.sync.pipeline.shutil.rmtree") as mock_rmtree:
             # Mock failed completion
             await sync_pipeline.cleanup(sync_successful=False)
 
-            # Verify preservation message was logged
-            mock_logger.info.assert_any_call("Staging directory preserved due to sync failure")
+            # Verify staging cleanup was not called for failed sync
+            mock_rmtree.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_cleanup_logs_cleanup_message_on_success(self, sync_pipeline):
