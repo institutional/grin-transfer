@@ -176,13 +176,19 @@ def create_staging_manager_mock(staging_path: str = "/tmp/staging") -> MagicMock
         Configured staging manager mock
     """
     mock_staging = MagicMock()
-    path_obj = Path(staging_path)
 
-    # Set path attributes
+    # Create real temporary directory instead of mock Path object
+    temp_dir = tempfile.mkdtemp(prefix="staging_test_")
+    path_obj = Path(temp_dir)
+
+    # Ensure the directory exists
+    path_obj.mkdir(parents=True, exist_ok=True)
+
+    # Set path attributes to real Path objects
     mock_staging.staging_path = path_obj
     mock_staging.staging_dir = path_obj
 
-    # Configure path methods
+    # Configure path methods to return real Path objects
     mock_staging.get_staging_path = MagicMock(return_value=path_obj / "test_file")
     mock_staging.get_decrypted_file_path = MagicMock(side_effect=lambda barcode: path_obj / f"{barcode}.tar.gz")
     mock_staging.get_extracted_directory_path = MagicMock(side_effect=lambda barcode: path_obj / f"{barcode}_extracted")
@@ -345,8 +351,12 @@ def mock_upload_operations(
                     "00000002.txt": "Test page 2 content for mocked extraction",
                     "00000003.txt": "Test page 3 content for mocked extraction",
                 }
-                temp_dir = Path(decrypted_path).parent
-                archive_path = create_test_archive(pages, temp_dir, Path(decrypted_path).name)
+                # Ensure the target directory exists
+                decrypted_path_obj = Path(decrypted_path)
+                decrypted_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+                temp_dir = decrypted_path_obj.parent
+                archive_path = create_test_archive(pages, temp_dir, decrypted_path_obj.name)
                 # Move the created archive to the expected location
                 archive_path.rename(decrypted_path)
                 return None
