@@ -142,10 +142,6 @@ class RunConfig:
         """Get the enrichment workers setting for sync operations."""
         return self.sync_config.get("enrichment_workers", DEFAULT_SYNC_ENRICHMENT_WORKERS)
 
-    @property
-    def sync_gpg_key_file(self) -> str | None:
-        """Get the GPG key file setting for sync operations."""
-        return self.sync_config.get("gpg_key_file")
 
     def get_storage_args(self) -> dict[str, str]:
         """Get storage arguments suitable for command line scripts."""
@@ -330,8 +326,6 @@ def print_run_config_info(db_path: str) -> None:
             print(f"    Enrichment Workers: {config.sync_enrichment_workers}")
             if config.sync_staging_dir:
                 print(f"    Staging Directory: {config.sync_staging_dir}")
-            if config.sync_gpg_key_file:
-                print(f"    GPG Key File: {config.sync_gpg_key_file}")
     else:
         run_name, output_dir = get_run_info_from_db_path(db_path)
         print("No run configuration found.")

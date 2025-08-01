@@ -138,7 +138,6 @@ class TestSyncOCRPipelineIntegration:
                 mock_staging_manager,
                 temp_db_tracker,
                 "encrypted_etag_123",
-                None,  # gpg_key_file
                 None,  # secrets_dir
                 skip_extract_marc=True,  # Skip MARC to focus on OCR
                 # skip_extract_ocr=False,  # Default is False, OCR extraction enabled
@@ -217,8 +216,7 @@ class TestSyncOCRPipelineIntegration:
                 mock_staging_manager,
                 temp_db_tracker,
                 "encrypted_etag_123",
-                None,
-                None,
+                None,  # secrets_dir
                 skip_extract_ocr=True,  # OCR disabled
                 skip_extract_marc=True,  # MARC disabled too
             )
@@ -267,8 +265,7 @@ class TestSyncOCRPipelineIntegration:
                 mock_staging_manager,
                 temp_db_tracker,
                 "encrypted_etag_123",
-                None,
-                None,
+                None,  # secrets_dir
                 skip_extract_ocr=False,  # OCR enabled but will fail
             )
 
@@ -308,8 +305,7 @@ class TestSyncOCRPipelineIntegration:
                 mock_staging_manager,
                 temp_db_tracker,
                 "encrypted_etag_123",
-                None,
-                None,
+                None,  # secrets_dir
                 skip_extract_ocr=False,
             )
 
@@ -361,7 +357,6 @@ class TestSyncOCRPipelineIntegration:
                 mock_staging_manager,
                 temp_db_tracker,
                 "encrypted_etag_123",
-                None,  # gpg_key_file
                 None,  # secrets_dir
                 skip_extract_ocr=skip_ocr,
                 skip_extract_marc=skip_marc,

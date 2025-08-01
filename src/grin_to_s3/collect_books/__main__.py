@@ -233,7 +233,6 @@ Examples:
         default=DEFAULT_SYNC_ENRICHMENT_WORKERS,
         help=f"Number of enrichment workers for sync operations (default: {DEFAULT_SYNC_ENRICHMENT_WORKERS})",
     )
-    parser.add_argument("--sync-gpg-key-file", help="Custom GPG key file path for sync operations")
 
     args = parser.parse_args()
 
@@ -344,7 +343,6 @@ Examples:
             "staging_dir": args.sync_staging_dir,
             "disk_space_threshold": args.sync_disk_space_threshold,
             "enrichment_workers": args.sync_enrichment_workers,
-            "gpg_key_file": args.sync_gpg_key_file,
         }
 
         # Create enhanced config dict with storage and runtime info
@@ -455,8 +453,7 @@ Examples:
                 "staging_dir": args.sync_staging_dir,
                 "disk_space_threshold": args.sync_disk_space_threshold,
                 "enrichment_workers": args.sync_enrichment_workers,
-                "gpg_key_file": args.sync_gpg_key_file,
-            }
+                }
 
             # Write run configuration to run directory
             config_dict = config.to_dict()

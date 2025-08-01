@@ -411,23 +411,6 @@ class BackupManager:
             logger.warning(f"Failed to cleanup old backups: {e}")
 
 
-def get_gpg_key_path(custom_path: str | None = None) -> Path:
-    """
-    Get path to GPG key file, checking custom path first then default location.
-
-    Args:
-        custom_path: Custom path to GPG key file
-
-    Returns:
-        Path to GPG key file
-    """
-    if custom_path:
-        return Path(custom_path).expanduser()
-
-    # Default location in config directory
-    home = Path.home()
-    return home / ".config" / "grin-to-s3" / "gpg_key.asc"
-
 
 def get_gpg_passphrase_from_secrets(secrets_dir: str | None = None) -> str:
     """
@@ -498,43 +481,16 @@ def check_gpg_keys_available() -> bool:
         return False
 
 
-async def import_gpg_key_if_available(gpg_key_file: str | None = None) -> bool:
-    """
-    Import GPG key from file if available.
-
-    Args:
-        gpg_key_file: Custom path to GPG key file
-
-    Returns:
-        True if key was imported or already available, False if no key found
-    """
-    gpg_key_path = get_gpg_key_path(gpg_key_file)
-
-    if not gpg_key_path.exists():
-        return False
-
-    try:
-        # Import the key
-        subprocess.run(
-            ["gpg", "--quiet", "--batch", "--no-tty", "--import", str(gpg_key_path)],
-            capture_output=True,
-            check=True,
-            timeout=30,
-        )
-        return True
-    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return False
 
 
 async def decrypt_gpg_data(
-    encrypted_data: bytes, gpg_key_file: str | None = None, secrets_dir: str | None = None
+    encrypted_data: bytes, secrets_dir: str | None = None
 ) -> bytes:
     """
     Decrypt GPG-encrypted data using the system's gpg command.
 
     Args:
         encrypted_data: The GPG-encrypted bytes
-        gpg_key_file: Optional path to GPG key file to import
         secrets_dir: Directory containing secrets files (searches home directory if not specified)
 
     Returns:
@@ -552,9 +508,7 @@ async def decrypt_gpg_data(
         # No passphrase file found or empty - will try without passphrase
         pass
 
-    # Try to import key from file if specified or available in default location
-    if gpg_key_file or get_gpg_key_path().exists():
-        await import_gpg_key_if_available(gpg_key_file)
+    # Keys should already be available in GPG keyring
 
     loop = asyncio.get_event_loop()
 
@@ -612,17 +566,9 @@ async def decrypt_gpg_data(
 
             # Check for specific GPG key-related error messages
             if "no secret key" in stderr_msg.lower() or "secret key not available" in stderr_msg.lower():
-                gpg_key_path = get_gpg_key_path(gpg_key_file)
-                if gpg_key_path.exists():
-                    raise RuntimeError(
-                        f"GPG private key found at {gpg_key_path} but import failed. "
-                        f"Please import manually: gpg --import {gpg_key_path}"
-                    ) from e
-                else:
-                    raise RuntimeError(
-                        f"GPG private key not found. Place your GPG key at {gpg_key_path} "
-                        f"or import manually with: gpg --import <key_file>"
-                    ) from e
+                raise RuntimeError(
+                    "GPG secret key not found. Please import your private key: gpg --import <key_file>"
+                ) from e
             elif "public key not found" in stderr_msg.lower():
                 raise RuntimeError("GPG public key not found. Please import the appropriate GPG keys.") from e
             elif "bad session key" in stderr_msg.lower() or "inappropriate ioctl" in stderr_msg.lower():
@@ -675,7 +621,7 @@ def get_gpg_passphrase_file_path(secrets_dir: str | None = None) -> str | None:
 
 
 async def decrypt_gpg_file(
-    encrypted_file_path: str, decrypted_file_path: str, gpg_key_file: str | None = None, secrets_dir: str | None = None
+    encrypted_file_path: str, decrypted_file_path: str, secrets_dir: str | None = None
 ) -> None:
     """
     Decrypt GPG-encrypted file to another file using the system's gpg command.
@@ -683,7 +629,6 @@ async def decrypt_gpg_file(
     Args:
         encrypted_file_path: Path to the GPG-encrypted file
         decrypted_file_path: Path where decrypted file should be saved
-        gpg_key_file: Optional path to GPG key file to import
         secrets_dir: Directory containing secrets files (searches home directory if not specified)
 
     Raises:
@@ -693,9 +638,7 @@ async def decrypt_gpg_file(
     # Get passphrase file path if available
     passphrase_file_path = get_gpg_passphrase_file_path(secrets_dir)
 
-    # Try to import key from file if specified or available in default location
-    if gpg_key_file or get_gpg_key_path().exists():
-        await import_gpg_key_if_available(gpg_key_file)
+    # Keys should already be available in GPG keyring
 
     loop = asyncio.get_event_loop()
 
@@ -741,11 +684,8 @@ async def decrypt_gpg_file(
             stderr_msg = e.stderr.decode("utf-8", errors="replace") if e.stderr else "Unknown error"
             # Same error handling as decrypt_gpg_data
             if "no secret key" in stderr_msg.lower() or "secret key not available" in stderr_msg.lower():
-                gpg_key_path = get_gpg_key_path(gpg_key_file)
                 raise RuntimeError(
-                    f"GPG secret key not found. Please import your private key:\n"
-                    f"  gpg --import {gpg_key_path}\n"
-                    f"Or copy your key to: {gpg_key_path}"
+                    "GPG secret key not found. Please import your private key: gpg --import <key_file>"
                 ) from e
             elif "public key not found" in stderr_msg.lower():
                 raise RuntimeError("GPG public key not found. Please import the appropriate GPG keys.") from e

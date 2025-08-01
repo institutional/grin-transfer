@@ -35,7 +35,6 @@ def mock_run_config():
         config.sync_batch_size = 10
         config.sync_disk_space_threshold = 1000
         config.sync_enrichment_workers = 1
-        config.sync_gpg_key_file = None
         config.sync_staging_dir = None
 
         yield config

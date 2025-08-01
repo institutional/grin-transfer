@@ -540,7 +540,6 @@ async def upload_book_from_staging(
     staging_manager,
     db_tracker,
     encrypted_etag: str | None = None,
-    gpg_key_file: str | None = None,
     secrets_dir: str | None = None,
     skip_extract_ocr: bool = False,
     skip_extract_marc: bool = False,
@@ -556,7 +555,6 @@ async def upload_book_from_staging(
         staging_manager: Staging directory manager
         db_tracker: Database tracker instance
         encrypted_etag: Encrypted ETag for the file
-        gpg_key_file: GPG key file path
         secrets_dir: Secrets directory path
 
     Returns:
@@ -595,7 +593,7 @@ async def upload_book_from_staging(
 
         # Decrypt to staging directory
         try:
-            await decrypt_gpg_file(str(encrypted_file), str(decrypted_file), gpg_key_file, secrets_dir)
+            await decrypt_gpg_file(str(encrypted_file), str(decrypted_file), secrets_dir)
 
             # Extract archive once for all downstream processes
             extracted_dir = staging_manager.get_extracted_directory_path(barcode)
@@ -740,7 +738,6 @@ async def sync_book_to_local_storage(
     storage_config: dict[str, Any],
     db_tracker,
     encrypted_etag: str | None = None,
-    gpg_key_file: str | None = None,
     secrets_dir: str | None = None,
     skip_extract_ocr: bool = False,
     skip_extract_marc: bool = False,
@@ -756,7 +753,6 @@ async def sync_book_to_local_storage(
         storage_config: Storage configuration
         db_tracker: Database tracker instance
         encrypted_etag: Encrypted ETag for the file
-        gpg_key_file: GPG key file path
         secrets_dir: Secrets directory path
         skip_extract_ocr: Skip OCR text extraction
         skip_extract_marc: Skip MARC metadata extraction
@@ -828,7 +824,7 @@ async def sync_book_to_local_storage(
         # Decrypt directly to final location
         logger.info(f"[{barcode}] Decrypting to {final_decrypted_path}")
         try:
-            await decrypt_gpg_file(str(final_encrypted_path), str(final_decrypted_path), gpg_key_file, secrets_dir)
+            await decrypt_gpg_file(str(final_encrypted_path), str(final_decrypted_path), secrets_dir)
             # For local storage, delete encrypted file after successful decryption (new behavior)
             logger.info(f"[{barcode}] Deleting encrypted file after successful decryption")
             final_encrypted_path.unlink(missing_ok=True)
