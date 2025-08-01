@@ -152,7 +152,6 @@ class SyncPipeline:
         self.batch_size = config.sync_batch_size
         self.disk_space_threshold = config.sync_disk_space_threshold
         self.enrichment_workers = config.sync_enrichment_workers
-        self.gpg_key_file = config.sync_gpg_key_file
 
         # Configure staging directory
         if config.sync_staging_dir is None:
@@ -754,7 +753,6 @@ class SyncPipeline:
                             self.storage_config,
                             self.db_tracker,
                             None,  # No ETag for initial call
-                            self.gpg_key_file,
                             self.secrets_dir,
                             self.skip_extract_ocr,
                             self.skip_extract_marc,
@@ -824,7 +822,6 @@ class SyncPipeline:
                                     self.storage_config,
                                     self.db_tracker,
                                     None,
-                                    self.gpg_key_file,
                                     self.secrets_dir,
                                     self.skip_extract_ocr,
                                     self.skip_extract_marc,
@@ -1170,7 +1167,6 @@ class SyncPipeline:
                     self.staging_manager,
                     self.db_tracker,
                     download_result.get("encrypted_etag"),
-                    self.gpg_key_file,
                     self.secrets_dir,
                     self.skip_extract_ocr,
                     self.skip_extract_marc,

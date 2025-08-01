@@ -232,6 +232,9 @@ class E2ETestRunner:
             "--limit", "1"
         ], cwd=repo_dir, timeout=60)
 
+        # Verify that archives actually exist and are not zero-byte
+        self._verify_local_archives(repo_dir, storage_base, local_run_name)
+
         # Configuration 2: R2 storage (if credentials available)
         logger.info("=== Testing local machine with R2 storage ===")
         r2_creds_file = Path.home() / ".config" / "grin-to-s3" / "r2_credentials.json"
@@ -433,6 +436,38 @@ class E2ETestRunner:
                 ] + result.stdout.strip().split(), check=False)
         except subprocess.CalledProcessError:
             pass
+
+    def _verify_local_archives(self, repo_dir: Path, storage_base: str, run_name: str) -> None:
+        """Verify that book archives exist and are not zero-byte files."""
+        logger.info("Verifying that book archives exist and are not zero-byte...")
+
+        # Check the raw storage directory for archives
+        raw_dir = Path(storage_base) / "raw"
+        if not raw_dir.exists():
+            raise Exception(f"Raw storage directory does not exist: {raw_dir}")
+
+        # Find all .tar.gz files (should be decrypted archives)
+        archive_files = list(raw_dir.glob("**/*.tar.gz"))
+
+        if not archive_files:
+            raise Exception(f"No .tar.gz archive files found in {raw_dir}")
+
+        logger.info(f"Found {len(archive_files)} archive files")
+
+        # Verify each archive is not zero-byte
+        zero_byte_files = []
+        for archive_file in archive_files:
+            file_size = archive_file.stat().st_size
+            logger.info(f"Archive {archive_file.name}: {file_size} bytes")
+
+            if file_size == 0:
+                zero_byte_files.append(archive_file)
+
+        if zero_byte_files:
+            zero_byte_names = [f.name for f in zero_byte_files]
+            raise Exception(f"Found zero-byte archive files: {zero_byte_names}")
+
+        logger.info("All archive files verified - they exist and are not zero-byte")
 
     def cleanup_temp_dir(self) -> None:
         """Clean up temporary directory."""

@@ -170,7 +170,6 @@ class TestBookUpload:
                 mock_staging_manager,
                 progress_tracker,
                 "encrypted_etag_123",
-                "gpg_key_file",
                 "secrets_dir",
                 skip_extract_ocr=True,
                 skip_extract_marc=True,
@@ -503,7 +502,6 @@ class TestOCRExtractionIntegration:
                 mock_staging_manager,
                 mock_progress_tracker,
                 "encrypted_etag_123",
-                "gpg_key_file",
                 "secrets_dir",
                 skip_extract_ocr=False,  # OCR extraction enabled
             )
@@ -536,7 +534,6 @@ class TestOCRExtractionIntegration:
                 mock_staging_manager,
                 progress_tracker,
                 "encrypted_etag_123",
-                "gpg_key_file",
                 "secrets_dir",
                 skip_extract_ocr=skip_ocr,
                 skip_extract_marc=skip_marc,
@@ -583,7 +580,6 @@ class TestOCRExtractionIntegration:
                 mock_staging_manager,
                 mock_progress_tracker,
                 "encrypted_etag_123",
-                "gpg_key_file",
                 "secrets_dir",
                 skip_extract_ocr=False,
             )
@@ -660,7 +656,6 @@ class TestBookStorageIntegrationInSync:
                     mock_staging_manager,
                     mock_progress_tracker,
                     "encrypted_etag_123",
-                    None,  # gpg_key_file
                     None,  # secrets_dir
                     skip_extract_ocr=True,  # Skip OCR to focus on BookStorage init
                 )
