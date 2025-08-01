@@ -50,31 +50,6 @@ def create_test_archive(pages: dict[str, str], temp_dir: Path, archive_name: str
     return archive_path
 
 
-def extract_archive_to_directory(archive_path: Path, temp_dir: Path, dir_name: str = "extracted") -> Path:
-    """
-    Extract an archive to a directory for testing.
-
-    This utility function extracts a tar.gz archive to a directory
-    to match the new filesystem-based extraction approach.
-
-    Args:
-        archive_path: Path to the tar.gz archive
-        temp_dir: Directory where the extracted directory should be created
-        dir_name: Name of the extracted directory (default: "extracted")
-
-    Returns:
-        Path to the created extracted directory
-    """
-    import tarfile
-
-    extracted_dir = temp_dir / dir_name
-    extracted_dir.mkdir(parents=True, exist_ok=True)
-
-    with tarfile.open(str(archive_path), "r:gz") as tar:
-        tar.extractall(path=extracted_dir)
-
-    return extracted_dir
-
 
 def create_extracted_directory(pages: dict[str, str], temp_dir: Path, dir_name: str = "extracted") -> Path:
     """
