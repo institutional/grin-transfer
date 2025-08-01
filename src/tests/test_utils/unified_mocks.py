@@ -312,6 +312,7 @@ def mock_upload_operations(
         patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
         patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract_ocr,
         patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
+        patch("grin_to_s3.sync.operations.extract_archive") as mock_extract_archive,
         patch("grin_to_s3.sync.operations.BookManager") as mock_book_manager_class,
     ):
         # Create storage mock first
@@ -332,6 +333,7 @@ def mock_upload_operations(
         # Configure operation mocks
         if should_fail:
             mock_decrypt.side_effect = Exception("Decryption failed")
+            mock_extract_archive.side_effect = Exception("Archive extraction failed")
             mock_extract_ocr.side_effect = Exception("OCR extraction failed")
             mock_extract_marc.side_effect = Exception("MARC extraction failed")
         else:
@@ -350,6 +352,7 @@ def mock_upload_operations(
                 return None
 
             mock_decrypt.side_effect = mock_decrypt_side_effect
+            mock_extract_archive.return_value = 1.5  # Mock extraction duration in seconds
             mock_extract_ocr.return_value = None if not skip_ocr else None
             mock_extract_marc.return_value = [] if not skip_marc else []
 
@@ -358,6 +361,7 @@ def mock_upload_operations(
             def __init__(self):
                 self.decrypt = mock_decrypt
                 self.create_storage = mock_create_storage
+                self.extract_archive = mock_extract_archive
                 self.extract_ocr = mock_extract_ocr
                 self.extract_marc = mock_extract_marc
                 self.book_manager_class = mock_book_manager_class
