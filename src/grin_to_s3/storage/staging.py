@@ -210,7 +210,7 @@ class StagingDirectoryManager:
         extracted_dir = self.get_extracted_directory_path(barcode)
 
         total_freed = 0
-        
+
         # Clean up files
         for path in [encrypted_path, decrypted_path]:
             if path.exists():
@@ -228,7 +228,7 @@ class StagingDirectoryManager:
         if extracted_dir.exists():
             try:
                 # Calculate directory size before removal
-                dir_size = sum(f.stat().st_size for f in extracted_dir.rglob('*') if f.is_file())
+                dir_size = sum(f.stat().st_size for f in extracted_dir.rglob("*") if f.is_file())
                 shutil.rmtree(extracted_dir)
                 total_freed += dir_size
                 logger.debug(

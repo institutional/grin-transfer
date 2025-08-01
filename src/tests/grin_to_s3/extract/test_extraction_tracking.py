@@ -11,7 +11,6 @@ import pytest
 from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.tracking import (
     TEXT_EXTRACTION_STATUS_TYPE,
-    ExtractionMethod,
     ExtractionStatus,
     get_extraction_progress,
     get_failed_extractions,
@@ -113,7 +112,6 @@ class TestQueryFunctions:
             "error_type": "TextExtractionError",
             "error_message": "Archive corrupted",
             "partial_page_count": 25,
-            "extraction_method": ExtractionMethod.DISK.value,
         }
 
         conn.execute(
@@ -139,7 +137,6 @@ class TestQueryFunctions:
         assert failure["error_type"] == "TextExtractionError"
         assert failure["error_message"] == "Archive corrupted"
         assert failure["partial_page_count"] == 25
-        assert failure["extraction_method"] == ExtractionMethod.DISK.value
 
     async def test_get_extraction_progress(self, temp_db):
         """Test getting overall extraction progress statistics."""

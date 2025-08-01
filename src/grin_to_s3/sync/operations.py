@@ -7,7 +7,9 @@ Core sync functions for downloading and uploading books, extracted from SyncPipe
 
 import asyncio
 import logging
+import shutil
 import tarfile
+import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +38,32 @@ from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .models import BookSyncResult, create_book_sync_result
 from .utils import check_encrypted_etag, should_skip_download
+
+
+def extract_archive(archive_path: Path, extraction_dir: Path, barcode: str, context: str = "") -> float:
+    """Extract a tarball archive with timing and logging.
+
+    Args:
+        archive_path: Path to the .tar.gz archive file
+        extraction_dir: Directory to extract archive contents to
+        barcode: Book barcode for logging
+        context: Optional context string for log messages
+
+    Returns:
+        Extraction duration in seconds
+    """
+    logger = logging.getLogger(__name__)
+
+    context_suffix = f" ({context})" if context else ""
+    logger.info(f"[{barcode}] Extracting archive for processing{context_suffix}")
+
+    extraction_start_time = time.time()
+    with tarfile.open(str(archive_path), "r:gz") as tar:
+        tar.extractall(path=extraction_dir)
+    extraction_duration = time.time() - extraction_start_time
+
+    logger.info(f"[{barcode}] Archive extracted in {extraction_duration:.1f}s{context_suffix}")
+    return extraction_duration
 
 
 def create_download_retry_decorator(max_retries: int = DEFAULT_DOWNLOAD_RETRIES):
@@ -256,20 +284,20 @@ async def download_book_to_staging(
 
 async def extract_and_upload_ocr_text(
     barcode: str,
-    decrypted_file: Path,
+    extracted_dir: Path,
     book_manager: BookManager,
     db_tracker,
     staging_manager: StagingDirectoryManager | None,
 ) -> list[StatusUpdate]:
     """
-    Extract OCR text from decrypted archive and upload to full-text bucket (non-blocking).
+    Extract OCR text from extracted directory and upload to full-text bucket (non-blocking).
 
     This function is designed to be non-blocking - any failures are logged but do not
     raise exceptions that would interrupt the main sync workflow.
 
     Args:
         barcode: Book barcode
-        decrypted_file: Path to decrypted tar.gz archive
+        extracted_dir: Path to extracted archive directory
         book_manager: BookStorage instance for uploading
         db_tracker: Database tracker for status updates
         staging_manager: Staging manager for temp file handling
@@ -281,7 +309,7 @@ async def extract_and_upload_ocr_text(
     status_updates = []
 
     try:
-        logger.info(f"[{barcode}] Starting OCR text extraction from decrypted archive")
+        logger.info(f"[{barcode}] Starting OCR text extraction from extracted directory")
 
         # Collect extraction start status
         status_updates.append(collect_status(
@@ -293,84 +321,65 @@ async def extract_and_upload_ocr_text(
         ))
 
         # Create temporary JSONL file in staging directory
-        staging_dir = staging_manager.staging_path if staging_manager else Path(decrypted_file).parent
+        staging_dir = staging_manager.staging_path if staging_manager else Path(extracted_dir).parent
         jsonl_file = staging_dir / f"{barcode}_ocr_temp.jsonl"
 
-        try:
-            # Collect extraction progress status
-            status_updates.append(collect_status(
-                barcode,
-                "text_extraction",
-                ExtractionStatus.EXTRACTING.value,
-                metadata={"jsonl_file": str(jsonl_file)},
-                session_id=session_id,
-            ))
+        # Collect extraction progress status
+        status_updates.append(collect_status(
+            barcode,
+            "text_extraction",
+            ExtractionStatus.EXTRACTING.value,
+            metadata={"jsonl_file": str(jsonl_file)},
+            session_id=session_id,
+        ))
 
-            # Extract OCR text to JSONL file
-            start_time = time.time()
-            page_count = await extract_ocr_pages(
-                str(decrypted_file),
-                db_tracker.db_path if db_tracker else "",
-                session_id,
-                output_file=str(jsonl_file),
-                extract_to_disk=True,
-                keep_extracted=False,
-            )
-            extraction_time_ms = int((time.time() - start_time) * 1000)
+        # Extract OCR text to JSONL file
+        start_time = time.time()
+        page_count = await extract_ocr_pages(
+            str(extracted_dir),
+            db_tracker.db_path if db_tracker else "",
+            session_id,
+            output_file=str(jsonl_file),
+        )
+        extraction_time_ms = int((time.time() - start_time) * 1000)
 
-            # Get file size
-            jsonl_file_size = jsonl_file.stat().st_size if jsonl_file.exists() else 0
+        # Get file size
+        jsonl_file_size = jsonl_file.stat().st_size if jsonl_file.exists() else 0
 
-            logger.info(f"[{barcode}] Extracted {page_count} pages from archive")
+        logger.info(f"[{barcode}] Extracted {page_count} pages from archive")
 
-            # Upload JSONL to full-text bucket
-            upload_metadata = {
-                "source": "sync_pipeline",
-                "extraction_time_ms": str(extraction_time_ms),
-                "page_count": str(page_count),
-                "session_id": session_id,
-            }
+        # Upload JSONL to full-text bucket
+        upload_metadata = {
+            "source": "sync_pipeline",
+            "extraction_time_ms": str(extraction_time_ms),
+            "page_count": str(page_count),
+            "session_id": session_id,
+        }
 
-            await book_manager.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file), metadata=upload_metadata)
+        await book_manager.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file), metadata=upload_metadata)
 
-            logger.info(
-                f"[{barcode}] OCR text JSON saved to bucket_full "
-                f"({jsonl_file_size / 1024:.1f} KB, {extraction_time_ms}ms)"
-            )
+        logger.info(
+            f"[{barcode}] OCR text JSON saved to bucket_full "
+            f"({jsonl_file_size / 1024:.1f} KB, {extraction_time_ms}ms)"
+        )
 
-            # Collect successful completion status
-            status_updates.append(collect_status(
-                barcode,
-                "text_extraction",
-                ExtractionStatus.COMPLETED.value,
-                metadata={
-                    "page_count": page_count,
-                    "extraction_time_ms": extraction_time_ms,
-                    "jsonl_file_size": jsonl_file_size,
-                },
-                session_id=session_id,
-            ))
+        # Collect successful completion status
+        status_updates.append(collect_status(
+            barcode,
+            "text_extraction",
+            ExtractionStatus.COMPLETED.value,
+            metadata={
+                "page_count": page_count,
+                "extraction_time_ms": extraction_time_ms,
+                "jsonl_file_size": jsonl_file_size,
+            },
+            session_id=session_id,
+        ))
 
-        except Exception as extraction_error:
-            logger.error(f"[{barcode}] OCR extraction failed but sync continues: {extraction_error}")
-            status_updates.append(collect_status(
-                barcode,
-                "text_extraction",
-                ExtractionStatus.FAILED.value,
-                metadata={
-                    "error_type": type(extraction_error).__name__,
-                    "error_message": str(extraction_error),
-                },
-                session_id=session_id,
-            ))
 
-        finally:
-            # Clean up temporary JSONL file
-            try:
-                jsonl_file.unlink(missing_ok=True)
-                logger.debug(f"[{barcode}] Cleaned up temporary OCR file: {jsonl_file}")
-            except Exception as cleanup_error:
-                logger.warning(f"⚠️ [{barcode}] Failed to clean up temporary OCR file {jsonl_file}: {cleanup_error}")
+        # Clean up temporary JSONL file
+        jsonl_file.unlink(missing_ok=True)
+        logger.debug(f"[{barcode}] Cleaned up temporary OCR file: {jsonl_file}")
 
     except Exception as e:
         logger.error(f"[{barcode}] OCR extraction failed but sync continues: {e}")
@@ -392,18 +401,18 @@ async def extract_and_upload_ocr_text(
 
 async def extract_and_update_marc_metadata(
     barcode: str,
-    decrypted_file: Path,
+    extracted_dir: Path,
     db_tracker,
 ) -> list[StatusUpdate]:
     """
-    Extract MARC metadata from decrypted archive and update database (non-blocking).
+    Extract MARC metadata from extracted directory and update database (non-blocking).
 
     This function is designed to be non-blocking - any failures are logged but do not
     raise exceptions that would interrupt the main sync workflow.
 
     Args:
         barcode: Book barcode
-        decrypted_file: Path to decrypted tar.gz archive
+        extracted_dir: Path to extracted archive directory (not .tar.gz file)
         db_tracker: Database tracker for status updates
 
     Returns:
@@ -413,7 +422,7 @@ async def extract_and_update_marc_metadata(
     status_updates = []
 
     try:
-        logger.info(f"[{barcode}] Starting MARC metadata extraction from decrypted archive")
+        logger.info(f"[{barcode}] Starting MARC metadata extraction from extracted directory")
 
         # Collect extraction start status
         status_updates.append(collect_status(
@@ -431,12 +440,12 @@ async def extract_and_update_marc_metadata(
                 barcode,
                 "text_extraction",
                 ExtractionStatus.EXTRACTING.value,
-                metadata={"extraction_type": "marc", "archive_path": str(decrypted_file)},
+                metadata={"extraction_type": "marc", "extracted_dir": str(extracted_dir)},
                 session_id=session_id,
             ))
 
-            # Extract MARC metadata from the archive
-            marc_metadata = extract_marc_metadata(str(decrypted_file))
+            # Extract MARC metadata from the extracted directory
+            marc_metadata = extract_marc_metadata(str(extracted_dir))
 
             if not marc_metadata:
                 logger.warning(f"[{barcode}] No MARC metadata found in archive")
@@ -587,19 +596,13 @@ async def upload_book_from_staging(
         # Decrypt to staging directory
         try:
             await decrypt_gpg_file(str(encrypted_file), str(decrypted_file), gpg_key_file, secrets_dir)
-            
-            # ATOMIC EXTRACTION: Extract archive once for all downstream processes
-            logger.info(f"[{barcode}] Extracting archive for processing")
+
+            # Extract archive once for all downstream processes
             extracted_dir = staging_manager.get_extracted_directory_path(barcode)
             extracted_dir.mkdir(parents=True, exist_ok=True)
-            
-            extraction_start_time = time.time()
-            with tarfile.open(str(decrypted_file), "r:gz") as tar:
-                tar.extractall(path=extracted_dir)
-            extraction_duration = time.time() - extraction_start_time
-            
-            logger.info(f"[{barcode}] Archive extracted in {extraction_duration:.1f}s")
-            
+
+            extract_archive(decrypted_file, extracted_dir, barcode)
+
         except Exception as e:
             logger.error(f"[{barcode}] Decryption or extraction failed: {e}")
             # Clean up staging files on decryption/extraction failure
@@ -623,14 +626,14 @@ async def upload_book_from_staging(
             extraction_tasks.append(marc_task)
 
         # Upload decrypted file
-        logger.debug(f"[{barcode}] 🚀 Upload started")
+        logger.info(f"[{barcode}] 🚀 Upload started")
 
         try:
-            logger.debug(f"[{barcode}] Uploading decrypted archive with encrypted ETag metadata...")
+            logger.info(f"[{barcode}] Uploading decrypted archive with encrypted ETag metadata...")
             decrypted_result = await book_manager.save_decrypted_archive_from_file(
                 barcode, str(decrypted_file), encrypted_etag
             )
-            logger.debug(f"[{barcode}] Decrypted archive upload completed")
+            logger.info(f"[{barcode}] Decrypted archive upload completed")
         except Exception as e:
             logger.error(f"[{barcode}] Decrypted archive upload failed: {e}")
             raise Exception(f"Upload failed - decrypted: {e}") from e
@@ -657,12 +660,13 @@ async def upload_book_from_staging(
             "encrypted_etag": encrypted_etag,
             "last_etag_check": datetime.now(UTC).isoformat(),
         }
-        await db_tracker.update_sync_data(barcode, sync_data)
 
-        # Wait for extraction tasks to complete before cleanup
+        # Wait for extraction tasks to complete before updating database
         if extraction_tasks:
             try:
+                logger.info(f"[{barcode}] Waiting for {len(extraction_tasks)} extraction tasks to complete...")
                 extraction_results = await asyncio.gather(*extraction_tasks, return_exceptions=True)
+                logger.info(f"[{barcode}] All extraction tasks completed")
 
                 # Collect all status updates from extraction tasks
                 all_status_updates = []
@@ -671,6 +675,9 @@ async def upload_book_from_staging(
                         all_status_updates.extend(result)
                     elif isinstance(result, Exception):
                         logger.warning(f"[{barcode}] Extraction task failed: {result}")
+
+                # Update book record with sync data after extraction tasks complete
+                await db_tracker.update_sync_data(barcode, sync_data)
 
                 # Add sync completion status updates
                 all_status_updates.extend(sync_completion_status_updates)
@@ -682,8 +689,11 @@ async def upload_book_from_staging(
             except Exception as e:
                 # Log extraction failure but don't fail the sync
                 logger.warning(f"[{barcode}] Extraction tasks failed: {e}")
+                # Still update sync data even if extraction tasks failed
+                await db_tracker.update_sync_data(barcode, sync_data)
         else:
-            # No extraction tasks, but still need to write sync completion status
+            # No extraction tasks, update sync data immediately and write status
+            await db_tracker.update_sync_data(barcode, sync_data)
             await batch_write_status_updates(db_tracker.db_path, sync_completion_status_updates)
 
         # Clean up staging files after successful uploads
@@ -853,18 +863,28 @@ async def sync_book_to_local_storage(
 
         # Perform OCR and MARC extraction after successful decryption
         extraction_tasks = []
+        temp_extracted_dir = Path(tempfile.mkdtemp(prefix=f"{barcode}_extracted_"))
 
-        if not skip_extract_ocr:
-            # Run OCR extraction for local storage
-            ocr_task = asyncio.create_task(
-                extract_and_upload_ocr_text(barcode, final_decrypted_path, book_manager, db_tracker, None)
-            )
-            extraction_tasks.append(ocr_task)
+        # Extract archive atomically for both OCR and MARC extraction
+        if (not skip_extract_ocr) or (not skip_extract_marc):
 
-        if not skip_extract_marc:
-            # Run MARC extraction for local storage
-            marc_task = asyncio.create_task(extract_and_update_marc_metadata(barcode, final_decrypted_path, db_tracker))
-            extraction_tasks.append(marc_task)
+            try:
+                extract_archive(final_decrypted_path, temp_extracted_dir, barcode, "local storage")
+
+                if not skip_extract_ocr:
+                    # Run OCR extraction for local storage
+                    ocr_task = asyncio.create_task(
+                        extract_and_upload_ocr_text(barcode, temp_extracted_dir, book_manager, db_tracker, None)
+                    )
+                    extraction_tasks.append(ocr_task)
+
+                if not skip_extract_marc:
+                    # Run MARC extraction for local storage
+                    marc_task = asyncio.create_task(extract_and_update_marc_metadata(barcode, temp_extracted_dir, db_tracker))
+                    extraction_tasks.append(marc_task)
+
+            except Exception as extraction_error:
+                logger.error(f"[{barcode}] Archive extraction failed (local storage): {extraction_error}")
 
         # Wait for extraction tasks to complete (non-blocking for sync success)
         if extraction_tasks:
@@ -889,6 +909,9 @@ async def sync_book_to_local_storage(
                 logger.info(f"[{barcode}] Extraction tasks completed")
             except Exception as e:
                 logger.warning(f"[{barcode}] Some extraction tasks failed: {e}")
+            finally:
+                # Clean up temporary extracted directory
+                shutil.rmtree(temp_extracted_dir, ignore_errors=True)
         else:
             # No extraction tasks, but still need to write sync completion status
             await batch_write_status_updates(db_tracker.db_path, sync_completion_status_updates)

@@ -18,6 +18,7 @@ import pytest
 from moto import mock_aws
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
+from tests.utils import create_test_archive
 
 # =============================================================================
 # Mock Creation Functions
@@ -183,7 +184,8 @@ def create_staging_manager_mock(staging_path: str = "/tmp/staging") -> MagicMock
 
     # Configure path methods
     mock_staging.get_staging_path = MagicMock(return_value=path_obj / "test_file")
-    mock_staging.get_decrypted_file_path = lambda barcode: path_obj / f"{barcode}.tar.gz"
+    mock_staging.get_decrypted_file_path = MagicMock(side_effect=lambda barcode: path_obj / f"{barcode}.tar.gz")
+    mock_staging.get_extracted_directory_path = MagicMock(side_effect=lambda barcode: path_obj / f"{barcode}_extracted")
 
     # Configure async methods
     mock_staging.cleanup_file = AsyncMock(return_value=1024)
@@ -333,7 +335,21 @@ def mock_upload_operations(
             mock_extract_ocr.side_effect = Exception("OCR extraction failed")
             mock_extract_marc.side_effect = Exception("MARC extraction failed")
         else:
-            mock_decrypt.return_value = None
+            # Create a side effect for decrypt that actually creates a test archive
+            def mock_decrypt_side_effect(encrypted_path: str, decrypted_path: str, *args, **kwargs):
+                # Create a simple test archive with a few pages
+                pages = {
+                    "00000001.txt": "Test page 1 content for mocked extraction",
+                    "00000002.txt": "Test page 2 content for mocked extraction",
+                    "00000003.txt": "Test page 3 content for mocked extraction",
+                }
+                temp_dir = Path(decrypted_path).parent
+                archive_path = create_test_archive(pages, temp_dir, Path(decrypted_path).name)
+                # Move the created archive to the expected location
+                archive_path.rename(decrypted_path)
+                return None
+
+            mock_decrypt.side_effect = mock_decrypt_side_effect
             mock_extract_ocr.return_value = None if not skip_ocr else None
             mock_extract_marc.return_value = [] if not skip_marc else []
 

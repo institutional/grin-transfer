@@ -6,7 +6,7 @@ Tests critical edge cases that could cause silent data corruption or
 incorrect field mapping in the enrichment pipeline.
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -38,9 +38,9 @@ class TestEnrichmentDataIntegrity:
     @pytest.fixture
     def enrichment_pipeline(self):
         """Create a GRINEnrichmentPipeline for testing."""
-        # Mock the process summary stage with proper async methods
+        # Mock the process summary stage with proper sync method
         mock_stage = AsyncMock()
-        mock_stage.increment_items = AsyncMock(return_value=None)
+        mock_stage.increment_items = Mock(return_value=None)
 
         pipeline = GRINEnrichmentPipeline(
             directory="test_dir",

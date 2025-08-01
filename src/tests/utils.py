@@ -48,3 +48,63 @@ def create_test_archive(pages: dict[str, str], temp_dir: Path, archive_name: str
             tar.addfile(file_info, BytesIO(file_data))
 
     return archive_path
+
+
+def extract_archive_to_directory(archive_path: Path, temp_dir: Path, dir_name: str = "extracted") -> Path:
+    """
+    Extract an archive to a directory for testing.
+
+    This utility function extracts a tar.gz archive to a directory
+    to match the new filesystem-based extraction approach.
+
+    Args:
+        archive_path: Path to the tar.gz archive
+        temp_dir: Directory where the extracted directory should be created
+        dir_name: Name of the extracted directory (default: "extracted")
+
+    Returns:
+        Path to the created extracted directory
+    """
+    import tarfile
+
+    extracted_dir = temp_dir / dir_name
+    extracted_dir.mkdir(parents=True, exist_ok=True)
+
+    with tarfile.open(str(archive_path), "r:gz") as tar:
+        tar.extractall(path=extracted_dir)
+
+    return extracted_dir
+
+
+def create_extracted_directory(pages: dict[str, str], temp_dir: Path, dir_name: str = "extracted") -> Path:
+    """
+    Create a directory with extracted page files for testing.
+
+    This utility function creates a directory structure that mimics
+    what would result from extracting a tar.gz archive.
+
+    Args:
+        pages: Dictionary mapping filename to content (e.g., {"00000001.txt": "content"})
+        temp_dir: Directory where the extracted directory should be created
+        dir_name: Name of the extracted directory (default: "extracted")
+
+    Returns:
+        Path to the created extracted directory
+
+    Example:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            pages = {
+                "00000001.txt": "First page content",
+                "00000002.txt": "Second page content"
+            }
+            extracted_dir = create_extracted_directory(pages, temp_path)
+    """
+    extracted_dir = temp_dir / dir_name
+    extracted_dir.mkdir(parents=True, exist_ok=True)
+
+    for filename, content in pages.items():
+        file_path = extracted_dir / filename
+        file_path.write_text(content, encoding="utf-8")
+
+    return extracted_dir

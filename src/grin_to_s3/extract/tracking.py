@@ -26,11 +26,7 @@ class ExtractionStatus(Enum):
     FAILED = "failed"
 
 
-# Extraction method types
-class ExtractionMethod(Enum):
-    DISK = "disk"
-    MEMORY = "memory"
-    STREAMING = "streaming"
+
 
 
 # Status update tuple for collecting updates before writing
@@ -80,7 +76,6 @@ def track_completion_collect(
     barcode: str,
     page_count: int,
     extraction_time_ms: int,
-    method: ExtractionMethod,
     session_id: str | None = None,
     file_size: int = 0,
     output_path: str = "",
@@ -89,7 +84,6 @@ def track_completion_collect(
     metadata: dict[str, str | int] = {
         "page_count": page_count,
         "extraction_time_ms": extraction_time_ms,
-        "extraction_method": method.value,
         "completed_at": datetime.now(UTC).isoformat(),
     }
     if file_size:
@@ -105,7 +99,6 @@ def track_completion_collect(
 def track_failure_collect(
     barcode: str,
     error: Exception,
-    method: ExtractionMethod,
     session_id: str | None = None,
     partial_page_count: int = 0,
 ) -> StatusUpdate:
@@ -113,7 +106,6 @@ def track_failure_collect(
     metadata: dict[str, str | int] = {
         "error_type": type(error).__name__,
         "error_message": str(error),
-        "extraction_method": method.value,
         "failed_at": datetime.now(UTC).isoformat(),
         "partial_page_count": partial_page_count,
     }

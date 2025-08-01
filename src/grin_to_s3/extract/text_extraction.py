@@ -9,16 +9,13 @@ files and provides memory-efficient processing for large archives.
 import json
 import logging
 import re
-import shutil
 import tarfile
-import tempfile
 import time
 from collections.abc import Iterator
 from pathlib import Path
 
 from ..database_utils import batch_write_status_updates
 from .tracking import (
-    ExtractionMethod,
     track_completion_collect,
     track_failure_collect,
     track_start_collect,
@@ -52,15 +49,17 @@ class InvalidPageFormatError(TextExtractionError):
     pass
 
 
+
+
+
 async def extract_ocr_pages(
     extracted_dir_path: str,
     db_path: str,
     session_id: str,
-    output_file: str | None = None,
-    keep_extracted: bool = False,
-) -> list[str] | int:
+    output_file: str,
+) -> int:
     """
-    Extract OCR page texts from extracted archive directory.
+    Extract OCR page texts from extracted archive directory to JSONL file.
 
     Processes sequential page files (00000001.txt, 00000002.txt, etc.) from
     Google Books archives, sorts by page number, and handles missing pages
@@ -70,13 +69,11 @@ async def extract_ocr_pages(
         extracted_dir_path: Path to extracted archive directory (not .tar.gz file)
         db_path: Path to SQLite database for tracking extraction status
         session_id: Session ID for grouping related operations
-        output_file: If provided, writes pages to JSONL file and returns page count.
-                    If None, returns list of page texts in memory.
+        output_file: Path to write pages as JSONL file
         keep_extracted: Whether to keep extracted files after processing (default False).
 
     Returns:
-        If output_file is None: List of strings where index corresponds to page number (0-indexed)
-        If output_file is provided: Number of pages written to JSONL file
+        Number of pages written to JSONL file
         Missing pages are represented as empty strings
 
     Raises:
@@ -84,11 +81,10 @@ async def extract_ocr_pages(
         CorruptedArchiveError: When archive cannot be opened
         InvalidPageFormatError: When page files have invalid format
     """
-    archive_path_obj = Path(archive_path)
+    extracted_dir_obj = Path(extracted_dir_path)
 
     # Set up tracking variables for database operations
-    barcode = get_barcode_from_path(archive_path)
-    method = ExtractionMethod.DISK if extract_to_disk else ExtractionMethod.MEMORY
+    barcode = extracted_dir_obj.name.replace("_extracted", "")
 
     # Collect status updates for batching
     status_updates = []
@@ -97,115 +93,51 @@ async def extract_ocr_pages(
     status_updates.append(track_start_collect(barcode, session_id))
     start_time = time.time()
 
-    if not archive_path_obj.exists():
-        error = TextExtractionError(f"Archive file not found: {archive_path}")
-        status_updates.append(track_failure_collect(barcode, error, method, session_id))
+    if not extracted_dir_obj.exists():
+        error = TextExtractionError(f"Extracted directory not found: {extracted_dir_path}")
+        status_updates.append(track_failure_collect(barcode, error, session_id))
         await batch_write_status_updates(db_path, status_updates)
         raise error
 
-    if not archive_path_obj.suffix.endswith(".gz"):
-        error = TextExtractionError(f"Expected .tar.gz archive, got: {archive_path}")
-        status_updates.append(track_failure_collect(barcode, error, method, session_id))
+    if not extracted_dir_obj.is_dir():
+        error = TextExtractionError(f"Expected directory, got file: {extracted_dir_path}")
+        status_updates.append(track_failure_collect(barcode, error, session_id))
         await batch_write_status_updates(db_path, status_updates)
         raise error
 
-    logger.debug(f"Starting OCR text extraction from {archive_path} (extract_to_disk={extract_to_disk})")
+    logger.debug(f"Starting OCR text extraction from {extracted_dir_path} (filesystem access)")
 
     try:
-        if output_file is not None:
-            # Stream to JSONL file
-            output_path_obj = Path(output_file)
-            output_path_obj.parent.mkdir(parents=True, exist_ok=True)
-            page_count = _extract_text_to_jsonl_file_streaming(archive_path, output_path_obj)
+        # Write to JSONL file using streaming to avoid loading all pages into memory
+        output_path_obj = Path(output_file)
+        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-            # Track completion
-            extraction_time_ms = int((time.time() - start_time) * 1000)
-            file_size = Path(output_file).stat().st_size
-            status_updates.append(track_completion_collect(
-                barcode,
-                page_count,
-                extraction_time_ms,
-                ExtractionMethod.STREAMING,
-                session_id,
-                file_size,
-                str(output_file),
-            ))
+        page_count = _extract_ocr_to_jsonl_file(extracted_dir_path, output_path_obj)
 
-            # Write all status updates
-            await batch_write_status_updates(db_path, status_updates)
-
-            return page_count
-        else:
-            # Return in-memory list
-            if extract_to_disk:
-                page_data = _extract_text_from_disk(archive_path, extraction_dir, keep_extracted)
-            else:
-                page_data = _extract_text_from_memory(archive_path)
-
-            # Build final page array with proper indexing
-            result = _build_page_array(page_data)
-
-            # Track completion
-            extraction_time_ms = int((time.time() - start_time) * 1000)
-            status_updates.append(track_completion_collect(barcode, len(result), extraction_time_ms, method, session_id))
-
-            # Write all status updates
-            await batch_write_status_updates(db_path, status_updates)
-
-            return result
-
-    except tarfile.TarError as e:
-        status_updates.append(track_failure_collect(barcode, e, method, session_id))
-        await batch_write_status_updates(db_path, status_updates)
-        raise CorruptedArchiveError(f"Failed to open tar.gz archive: {e}") from e
-    except Exception as e:
-        status_updates.append(track_failure_collect(
-            barcode, e, method if output_file is None else ExtractionMethod.STREAMING, session_id
+        # Track completion
+        extraction_time_ms = int((time.time() - start_time) * 1000)
+        file_size = Path(output_file).stat().st_size
+        status_updates.append(track_completion_collect(
+            barcode,
+            page_count,
+            extraction_time_ms,
+            session_id,
+            file_size,
+            str(output_file),
         ))
+
+        # Write all status updates
+        await batch_write_status_updates(db_path, status_updates)
+
+        return page_count
+
+    except Exception as e:
+        status_updates.append(track_failure_collect(barcode, e, session_id))
         await batch_write_status_updates(db_path, status_updates)
         if isinstance(e, TextExtractionError):
             raise
         raise TextExtractionError(f"Unexpected error during extraction: {e}") from e
 
-
-def _extract_text_from_memory(archive_path: str) -> dict[int, str]:
-    """Extract text using in-memory approach for low memory overhead."""
-    with tarfile.open(archive_path, "r:gz") as tar:
-        page_data = {}
-        txt_files_found = 0
-
-        # Extract text content from .txt files in memory-efficient way
-        for member in tar.getmembers():
-            if not member.isfile() or not Path(member.name).name.endswith(".txt"):
-                continue
-
-            filename = Path(member.name).name
-            txt_files_found += 1
-            page_number = _parse_page_number(filename)
-
-            if page_number is None:
-                logger.warning(f"Skipping file with invalid page format: {filename}")
-                continue
-
-            # Extract file content without loading entire archive into memory
-            file_obj = tar.extractfile(member)
-            if file_obj is None:
-                logger.warning(f"Could not extract file content: {filename}")
-                page_data[page_number] = ""
-                continue
-
-            try:
-                # Read file content and decode as UTF-8
-                content = file_obj.read().decode("utf-8", errors="replace")
-                page_data[page_number] = content
-                logger.debug(f"Extracted page {page_number}: {len(content):,} characters")
-            except UnicodeDecodeError:
-                logger.warning(f"Unicode decode error in {filename}, using empty string")
-                page_data[page_number] = ""
-            finally:
-                file_obj.close()
-
-        return _validate_and_finalize_extraction(page_data, txt_files_found, archive_path)
 
 
 def _validate_and_finalize_extraction(
@@ -221,79 +153,6 @@ def _validate_and_finalize_extraction(
     logger.debug(f"OCR extraction completed: {len(page_data)} valid pages from {txt_files_found} .txt files")
     return page_data
 
-
-def _extract_text_from_disk(
-    archive_path: str, extraction_dir: str | None = None, keep_extracted: bool = False
-) -> dict[int, str]:
-    """Extract text using disk-based approach for parallel processing."""
-    # Get barcode for directory naming
-    barcode = get_barcode_from_path(archive_path)
-
-    # Determine extraction directory
-    if extraction_dir is None:
-        temp_dir = tempfile.mkdtemp(prefix="grin_extraction_")
-        extract_to = Path(temp_dir) / barcode
-        cleanup_temp = True
-    else:
-        extract_to = Path(extraction_dir) / barcode
-        cleanup_temp = False
-
-    extract_path = Path(extract_to)
-    extract_path.mkdir(parents=True, exist_ok=True)
-
-    logger.debug(f"Extracting archive to {extract_path}")
-
-    try:
-        # Extract the entire archive to disk
-        with tarfile.open(archive_path, "r:gz") as tar:
-            # Extract only .txt files for efficiency
-            txt_members = [m for m in tar.getmembers() if m.name.endswith(".txt") and m.isfile()]
-
-            if not txt_members:
-                raise TextExtractionError(f"No .txt files found in archive: {archive_path}")
-
-            for member in txt_members:
-                tar.extract(member, extract_path)
-
-        # Now read all the extracted .txt files
-        page_data = {}
-        txt_files_found = 0
-
-        # Find all .txt files in the extraction directory
-        for txt_file in extract_path.glob("**/*.txt"):
-            txt_files_found += 1
-            page_number = _parse_page_number(txt_file.name)
-
-            if page_number is None:
-                logger.warning(f"Skipping file with invalid page format: {txt_file.name}")
-                continue
-
-            try:
-                with open(txt_file, encoding="utf-8", errors="replace") as f:
-                    content = f.read()
-                page_data[page_number] = content
-                logger.debug(f"Read page {page_number}: {len(content):,} characters")
-            except Exception as e:
-                logger.warning(f"Error reading {txt_file.name}: {e}")
-                page_data[page_number] = ""
-
-        return _validate_and_finalize_extraction(page_data, txt_files_found, archive_path)
-
-    finally:
-        # Cleanup extracted files unless requested to keep them
-        if cleanup_temp or not keep_extracted:
-            try:
-                if cleanup_temp:
-                    # Remove temporary directory entirely (parent of barcode dir)
-                    temp_parent = extract_path.parent
-                    shutil.rmtree(temp_parent)
-                    logger.debug(f"Cleaned up temporary extraction directory: {temp_parent}")
-                elif not keep_extracted:
-                    # Remove barcode subdirectory entirely
-                    shutil.rmtree(extract_path)
-                    logger.debug(f"Cleaned up barcode extraction directory: {extract_path}")
-            except Exception as cleanup_error:
-                logger.warning(f"Failed to cleanup extraction files: {cleanup_error}")
 
 
 def _parse_page_number(filename: str) -> int | None:
@@ -405,32 +264,85 @@ def _page_content_generator(archive_path: str) -> Iterator[tuple[int, str]]:
             expected_page = page_num + 1
 
 
-def _extract_text_to_jsonl_file_streaming(archive_path: str, output_path: Path) -> int:
+def _filesystem_page_generator(extracted_dir_path: str):
     """
-    Extract text to JSONL file using streaming to minimize memory usage.
+    Generator that yields (page_number, content) tuples from filesystem.
 
-    Writes one JSON-encoded string per line, processing one page at a time.
+    Reads page files one at a time without loading entire files into memory.
+
+    Raises:
+        TextExtractionError: If no .txt files found
+        InvalidPageFormatError: If no valid page files found
+    """
+    extracted_dir = Path(extracted_dir_path)
+
+    # Find all .txt files and sort by page number
+    txt_files = list(extracted_dir.glob("**/*.txt"))
+
+    if not txt_files:
+        raise TextExtractionError(f"No .txt files found in {extracted_dir_path}")
+
+    page_files = []
+
+    for txt_file in txt_files:
+        page_number = _parse_page_number(txt_file.name)
+        if page_number is not None:
+            page_files.append((page_number, txt_file))
+        else:
+            logger.warning(f"Skipping file with invalid page format: {txt_file.name}")
+
+    if not page_files:
+        raise InvalidPageFormatError(f"No valid page files found in {extracted_dir_path}")
+
+    # Sort by page number
+    page_files.sort(key=lambda x: x[0])
+
+    expected_page = 1
+
+    for page_num, txt_file in page_files:
+        # Fill in missing pages with empty strings
+        while expected_page < page_num:
+            yield (expected_page, "")
+            expected_page += 1
+
+        # Read current page content
+        try:
+            with open(txt_file, encoding="utf-8", errors="replace") as page_file:
+                content = page_file.read()
+            yield (page_num, content)
+            logger.debug(f"Processed page {page_num}: {len(content):,} characters")
+        except Exception as e:
+            logger.warning(f"Error reading {txt_file.name}: {e}")
+            yield (page_num, "")
+
+        expected_page = page_num + 1
+
+
+def _extract_ocr_to_jsonl_file(extracted_dir_path: str, output_path: Path) -> int:
+    """
+    Extract OCR text to JSONL file using streaming from filesystem to minimize memory usage.
+
+    Uses generator to process one page at a time without loading entire files into memory.
+
+    Args:
+        extracted_dir_path: Path to extracted archive directory
+        output_path: Path to output JSONL file
 
     Returns:
         Number of pages processed
     """
-    try:
-        with open(output_path, "w", encoding="utf-8") as f:
-            page_count = 0
+    with open(output_path, "w", encoding="utf-8") as f:
+        page_count = 0
 
-            for _page_num, content in _page_content_generator(archive_path):
-                # Write the JSON-encoded content as a single line
-                f.write(json.dumps(content, ensure_ascii=False) + "\n")
-                page_count += 1
+        for page_num, content in _filesystem_page_generator(extracted_dir_path):
+            # Write the JSON-encoded content as a single line
+            f.write(json.dumps(content, ensure_ascii=False) + "\n")
+            page_count += 1
 
-                if page_count % 100 == 0:
-                    logger.debug(f"Streaming extraction progress: {page_count} pages written")
+            if page_count % 100 == 0:
+                logger.debug(f"Streaming filesystem extraction progress: {page_count} pages written, last page was {page_num}")
 
-        logger.debug(f"OCR text saved to JSONL file (streaming): {output_path} ({page_count} pages)")
-        return page_count
+    logger.debug(f"OCR text saved to JSONL file (streaming filesystem): {output_path} ({page_count} pages)")
+    return page_count
 
-    except Exception:
-        # Clean up partial file on error
-        if output_path.exists():
-            output_path.unlink()
-        raise
+

@@ -174,11 +174,8 @@ class Storage:
                     if len(path_parts) == 2:
                         bucket, key = path_parts
 
-                        # Use multipart upload for files >5MB, single-part for smaller files
-                        if len(data) > 5 * 1024 * 1024:
-                            await self._multipart_upload(s3_client, bucket, key, data)
-                        else:
-                            await s3_client.put_object(Bucket=bucket, Key=key, Body=data)
+                        # Use single-part upload for bytes data
+                        await s3_client.put_object(Bucket=bucket, Key=key, Body=data)
                         return
             except Exception as e:
                 print(f"Failed to write with aioboto3, falling back to sync: {e}")
@@ -240,7 +237,7 @@ class Storage:
                             file_data = await f.read()
                             put_kwargs = {"Bucket": bucket, "Key": key, "Body": file_data}
                             if metadata:
-                                put_kwargs["Metadata"] = metadata
+                                put_kwargs["Metadata"] = metadata  # type: ignore[assignment]
                             await s3_client.put_object(**put_kwargs)
                     return
             except Exception as e:
@@ -296,7 +293,7 @@ class Storage:
         # Initiate multipart upload
         create_kwargs = {"Bucket": bucket, "Key": key}
         if metadata:
-            create_kwargs["Metadata"] = metadata
+            create_kwargs["Metadata"] = metadata  # type: ignore[assignment]
         response = await s3_client.create_multipart_upload(**create_kwargs)
 
         upload_id = response["UploadId"]

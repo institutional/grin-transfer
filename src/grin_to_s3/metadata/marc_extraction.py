@@ -1,7 +1,6 @@
 """MARC metadata extraction from METS XML files in Google Books archives."""
 
 import logging
-import tarfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -21,12 +20,12 @@ NAMESPACES = {
 }
 
 
-def extract_marc_metadata(archive_path: str | Path) -> dict[str, str | None]:
+def extract_marc_metadata(extracted_dir_path: str | Path) -> dict[str, str | None]:
     """
-    Extract MARC metadata from METS XML in a Google Books tar.gz archive.
+    Extract MARC metadata from METS XML in extracted archive directory.
 
     Args:
-        archive_path: Path to the .tar.gz archive file
+        extracted_dir_path: Path to extracted archive directory (not .tar.gz file)
 
     Returns:
         Dictionary of MARC fields extracted from the METS XML.
@@ -52,55 +51,51 @@ def extract_marc_metadata(archive_path: str | Path) -> dict[str, str | None]:
         - oclc: MARC 035 field (OCLC numbers)
     """
     try:
-        mets_xml_content = _extract_mets_from_archive(archive_path)
+        mets_xml_content = _extract_mets_from_directory(extracted_dir_path)
         if not mets_xml_content:
-            logger.warning(f"No METS XML found in archive: {archive_path}")
+            logger.warning(f"No METS XML found in directory: {extracted_dir_path}")
             return {}
 
         return _parse_marc_from_mets(mets_xml_content)
 
     except Exception as e:
-        logger.error(f"Failed to extract MARC metadata from {archive_path}: {e}")
+        logger.error(f"Failed to extract MARC metadata from directory {extracted_dir_path}: {e}")
         return {}
 
 
-def _extract_mets_from_archive(archive_path: str | Path) -> str | None:
+def _extract_mets_from_directory(extracted_dir_path: str | Path) -> str | None:
     """
-    Extract the METS XML content from a Google Books tar.gz archive.
-
-    Google Books archives typically contain a file named like '{barcode}.xml'
-    which contains the METS metadata.
+    Extract the METS XML content from extracted archive directory.
 
     Args:
-        archive_path: Path to the tar.gz archive
+        extracted_dir_path: Path to extracted directory
 
     Returns:
         XML content as string, or None if not found
     """
     try:
-        with tarfile.open(archive_path, "r:gz") as tar:
-            # Look for XML files in the archive
-            xml_files = [name for name in tar.getnames() if name.endswith(".xml")]
+        extracted_dir = Path(extracted_dir_path)
 
-            if not xml_files:
-                logger.debug(f"No XML files found in archive: {archive_path}")
-                return None
+        # Find XML files in extracted directory
+        xml_files = list(extracted_dir.glob("**/*.xml"))
 
-            # Try each XML file until we find one that works
-            for xml_file in xml_files:
-                try:
-                    xml_member = tar.extractfile(xml_file)
-                    if xml_member:
-                        content = xml_member.read().decode("utf-8")
-                        logger.debug(f"Extracted XML content from {xml_file} in {archive_path}")
-                        return content
+        if not xml_files:
+            logger.debug(f"No XML files found in directory: {extracted_dir_path}")
+            return None
 
-                except Exception as e:
-                    logger.warning(f"Failed to extract {xml_file} from {archive_path}: {e}")
-                    continue
+        # Try each XML file until we find one that works
+        for xml_file in xml_files:
+            try:
+                with open(xml_file, encoding="utf-8") as f:
+                    content = f.read()
+                logger.debug(f"Extracted XML content from {xml_file}")
+                return content
+            except Exception as e:
+                logger.warning(f"Failed to read {xml_file}: {e}")
+                continue
 
     except Exception as e:
-        logger.error(f"Failed to open archive {archive_path}: {e}")
+        logger.error(f"Failed to access directory {extracted_dir_path}: {e}")
 
     return None
 
