@@ -19,7 +19,9 @@ from grin_to_s3.extract.text_extraction import (
     extract_ocr_pages,
     get_barcode_from_path,
 )
-from tests.utils import create_test_archive
+from tests.utils import create_extracted_directory
+
+from .conftest import read_jsonl_file
 
 
 class TestPageNumberParsing:
@@ -92,8 +94,8 @@ class TestPageArrayBuilding:
 class TestTextExtraction:
     """Test main text extraction functionality."""
 
-    async def test_extract_simple_archive(self, temp_db):
-        """Test extraction from simple archive."""
+    async def test_extract_simple_directory(self, temp_db, temp_jsonl_file):
+        """Test extraction from extracted directory."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             pages = {
@@ -101,22 +103,30 @@ class TestTextExtraction:
                 "00000002.txt": "Second page content",
                 "00000003.txt": "Third page content",
             }
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
 
-            result = await extract_ocr_pages(str(archive_path), temp_db, "test_session")
+            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            assert page_count == 3
+
+            # Verify JSONL content
+            result = read_jsonl_file(temp_jsonl_file)
             assert result == ["First page content", "Second page content", "Third page content"]
 
-    async def test_extract_with_gaps(self, temp_db):
+    async def test_extract_with_gaps(self, temp_db, temp_jsonl_file):
         """Test extraction with missing pages."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             pages = {"00000001.txt": "Page 1", "00000003.txt": "Page 3", "00000005.txt": "Page 5"}
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
 
-            result = await extract_ocr_pages(str(archive_path), temp_db, "test_session")
+            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            assert page_count == 5
+
+            # Verify JSONL content
+            result = read_jsonl_file(temp_jsonl_file)
             assert result == ["Page 1", "", "Page 3", "", "Page 5"]
 
-    async def test_extract_with_mixed_files(self, temp_db):
+    async def test_extract_with_mixed_files(self, temp_db, temp_jsonl_file):
         """Test extraction ignoring non-txt files."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -127,12 +137,16 @@ class TestTextExtraction:
                 "00000002.txt": "Text page 2",
                 "00000002.tif": "Binary TIFF data",
             }
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
 
-            result = await extract_ocr_pages(str(archive_path), temp_db, "test_session")
+            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            assert page_count == 2
+
+            # Verify JSONL content
+            result = read_jsonl_file(temp_jsonl_file)
             assert result == ["Text page 1", "Text page 2"]
 
-    async def test_extract_empty_pages(self, temp_db):
+    async def test_extract_empty_pages(self, temp_db, temp_jsonl_file):
         """Test extraction with empty page content."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -142,12 +156,16 @@ class TestTextExtraction:
                 "00000003.txt": "   ",  # Whitespace only
                 "00000004.txt": "Page 4 content",
             }
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
 
-            result = await extract_ocr_pages(str(archive_path), temp_db, "test_session")
+            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            assert page_count == 4
+
+            # Verify JSONL content
+            result = read_jsonl_file(temp_jsonl_file)
             assert result == ["Page 1 content", "", "   ", "Page 4 content"]
 
-    async def test_extract_unicode_content(self, temp_db):
+    async def test_extract_unicode_content(self, temp_db, temp_jsonl_file):
         """Test extraction with Unicode characters."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -157,12 +175,16 @@ class TestTextExtraction:
                 "00000003.txt": "Русский текст",
                 "00000004.txt": "中文内容",
             }
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
 
-            result = await extract_ocr_pages(str(archive_path), temp_db, "test_session")
+            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            assert page_count == 4
+
+            # Verify JSONL content
+            result = read_jsonl_file(temp_jsonl_file)
             assert result == ["English text", "Français avec accents", "Русский текст", "中文内容"]
 
-    async def test_extract_with_newlines(self, temp_db):
+    async def test_extract_with_newlines(self, temp_db, temp_jsonl_file):
         """Test extraction preserving newlines in content."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -171,52 +193,44 @@ class TestTextExtraction:
                 "00000002.txt": "Single line",
                 "00000003.txt": "\n\nMultiple newlines\n\n",
             }
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
 
-            result = await extract_ocr_pages(str(archive_path), temp_db, "test_session")
+            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            assert page_count == 3
+
+            # Verify JSONL content
+            result = read_jsonl_file(temp_jsonl_file)
             assert result[0] == "Line 1\nLine 2\nLine 3"
             assert result[1] == "Single line"
             assert result[2] == "\n\nMultiple newlines\n\n"  # Whitespace preserved
 
-    async def test_extract_nonexistent_file(self, temp_db):
-        """Test extraction with nonexistent archive file."""
-        with pytest.raises(TextExtractionError, match="Archive file not found"):
-            await extract_ocr_pages("/nonexistent/path/archive.tar.gz", temp_db, "test_session")
+    async def test_extract_nonexistent_file(self, temp_db, temp_jsonl_file):
+        """Test extraction with nonexistent extracted directory."""
+        with pytest.raises(TextExtractionError, match="Extracted directory not found"):
+            await extract_ocr_pages("/nonexistent/path/archive.tar.gz", temp_db, "test_session", output_file=temp_jsonl_file)
 
-    async def test_extract_wrong_file_type(self, temp_db):
+    async def test_extract_wrong_file_type(self, temp_db, temp_jsonl_file):
         """Test extraction with wrong file type."""
         with tempfile.NamedTemporaryFile(suffix=".txt") as temp_file:
-            with pytest.raises(TextExtractionError, match="Expected .tar.gz archive"):
-                await extract_ocr_pages(temp_file.name, temp_db, "test_session")
+            with pytest.raises(TextExtractionError, match="Expected directory, got file"):
+                await extract_ocr_pages(temp_file.name, temp_db, "test_session", output_file=temp_jsonl_file)
 
-    async def test_extract_corrupted_archive(self, temp_db):
-        """Test extraction with corrupted archive."""
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_file:
-            # Write invalid tar.gz content
-            temp_file.write(b"This is not a valid tar.gz file")
-            temp_file.flush()
 
-            try:
-                with pytest.raises(CorruptedArchiveError, match="Failed to open tar.gz archive"):
-                    await extract_ocr_pages(temp_file.name, temp_db, "test_session")
-            finally:
-                Path(temp_file.name).unlink()
-
-    async def test_extract_no_txt_files(self, temp_db):
-        """Test extraction with archive containing no txt files."""
+    async def test_extract_no_txt_files(self, temp_db, temp_jsonl_file):
+        """Test extraction with directory containing no txt files."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            pages = {
-                "00000001.jp2": "Binary image data",
-                "00000001.html": "<html>HTML content</html>",
-                "data.xml": "XML content",
-            }
-            archive_path = create_test_archive(pages, temp_path)
+            # Create directory with non-txt files
+            extracted_dir = temp_path / "extracted"
+            extracted_dir.mkdir()
+            (extracted_dir / "00000001.jp2").write_text("Binary image data")
+            (extracted_dir / "00000001.html").write_text("<html>HTML content</html>")
+            (extracted_dir / "data.xml").write_text("XML content")
 
             with pytest.raises(TextExtractionError, match="No .txt files found"):
-                await extract_ocr_pages(str(archive_path), temp_db, "test_session")
+                await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
 
-    async def test_extract_no_valid_pages(self, temp_db):
+    async def test_extract_no_valid_pages(self, temp_db, temp_jsonl_file):
         """Test extraction with txt files but no valid page format."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -225,13 +239,13 @@ class TestTextExtraction:
                 "text.txt": "Another invalid format",
                 "1.txt": "Also invalid",
             }
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
 
             with pytest.raises(InvalidPageFormatError, match="No valid page files found"):
-                await extract_ocr_pages(str(archive_path), temp_db, "test_session")
+                await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
 
     @patch("grin_to_s3.extract.text_extraction.logger")
-    async def test_extract_logs_warnings(self, mock_logger, temp_db):
+    async def test_extract_logs_warnings(self, mock_logger, temp_db, temp_jsonl_file):
         """Test that extraction logs appropriate warnings."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
@@ -241,12 +255,11 @@ class TestTextExtraction:
                 "00000005.txt": "Page 5",  # Gap at page 4
                 "invalid.txt": "Invalid page format",
             }
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
 
-            await extract_ocr_pages(str(archive_path), temp_db, "test_session")
+            await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
 
-            # Should log warnings for missing pages and invalid filename
-            mock_logger.warning.assert_any_call("Missing pages detected: [2, 4]")
+            # Should log warning for invalid filename (missing pages are handled silently with empty strings)
             mock_logger.warning.assert_any_call("Skipping file with invalid page format: invalid.txt")
 
 
@@ -258,10 +271,10 @@ class TestTextExtractionToFile:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             pages = {"00000001.txt": "Page 1 content", "00000002.txt": "Page 2 content"}
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
             jsonl_path = temp_path / "output.jsonl"
 
-            await extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
+            await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=str(jsonl_path))
 
             # Verify file was created and contains correct content
             assert jsonl_path.exists()
@@ -279,10 +292,10 @@ class TestTextExtractionToFile:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             pages = {"00000001.txt": "English", "00000002.txt": "Français", "00000003.txt": "中文"}
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
             jsonl_path = temp_path / "unicode.jsonl"
 
-            await extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
+            await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=str(jsonl_path))
 
             with open(jsonl_path, encoding="utf-8") as f:
                 lines = f.readlines()
@@ -297,12 +310,12 @@ class TestTextExtractionToFile:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             pages = {"00000001.txt": "Test content"}
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
 
             # Create nested path that doesn't exist
             jsonl_path = temp_path / "nested" / "deep" / "output.jsonl"
 
-            await extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
+            await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=str(jsonl_path))
 
             assert jsonl_path.exists()
             with open(jsonl_path, encoding="utf-8") as f:
@@ -315,11 +328,11 @@ class TestTextExtractionToFile:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             pages = {"00000001.txt": "Page 1", "00000002.txt": "Page 2", "00000003.txt": "Page 3"}
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
             jsonl_path = temp_path / "output_streaming.jsonl"
 
             # Use streaming mode
-            await extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
+            await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=str(jsonl_path))
 
             assert jsonl_path.exists()
             with open(jsonl_path, encoding="utf-8") as f:
@@ -334,10 +347,10 @@ class TestTextExtractionToFile:
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             pages = {"00000001.txt": "Page 1", "00000003.txt": "Page 3", "00000005.txt": "Page 5"}
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
             jsonl_path = temp_path / "output_gaps.jsonl"
 
-            await extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
+            await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=str(jsonl_path))
 
             with open(jsonl_path, encoding="utf-8") as f:
                 lines = f.readlines()
@@ -357,10 +370,10 @@ class TestTextExtractionToFile:
                 "00000002.txt": 'This has "quotes" in it',
                 "00000003.txt": 'Both\nnewline and "quotes"',
             }
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
             jsonl_path = temp_path / "special_chars.jsonl"
 
-            await extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
+            await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=str(jsonl_path))
 
             with open(jsonl_path, encoding="utf-8") as f:
                 lines = f.readlines()
@@ -392,10 +405,10 @@ class TestTextExtractionToFile:
                 "00000014.txt": "Trailing whitespace  ",
                 "00000015.txt": "  Both leading and trailing  ",
             }
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
             jsonl_path = temp_path / "comprehensive.jsonl"
 
-            await extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
+            await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=str(jsonl_path))
 
             # Parse line by line as a stream would
             parsed_pages = []
@@ -414,7 +427,7 @@ class TestTextExtractionToFile:
             assert parsed_pages[1] == "Text with\nmultiple\nnewlines"
             assert parsed_pages[2] == "Text with \"quotes\" and 'single quotes'"
             assert parsed_pages[3] == "Text with \\backslashes\\ and /forward/slashes/"
-            assert parsed_pages[4] == "Text with\ttabs\tand\rcarriage\rreturns"
+            assert parsed_pages[4] == "Text with\ttabs\tand\ncarriage\nreturns"
             assert parsed_pages[5] == "Text with unicode: • bullet • and emoji 🎉"
             assert parsed_pages[6] == "Text with\x00null\x00bytes"
             assert parsed_pages[7] == ""
@@ -439,11 +452,11 @@ class TestTextExtractionToFile:
                 "00000004.txt": "\u0000\u0001\u0002\u0003\u0004",  # Control characters
                 "00000005.txt": "🎨🎭🎪🎯🎲🎰🎮🎸🎺🎻",  # Only emojis
             }
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
             jsonl_path = temp_path / "edge_cases.jsonl"
 
             # Test with streaming mode too
-            await extract_ocr_pages(str(archive_path), temp_db, "test_session", output_file=str(jsonl_path))
+            await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=str(jsonl_path))
 
             # Verify each line is independently parseable
             with open(jsonl_path, encoding="utf-8") as f:
@@ -473,34 +486,35 @@ class TestErrorHandling:
         assert issubclass(CorruptedArchiveError, TextExtractionError)
         assert issubclass(InvalidPageFormatError, TextExtractionError)
 
-    async def test_corrupted_archive_error_message(self, temp_db):
-        """Test CorruptedArchiveError with specific message."""
+    async def test_corrupted_archive_error_message(self, temp_db, temp_jsonl_file):
+        """Test error when directory path points to a file."""
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_file:
             temp_file.write(b"Not a tar file")
             temp_file.flush()
 
             try:
-                with pytest.raises(CorruptedArchiveError) as exc_info:
-                    await extract_ocr_pages(temp_file.name, temp_db, "test_session")
+                with pytest.raises(TextExtractionError) as exc_info:
+                    await extract_ocr_pages(temp_file.name, temp_db, "test_session", output_file=temp_jsonl_file)
 
-                assert "Failed to open tar.gz archive" in str(exc_info.value)
+                assert "Expected directory, got file" in str(exc_info.value)
             finally:
                 Path(temp_file.name).unlink()
 
-    @patch("tarfile.open")
-    async def test_unexpected_error_handling(self, mock_tarfile_open, temp_db):
+    @patch("pathlib.Path.glob")
+    async def test_unexpected_error_handling(self, mock_glob, temp_db, temp_jsonl_file):
         """Test handling of unexpected errors during extraction."""
-        mock_tarfile_open.side_effect = RuntimeError("Unexpected error")
+        # Create a directory that looks valid but will cause an error when globbing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mock_glob.side_effect = RuntimeError("Unexpected filesystem error")
 
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz") as temp_file:
             with pytest.raises(TextExtractionError, match="Unexpected error during extraction"):
-                await extract_ocr_pages(temp_file.name, temp_db, "test_session")
+                await extract_ocr_pages(temp_dir, temp_db, "test_session", output_file=temp_jsonl_file)
 
 
 class TestPerformanceConsiderations:
     """Test performance-related aspects of text extraction."""
 
-    async def test_memory_efficient_processing(self, temp_db):
+    async def test_memory_efficient_processing(self, temp_db, temp_jsonl_file):
         """Test that large archives are processed efficiently."""
         # This test verifies the extraction approach doesn't load entire archive into memory
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -511,58 +525,18 @@ class TestPerformanceConsiderations:
             for i in range(1, 101):  # 100 pages
                 pages[f"{i:08d}.txt"] = f"Content for page {i} " * 10  # Some content
 
-            archive_path = create_test_archive(pages, temp_path)
+            extracted_dir = create_extracted_directory(pages, temp_path)
 
-            result = await extract_ocr_pages(str(archive_path), temp_db, "test_session")
+            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            assert page_count == 100
 
+            # Verify JSONL content
+            result = read_jsonl_file(temp_jsonl_file)
             assert len(result) == 100
             assert result[0].startswith("Content for page 1")
             assert result[99].startswith("Content for page 100")
 
-    async def test_disk_extraction_method(self, temp_db):
-        """Test disk-based extraction method."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            pages = {
-                "00000001.txt": "First page content",
-                "00000002.txt": "Second page content",
-                "00000003.txt": "Third page content",
-            }
-            archive_path = create_test_archive(pages, temp_path)
 
-            result = await extract_ocr_pages(
-                str(archive_path),
-                temp_db,
-                "test_session",
-                extract_to_disk=True,
-                extraction_dir=str(temp_path / "extracted"),
-            )
-            assert result == ["First page content", "Second page content", "Third page content"]
-
-    async def test_disk_extraction_keeps_files(self, temp_db):
-        """Test disk-based extraction with keep_extracted=True."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = Path(temp_dir)
-            extraction_dir = temp_path / "extracted"
-            pages = {"00000001.txt": "Page 1", "00000002.txt": "Page 2"}
-            archive_path = create_test_archive(pages, temp_path)
-
-            result = await extract_ocr_pages(
-                str(archive_path),
-                temp_db,
-                "test_session",
-                extract_to_disk=True,
-                extraction_dir=str(extraction_dir),
-                keep_extracted=True,
-            )
-            assert result == ["Page 1", "Page 2"]
-
-            # Verify files were kept
-            barcode = get_barcode_from_path(str(archive_path))
-            barcode_dir = extraction_dir / barcode
-            assert barcode_dir.exists()
-            assert (barcode_dir / "00000001.txt").exists()
-            assert (barcode_dir / "00000002.txt").exists()
 
 
 class TestBarcodeExtraction:

@@ -51,6 +51,10 @@ class StagingDirectoryManager:
         """Get path for decrypted archive file."""
         return self.staging_path / f"{barcode}.decrypted.tar.gz"
 
+    def get_extracted_directory_path(self, barcode: str) -> Path:
+        """Get path for extracted archive directory."""
+        return self.staging_path / f"{barcode}_extracted"
+
     def get_disk_usage(self) -> tuple[int, int, float]:
         """
         Get disk usage information for staging directory.
@@ -193,7 +197,7 @@ class StagingDirectoryManager:
 
     def cleanup_files(self, barcode: str) -> int:
         """
-        Clean up staging files for a specific barcode.
+        Clean up staging files for a specific barcode including extracted directory.
 
         Args:
             barcode: Book barcode to clean up
@@ -203,8 +207,11 @@ class StagingDirectoryManager:
         """
         encrypted_path = self.get_encrypted_file_path(barcode)
         decrypted_path = self.get_decrypted_file_path(barcode)
+        extracted_dir = self.get_extracted_directory_path(barcode)
 
         total_freed = 0
+
+        # Clean up files
         for path in [encrypted_path, decrypted_path]:
             if path.exists():
                 try:
@@ -216,6 +223,19 @@ class StagingDirectoryManager:
                     )
                 except OSError as e:
                     logger.warning(f"[{barcode}] Failed to clean up {path.name}: {e}")
+
+        # Clean up extracted directory
+        if extracted_dir.exists():
+            try:
+                # Calculate directory size before removal
+                dir_size = sum(f.stat().st_size for f in extracted_dir.rglob("*") if f.is_file())
+                shutil.rmtree(extracted_dir)
+                total_freed += dir_size
+                logger.debug(
+                    f"[{barcode}] Cleaned up extracted directory: {extracted_dir.name} ({dir_size / (1024 * 1024):.1f} MB)"
+                )
+            except OSError as e:
+                logger.warning(f"[{barcode}] Failed to clean up extracted directory {extracted_dir.name}: {e}")
 
         return total_freed
 

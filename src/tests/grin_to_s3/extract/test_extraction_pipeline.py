@@ -20,7 +20,6 @@ from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.text_extraction import (
     TextExtractionError,
     extract_ocr_pages,
-    get_barcode_from_path,
 )
 from grin_to_s3.extract.tracking import (
     TEXT_EXTRACTION_STATUS_TYPE,
@@ -30,7 +29,7 @@ from grin_to_s3.extract.tracking import (
     get_failed_extractions,
     get_status_summary,
 )
-from tests.utils import create_test_archive
+from tests.utils import create_extracted_directory
 
 
 @pytest.fixture
@@ -50,13 +49,15 @@ async def temp_db_tracker():
     Path(db_path).unlink(missing_ok=True)
 
 
+
+
 @pytest.fixture
-def test_archive_with_content():
-    """Create a test archive with realistic page content."""
+def test_extracted_directory_with_content():
+    """Create a test extracted directory with realistic page content."""
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = Path(temp_dir)
 
-        # Create archive with multiple pages and various content
+        # Create extracted directory with multiple pages and various content
         pages = {
             "00000001.txt": "Chapter 1: Introduction\n\nThis is the first page of the book.",
             "00000002.txt": "Chapter 1 continued\n\nMore content on page two.",
@@ -65,77 +66,21 @@ def test_archive_with_content():
             "00000006.txt": "Conclusion\n\nFinal thoughts and summary.",
         }
 
-        archive_path = create_test_archive(pages, temp_path)
+        extracted_dir = create_extracted_directory(pages, temp_path, "test_archive_extracted")
 
-        yield str(archive_path)
+        yield str(extracted_dir)
 
 
 class TestExtractionWithTracking:
     """Test text extraction with full database tracking."""
 
-    @pytest.mark.asyncio
-    async def test_successful_extraction_with_tracking(self, temp_db_tracker, test_archive_with_content):
-        """Test successful text extraction with complete status tracking."""
-        # Get the actual barcode from the archive path
-
-        barcode = get_barcode_from_path(test_archive_with_content)
-        session_id = "test_session_123"
-
-        # Run extraction with tracking
-        result = await extract_ocr_pages(
-            test_archive_with_content,
-            temp_db_tracker.db_path,
-            session_id,
-        )
-
-        # Verify extraction results
-        assert len(result) == 6  # Pages 1-6 (including gap at page 4)
-        assert result[0] == "Chapter 1: Introduction\n\nThis is the first page of the book."
-        assert result[1] == "Chapter 1 continued\n\nMore content on page two."
-        assert result[2] == "Chapter 2: Methods\n\nDetailed methodology section."
-        assert result[3] == ""  # Missing page 4
-        assert result[4] == "Chapter 3: Results\n\nPage 5 content (page 4 is missing)."
-        assert result[5] == "Conclusion\n\nFinal thoughts and summary."
-
-        # Verify database tracking was recorded
-        # Allow some time for async tasks to complete
-
-        await asyncio.sleep(0.1)
-
-        # Check status history entries
-        conn = sqlite3.connect(temp_db_tracker.db_path)
-        cursor = conn.execute(
-            """SELECT status_value, metadata FROM book_status_history
-               WHERE barcode = ? AND status_type = ?
-               ORDER BY timestamp""",
-            (barcode, TEXT_EXTRACTION_STATUS_TYPE),
-        )
-        records = cursor.fetchall()
-        conn.close()
-
-        # Should have at least starting and completed status
-        assert len(records) >= 2
-
-        # Check starting status
-        start_record = records[0]
-        assert start_record[0] == ExtractionStatus.STARTING.value
-        start_metadata = json.loads(start_record[1])
-        assert start_metadata["extraction_stage"] == "initialization"
-
-        # Check completion status (last record)
-        completion_record = records[-1]
-        assert completion_record[0] == ExtractionStatus.COMPLETED.value
-        completion_metadata = json.loads(completion_record[1])
-        assert completion_metadata["page_count"] == 6
-        assert completion_metadata["extraction_method"] == "disk"
-        assert completion_metadata["extraction_time_ms"] >= 0  # Can be 0 for very fast extractions
 
     @pytest.mark.asyncio
-    async def test_jsonl_extraction_with_tracking(self, temp_db_tracker, test_archive_with_content):
+    async def test_jsonl_extraction_with_tracking(self, temp_db_tracker, test_extracted_directory_with_content):
         """Test JSONL extraction with database tracking."""
         # Get the actual barcode from the archive path
 
-        barcode = get_barcode_from_path(test_archive_with_content)
+        barcode = Path(test_extracted_directory_with_content).name.replace("_extracted", "")
         session_id = "test_session_456"
 
         with tempfile.NamedTemporaryFile(suffix=".jsonl", delete=False) as f:
@@ -144,7 +89,7 @@ class TestExtractionWithTracking:
         try:
             # Run JSONL extraction with tracking
             page_count = await extract_ocr_pages(
-                test_archive_with_content,
+                test_extracted_directory_with_content,
                 temp_db_tracker.db_path,
                 session_id,
                 output_file=output_path,
@@ -186,7 +131,6 @@ class TestExtractionWithTracking:
             assert record is not None
             metadata = json.loads(record[1])
             assert metadata["page_count"] == 6
-            assert metadata["extraction_method"] == "streaming"
             assert metadata["jsonl_file_size"] > 0
             assert metadata["output_path"] == output_path
 
@@ -194,24 +138,22 @@ class TestExtractionWithTracking:
             Path(output_path).unlink(missing_ok=True)
 
     @pytest.mark.asyncio
-    async def test_extraction_failure_tracking(self, temp_db_tracker):
+    async def test_extraction_failure_tracking(self, temp_db_tracker, temp_jsonl_file):
         """Test that extraction failures are properly tracked in database."""
-        # Create a file with known barcode pattern for predictable tracking
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as f:
-            nonexistent_path = f.name
-        # Remove the file so extraction will fail but we know the barcode
-        Path(nonexistent_path).unlink()
+        # Create a nonexistent directory path for predictable tracking
+        nonexistent_path = "/tmp/test_barcode_extracted"
 
-        barcode = Path(nonexistent_path).name.split(".")[0]  # Extract barcode from filename
+        # Extract barcode the same way the function does
+        barcode = Path(nonexistent_path).name.replace("_extracted", "")  # Should be "test_barcode"
         session_id = "test_session_789"
 
-        # Try to extract from nonexistent file
-
+        # Try to extract from nonexistent directory
         with pytest.raises(TextExtractionError):
             await extract_ocr_pages(
                 nonexistent_path,
                 temp_db_tracker.db_path,
                 session_id,
+                output_file=temp_jsonl_file,
             )
 
         # Allow time for async tasks
@@ -233,22 +175,22 @@ class TestExtractionWithTracking:
         assert "error_type" in metadata
         assert "error_message" in metadata
         assert metadata["partial_page_count"] == 0
-        assert metadata["extraction_method"] in ["memory", "disk"]
 
 
 class TestQueryFunctionsIntegration:
     """Test query functions with real database data."""
 
     @pytest.mark.asyncio
-    async def test_status_summary_with_mixed_extractions(self, temp_db_tracker, test_archive_with_content):
+    async def test_status_summary_with_mixed_extractions(self, temp_db_tracker, test_extracted_directory_with_content, temp_jsonl_file):
         """Test status summary query with multiple extraction records."""
         # Perform several extractions with different outcomes
 
         # Successful extraction
         await extract_ocr_pages(
-            test_archive_with_content,
+            test_extracted_directory_with_content,
             temp_db_tracker.db_path,
             "session1",
+            output_file=temp_jsonl_file,
         )
 
         # Another successful extraction (different barcode)
@@ -387,16 +329,17 @@ class TestSessionTracking:
     """Test session-based tracking functionality."""
 
     @pytest.mark.asyncio
-    async def test_session_tracking_isolation(self, temp_db_tracker, test_archive_with_content):
+    async def test_session_tracking_isolation(self, temp_db_tracker, test_extracted_directory_with_content, temp_jsonl_file):
         """Test that session IDs properly isolate batch operations."""
         session1 = "batch_session_1"
         session2 = "batch_session_2"
 
         # Extract with different session IDs
         await extract_ocr_pages(
-            test_archive_with_content,
+            test_extracted_directory_with_content,
             temp_db_tracker.db_path,
             session1,
+            output_file=temp_jsonl_file,
         )
 
         # Add another book manually for session2

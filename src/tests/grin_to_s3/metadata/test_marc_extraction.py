@@ -12,7 +12,7 @@ from grin_to_s3.metadata.marc_extraction import (
     _extract_date_type_from_008,
     _extract_language_from_008,
     _extract_marc_fields,
-    _extract_mets_from_archive,
+    _extract_mets_from_directory,
     _get_controlfield,
     _get_datafield_subfield,
     _get_datafield_subfield_list,
@@ -173,24 +173,18 @@ class TestMETSParsing:
 class TestArchiveExtraction:
     """Test extraction of METS XML from tar.gz archives."""
 
-    def test_extract_mets_from_valid_archive(self):
-        """Test extracting METS XML from a valid tar.gz archive."""
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_archive:
-            # Create a test tar.gz archive with XML content
-            with tarfile.open(temp_archive.name, "w:gz") as tar:
-                # Add the XML content as a file in the archive
-                xml_info = tarfile.TarInfo(name="test_book.xml")
-                xml_info.size = len(SAMPLE_METS_XML.encode("utf-8"))
-                tar.addfile(xml_info, fileobj=io.BytesIO(SAMPLE_METS_XML.encode("utf-8")))
+    def test_extract_mets_from_valid_directory(self):
+        """Test extracting METS XML from a valid extracted directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            # Create XML file directly in directory
+            xml_file = temp_path / "test_book.xml"
+            xml_file.write_text(SAMPLE_METS_XML, encoding="utf-8")
 
-            temp_path = Path(temp_archive.name)
-            try:
-                result = _extract_mets_from_archive(temp_path)
-                assert result == SAMPLE_METS_XML
-            finally:
-                temp_path.unlink()
+            result = _extract_mets_from_directory(temp_path)
+            assert result == SAMPLE_METS_XML
 
-    def test_extract_mets_from_archive_no_xml(self):
+    def test_extract_mets_from_directory_no_xml(self):
         """Test extracting from archive with no XML files."""
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_archive:
             # Create archive with non-XML file
@@ -202,14 +196,14 @@ class TestArchiveExtraction:
 
             temp_path = Path(temp_archive.name)
             try:
-                result = _extract_mets_from_archive(temp_path)
+                result = _extract_mets_from_directory(temp_path)
                 assert result is None
             finally:
                 temp_path.unlink()
 
     def test_extract_mets_nonexistent_archive(self):
         """Test extracting from non-existent archive."""
-        result = _extract_mets_from_archive("/nonexistent/archive.tar.gz")
+        result = _extract_mets_from_directory("/nonexistent/archive.tar.gz")
         assert result is None
 
     def test_extract_mets_corrupted_archive(self):
@@ -221,7 +215,7 @@ class TestArchiveExtraction:
 
             temp_path = Path(temp_file.name)
             try:
-                result = _extract_mets_from_archive(temp_path)
+                result = _extract_mets_from_directory(temp_path)
                 assert result is None
             finally:
                 temp_path.unlink()
@@ -232,27 +226,26 @@ class TestEndToEndExtraction:
 
     def test_extract_marc_metadata_success(self):
         """Test successful end-to-end MARC metadata extraction."""
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as temp_archive:
-            # Create archive with METS XML
-            with tarfile.open(temp_archive.name, "w:gz") as tar:
-                xml_info = tarfile.TarInfo(name="book_metadata.xml")
-                xml_info.size = len(SAMPLE_METS_XML.encode("utf-8"))
-                tar.addfile(xml_info, fileobj=io.BytesIO(SAMPLE_METS_XML.encode("utf-8")))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-            temp_path = Path(temp_archive.name)
-            try:
-                result = extract_marc_metadata(temp_path)
+            # Create extracted directory with METS XML file
+            extracted_dir = temp_path / "test_archive_extracted"
+            extracted_dir.mkdir()
 
-                # Verify key fields are extracted
-                assert result["control_number"] == "000128102"
-                assert result["title"] == "Annalen der Physik."
-                assert result["author100"] == "Einstein, Albert,"
-                assert result["date1"] == "1790"
-                assert result["language"] == "ger"
-                assert len(result) > 10  # Should have many fields
+            # Create METS XML file in the extracted directory
+            mets_file = extracted_dir / "book_metadata.xml"
+            mets_file.write_text(SAMPLE_METS_XML, encoding="utf-8")
 
-            finally:
-                temp_path.unlink()
+            result = extract_marc_metadata(extracted_dir)
+
+            # Verify key fields are extracted
+            assert result["control_number"] == "000128102"
+            assert result["title"] == "Annalen der Physik."
+            assert result["author100"] == "Einstein, Albert,"
+            assert result["date1"] == "1790"
+            assert result["language"] == "ger"
+            assert len(result) > 10  # Should have many fields
 
     def test_extract_marc_metadata_no_mets(self):
         """Test extraction when archive has no METS XML."""
