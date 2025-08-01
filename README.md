@@ -24,7 +24,7 @@ Using your **GRIN Google Account**:
 4. Click 'Configure consent screen'.
 5. Enter any name in the 'Product name' box, e.g. 'Scripted Access to GRIN'.
 6. Click 'Save'.
-7. There should now be a radio list titled 'Application type'. Click 'Other'. Enter
+7. There should now be a radio list titled 'Application type'. Click 'Desktop App'. Enter
 any name. Click 'Create'.
 8. A dialog box should appear that has 'Here is your client ID' and 'Here is
 your client secret' boxes. Ignore this, just click 'OK'.
@@ -49,22 +49,29 @@ Assuming Docker is running on your local or host machine:
 # Build the docker environment and configure authentication with GRIN
 ./grin-docker auth setup
 
-# Then run a sample collection using the default storage option available in the docker container
-./grin-docker collect --run-name test_run --library-directory YOUR_LIBRARY_DIRECTORY --storage minio --limit 10
+# Then run a sample collection using filesystem storage
+./grin-docker collect --run-name test_run --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=docker-data/storage --limit 5
 
-# You can also connect directly to the docker container if needed
+# Then run a sample sync using that collection
+./grin-docker sync pipeline --run-name test_run
+
+# ...synced book archives and other metadata will be in docker-data/storage
+
+# You can also connect directly to the docker container to explore it
 ./grin-docker bash 
 ```
+
+**MacOS note**: Docker on MacOS will be comparatively slow to decode encrypted archives because it does not have full access to the CPU. We  recommend that you install the application directly on Macs when running in any kind of production capacity. This limitation does not apply to running under Docker on Linux.
 
 ### Local installation
 
 - Requires Python 3.12+
-- Dependencies are managed via `pyproject.toml`
+- Python dependencies are managed via `pyproject.toml`
+- System dependencies: **gpg** for decrypting book archives
 
 ```bash
 # Create and activate a virtual environment
-python -m venv venv
-source venv/bin/activate 
+source ./activate.sh
 
 # Install dependencies
 pip install -e "."
@@ -161,9 +168,6 @@ python grin.py sync pipeline --run-name harvard_2024
 
 # Check sync status
 python grin.py sync status --run-name harvard_2024
-
-# Retry failed syncs only
-python grin.py sync pipeline --run-name harvard_2024 --status failed
 
 ```
 
