@@ -1191,7 +1191,7 @@ class SyncPipeline:
                     f"[{barcode}] Upload task completed (active: {self._active_upload_count}/{self.concurrent_uploads})"
                 )
 
-    async def run_sync(self, queues: list[str], limit: int | None = None, specific_barcodes: list[str] | None = None) -> None:
+    async def run_sync(self, queues: list[str] | None = None, limit: int | None = None, specific_barcodes: list[str] | None = None) -> None:
         """Run the complete sync pipeline.
 
         Args:
@@ -1244,26 +1244,35 @@ class SyncPipeline:
 
         sync_successful = False
         try:
-            # Process queues to get available books
+            # Process queues to get available books (unless specific barcodes are provided)
             all_available_books: set[str] = set()
 
-            print(f"Processing queues: {', '.join(queues)}")
+            if specific_barcodes:
+                # When specific barcodes are provided, skip queue processing
+                print(f"Processing specific barcodes: {', '.join(specific_barcodes[:5])}{'...' if len(specific_barcodes) > 5 else ''}")
+                all_available_books.update(specific_barcodes)
+            elif queues:
+                # Queue-based processing
+                print(f"Processing queues: {', '.join(queues)}")
 
-            for queue_name in queues:
-                print(f"Fetching books from '{queue_name}' queue...")
-                queue_books = await get_books_from_queue(
-                    self.grin_client,
-                    self.library_directory,
-                    queue_name,
-                    self.db_tracker
-                )
+                for queue_name in queues:
+                    print(f"Fetching books from '{queue_name}' queue...")
+                    queue_books = await get_books_from_queue(
+                        self.grin_client,
+                        self.library_directory,
+                        queue_name,
+                        self.db_tracker
+                    )
 
-                if len(queue_books) == 0:
-                    print(f"  Warning: '{queue_name}' queue reports no books available")
-                else:
-                    print(f"  '{queue_name}' queue: {len(queue_books):,} books available")
+                    if len(queue_books) == 0:
+                        print(f"  Warning: '{queue_name}' queue reports no books available")
+                    else:
+                        print(f"  '{queue_name}' queue: {len(queue_books):,} books available")
 
-                all_available_books.update(queue_books)
+                    all_available_books.update(queue_books)
+            else:
+                # This should not happen due to validation, but handle it gracefully
+                raise ValueError("Either queues or specific_barcodes must be provided")
 
             # Get initial status for reporting
             initial_status = await self.get_sync_status()

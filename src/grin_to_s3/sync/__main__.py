@@ -306,11 +306,11 @@ Examples:
   # Sync books from multiple queues in order
   python grin.py sync pipeline --run-name harvard_2024 --queue converted --queue previous
 
-  # Sync specific books only
-  python grin.py sync pipeline --run-name harvard_2024 --queue converted --barcodes "12345,67890,abcde"
+  # Sync specific books only (no --queue needed)
+  python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
 
-  # Sync a single book (auto-optimized settings)
-  python grin.py sync pipeline --run-name harvard_2024 --queue converted --barcodes "39015123456789"
+  # Sync a single book (no --queue needed)
+  python grin.py sync pipeline --run-name harvard_2024 --barcodes "39015123456789"
 
   # Check sync status
   python grin.py sync status --run-name harvard_2024
@@ -334,8 +334,8 @@ Examples:
   python grin.py sync pipeline --run-name harvard_2024 --queue converted --storage r2
       --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
-  # Sync specific books only
-  python grin.py sync pipeline --run-name harvard_2024 --queue converted --barcodes "12345,67890,abcde"
+  # Sync specific books only (no --queue needed with --barcodes)
+  python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
 
   # Retry failed syncs only
   python grin.py sync pipeline --run-name harvard_2024 --queue converted --status failed
@@ -353,8 +353,7 @@ Examples:
         "--queue",
         choices=["converted", "previous", "changed", "all"],
         action="append",
-        required=True,
-        help="Queue type to process. Multiple options allowed (e.g., --queue converted --queue previous). Processed in order specified."
+        help="Queue type to process. Multiple options allowed (e.g., --queue converted --queue previous). Processed in order specified. Required unless --barcodes is provided."
     )
 
     # Storage configuration
@@ -460,6 +459,16 @@ Examples:
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    # Validate --queue and --barcodes mutual exclusivity for pipeline command
+    if args.command == "pipeline":
+        if hasattr(args, "queue") and hasattr(args, "barcodes"):
+            if args.queue and args.barcodes:
+                print("Error: --queue and --barcodes are mutually exclusive. Use either --queue to process from queues or --barcodes to process specific books.")
+                sys.exit(1)
+            elif not args.queue and not args.barcodes:
+                print("Error: Either --queue or --barcodes is required. Use --queue to process from queues or --barcodes to process specific books.")
+                sys.exit(1)
 
     if args.command == "pipeline":
         await cmd_pipeline(args)
