@@ -1156,3 +1156,45 @@ class SQLiteProgressTracker:
             cursor = await db.execute(base_query, params)
             rows = await cursor.fetchall()
             return [(row[0], row[1]) for row in rows]
+
+    async def get_books_by_grin_state(self, grin_state: str) -> set[str]:
+        """Get barcodes for books with specific GRIN state.
+
+        Args:
+            grin_state: GRIN state to filter by (e.g., 'PREVIOUSLY_DOWNLOADED')
+
+        Returns:
+            Set of barcodes with the specified GRIN state
+        """
+        await self.init_db()
+
+        async with connect_async(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT barcode FROM books WHERE grin_state = ?",
+                (grin_state,)
+            )
+            rows = await cursor.fetchall()
+            return {row[0] for row in rows}
+
+    async def get_books_with_status(self, status_value: str, status_type: str = "sync") -> set[str]:
+        """Get barcodes for books with specific status value.
+
+        Args:
+            status_value: Status value to filter by (e.g., 'verified_unavailable')
+            status_type: Status type to filter by (default: 'sync')
+
+        Returns:
+            Set of barcodes with the specified status
+        """
+        await self.init_db()
+
+        async with connect_async(self.db_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT DISTINCT barcode FROM book_status_history
+                WHERE status_type = ? AND status_value = ?
+                """,
+                (status_type, status_value)
+            )
+            rows = await cursor.fetchall()
+            return {row[0] for row in rows}

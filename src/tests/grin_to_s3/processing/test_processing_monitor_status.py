@@ -67,7 +67,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
 
         # Mock GRIN responses - some books are now converted
         converted_books = ["CONV001", "CONV003"]
-        in_process_books = ["CONV002"]
+        in_process_books = {"CONV002"}
         failed_books = []
 
         with (
@@ -106,7 +106,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
 
         # Mock GRIN responses - books are now in process
         converted_books = []
-        in_process_books = ["PROC001", "PROC002"]
+        in_process_books = {"PROC001", "PROC002"}
         failed_books = []
 
         with (
@@ -141,7 +141,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
 
         # Mock GRIN responses - books have failed
         converted_books = []
-        in_process_books = []
+        in_process_books = set()
         failed_books = ["FAIL001", "FAIL002"]
 
         with (
@@ -180,7 +180,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
             patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
         ):
             mock_converted.return_value = [barcode]
-            mock_in_process.return_value = []
+            mock_in_process.return_value = set()
             mock_failed.return_value = []
 
             # Update statuses (should not create duplicate)
@@ -221,7 +221,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
 
         # Mock GRIN responses based on final statuses
         converted_books = ["MIX002", "MIX004"]
-        in_process_books = ["MIX001"]
+        in_process_books = {"MIX001"}
         failed_books = ["MIX003"]
 
         with (
@@ -286,7 +286,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
             patch.object(bad_monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
         ):
             mock_converted.return_value = ["TEST001"]
-            mock_in_process.return_value = []
+            mock_in_process.return_value = set()
             mock_failed.return_value = []
 
             # Should handle error gracefully
@@ -317,7 +317,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
             patch.object(self.monitor, "get_failed_books", new_callable=AsyncMock) as mock_failed,
         ):
             mock_converted.return_value = test_books
-            mock_in_process.return_value = []
+            mock_in_process.return_value = set()
             mock_failed.return_value = []
 
             # Update all statuses at once

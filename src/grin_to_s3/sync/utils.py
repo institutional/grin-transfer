@@ -359,9 +359,26 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
     if queue_name == "converted":
         return await get_converted_books(grin_client, library_directory)
     elif queue_name == "previous":
-        # TODO: Implement previous queue (books with PREVIOUSLY_DOWNLOADED status)
-        logger.warning("Previous queue not yet implemented")
-        return set()
+        if db_tracker is None:
+            raise ValueError("db_tracker is required for previous queue")
+
+        from ..processing import get_in_process_set
+
+        # Get books with PREVIOUSLY_DOWNLOADED status
+        previously_downloaded = await db_tracker.get_books_by_grin_state("PREVIOUSLY_DOWNLOADED")
+
+        # Get in_process queue for filtering
+        in_process = await get_in_process_set(grin_client, library_directory)
+
+        # Get verified_unavailable books for filtering
+        verified_unavailable = await db_tracker.get_books_with_status("verified_unavailable")
+
+        # Return filtered set
+        filtered_books = previously_downloaded - in_process - verified_unavailable
+        logger.info(f"Previous queue: {len(previously_downloaded)} PREVIOUSLY_DOWNLOADED books, "
+                   f"filtered out {len(in_process)} in_process and {len(verified_unavailable)} unavailable, "
+                   f"returning {len(filtered_books)} books")
+        return filtered_books
     elif queue_name == "changed":
         # TODO: Implement changed queue (books with newer versions in GRIN)
         logger.warning("Changed queue not yet implemented")
@@ -369,7 +386,9 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
     elif queue_name == "all":
         # Union of converted and previous queues
         converted = await get_converted_books(grin_client, library_directory)
-        # TODO: Add previous queue when implemented
+        if db_tracker is not None:
+            previous = await get_books_from_queue(grin_client, library_directory, "previous", db_tracker)
+            return converted | previous
         return converted
     else:
         raise ValueError(f"Unknown queue name: {queue_name}")
