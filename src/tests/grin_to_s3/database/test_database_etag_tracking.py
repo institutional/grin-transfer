@@ -3,6 +3,7 @@
 Tests for database ETag tracking functionality.
 """
 
+import asyncio
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -14,6 +15,12 @@ from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.sync.operations import check_and_handle_etag_skip
 from grin_to_s3.sync.utils import should_skip_download
+
+
+@pytest.fixture
+def mock_semaphore():
+    """Mock semaphore for GRIN API concurrency testing."""
+    return asyncio.Semaphore(5)
 
 
 class TestDatabaseETagTracking:
@@ -91,7 +98,7 @@ class TestETagSkipHandling:
         return tracker
 
     @pytest.mark.asyncio
-    async def test_check_and_handle_etag_skip_scenarios(self):
+    async def test_check_and_handle_etag_skip_scenarios(self, mock_semaphore):
         tracker = await self.make_tracker()
 
         # Test ETag match - should skip
@@ -108,7 +115,7 @@ class TestETagSkipHandling:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
             skip_result, etag, size, status_updates = await check_and_handle_etag_skip(
-                "TEST1", mock_grin_client, "Harvard", "local", {}, tracker, False
+                "TEST1", mock_grin_client, "Harvard", "local", {}, tracker, mock_semaphore, False
             )
 
             assert skip_result is not None and skip_result["skipped"]
@@ -135,7 +142,7 @@ class TestETagSkipHandling:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
             skip_result, etag, size, status_updates = await check_and_handle_etag_skip(
-                "TEST2", mock_grin_client2, "Harvard", "local", {}, tracker, False
+                "TEST2", mock_grin_client2, "Harvard", "local", {}, tracker, mock_semaphore, False
             )
 
             assert skip_result is None

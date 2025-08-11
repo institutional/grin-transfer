@@ -156,7 +156,7 @@ def _is_404_error(exception: Exception) -> bool:
 
 
 async def check_archive_availability_with_etag(
-    barcode: str, grin_client: GRINClient, library_directory: str
+    barcode: str, grin_client: GRINClient, library_directory: str, grin_semaphore: asyncio.Semaphore
 ) -> dict[str, Any]:
     """Check archive availability and ETag for processing previously downloaded books.
 
@@ -167,6 +167,7 @@ async def check_archive_availability_with_etag(
         barcode: Book barcode
         grin_client: GRIN client instance
         library_directory: Library directory name
+        grin_semaphore: Semaphore to control GRIN API concurrency (shares 5 QPS limit)
 
     Returns:
         dict with keys:
@@ -178,7 +179,7 @@ async def check_archive_availability_with_etag(
     """
     try:
         # Use existing HEAD checking function
-        etag, file_size, status_code = await check_encrypted_etag(grin_client, library_directory, barcode)
+        etag, file_size, status_code = await check_encrypted_etag(grin_client, library_directory, barcode, grin_semaphore)
 
         if status_code == 200:
             # Archive is available
@@ -223,6 +224,7 @@ async def check_and_handle_etag_skip(
     storage_type: str,
     storage_config: dict[str, Any],
     db_tracker,
+    grin_semaphore: asyncio.Semaphore,
     force: bool = False,
 ) -> tuple[BookSyncResult | None, str | None, int, list]:
     """Check ETag and handle skip scenario if applicable.
@@ -234,6 +236,7 @@ async def check_and_handle_etag_skip(
         storage_type: Storage type
         storage_config: Storage configuration
         db_tracker: Database tracker instance
+        grin_semaphore: Semaphore to control GRIN API concurrency (shares 5 QPS limit)
         force: Force download even if ETag matches
 
     Returns:
@@ -244,7 +247,7 @@ async def check_and_handle_etag_skip(
         - sync_status_updates: List of status updates to be written by caller
     """
     # Check encrypted ETag first
-    encrypted_etag, encrypted_file_size, status_code = await check_encrypted_etag(grin_client, library_directory, barcode)
+    encrypted_etag, encrypted_file_size, status_code = await check_encrypted_etag(grin_client, library_directory, barcode, grin_semaphore)
 
     # If HEAD request returned 404, skip download entirely
     if status_code == 404:

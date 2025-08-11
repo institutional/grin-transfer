@@ -1024,7 +1024,8 @@ class SyncPipeline:
                                         print(f"❌ [{barcode}] Failed: Archive not found (404)")
                                     else:
                                         # Other failures count toward sequential failures
-                                        should_exit = self._handle_failure(barcode, "Download failed")
+                                        error_detail = result.get("error", "Unknown error")
+                                        should_exit = self._handle_failure(barcode, f"Download failed: {error_detail}")
                                         if should_exit:
                                             return
 
@@ -1058,7 +1059,8 @@ class SyncPipeline:
                                     # Track success in process summary
                                     self.process_summary_stage.increment_items(successful=1)
                                 else:
-                                    should_exit = self._handle_failure(barcode, "Upload failed")
+                                    error_detail = result.get("error", "Unknown error")
+                                    should_exit = self._handle_failure(barcode, f"Upload failed: {error_detail}")
                                     if should_exit:
                                         return
 
@@ -1175,6 +1177,7 @@ class SyncPipeline:
                     self.storage_type,
                     self.storage_config,
                     self.db_tracker,
+                    self._download_semaphore,
                     self.force,
                 )
 
