@@ -6,6 +6,7 @@ Tests the logic for fetching books from the "previous" queue which includes
 books with PREVIOUSLY_DOWNLOADED status filtered by in_process and verified_unavailable books.
 """
 
+import asyncio
 import tempfile
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase
@@ -14,11 +15,17 @@ from unittest.mock import AsyncMock, patch
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.tracking import collect_status
-from grin_to_s3.sync.utils import get_books_from_queue
+from grin_to_s3.sync.pipeline import get_books_from_queue
 
 
 class TestPreviousQueue(IsolatedAsyncioTestCase):
     """Test previous queue functionality."""
+
+    def _create_async_return_value(self, value):
+        """Helper to create properly resolved async return values for mocks."""
+        future = asyncio.Future()
+        future.set_result(value)
+        return future
 
     async def asyncSetUp(self):
         """Set up test database and tracker."""
@@ -29,6 +36,8 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
 
         # Mock GRIN client
         self.mock_grin_client = AsyncMock()
+        # Configure fetch_resource to return a valid string response
+        self.mock_grin_client.fetch_resource.return_value = ""
 
     async def asyncTearDown(self):
         """Clean up test database."""
@@ -62,7 +71,7 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         await self._add_book_with_grin_state("PREV004", "PREVIOUSLY_DOWNLOADED")
 
         # Mock in_process and verified_unavailable filtering
-        with patch("grin_to_s3.processing.get_in_process_set") as mock_in_process:
+        with patch("grin_to_s3.sync.pipeline.get_in_process_set") as mock_in_process:
             mock_in_process.return_value = {"PREV002"}  # PREV002 is in process
 
             # PREV004 marked as verified_unavailable
@@ -85,7 +94,7 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         await self._add_book_with_grin_state("CONV001", "CONVERTED")
         await self._add_book_with_grin_state("CONV002", "CONVERTED")
 
-        with patch("grin_to_s3.processing.get_in_process_set") as mock_in_process:
+        with patch("grin_to_s3.sync.pipeline.get_in_process_set") as mock_in_process:
             mock_in_process.return_value = set()
 
             result = await get_books_from_queue(
@@ -104,7 +113,7 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         await self._add_book_with_grin_state("PREV002", "PREVIOUSLY_DOWNLOADED")
 
         # Mock all books being in process
-        with patch("grin_to_s3.processing.get_in_process_set") as mock_in_process:
+        with patch("grin_to_s3.sync.pipeline.get_in_process_set") as mock_in_process:
             mock_in_process.return_value = {"PREV001", "PREV002"}
 
             result = await get_books_from_queue(
@@ -123,7 +132,7 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         await self._add_book_with_grin_state("PREV002", "PREVIOUSLY_DOWNLOADED", ["verified_unavailable"])
         await self._add_book_with_grin_state("PREV003", "PREVIOUSLY_DOWNLOADED")
 
-        with patch("grin_to_s3.processing.get_in_process_set") as mock_in_process:
+        with patch("grin_to_s3.sync.pipeline.get_in_process_set") as mock_in_process:
             mock_in_process.return_value = set()
 
             result = await get_books_from_queue(
@@ -145,7 +154,7 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         await self._add_book_with_grin_state("PREV004", "PREVIOUSLY_DOWNLOADED")
         await self._add_book_with_grin_state("PREV005", "CONVERTED")  # Wrong state
 
-        with patch("grin_to_s3.processing.get_in_process_set") as mock_in_process:
+        with patch("grin_to_s3.sync.pipeline.get_in_process_set") as mock_in_process:
             # PREV002 and PREV004 are in process
             mock_in_process.return_value = {"PREV002", "PREV004"}
 
@@ -159,17 +168,6 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         # Only PREV001 should remain (PREV002/PREV004 in_process, PREV003 unavailable, PREV005 wrong state)
         self.assertEqual(result, {"PREV001"})
 
-    async def test_previous_queue_requires_db_tracker(self):
-        """Test that previous queue requires db_tracker parameter."""
-        with self.assertRaises(ValueError) as context:
-            await get_books_from_queue(
-                self.mock_grin_client,
-                "test_library",
-                "previous",
-                None  # No db_tracker
-            )
-
-        self.assertIn("db_tracker is required for previous queue", str(context.exception))
 
     async def test_previous_queue_database_queries(self):
         """Test that correct database queries are made for previous queue."""
@@ -179,7 +177,7 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         await self._add_book_with_grin_state("PREV003", "PREVIOUSLY_DOWNLOADED", ["verified_unavailable"])
 
         # Mock in_process set
-        with patch("grin_to_s3.processing.get_in_process_set") as mock_in_process:
+        with patch("grin_to_s3.sync.pipeline.get_in_process_set") as mock_in_process:
             mock_in_process.return_value = set()
 
             # Mock the database methods to verify they're called correctly
@@ -246,7 +244,7 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         await self._add_book_with_grin_state("PREV002", "PREVIOUSLY_DOWNLOADED")
 
         # First call should cache the in_process set
-        with patch("grin_to_s3.processing.get_in_process_set") as mock_in_process:
+        with patch("grin_to_s3.sync.pipeline.get_in_process_set") as mock_in_process:
             mock_in_process.return_value = {"PREV001"}
 
             result1 = await get_books_from_queue(

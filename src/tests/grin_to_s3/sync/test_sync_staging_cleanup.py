@@ -95,7 +95,7 @@ class TestSyncStagingCleanup:
         # Mock the pipeline methods to avoid actual sync work
         with patch.object(sync_pipeline, "_run_block_storage_sync"):
             with patch.object(sync_pipeline, "cleanup") as mock_cleanup:
-                with patch("grin_to_s3.sync.pipeline.get_converted_books") as mock_get_books:
+                with patch("grin_to_s3.processing.get_converted_books") as mock_get_books:
                     mock_get_books.return_value = []  # No books to process
 
                     # Mock the progress tracker methods - include all required fields

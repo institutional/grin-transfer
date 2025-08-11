@@ -204,7 +204,7 @@ class TestProcessingClientDataIntegrity:
                 return await super().fetch_resource(directory, resource)
 
         processing_client.grin_client = ConvertedMockClient()
-        from grin_to_s3.sync.utils import get_converted_books
+        from grin_to_s3.processing import get_converted_books
         result = await get_converted_books(processing_client.grin_client, "test_dir")
 
         # Should remove suffix and include books with suffix only
@@ -224,7 +224,7 @@ class TestProcessingClientDataIntegrity:
                 return await super().fetch_resource(directory, resource)
 
         processing_client.grin_client = MalformedMockClient()
-        from grin_to_s3.sync.utils import get_converted_books
+        from grin_to_s3.processing import get_converted_books
         result = await get_converted_books(processing_client.grin_client, "test_dir")
 
         # Current behavior includes empty string from .tar.gz.gpg -> ""
@@ -250,7 +250,7 @@ class TestProcessingClientDataIntegrity:
         assert "Batch request failed for 1 books: Network error" in str(exc_info.value)
 
 
-        from grin_to_s3.sync.utils import get_converted_books
+        from grin_to_s3.processing import get_converted_books
         result = await get_converted_books(processing_client.grin_client, "test_dir")
         assert result == set()
 

@@ -23,6 +23,7 @@ from grin_to_s3.common import (
     pluralize,
     print_oauth_setup_instructions,
     setup_logging,
+    validate_and_parse_barcodes,
 )
 from grin_to_s3.database_utils import batch_write_status_updates, validate_database_file
 from grin_to_s3.extract.tracking import collect_status
@@ -33,12 +34,11 @@ from grin_to_s3.process_summary import (
     save_process_summary,
 )
 from grin_to_s3.run_config import apply_run_config_to_args, find_run_config, setup_run_database_path
-from grin_to_s3.sync.models import validate_and_parse_barcodes
-from grin_to_s3.sync.utils import get_converted_books
 
 from .database import connect_async, connect_sync
 
 logger = logging.getLogger(__name__)
+
 
 
 # Type alias for cache entries: (book_barcodes, cached_timestamp)
@@ -81,6 +81,30 @@ async def get_in_process_set(grin_client, library_directory: str) -> BarcodeSet:
     except Exception as e:
         logger.error(f"Failed to get in_process books for {library_directory}: {e}")
         raise
+
+
+async def get_converted_books(grin_client, library_directory: str) -> set[str]:
+    """Get set of books that are converted and ready for download.
+
+    Args:
+        grin_client: GRIN client instance
+        library_directory: Library directory name
+
+    Returns:
+        set: Set of converted book barcodes
+    """
+    try:
+        response_text = await grin_client.fetch_resource(library_directory, "_converted?format=text")
+        lines = response_text.strip().split("\n")
+        converted_barcodes = set()
+        for line in lines:
+            if line.strip() and ".tar.gz.gpg" in line:
+                barcode = line.strip().replace(".tar.gz.gpg", "")
+                converted_barcodes.add(barcode)
+        return converted_barcodes
+    except Exception as e:
+        logger.warning(f"Failed to get converted books: {e}")
+        return set()
 
 
 async def parse_failed_books_response(grin_client, library_directory: str) -> BarcodeSet:

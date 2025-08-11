@@ -19,6 +19,7 @@ from grin_to_s3.common import (
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_MAX_SEQUENTIAL_FAILURES,
     setup_logging,
+    validate_and_parse_barcodes,
 )
 from grin_to_s3.process_summary import (
     create_book_manager_for_uploads,
@@ -34,7 +35,6 @@ from grin_to_s3.run_config import (
     load_run_config,
     setup_run_database_path,
 )
-from grin_to_s3.sync.models import validate_and_parse_barcodes
 from grin_to_s3.sync.pipeline import SyncPipeline
 from grin_to_s3.sync.status import show_sync_status, validate_database_file
 

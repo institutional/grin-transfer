@@ -6,7 +6,6 @@ Main pipeline orchestration for syncing books from GRIN to storage.
 """
 
 import asyncio
-import logging
 import shutil
 import time
 from pathlib import Path
@@ -27,10 +26,12 @@ from grin_to_s3.common import (
 from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
+from grin_to_s3.processing import get_converted_books, get_in_process_set
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config, get_storage_protocol
 from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.staging import StagingDirectoryManager
+from grin_to_s3.sync.utils import logger
 
 from .csv_export import CSVExportResult, export_and_upload_csv, export_csv_local
 from .database_backup import create_local_database_backup, upload_database_to_storage
@@ -41,17 +42,56 @@ from .operations import (
     sync_book_to_local_storage,
     upload_book_from_staging,
 )
-from .utils import get_books_from_queue, get_converted_books, reset_bucket_cache
-
-# Re-export for backward compatibility with tests
-__all__ = ["get_converted_books"]
-
-logger = logging.getLogger(__name__)
+from .utils import reset_bucket_cache
 
 # Progress reporting intervals
 INITIAL_PROGRESS_INTERVAL = 60  # 1 minute for first few reports
 REGULAR_PROGRESS_INTERVAL = 600  # 10 minutes for subsequent reports
 MAX_INITIAL_REPORTS = 3  # Number of initial reports before switching to regular interval
+
+
+async def get_books_from_queue(grin_client, library_directory: str, queue_name: str, db_tracker) -> set[str]:
+    """Get barcodes from specified queue.
+
+    Args:
+        grin_client: GRIN client instance
+        library_directory: Library directory name
+        queue_name: Queue name (converted, previous, changed, all)
+        db_tracker: Database tracker instance
+
+    Returns:
+        set: Set of barcodes for the specified queue
+    """
+    if queue_name == "converted":
+        return await get_converted_books(grin_client, library_directory)
+    elif queue_name == "previous":
+
+        # Get books with PREVIOUSLY_DOWNLOADED status
+        previously_downloaded = await db_tracker.get_books_by_grin_state("PREVIOUSLY_DOWNLOADED")
+
+        # Get in_process queue for filtering
+        in_process = await get_in_process_set(grin_client, library_directory)
+
+        # Get verified_unavailable books for filtering
+        verified_unavailable = await db_tracker.get_books_with_status("verified_unavailable")
+
+        # Return filtered set
+        filtered_books = previously_downloaded - in_process - verified_unavailable
+        logger.info(f"Previous queue: {len(previously_downloaded)} PREVIOUSLY_DOWNLOADED books, "
+                   f"filtered out {len(in_process)} in_process and {len(verified_unavailable)} unavailable, "
+                   f"returning {len(filtered_books)} books")
+        return filtered_books
+    elif queue_name == "changed":
+        # TODO: Implement changed queue (books with newer versions in GRIN)
+        logger.warning("Changed queue not yet implemented")
+        return set()
+    elif queue_name == "all":
+        # Union of converted and previous queues
+        converted = await get_converted_books(grin_client, library_directory)
+        previous = await get_books_from_queue(grin_client, library_directory, "previous", db_tracker)
+        return converted | previous
+    else:
+        raise ValueError(f"Unknown queue name: {queue_name}")
 
 
 class SyncPipeline:

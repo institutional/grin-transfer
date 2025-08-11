@@ -192,6 +192,45 @@ def calculate_transfer_speed(bytes_transferred: int, duration_seconds: float) ->
     return f"{format_bytes(int(bytes_per_second))}/s"
 
 
+def validate_and_parse_barcodes(barcodes_str: str) -> list[str]:
+    """Validate and parse comma-separated barcode string.
+
+    Args:
+        barcodes_str: Comma-separated string of barcodes
+
+    Returns:
+        List of validated barcodes
+
+    Raises:
+        ValueError: If any barcode is invalid
+    """
+    if not barcodes_str.strip():
+        raise ValueError("Barcodes string cannot be empty")
+
+    # Split by comma and clean up whitespace
+    barcodes = [barcode.strip() for barcode in barcodes_str.split(",")]
+
+    # Remove empty entries
+    barcodes = [barcode for barcode in barcodes if barcode]
+
+    if not barcodes:
+        raise ValueError("No valid barcodes found")
+
+    # Basic barcode validation - check for reasonable format
+    for barcode in barcodes:
+        if not barcode:
+            raise ValueError("Empty barcode found")
+        if len(barcode) < 3 or len(barcode) > 50:
+            raise ValueError(f"Barcode '{barcode}' has invalid length (must be 3-50 characters)")
+        # Check for reasonable characters (alphanumeric, dash, underscore)
+        if not all(c.isalnum() or c in "-_" for c in barcode):
+            raise ValueError(
+                f"Barcode '{barcode}' contains invalid characters (only alphanumeric, dash, underscore allowed)"
+            )
+
+    return barcodes
+
+
 class SlidingWindowRateCalculator:
     """
     Calculate processing rates using a sliding window for more accurate ETAs.
@@ -570,25 +609,6 @@ def print_oauth_setup_instructions() -> None:
         print(f"{command_prefix} auth setup")
 
 
-async def setup_storage_with_checks(storage_type: str, storage_config: dict,
-                                   required_credentials: list[str] | None = None) -> None:
-    """Set up storage with auto-configuration and connectivity checks.
-
-    Args:
-        storage_type: Type of storage ("minio", "r2", "s3", "local")
-        storage_config: Storage configuration dictionary to modify
-        required_credentials: List of required credential keys for auto-config check
-    """
-    if storage_type == "minio":
-        # Auto-configure MinIO if credentials are missing
-        if required_credentials is None:
-            required_credentials = ["endpoint_url", "access_key", "secret_key"]
-
-        if not all(k in storage_config for k in required_credentials):
-            auto_configure_minio(storage_config)
-
-        # Check connectivity
-        await check_minio_connectivity(storage_config)
 
 
 async def check_minio_connectivity(storage_config: dict) -> None:
