@@ -34,6 +34,52 @@ from .database import connect_async, connect_sync
 logger = logging.getLogger(__name__)
 
 
+# Simple cache for in_process books (1 hour TTL)
+_in_process_cache: dict[str, tuple[set[str], float]] = {}
+
+
+async def get_in_process_set(grin_client, library_directory: str) -> set[str]:
+    """Get set of books currently in GRIN processing queue with caching.
+
+    Args:
+        grin_client: GRIN client instance
+        library_directory: Library directory name
+
+    Returns:
+        Set of barcodes currently in processing queue
+    """
+    current_time = time.time()
+    cache_key = library_directory
+
+    # Check cache (1 hour TTL)
+    if cache_key in _in_process_cache:
+        books, cached_time = _in_process_cache[cache_key]
+        if current_time - cached_time < 3600:
+            logger.debug(f"Using cached in_process data for {library_directory}")
+            return books
+
+    try:
+        response_text = await grin_client.fetch_resource(library_directory, "_in_process?format=text")
+        lines = response_text.strip().split("\n")
+        books = {line.strip() for line in lines if line.strip()}
+
+        # Update cache
+        _in_process_cache[cache_key] = (books, current_time)
+        logger.debug(f"Fetched and cached {len(books)} in_process books for {library_directory}")
+        return books
+
+    except Exception as e:
+        logger.error(f"Failed to get in_process books for {library_directory}: {e}")
+        raise
+
+
+async def parse_failed_books_response(grin_client, library_directory: str) -> set[str]:
+    """Parse GRIN _failed endpoint response into a set of barcodes."""
+    response_text = await grin_client.fetch_resource(library_directory, "_failed?format=text")
+    lines = response_text.strip().split("\n")
+    return {line.strip() for line in lines if line.strip()}
+
+
 class ProcessingRequestError(Exception):
     """Raised when book processing request fails."""
 
@@ -163,23 +209,11 @@ class ProcessingClient:
 
     async def get_in_process_books(self) -> set[str]:
         """Get list of books currently in processing queue."""
-        try:
-            response_text = await self.grin_client.fetch_resource(self.directory, "_in_process?format=text")
-            lines = response_text.strip().split("\n")
-            return {line.strip() for line in lines if line.strip()}
-        except Exception as e:
-            logger.warning(f"Failed to get in-process books: {e}")
-            return set()
+        return await get_in_process_set(self.grin_client, self.directory)
 
     async def get_failed_books(self) -> set[str]:
         """Get list of books that failed processing."""
-        try:
-            response_text = await self.grin_client.fetch_resource(self.directory, "_failed?format=text")
-            lines = response_text.strip().split("\n")
-            return {line.strip() for line in lines if line.strip()}
-        except Exception as e:
-            logger.warning(f"Failed to get failed books: {e}")
-            return set()
+        return await parse_failed_books_response(self.grin_client, self.directory)
 
 
 
@@ -682,25 +716,13 @@ class ProcessingMonitor:
             print(f"Warning: Error closing GRIN client session: {e}")
 
 
-    async def get_in_process_books(self) -> list[str]:
-        """Get list of books currently in processing queue."""
-        try:
-            response_text = await self.grin_client.fetch_resource(self.directory, "_in_process?format=text")
-            lines = response_text.strip().split("\n")
-            return [line.strip() for line in lines if line.strip()]
-        except Exception as e:
-            print(f"Error getting in-process books: {e}")
-            return []
+    async def get_in_process_books(self) -> set[str]:
+        """Get set of books currently in processing queue."""
+        return await get_in_process_set(self.grin_client, self.directory)
 
-    async def get_failed_books(self) -> list[str]:
-        """Get list of books that failed processing."""
-        try:
-            response_text = await self.grin_client.fetch_resource(self.directory, "_failed?format=text")
-            lines = response_text.strip().split("\n")
-            return [line.strip() for line in lines if line.strip()]
-        except Exception as e:
-            print(f"Error getting failed books: {e}")
-            return []
+    async def get_failed_books(self) -> set[str]:
+        """Get set of books that failed processing."""
+        return await parse_failed_books_response(self.grin_client, self.directory)
 
     async def get_requested_books(self) -> set[str]:
         """Get list of books that were requested for processing by this run."""
@@ -756,7 +778,7 @@ class ProcessingMonitor:
 
         # Filter GRIN status to only our requested books
         our_converted = requested_books.intersection(set(all_converted))
-        our_in_process = requested_books.intersection(set(all_in_process))
+        our_in_process = requested_books.intersection(all_in_process)
         our_failed = requested_books.intersection(set(all_failed))
 
         # Calculate totals
@@ -788,7 +810,9 @@ class ProcessingMonitor:
             print("No converted books found.")
             return
 
-        for i, barcode in enumerate(converted[:limit], 1):
+        # Convert to sorted list for display
+        sorted_barcodes = sorted(converted)
+        for i, barcode in enumerate(sorted_barcodes[:limit], 1):
             print(f"{i:4}. {barcode}")
 
         if len(converted) > limit:
@@ -806,7 +830,9 @@ class ProcessingMonitor:
             print("No books currently in process.")
             return
 
-        for i, barcode in enumerate(in_process[:limit], 1):
+        # Convert to sorted list for display
+        sorted_barcodes = sorted(in_process)
+        for i, barcode in enumerate(sorted_barcodes[:limit], 1):
             print(f"{i:4}. {barcode}")
 
         if len(in_process) > limit:
@@ -823,7 +849,9 @@ class ProcessingMonitor:
             print("No failed books.")
             return
 
-        for i, barcode in enumerate(failed[:limit], 1):
+        # Convert to sorted list for display
+        sorted_barcodes = sorted(failed)
+        for i, barcode in enumerate(sorted_barcodes[:limit], 1):
             print(f"{i:4}. {barcode}")
 
         if len(failed) > limit:
@@ -885,7 +913,7 @@ class ProcessingMonitor:
 
             # Filter GRIN status to only our requested books
             our_converted = requested_books.intersection(set(all_converted))
-            our_in_process = requested_books.intersection(set(all_in_process))
+            our_in_process = requested_books.intersection(all_in_process)
             our_failed = requested_books.intersection(set(all_failed))
 
             # Calculate totals
@@ -938,8 +966,8 @@ class ProcessingMonitor:
 
             # Get current GRIN state
             converted_books = set(await get_converted_books(self.grin_client, self.directory))
-            in_process_books = set(await self.get_in_process_books())
-            failed_books = set(await self.get_failed_books())
+            in_process_books = await self.get_in_process_books()
+            failed_books = await self.get_failed_books()
 
             # Get books requested by this run
             requested_books = await self.get_requested_books()

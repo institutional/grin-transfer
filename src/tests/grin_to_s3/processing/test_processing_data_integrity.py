@@ -249,24 +249,6 @@ class TestProcessingClientDataIntegrity:
 
         assert "Batch request failed for 1 books: Network error" in str(exc_info.value)
 
-    @pytest.mark.asyncio
-    async def test_status_endpoint_error_recovery(self, processing_client):
-        """Test graceful error handling for status endpoint failures."""
-        # Override the mock to raise exceptions for status endpoints
-        class StatusErrorMockClient(MockProcessingClient):
-            async def fetch_resource(self, directory: str, resource: str):
-                if "_in_process" in resource or "_failed" in resource or "_converted" in resource:
-                    raise Exception("Server error")
-                return await super().fetch_resource(directory, resource)
-
-        processing_client.grin_client = StatusErrorMockClient()
-
-        # Should return empty set on error, not raise exception
-        result = await processing_client.get_in_process_books()
-        assert result == set()
-
-        result = await processing_client.get_failed_books()
-        assert result == set()
 
         from grin_to_s3.sync.utils import get_converted_books
         result = await get_converted_books(processing_client.grin_client, "test_dir")
