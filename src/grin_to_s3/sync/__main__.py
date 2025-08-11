@@ -126,7 +126,7 @@ async def _run_sync_pipeline(args, run_config: RunConfig, sync_stage) -> None:
 
     # Execute the sync pipeline
     sync_stage.add_progress_update("Starting sync pipeline")
-    await pipeline.run_sync(limit=args.limit, specific_barcodes=specific_barcodes)
+    await pipeline.run_sync(queues=args.queue, limit=args.limit, specific_barcodes=specific_barcodes)
     sync_stage.add_progress_update("Sync pipeline completed successfully")
 
 
@@ -301,13 +301,16 @@ async def main() -> None:
         epilog="""
 Examples:
   # Sync all converted books in collection
-  python grin.py sync pipeline --run-name harvard_2024
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted
+
+  # Sync books from multiple queues in order
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --queue previous
 
   # Sync specific books only
-  python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --barcodes "12345,67890,abcde"
 
   # Sync a single book (auto-optimized settings)
-  python grin.py sync pipeline --run-name harvard_2024 --barcodes "39015123456789"
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --barcodes "39015123456789"
 
   # Check sync status
   python grin.py sync status --run-name harvard_2024
@@ -346,6 +349,13 @@ Examples:
     )
 
     pipeline_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
+    pipeline_parser.add_argument(
+        "--queue",
+        choices=["converted", "previous", "changed", "all"],
+        action="append",
+        required=True,
+        help="Queue type to process. Multiple options allowed (e.g., --queue converted --queue previous). Processed in order specified."
+    )
 
     # Storage configuration
     pipeline_parser.add_argument(

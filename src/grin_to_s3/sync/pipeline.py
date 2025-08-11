@@ -41,7 +41,10 @@ from .operations import (
     sync_book_to_local_storage,
     upload_book_from_staging,
 )
-from .utils import get_converted_books, reset_bucket_cache
+from .utils import get_books_from_queue, get_converted_books, reset_bucket_cache
+
+# Re-export for backward compatibility with tests
+__all__ = ["get_converted_books"]
 
 logger = logging.getLogger(__name__)
 
@@ -1188,12 +1191,13 @@ class SyncPipeline:
                     f"[{barcode}] Upload task completed (active: {self._active_upload_count}/{self.concurrent_uploads})"
                 )
 
-    async def run_sync(self, limit: int | None = None, specific_barcodes: list[str] | None = None) -> None:
+    async def run_sync(self, queues: list[str], limit: int | None = None, specific_barcodes: list[str] | None = None) -> None:
         """Run the complete sync pipeline.
 
         Args:
             limit: Optional limit on number of books to sync
             specific_barcodes: Optional list of specific barcodes to sync
+            queues: List of queue types to process (converted, previous, changed, all)
         """
         print("Starting GRIN-to-Storage sync pipeline")
         if self.dry_run:
@@ -1240,15 +1244,28 @@ class SyncPipeline:
 
         sync_successful = False
         try:
-            # Get list of converted books from GRIN
-            print("Fetching list of known-converted books from GRIN...")
-            converted_barcodes = await get_converted_books(self.grin_client, self.library_directory)
-            if len(converted_barcodes) == 0:
-                print("Warning: GRIN reports no converted books available (this could indicate an API issue)")
-            else:
-                print(f"GRIN reports {len(converted_barcodes):,} converted books available for download")
+            # Process queues to get available books
+            all_available_books: set[str] = set()
 
-            # Get initial status
+            print(f"Processing queues: {', '.join(queues)}")
+
+            for queue_name in queues:
+                print(f"Fetching books from '{queue_name}' queue...")
+                queue_books = await get_books_from_queue(
+                    self.grin_client,
+                    self.library_directory,
+                    queue_name,
+                    self.db_tracker
+                )
+
+                if len(queue_books) == 0:
+                    print(f"  Warning: '{queue_name}' queue reports no books available")
+                else:
+                    print(f"  '{queue_name}' queue: {len(queue_books):,} books available")
+
+                all_available_books.update(queue_books)
+
+            # Get initial status for reporting
             initial_status = await self.get_sync_status()
             total_converted = initial_status["total_converted"]
             already_synced = initial_status["synced"]
@@ -1268,18 +1285,18 @@ class SyncPipeline:
                 )
                 await self.start_enrichment_workers()
 
-            # Check how many requested books need syncing
+            # Determine books to sync
             if specific_barcodes:
                 # When specific barcodes are provided, use them directly without database filtering
                 available_to_sync = specific_barcodes
             else:
-                # Standard mode: query database for books that need syncing
+                # Standard mode: filter available books by those that need syncing
                 available_to_sync = await self.db_tracker.get_books_for_sync(
                     storage_type=self.storage_protocol,
-                    converted_barcodes=converted_barcodes,
+                    converted_barcodes=all_available_books,
                 )
 
-            print(f"Found {len(available_to_sync):,} converted books that need syncing")
+            print(f"Found {len(available_to_sync):,} books that need syncing")
 
             # Handle dry-run mode
             if self.dry_run:
@@ -1288,10 +1305,10 @@ class SyncPipeline:
                 return
 
             if not available_to_sync:
-                if len(converted_barcodes) == 0:
-                    print("No converted books available from GRIN")
+                if len(all_available_books) == 0:
+                    print("No books available from any queue")
                 else:
-                    print("No converted books found that need syncing (all may already be synced)")
+                    print("No books found that need syncing (all may already be synced)")
 
                 # Report on pending books
                 pending_books = await self.db_tracker.get_books_for_sync(
@@ -1303,8 +1320,8 @@ class SyncPipeline:
                 if pending_books:
                     print("Status summary:")
                     print(f"  - {len(pending_books):,} books requested for processing but not yet converted")
-                    print(f"  - {len(converted_barcodes):,} books available from GRIN (from other requests)")
-                    print("  - 0 books ready to sync (no overlap between requested and converted)")
+                    print(f"  - {len(all_available_books):,} books available from queues")
+                    print("  - 0 books ready to sync (no overlap between requested and available)")
                     print(
                         f"\nTip: Use 'python grin.py process monitor --run-name "
                         f"{Path(self.db_path).parent.name}' to check processing progress"
