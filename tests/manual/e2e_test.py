@@ -229,6 +229,7 @@ class E2ETestRunner:
         self._run_command([
             self.venv_python, "grin.py", "sync", "pipeline",
             "--run-name", local_run_name,
+            "--queue", "converted",
             "--limit", "1"
         ], cwd=repo_dir, timeout=60)
 
@@ -254,6 +255,7 @@ class E2ETestRunner:
             self._run_command([
                 self.venv_python, "grin.py", "sync", "pipeline",
                 "--run-name", r2_run_name,
+                "--queue", "converted",
                 "--limit", "1"
             ], cwd=repo_dir, timeout=60)
         else:
@@ -386,6 +388,7 @@ class E2ETestRunner:
         self._run_command([
             "./grin-docker", "sync", "pipeline",
             "--run-name", docker_minio_run_name,
+            "--queue", "converted",
             "--limit", "1"
         ], cwd=repo_dir, timeout=120, env=docker_env)
 
@@ -408,6 +411,7 @@ class E2ETestRunner:
             self._run_command([
                 "./grin-docker", "sync", "pipeline",
                 "--run-name", docker_r2_run_name,
+                "--queue", "converted",
                 "--limit", "1"
             ], cwd=repo_dir, timeout=180, env=docker_env)
         else:

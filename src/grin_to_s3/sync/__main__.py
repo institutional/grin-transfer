@@ -328,23 +328,23 @@ Examples:
         epilog="""
 Examples:
   # Basic sync (auto-detects storage config from run)
-  python grin.py sync pipeline --run-name harvard_2024
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted
 
   # Sync with explicit storage configuration
-  python grin.py sync pipeline --run-name harvard_2024 --storage r2
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --storage r2
       --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
   # Sync specific books only
-  python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --barcodes "12345,67890,abcde"
 
   # Retry failed syncs only
-  python grin.py sync pipeline --run-name harvard_2024 --status failed
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --status failed
 
   # Sync with limit and force overwrite
-  python grin.py sync pipeline --run-name harvard_2024 --limit 100 --force
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --limit 100 --force
 
   # Preview what would be processed without actually doing it
-  python grin.py sync pipeline --run-name harvard_2024 --dry-run --limit 10
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --dry-run --limit 10
         """,
     )
 

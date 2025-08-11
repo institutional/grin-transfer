@@ -53,7 +53,7 @@ Assuming Docker is running on your local or host machine:
 ./grin-docker collect --run-name test_run --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=docker-data/storage --limit 5
 
 # Then run a sample sync using that collection
-./grin-docker sync pipeline --run-name test_run
+./grin-docker sync pipeline --run-name test_run --queue converted
 
 # ...synced book archives and other metadata will be in docker-data/storage
 
@@ -86,7 +86,7 @@ python grin.py auth setup --remote-auth
 python grin.py collect --run-name test_run --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=/tmp/grin-to-s3-storage --limit 10
 
 # And sync those 10 files
-python grin.py sync pipeline --run-name test_run
+python grin.py sync pipeline --run-name test_run --queue converted
 ```
 ## Pipeline concepts
 
@@ -164,7 +164,7 @@ Download converted books from GRIN to storage with database tracking.
 
 ```bash
 # Sync converted books to storage (auto-detects config from run)
-python grin.py sync pipeline --run-name harvard_2024
+python grin.py sync pipeline --run-name harvard_2024 --queue converted
 
 # Check sync status
 python grin.py sync status --run-name harvard_2024
