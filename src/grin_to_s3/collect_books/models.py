@@ -1157,6 +1157,23 @@ class SQLiteProgressTracker:
             rows = await cursor.fetchall()
             return [(row[0], row[1]) for row in rows]
 
+    async def _execute_barcode_query(self, query: str, params: tuple) -> set[str]:
+        """Execute a SQL query and return a set of barcodes.
+
+        Args:
+            query: SQL query that selects barcodes
+            params: Query parameters
+
+        Returns:
+            Set of barcodes from query results
+        """
+        await self.init_db()
+
+        async with connect_async(self.db_path) as db:
+            cursor = await db.execute(query, params)
+            rows = await cursor.fetchall()
+            return {row[0] for row in rows}
+
     async def get_books_by_grin_state(self, grin_state: str) -> set[str]:
         """Get barcodes for books with specific GRIN state.
 
@@ -1166,15 +1183,10 @@ class SQLiteProgressTracker:
         Returns:
             Set of barcodes with the specified GRIN state
         """
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT barcode FROM books WHERE grin_state = ?",
-                (grin_state,)
-            )
-            rows = await cursor.fetchall()
-            return {row[0] for row in rows}
+        return await self._execute_barcode_query(
+            "SELECT barcode FROM books WHERE grin_state = ?",
+            (grin_state,)
+        )
 
     async def get_books_with_status(self, status_value: str, status_type: str = "sync") -> set[str]:
         """Get barcodes for books with specific status value.
@@ -1186,15 +1198,7 @@ class SQLiteProgressTracker:
         Returns:
             Set of barcodes with the specified status
         """
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(
-                """
-                SELECT DISTINCT barcode FROM book_status_history
-                WHERE status_type = ? AND status_value = ?
-                """,
-                (status_type, status_value)
-            )
-            rows = await cursor.fetchall()
-            return {row[0] for row in rows}
+        return await self._execute_barcode_query(
+            "SELECT DISTINCT barcode FROM book_status_history WHERE status_type = ? AND status_value = ?",
+            (status_type, status_value)
+        )
