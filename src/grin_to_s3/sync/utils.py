@@ -6,13 +6,17 @@ Shared utility functions for sync operations including bucket management,
 storage helpers, and common operations.
 """
 
+import asyncio
 import json
 import logging
 import os
 from typing import Any
 
+import aiohttp
 import boto3
 from botocore.exceptions import ClientError
+
+from grin_to_s3.common import create_http_session
 
 from ..database import connect_async
 from ..storage.factories import get_storage_protocol, load_r2_credentials, s3_credentials_available
@@ -177,43 +181,45 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
         return False
 
 
-async def check_encrypted_etag(grin_client, library_directory: str, barcode: str) -> tuple[str | None, int | None]:
+async def check_encrypted_etag(grin_client, library_directory: str, barcode: str, grin_semaphore: asyncio.Semaphore) -> tuple[str | None, int | None, int | None]:
     """Make HEAD request to get encrypted file's ETag and file size before downloading.
 
     Args:
         grin_client: GRIN client instance
         library_directory: Library directory name
         barcode: Book barcode
+        grin_semaphore: Semaphore to control GRIN API concurrency (shares 5 QPS limit)
 
     Returns:
-        tuple: (etag, file_size) or (None, None) if check fails
+        tuple: (etag, file_size, status_code) where status_code is 200 on success or HTTP status on error
     """
     try:
-        from grin_to_s3.common import create_http_session
-
         grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
         logger.debug(f"[{barcode}] Checking encrypted ETag via HEAD request to {grin_url}")
 
-        async with create_http_session() as session:
-            # Make HEAD request to get headers without downloading content
-            head_response = await grin_client.auth.make_authenticated_request(session, grin_url, method="HEAD")
+        # Use semaphore to respect GRIN 5 QPS limit (shared with downloads)
+        async with grin_semaphore:
+            async with create_http_session() as session:
+                # Make HEAD request to get headers without downloading content
+                head_response = await grin_client.auth.make_authenticated_request(session, grin_url, method="HEAD")
 
-            # Look for ETag and Content-Length headers
-            etag = head_response.headers.get("ETag", "").strip('"')
-            content_length = head_response.headers.get("Content-Length", "")
+                # Look for ETag and Content-Length headers
+                etag = head_response.headers.get("ETag", "").strip('"')
+                content_length = head_response.headers.get("Content-Length", "")
 
-            file_size = int(content_length) if content_length else None
+                file_size = int(content_length) if content_length else None
 
-            if etag:
-                logger.debug(f"[{barcode}] Encrypted ETag: {etag}, size: {file_size or 'unknown'}")
-                return etag, file_size
-            else:
-                logger.debug(f"[{barcode}] No ETag found in Google response")
-                return None, file_size
+                if etag:
+                    logger.debug(f"[{barcode}] Encrypted ETag: {etag}, size: {file_size or 'unknown'}")
+                    return etag, file_size, 200
+                else:
+                    logger.debug(f"[{barcode}] No ETag found in Google response")
+                    return None, file_size, 200
 
-    except Exception as e:
-        logger.warning(f"[{barcode}] Failed to check encrypted ETag: {e}")
-        return None, None
+    except aiohttp.ClientResponseError as e:
+        # Return HTTP status code for HTTP errors (404, 500, etc.)
+        logger.info(f"[{barcode}] HEAD request returned HTTP {e.status}")
+        return None, None, e.status
 
 
 async def should_skip_download(

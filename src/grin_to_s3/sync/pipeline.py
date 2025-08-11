@@ -37,6 +37,7 @@ from .csv_export import CSVExportResult, export_and_upload_csv, export_csv_local
 from .database_backup import create_local_database_backup, upload_database_to_storage
 from .models import create_sync_stats
 from .operations import (
+    _is_404_error,
     check_and_handle_etag_skip,
     download_book_to_staging,
     sync_book_to_local_storage,
@@ -65,7 +66,6 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
     if queue_name == "converted":
         return await get_converted_books(grin_client, library_directory)
     elif queue_name == "previous":
-
         # Get books with PREVIOUSLY_DOWNLOADED status
         previously_downloaded = await db_tracker.get_books_by_grin_state("PREVIOUSLY_DOWNLOADED")
 
@@ -77,9 +77,11 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
 
         # Return filtered set
         filtered_books = previously_downloaded - in_process - verified_unavailable
-        logger.info(f"Previous queue: {len(previously_downloaded)} PREVIOUSLY_DOWNLOADED books, "
-                   f"filtered out {len(in_process)} in_process and {len(verified_unavailable)} unavailable, "
-                   f"returning {len(filtered_books)} books")
+        logger.info(
+            f"Previous queue: {len(previously_downloaded)} PREVIOUSLY_DOWNLOADED books, "
+            f"filtered out {len(in_process)} in_process and {len(verified_unavailable)} unavailable, "
+            f"returning {len(filtered_books)} books"
+        )
         return filtered_books
     elif queue_name == "changed":
         # TODO: Implement changed queue (books with newer versions in GRIN)
@@ -552,7 +554,10 @@ class SyncPipeline:
                             # No enrichment data found, but mark as processed
                             enrichment_status_updates.append(
                                 collect_status(
-                                    barcode, "enrichment", "completed", metadata={"worker_id": worker_id, "result": "no_data"}
+                                    barcode,
+                                    "enrichment",
+                                    "completed",
+                                    metadata={"worker_id": worker_id, "result": "no_data"},
                                 )
                             )
                             logger.debug(f"[{worker_name}] No enrichment data for {barcode}")
@@ -560,7 +565,9 @@ class SyncPipeline:
                     except Exception as e:
                         # Mark as failed with error details
                         enrichment_status_updates.append(
-                            collect_status(barcode, "enrichment", "failed", metadata={"worker_id": worker_id, "error": str(e)})
+                            collect_status(
+                                barcode, "enrichment", "failed", metadata={"worker_id": worker_id, "error": str(e)}
+                            )
                         )
                         logger.error(f"[{worker_name}] ❌ Failed to enrich {barcode}: {e}")
 
@@ -568,7 +575,9 @@ class SyncPipeline:
                     try:
                         await batch_write_status_updates(str(self.db_tracker.db_path), enrichment_status_updates)
                     except Exception as status_error:
-                        logger.warning(f"[{worker_name}] Failed to write enrichment status for {barcode}: {status_error}")
+                        logger.warning(
+                            f"[{worker_name}] Failed to write enrichment status for {barcode}: {status_error}"
+                        )
 
                     # Mark queue task as done
                     self.enrichment_queue.task_done()
@@ -655,8 +664,6 @@ class SyncPipeline:
         except Exception as e:
             logger.error(f"CSV export failed with exception: {e}", exc_info=True)
             return {"status": "failed", "file_size": 0, "num_rows": 0, "export_time": 0.0}
-
-
 
     async def _backup_database_at_start(self) -> None:
         """Create and upload database backup at start of sync process."""
@@ -842,11 +849,20 @@ class SyncPipeline:
                                 await self.queue_book_for_enrichment(completed_barcode)
                             else:
                                 error_msg = result.get("error", "Unknown error")
-                                should_exit = self._handle_failure(
-                                    completed_barcode, f"Local storage sync failed: {error_msg}"
-                                )
-                                if should_exit:
-                                    return
+
+                                # Check if this is a 404 - don't count 404s toward sequential failures
+                                if result.get("is_404"):
+                                    # 404s don't count toward sequential failures
+                                    self.stats["failed"] += 1
+                                    logger.error(f"[{completed_barcode}] ❌ Failed: Archive not found (404)")
+                                    print(f"❌ [{completed_barcode}] Failed: Archive not found (404)")
+                                else:
+                                    # Other failures count toward sequential failures
+                                    should_exit = self._handle_failure(
+                                        completed_barcode, f"Local storage sync failed: {error_msg}"
+                                    )
+                                    if should_exit:
+                                        return
 
                         except Exception as e:
                             self._completed_count += 1  # Book is fully processed (failed)
@@ -999,9 +1015,19 @@ class SyncPipeline:
                                 else:
                                     # Download failed, update stats
                                     self._completed_count += 1  # Book is fully processed (failed)
-                                    should_exit = self._handle_failure(barcode, "Download failed")
-                                    if should_exit:
-                                        return
+
+                                    # Check if this is a 404 - don't count 404s toward sequential failures
+                                    if result.get("is_404"):
+                                        # 404s don't count toward sequential failures
+                                        self.stats["failed"] += 1
+                                        logger.error(f"[{barcode}] ❌ Failed: Archive not found (404)")
+                                        print(f"❌ [{barcode}] Failed: Archive not found (404)")
+                                    else:
+                                        # Other failures count toward sequential failures
+                                        error_detail = result.get("error", "Unknown error")
+                                        should_exit = self._handle_failure(barcode, f"Download failed: {error_detail}")
+                                        if should_exit:
+                                            return
 
                                     # Track download failure in process summary
                                     self.process_summary_stage.increment_items(failed=1)
@@ -1033,7 +1059,8 @@ class SyncPipeline:
                                     # Track success in process summary
                                     self.process_summary_stage.increment_items(successful=1)
                                 else:
-                                    should_exit = self._handle_failure(barcode, "Upload failed")
+                                    error_detail = result.get("error", "Unknown error")
+                                    should_exit = self._handle_failure(barcode, f"Upload failed: {error_detail}")
                                     if should_exit:
                                         return
 
@@ -1150,6 +1177,7 @@ class SyncPipeline:
                     self.storage_type,
                     self.storage_config,
                     self.db_tracker,
+                    self._download_semaphore,
                     self.force,
                 )
 
@@ -1184,8 +1212,14 @@ class SyncPipeline:
                 }
 
             except Exception as e:
-                logger.error(f"[{barcode}] Download failed: {e}", exc_info=True)
-                return {"barcode": barcode, "download_success": False, "error": str(e)}
+                # Check if this is a 404 error
+                is_404 = _is_404_error(e)
+
+                if is_404:
+                    logger.info(f"[{barcode}] Archive not found (404)")
+                else:
+                    logger.error(f"[{barcode}] Download failed: {e}", exc_info=True)
+                return {"barcode": barcode, "download_success": False, "error": str(e), "is_404": is_404}
             finally:
                 self._active_download_count -= 1
                 logger.info(
@@ -1231,7 +1265,9 @@ class SyncPipeline:
                     f"[{barcode}] Upload task completed (active: {self._active_upload_count}/{self.concurrent_uploads})"
                 )
 
-    async def run_sync(self, queues: list[str] | None = None, limit: int | None = None, specific_barcodes: list[str] | None = None) -> None:
+    async def run_sync(
+        self, queues: list[str] | None = None, limit: int | None = None, specific_barcodes: list[str] | None = None
+    ) -> None:
         """Run the complete sync pipeline.
 
         Args:
@@ -1289,7 +1325,9 @@ class SyncPipeline:
 
             if specific_barcodes:
                 # When specific barcodes are provided, skip queue processing
-                print(f"Processing specific barcodes: {', '.join(specific_barcodes[:5])}{'...' if len(specific_barcodes) > 5 else ''}")
+                print(
+                    f"Processing specific barcodes: {', '.join(specific_barcodes[:5])}{'...' if len(specific_barcodes) > 5 else ''}"
+                )
                 all_available_books.update(specific_barcodes)
             elif queues:
                 # Queue-based processing
@@ -1298,10 +1336,7 @@ class SyncPipeline:
                 for queue_name in queues:
                     print(f"Fetching books from '{queue_name}' queue...")
                     queue_books = await get_books_from_queue(
-                        self.grin_client,
-                        self.library_directory,
-                        queue_name,
-                        self.db_tracker
+                        self.grin_client, self.library_directory, queue_name, self.db_tracker
                     )
 
                     if len(queue_books) == 0:
@@ -1417,9 +1452,9 @@ class SyncPipeline:
         """Show what would be processed in dry-run mode without actually doing it."""
         books_to_process = min(limit or len(available_to_sync), len(available_to_sync))
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print("DRY-RUN PREVIEW: Books that would be processed")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         if books_to_process == 0:
             print("No books would be processed.")
@@ -1449,11 +1484,11 @@ class SyncPipeline:
                 else:
                     title = "Unknown Title"
 
-                print(f"{i+1:3d}. {barcode} - {title}")
+                print(f"{i + 1:3d}. {barcode} - {title}")
         except Exception:
             # Fallback if we can't get book records
             for i, barcode in enumerate(available_to_sync[:books_to_process]):
-                print(f"{i+1:3d}. {barcode} - Unknown Title")
+                print(f"{i + 1:3d}. {barcode} - Unknown Title")
 
         print("-" * 60)
         print("Operations that would be performed per book:")
@@ -1473,6 +1508,6 @@ class SyncPipeline:
             print("  9. Clean up staging files")
 
         print("\nDRY-RUN COMPLETE: No actual processing performed")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         logger.info(f"DRY-RUN: Would process {books_to_process} books with storage type {self.storage_type}")

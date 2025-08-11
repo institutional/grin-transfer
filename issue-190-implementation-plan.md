@@ -141,38 +141,45 @@ WHERE status_type = 'sync' AND status_value = 'verified_unavailable';
 
 ---
 
-### PR 4: Add HEAD request and ETag checking for previous queue
+### PR 4: Add HEAD request and ETag checking for previous queue ✅ **COMPLETED**
 **Scope:** Archive availability checking and ETag comparison
 
-**Files to modify:**
-- `src/grin_to_s3/sync/operations.py` - Add archive availability checking
-- `src/grin_to_s3/sync/pipeline.py` - Integrate HEAD checking into sync flow
-- `src/tests/grin_to_s3/sync/test_archive_checking.py` - New test file
+**Files modified:**
+- `src/grin_to_s3/sync/operations.py` - Added `check_archive_availability_with_etag()` function
+- `src/grin_to_s3/sync/utils.py` - Enhanced `check_encrypted_etag()` with rate limiting
+- `src/grin_to_s3/sync/pipeline.py` - Fixed error messages to include specific details
+- `src/tests/grin_to_s3/sync/test_archive_checking.py` - Comprehensive test suite
+- All test files updated with mock semaphore fixtures
 
-**Changes:**
+**Key implementation changes:**
+- **Rate limiting fix**: HEAD requests now share the same 5 QPS semaphore as downloads
+- **Enhanced error messages**: Replace generic "Download failed" with specific error details
+- **Concurrent request control**: All GRIN API requests (HEAD + downloads) respect shared rate limit
+- **Archive availability function**: `check_archive_availability_with_etag()` provides structured response
+
+**Actual implementation:**
 ```python
-async def check_archive_availability(barcode: str, grin_client, library_directory: str) -> dict:
-    """Check if archive exists and get its ETag.
-    
-    Returns:
-        dict with keys:
-        - available: bool (True if 200, False if 404)
-        - etag: str | None (ETag if available)
-        - needs_download: bool (True if ETag differs from stored)
-    """
-    # HEAD request implementation
-    pass
+async def check_encrypted_etag(grin_client, library_directory: str, barcode: str, grin_semaphore: asyncio.Semaphore) -> tuple[str | None, int | None, int | None]:
+    """Make HEAD request with proper rate limiting."""
+    # Use semaphore to respect GRIN 5 QPS limit (shared with downloads)
+    async with grin_semaphore:
+        async with create_http_session() as session:
+            head_response = await grin_client.auth.make_authenticated_request(session, grin_url, method="HEAD")
+            # ... ETag extraction logic
 ```
 
-**Integration in pipeline:**
-- For previous queue books, check availability before download
-- Compare ETags to determine if re-download needed
-- Skip if ETag matches (already have latest version)
+**Pipeline integration:**
+- HEAD requests use `self._download_semaphore` for shared concurrency control
+- Error messages now include specific failure reasons: `f"Download failed: {error_detail}"`
+- All GRIN API requests properly coordinated to prevent rate limit violations
 
-**Testing:**
-- Mock HEAD responses (200 with ETag, 404, errors)
-- ETag comparison logic
-- Integration with existing sync flow
+**Testing completed:**
+- HEAD request scenarios (200 with ETag, 404, network errors)
+- Rate limiting and semaphore sharing validation
+- Error message improvement verification
+- Mock semaphore fixtures for all affected tests
+
+**Commit:** `5c479a8 - Ensure HEAD requests respect GRIN 5 QPS rate limit and improve error messages`
 
 ---
 
@@ -233,11 +240,11 @@ async def handle_missing_archive(barcode: str, grin_client, db_tracker, request_
 
 ## Implementation Order and Dependencies
 
-1. **PR 1** - Database infrastructure (no dependencies)
-2. **PR 2** - In-process queue fetching (depends on PR 1)
-3. **PR 3** - Previous queue logic (depends on PR 2)
-4. **PR 4** - HEAD/ETag checking (depends on PR 3)
-5. **PR 5** - Conversion requests (depends on PR 4)
+1. **PR 1** - Database infrastructure (no dependencies) ✅ **COMPLETED**
+2. **PR 2** - In-process queue fetching (depends on PR 1) ✅ **COMPLETED** 
+3. **PR 3** - Previous queue logic (depends on PR 2) ✅ **COMPLETED**
+4. **PR 4** - HEAD/ETag checking (depends on PR 3) ✅ **COMPLETED**
+5. **PR 5** - Conversion requests (depends on PR 4) 🔄 **IN PROGRESS**
 
 ## Key Design Decisions
 

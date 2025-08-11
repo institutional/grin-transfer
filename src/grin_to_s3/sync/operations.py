@@ -150,6 +150,73 @@ def _convert_marc_keys_to_db_fields(marc_data: dict[str, str | None]) -> dict[st
 logger = logging.getLogger(__name__)
 
 
+def _is_404_error(exception: Exception) -> bool:
+    """Check if an exception is a 404 (Not Found) error."""
+    return isinstance(exception, aiohttp.ClientResponseError) and exception.status == 404
+
+
+async def check_archive_availability_with_etag(
+    barcode: str, grin_client: GRINClient, library_directory: str, grin_semaphore: asyncio.Semaphore
+) -> dict[str, Any]:
+    """Check archive availability and ETag for processing previously downloaded books.
+
+    Makes a HEAD request to determine if an archive exists and returns detailed
+    information about availability, ETag, and whether conversion might be needed.
+
+    Args:
+        barcode: Book barcode
+        grin_client: GRIN client instance
+        library_directory: Library directory name
+        grin_semaphore: Semaphore to control GRIN API concurrency (shares 5 QPS limit)
+
+    Returns:
+        dict with keys:
+        - available: bool (True if archive exists)
+        - etag: str | None (ETag if available)
+        - file_size: int | None (File size if available)
+        - http_status: int | None (HTTP status code)
+        - needs_conversion: bool (True if 404, indicating conversion may be needed)
+    """
+    try:
+        # Use existing HEAD checking function
+        etag, file_size, status_code = await check_encrypted_etag(grin_client, library_directory, barcode, grin_semaphore)
+
+        if status_code == 200:
+            # Archive is available
+            return {
+                "available": True,
+                "etag": etag,
+                "file_size": file_size,
+                "http_status": status_code,
+                "needs_conversion": False,
+            }
+        elif status_code == 404:
+            # Archive not found
+            logger.debug(f"[{barcode}] Archive not available (404), may need conversion")
+            return {
+                "available": False,
+                "etag": None,
+                "file_size": None,
+                "http_status": status_code,
+                "needs_conversion": True,
+            }
+        else:
+            # Other HTTP error
+            logger.warning(f"[{barcode}] Archive check returned HTTP {status_code}")
+            return {
+                "available": False,
+                "etag": None,
+                "file_size": None,
+                "http_status": status_code,
+                "needs_conversion": False,  # Don't attempt conversion on other errors
+            }
+
+    except Exception as e:
+        # Network/other errors that should be retried upstream
+        logger.warning(f"[{barcode}] Archive availability check failed: {e}")
+        raise  # Let upstream handle retries
+
+
 async def check_and_handle_etag_skip(
     barcode: str,
     grin_client: GRINClient,
@@ -157,6 +224,7 @@ async def check_and_handle_etag_skip(
     storage_type: str,
     storage_config: dict[str, Any],
     db_tracker,
+    grin_semaphore: asyncio.Semaphore,
     force: bool = False,
 ) -> tuple[BookSyncResult | None, str | None, int, list]:
     """Check ETag and handle skip scenario if applicable.
@@ -168,6 +236,7 @@ async def check_and_handle_etag_skip(
         storage_type: Storage type
         storage_config: Storage configuration
         db_tracker: Database tracker instance
+        grin_semaphore: Semaphore to control GRIN API concurrency (shares 5 QPS limit)
         force: Force download even if ETag matches
 
     Returns:
@@ -178,7 +247,34 @@ async def check_and_handle_etag_skip(
         - sync_status_updates: List of status updates to be written by caller
     """
     # Check encrypted ETag first
-    encrypted_etag, encrypted_file_size = await check_encrypted_etag(grin_client, library_directory, barcode)
+    encrypted_etag, encrypted_file_size, status_code = await check_encrypted_etag(grin_client, library_directory, barcode, grin_semaphore)
+
+    # If HEAD request returned 404, skip download entirely
+    if status_code == 404:
+        logger.info(f"[{barcode}] Archive not available (404) - skipping download")
+
+        # Collect status for 404 archives
+        sync_status_updates = [
+            collect_status(
+                barcode,
+                "sync",
+                "skipped",
+                metadata={
+                    "etag_checked_at": datetime.now(UTC).isoformat(),
+                    "storage_type": storage_type,
+                    "skipped": True,
+                    "skip_reason": "archive_not_found_404",
+                    "http_status": 404,
+                },
+            )
+        ]
+
+        return (
+            create_book_sync_result(barcode, "completed", True, None, 0, 0),
+            None,
+            0,
+            sync_status_updates,
+        )
 
     # Check if we should skip download based on ETag match
     should_skip, skip_reason = await should_skip_download(
@@ -188,18 +284,20 @@ async def check_and_handle_etag_skip(
         logger.info(f"[{barcode}] Skipping download - {skip_reason}")
 
         # Collect ETag check status for batch writing
-        sync_status_updates = [collect_status(
-            barcode,
-            "sync",
-            "skipped",
-            metadata={
-                "encrypted_etag": encrypted_etag,
-                "etag_checked_at": datetime.now(UTC).isoformat(),
-                "storage_type": storage_type,
-                "skipped": True,
-                "skip_reason": skip_reason,
-            },
-        )]
+        sync_status_updates = [
+            collect_status(
+                barcode,
+                "sync",
+                "skipped",
+                metadata={
+                    "encrypted_etag": encrypted_etag,
+                    "etag_checked_at": datetime.now(UTC).isoformat(),
+                    "storage_type": storage_type,
+                    "skipped": True,
+                    "skip_reason": skip_reason,
+                },
+            )
+        ]
 
         return (
             create_book_sync_result(barcode, "completed", True, encrypted_etag, encrypted_file_size or 0, 0),
@@ -335,26 +433,30 @@ async def extract_and_upload_ocr_text(
         logger.info(f"[{barcode}] Starting OCR text extraction from extracted directory")
 
         # Collect extraction start status
-        status_updates.append(collect_status(
-            barcode,
-            "text_extraction",
-            ExtractionStatus.STARTING.value,
-            metadata={"session_id": session_id, "source": "sync_pipeline"},
-            session_id=session_id
-        ))
+        status_updates.append(
+            collect_status(
+                barcode,
+                "text_extraction",
+                ExtractionStatus.STARTING.value,
+                metadata={"session_id": session_id, "source": "sync_pipeline"},
+                session_id=session_id,
+            )
+        )
 
         # Create temporary JSONL file in staging directory
         staging_dir = staging_manager.staging_path if staging_manager else Path(extracted_dir).parent
         jsonl_file = staging_dir / f"{barcode}_ocr_temp.jsonl"
 
         # Collect extraction progress status
-        status_updates.append(collect_status(
-            barcode,
-            "text_extraction",
-            ExtractionStatus.EXTRACTING.value,
-            metadata={"jsonl_file": str(jsonl_file)},
-            session_id=session_id,
-        ))
+        status_updates.append(
+            collect_status(
+                barcode,
+                "text_extraction",
+                ExtractionStatus.EXTRACTING.value,
+                metadata={"jsonl_file": str(jsonl_file)},
+                session_id=session_id,
+            )
+        )
 
         # Extract OCR text to JSONL file
         start_time = time.time()
@@ -382,23 +484,23 @@ async def extract_and_upload_ocr_text(
         await book_manager.save_ocr_text_jsonl_from_file(barcode, str(jsonl_file), metadata=upload_metadata)
 
         logger.info(
-            f"[{barcode}] OCR text JSON saved to bucket_full "
-            f"({jsonl_file_size / 1024:.1f} KB, {extraction_time_ms}ms)"
+            f"[{barcode}] OCR text JSON saved to bucket_full ({jsonl_file_size / 1024:.1f} KB, {extraction_time_ms}ms)"
         )
 
         # Collect successful completion status
-        status_updates.append(collect_status(
-            barcode,
-            "text_extraction",
-            ExtractionStatus.COMPLETED.value,
-            metadata={
-                "page_count": page_count,
-                "extraction_time_ms": extraction_time_ms,
-                "jsonl_file_size": jsonl_file_size,
-            },
-            session_id=session_id,
-        ))
-
+        status_updates.append(
+            collect_status(
+                barcode,
+                "text_extraction",
+                ExtractionStatus.COMPLETED.value,
+                metadata={
+                    "page_count": page_count,
+                    "extraction_time_ms": extraction_time_ms,
+                    "jsonl_file_size": jsonl_file_size,
+                },
+                session_id=session_id,
+            )
+        )
 
         # Clean up temporary JSONL file
         jsonl_file.unlink(missing_ok=True)
@@ -408,16 +510,18 @@ async def extract_and_upload_ocr_text(
         logger.error(f"[{barcode}] OCR extraction failed but sync continues: {e}")
 
         # Collect failure status but don't raise - this is non-blocking
-        status_updates.append(collect_status(
-            barcode,
-            "text_extraction",
-            ExtractionStatus.FAILED.value,
-            metadata={
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-            },
-            session_id=session_id,
-        ))
+        status_updates.append(
+            collect_status(
+                barcode,
+                "text_extraction",
+                ExtractionStatus.FAILED.value,
+                metadata={
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                },
+                session_id=session_id,
+            )
+        )
 
     return status_updates
 
@@ -448,56 +552,64 @@ async def extract_and_update_marc_metadata(
         logger.info(f"[{barcode}] Starting MARC metadata extraction from extracted directory")
 
         # Collect extraction start status
-        status_updates.append(collect_status(
-            barcode,
-            "text_extraction",
-            ExtractionStatus.STARTING.value,
-            metadata={"session_id": session_id, "source": "sync_pipeline", "extraction_type": "marc"},
-            session_id=session_id,
-        ))
+        status_updates.append(
+            collect_status(
+                barcode,
+                "text_extraction",
+                ExtractionStatus.STARTING.value,
+                metadata={"session_id": session_id, "source": "sync_pipeline", "extraction_type": "marc"},
+                session_id=session_id,
+            )
+        )
 
         # Extract MARC metadata
         try:
             # Collect extraction progress status
-            status_updates.append(collect_status(
-                barcode,
-                "text_extraction",
-                ExtractionStatus.EXTRACTING.value,
-                metadata={"extraction_type": "marc", "extracted_dir": str(extracted_dir)},
-                session_id=session_id,
-            ))
+            status_updates.append(
+                collect_status(
+                    barcode,
+                    "text_extraction",
+                    ExtractionStatus.EXTRACTING.value,
+                    metadata={"extraction_type": "marc", "extracted_dir": str(extracted_dir)},
+                    session_id=session_id,
+                )
+            )
 
             # Extract MARC metadata from the extracted directory
             marc_metadata = extract_marc_metadata(str(extracted_dir))
 
             if not marc_metadata:
                 logger.warning(f"[{barcode}] No MARC metadata found in archive")
-                status_updates.append(collect_status(
-                    barcode,
-                    "text_extraction",
-                    ExtractionStatus.FAILED.value,
-                    metadata={
-                        "error_type": "NoMARCDataFound",
-                        "error_message": "No MARC metadata found",
-                        "extraction_type": "marc",
-                    },
-                    session_id=session_id,
-                ))
+                status_updates.append(
+                    collect_status(
+                        barcode,
+                        "text_extraction",
+                        ExtractionStatus.FAILED.value,
+                        metadata={
+                            "error_type": "NoMARCDataFound",
+                            "error_message": "No MARC metadata found",
+                            "extraction_type": "marc",
+                        },
+                        session_id=session_id,
+                    )
+                )
                 return status_updates
 
             # Update database with MARC metadata
             if db_tracker:
-                status_updates.append(collect_status(
-                    barcode,
-                    "text_extraction",
-                    ExtractionStatus.EXTRACTING.value,
-                    metadata={
-                        "extraction_type": "marc",
-                        "fields_count": len(marc_metadata),
-                        "stage": "database_update",
-                    },
-                    session_id=session_id,
-                ))
+                status_updates.append(
+                    collect_status(
+                        barcode,
+                        "text_extraction",
+                        ExtractionStatus.EXTRACTING.value,
+                        metadata={
+                            "extraction_type": "marc",
+                            "fields_count": len(marc_metadata),
+                            "stage": "database_update",
+                        },
+                        session_id=session_id,
+                    )
+                )
 
                 # Convert MARC extraction keys to database field names
                 db_marc_data = _convert_marc_keys_to_db_fields(marc_metadata)
@@ -510,47 +622,53 @@ async def extract_and_update_marc_metadata(
                 )
 
                 # Collect completion status
-                status_updates.append(collect_status(
-                    barcode,
-                    "text_extraction",
-                    ExtractionStatus.COMPLETED.value,
-                    metadata={
-                        "extraction_type": "marc",
-                        "fields_extracted": len(marc_metadata),
-                        "completion_time": datetime.now(UTC).isoformat(),
-                    },
-                    session_id=session_id,
-                ))
+                status_updates.append(
+                    collect_status(
+                        barcode,
+                        "text_extraction",
+                        ExtractionStatus.COMPLETED.value,
+                        metadata={
+                            "extraction_type": "marc",
+                            "fields_extracted": len(marc_metadata),
+                            "completion_time": datetime.now(UTC).isoformat(),
+                        },
+                        session_id=session_id,
+                    )
+                )
 
         except Exception as extraction_error:
             logger.error(f"[{barcode}] MARC extraction failed: {extraction_error}")
-            status_updates.append(collect_status(
+            status_updates.append(
+                collect_status(
+                    barcode,
+                    "text_extraction",
+                    ExtractionStatus.FAILED.value,
+                    metadata={
+                        "error_type": type(extraction_error).__name__,
+                        "error_message": str(extraction_error),
+                        "extraction_type": "marc",
+                        "error_time": datetime.now(UTC).isoformat(),
+                    },
+                    session_id=session_id,
+                )
+            )
+
+    except Exception as outer_error:
+        logger.error(f"[{barcode}] MARC extraction workflow failed: {outer_error}")
+        status_updates.append(
+            collect_status(
                 barcode,
                 "text_extraction",
                 ExtractionStatus.FAILED.value,
                 metadata={
-                    "error_type": type(extraction_error).__name__,
-                    "error_message": str(extraction_error),
+                    "error_type": type(outer_error).__name__,
+                    "error_message": str(outer_error),
                     "extraction_type": "marc",
-                    "error_time": datetime.now(UTC).isoformat(),
+                    "workflow_error": True,
                 },
                 session_id=session_id,
-            ))
-
-    except Exception as outer_error:
-        logger.error(f"[{barcode}] MARC extraction workflow failed: {outer_error}")
-        status_updates.append(collect_status(
-            barcode,
-            "text_extraction",
-            ExtractionStatus.FAILED.value,
-            metadata={
-                "error_type": type(outer_error).__name__,
-                "error_message": str(outer_error),
-                "extraction_type": "marc",
-                "workflow_error": True,
-            },
-            session_id=session_id,
-        ))
+            )
+        )
 
     return status_updates
 
@@ -886,7 +1004,6 @@ async def sync_book_to_local_storage(
 
         # Extract archive atomically for both OCR and MARC extraction
         if (not skip_extract_ocr) or (not skip_extract_marc):
-
             try:
                 extract_archive(final_decrypted_path, temp_extracted_dir, barcode, "local storage")
 
@@ -899,7 +1016,9 @@ async def sync_book_to_local_storage(
 
                 if not skip_extract_marc:
                     # Run MARC extraction for local storage
-                    marc_task = asyncio.create_task(extract_and_update_marc_metadata(barcode, temp_extracted_dir, db_tracker))
+                    marc_task = asyncio.create_task(
+                        extract_and_update_marc_metadata(barcode, temp_extracted_dir, db_tracker)
+                    )
                     extraction_tasks.append(marc_task)
 
             except Exception as extraction_error:
@@ -944,9 +1063,16 @@ async def sync_book_to_local_storage(
         }
 
     except Exception as e:
-        logger.error(f"[{barcode}] Local storage sync failed: {e}")
+        # Check if this is a 404 error
+        is_404 = _is_404_error(e)
+
+        if is_404:
+            logger.info(f"[{barcode}] Archive not found (404)")
+        else:
+            logger.error(f"[{barcode}] Local storage sync failed: {e}")
         return {
             "barcode": barcode,
             "status": "failed",
             "error": str(e),
+            "is_404": is_404,
         }
