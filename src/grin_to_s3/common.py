@@ -26,6 +26,10 @@ from .auth.grin_auth import find_credential_file
 logger = logging.getLogger(__name__)
 
 
+# Common type aliases
+type BarcodeSet = set[str]
+
+
 
 def extract_bucket_config(storage_type: str, config_dict: dict) -> BucketConfig:
     """

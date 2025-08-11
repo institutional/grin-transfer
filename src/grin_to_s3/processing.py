@@ -16,7 +16,14 @@ from pathlib import Path
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.common import RateLimiter, format_duration, pluralize, print_oauth_setup_instructions, setup_logging
+from grin_to_s3.common import (
+    BarcodeSet,
+    RateLimiter,
+    format_duration,
+    pluralize,
+    print_oauth_setup_instructions,
+    setup_logging,
+)
 from grin_to_s3.database_utils import batch_write_status_updates, validate_database_file
 from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.process_summary import (
@@ -34,11 +41,14 @@ from .database import connect_async, connect_sync
 logger = logging.getLogger(__name__)
 
 
-# Simple cache for in_process books (1 hour TTL)
-_in_process_cache: dict[str, tuple[set[str], float]] = {}
+# Type alias for cache entries: (book_barcodes, cached_timestamp)
+type CacheEntry = tuple[BarcodeSet, float]
+
+# Cache for in_process books by library directory (1 hour TTL)
+_in_process_cache: dict[str, CacheEntry] = {}
 
 
-async def get_in_process_set(grin_client, library_directory: str) -> set[str]:
+async def get_in_process_set(grin_client, library_directory: str) -> BarcodeSet:
     """Get set of books currently in GRIN processing queue with caching.
 
     Args:
@@ -73,7 +83,7 @@ async def get_in_process_set(grin_client, library_directory: str) -> set[str]:
         raise
 
 
-async def parse_failed_books_response(grin_client, library_directory: str) -> set[str]:
+async def parse_failed_books_response(grin_client, library_directory: str) -> BarcodeSet:
     """Parse GRIN _failed endpoint response into a set of barcodes."""
     response_text = await grin_client.fetch_resource(library_directory, "_failed?format=text")
     lines = response_text.strip().split("\n")
@@ -207,11 +217,11 @@ class ProcessingClient:
 
         return status
 
-    async def get_in_process_books(self) -> set[str]:
+    async def get_in_process_books(self) -> BarcodeSet:
         """Get list of books currently in processing queue."""
         return await get_in_process_set(self.grin_client, self.directory)
 
-    async def get_failed_books(self) -> set[str]:
+    async def get_failed_books(self) -> BarcodeSet:
         """Get list of books that failed processing."""
         return await parse_failed_books_response(self.grin_client, self.directory)
 
@@ -716,15 +726,15 @@ class ProcessingMonitor:
             print(f"Warning: Error closing GRIN client session: {e}")
 
 
-    async def get_in_process_books(self) -> set[str]:
+    async def get_in_process_books(self) -> BarcodeSet:
         """Get set of books currently in processing queue."""
         return await get_in_process_set(self.grin_client, self.directory)
 
-    async def get_failed_books(self) -> set[str]:
+    async def get_failed_books(self) -> BarcodeSet:
         """Get set of books that failed processing."""
         return await parse_failed_books_response(self.grin_client, self.directory)
 
-    async def get_requested_books(self) -> set[str]:
+    async def get_requested_books(self) -> BarcodeSet:
         """Get list of books that were requested for processing by this run."""
         if not self.db_path:
             return set()
