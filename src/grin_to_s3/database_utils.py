@@ -21,6 +21,9 @@ from .database import connect_async, connect_sync
 
 logger = logging.getLogger(__name__)
 
+# Status value constants
+VERIFIED_UNAVAILABLE_STATUS = "verified_unavailable"
+
 
 def retry_database_operation(func):
     """
