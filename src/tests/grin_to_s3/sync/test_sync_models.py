@@ -5,10 +5,10 @@ Tests for sync models and data validation.
 
 import pytest
 
+from grin_to_s3.common import validate_and_parse_barcodes
 from grin_to_s3.sync.models import (
     create_book_sync_result,
     create_sync_stats,
-    validate_and_parse_barcodes,
 )
 
 

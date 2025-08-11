@@ -44,7 +44,7 @@ class TestSyncPipelineConcurrency:
         ):
             # Mock get_converted_books to return test books
             with patch(
-                "grin_to_s3.sync.pipeline.get_converted_books",
+                "grin_to_s3.processing.get_converted_books",
                 return_value={"book1", "book2", "book3", "book4", "book5"},
             ):
                 # Mock database methods
@@ -100,7 +100,7 @@ class TestSyncPipelineConcurrency:
             patch("grin_to_s3.sync.pipeline.upload_book_from_staging", return_value={"success": True}),
         ):
             # Mock get_converted_books
-            with patch("grin_to_s3.sync.pipeline.get_converted_books", return_value={"book1", "book2"}):
+            with patch("grin_to_s3.processing.get_converted_books", return_value={"book1", "book2"}):
                 # Mock database methods
                 mock_pipeline_dependencies["tracker"].get_books_for_sync = AsyncMock(return_value=["book1", "book2"])
                 mock_pipeline_dependencies["tracker"].get_sync_stats = AsyncMock(

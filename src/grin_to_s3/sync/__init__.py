@@ -11,7 +11,6 @@ from .models import (
     SyncStats,
     create_book_sync_result,
     create_sync_stats,
-    validate_and_parse_barcodes,
 )
 from .operations import (
     check_and_handle_etag_skip,
@@ -29,12 +28,13 @@ from .status import (
 from .utils import (
     check_encrypted_etag,
     ensure_bucket_exists,
-    get_converted_books,
     reset_bucket_cache,
     should_skip_download,
 )
 
 __all__ = [
+    # Main entry point
+    "main",
     # Core sync functions
     "check_and_handle_etag_skip",
     "download_book_to_staging",
@@ -45,7 +45,6 @@ __all__ = [
     "SyncStats",
     "create_book_sync_result",
     "create_sync_stats",
-    "validate_and_parse_barcodes",
     # Pipeline orchestration
     "SyncPipeline",
     # Status operations
@@ -56,9 +55,6 @@ __all__ = [
     # Utility functions
     "check_encrypted_etag",
     "ensure_bucket_exists",
-    "get_converted_books",
     "reset_bucket_cache",
     "should_skip_download",
-    # Main entry point
-    "main",
 ]

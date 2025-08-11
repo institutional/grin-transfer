@@ -332,19 +332,11 @@ class SQLiteProgressTracker:
 
     async def is_processed(self, barcode: str) -> bool:
         """Check if barcode was successfully processed."""
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute("SELECT 1 FROM processed WHERE barcode = ?", (barcode,))
-            return await cursor.fetchone() is not None
+        return await self._execute_exists_query("SELECT 1 FROM processed WHERE barcode = ?", (barcode,))
 
     async def is_failed(self, barcode: str) -> bool:
         """Check if barcode previously failed."""
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute("SELECT 1 FROM failed WHERE barcode = ?", (barcode,))
-            return await cursor.fetchone() is not None
+        return await self._execute_exists_query("SELECT 1 FROM failed WHERE barcode = ?", (barcode,))
 
     async def is_known(self, barcode: str) -> bool:
         """Check if barcode was processed or failed (either state) with caching."""
@@ -365,104 +357,36 @@ class SQLiteProgressTracker:
 
         return is_known
 
-    async def load_known_barcodes_batch(self, barcodes: set[str]) -> set[str]:
-        """
-        Batch load known barcodes (processed or failed) for performance.
-
-        Args:
-            barcodes: Set of barcodes to check
-
-        Returns:
-            Set of barcodes that are known (processed or failed)
-        """
-        if not barcodes:
-            return set()
-
-        await self.init_db()
-        known_barcodes: set[str] = set()
-
-        # Convert to list for SQL query
-        barcode_list = list(barcodes)
-
-        async with connect_async(self.db_path) as db:
-            # Check processed barcodes in batch
-            placeholders = ",".join("?" * len(barcode_list))
-
-            cursor = await db.execute(f"SELECT barcode FROM processed WHERE barcode IN ({placeholders})", barcode_list)
-            processed_rows = await cursor.fetchall()
-            known_barcodes.update(row[0] for row in processed_rows)
-
-            # Check failed barcodes in batch
-            cursor = await db.execute(f"SELECT barcode FROM failed WHERE barcode IN ({placeholders})", barcode_list)
-            failed_rows = await cursor.fetchall()
-            known_barcodes.update(row[0] for row in failed_rows)
-
-        return known_barcodes
-
-    async def get_all_known_barcodes(self) -> set[str]:
-        """
-        Load all known barcodes (processed + failed) into memory.
-        Use carefully - only for small to medium datasets.
-        """
-        await self.init_db()
-        known_barcodes: set[str] = set()
-
-        async with connect_async(self.db_path) as db:
-            # Get all processed barcodes
-            cursor = await db.execute("SELECT barcode FROM processed")
-            processed_rows = await cursor.fetchall()
-            known_barcodes.update(row[0] for row in processed_rows)
-
-            # Get all failed barcodes
-            cursor = await db.execute("SELECT barcode FROM failed")
-            failed_rows = await cursor.fetchall()
-            known_barcodes.update(row[0] for row in failed_rows)
-
-        return known_barcodes
 
     async def get_processed_count(self) -> int:
         """Get total number of successfully processed barcodes."""
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM processed")
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        return await self._execute_count_query("SELECT COUNT(*) FROM processed", ())
 
     async def get_failed_count(self) -> int:
         """Get total number of failed barcodes."""
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM failed")
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        return await self._execute_count_query("SELECT COUNT(*) FROM failed", ())
 
     async def get_session_stats(self) -> dict:
         """Get statistics for current session."""
-        await self.init_db()
+        # Current session counts
+        session_processed = await self._execute_count_query(
+            "SELECT COUNT(*) FROM processed WHERE session_id = ?", (self.session_id,)
+        )
+        session_failed = await self._execute_count_query(
+            "SELECT COUNT(*) FROM failed WHERE session_id = ?", (self.session_id,)
+        )
 
-        async with connect_async(self.db_path) as db:
-            # Current session counts
-            cursor = await db.execute("SELECT COUNT(*) FROM processed WHERE session_id = ?", (self.session_id,))
-            session_processed_row = await cursor.fetchone()
-            session_processed = session_processed_row[0] if session_processed_row else 0
+        # Total counts
+        total_processed = await self.get_processed_count()
+        total_failed = await self.get_failed_count()
 
-            cursor = await db.execute("SELECT COUNT(*) FROM failed WHERE session_id = ?", (self.session_id,))
-            session_failed_row = await cursor.fetchone()
-            session_failed = session_failed_row[0] if session_failed_row else 0
-
-            # Total counts
-            total_processed = await self.get_processed_count()
-            total_failed = await self.get_failed_count()
-
-            return {
-                "session_processed": session_processed,
-                "session_failed": session_failed,
-                "total_processed": total_processed,
-                "total_failed": total_failed,
-                "session_id": self.session_id,
-            }
+        return {
+            "session_processed": session_processed,
+            "session_failed": session_failed,
+            "total_processed": total_processed,
+            "total_failed": total_failed,
+            "session_id": self.session_id,
+        }
 
     async def cleanup_old_sessions(self, keep_sessions: int = 5) -> None:
         """Remove data from old sessions, keeping only the most recent N sessions."""
@@ -609,24 +533,13 @@ class SQLiteProgressTracker:
 
     async def get_book_count(self) -> int:
         """Get total number of books in database."""
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM books")
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        return await self._execute_count_query("SELECT COUNT(*) FROM books", ())
 
     async def get_enriched_book_count(self) -> int:
         """Get count of books with enrichment data."""
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute("""
-                SELECT COUNT(*) FROM books
-                WHERE enrichment_timestamp IS NOT NULL
-            """)
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        return await self._execute_count_query(
+            "SELECT COUNT(*) FROM books WHERE enrichment_timestamp IS NOT NULL", ()
+        )
 
     @retry_database_operation
     async def update_sync_data(self, barcode: str, sync_data: dict) -> bool:
@@ -781,125 +694,107 @@ class SQLiteProgressTracker:
         Returns:
             Dictionary with sync statistics
         """
-        await self.init_db()
+        # Base filters - check all books since availability is determined at download time
+        where_clause = "WHERE 1=1"
+        params = []
 
-        async with connect_async(self.db_path) as db:
-            # Base filters - check all books since availability is determined at download time
-            where_clause = "WHERE 1=1"
-            params = []
+        if storage_type:
+            where_clause += " AND (b.storage_type IS NULL OR b.storage_type = ?)"
+            params.append(storage_type)
 
-            if storage_type:
-                where_clause += " AND (b.storage_type IS NULL OR b.storage_type = ?)"
-                params.append(storage_type)
+        # Total books (potential candidates for download)
+        total_converted = await self._execute_count_query(
+            f"SELECT COUNT(*) FROM books b {where_clause}", tuple(params)
+        )
 
-            # Total books (potential candidates for download)
-            cursor = await db.execute(f"SELECT COUNT(*) FROM books b {where_clause}", params)
-            row = await cursor.fetchone()
-            total_converted = row[0] if row else 0
-
-            # Get latest sync status for each book using status history
-            # Synced books (downloaded status)
-            cursor = await db.execute(
-                f"""
-                SELECT COUNT(DISTINCT b.barcode)
-                FROM books b
-                JOIN book_status_history h ON b.barcode = h.barcode
-                {where_clause} AND h.status_type = 'sync' AND h.status_value = 'completed'
-                AND h.timestamp = (
-                    SELECT MAX(timestamp)
-                    FROM book_status_history h2
-                    WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
-                )
-            """,
-                params,
+        # Get latest sync status for each book using status history
+        # Synced books (downloaded status)
+        synced_count = await self._execute_count_query(
+            f"""
+            SELECT COUNT(DISTINCT b.barcode)
+            FROM books b
+            JOIN book_status_history h ON b.barcode = h.barcode
+            {where_clause} AND h.status_type = 'sync' AND h.status_value = 'completed'
+            AND h.timestamp = (
+                SELECT MAX(timestamp)
+                FROM book_status_history h2
+                WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
             )
-            row = await cursor.fetchone()
-            synced_count = row[0] if row else 0
+            """, tuple(params)
+        )
 
-            # Failed sync books
-            cursor = await db.execute(
-                f"""
-                SELECT COUNT(DISTINCT b.barcode)
-                FROM books b
-                JOIN book_status_history h ON b.barcode = h.barcode
-                {where_clause} AND h.status_type = 'sync' AND h.status_value = 'failed'
-                AND h.timestamp = (
-                    SELECT MAX(timestamp)
-                    FROM book_status_history h2
-                    WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
-                )
-            """,
-                params,
+        # Failed sync books
+        failed_count = await self._execute_count_query(
+            f"""
+            SELECT COUNT(DISTINCT b.barcode)
+            FROM books b
+            JOIN book_status_history h ON b.barcode = h.barcode
+            {where_clause} AND h.status_type = 'sync' AND h.status_value = 'failed'
+            AND h.timestamp = (
+                SELECT MAX(timestamp)
+                FROM book_status_history h2
+                WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
             )
-            row = await cursor.fetchone()
-            failed_count = row[0] if row else 0
+            """, tuple(params)
+        )
 
-            # Currently syncing
-            cursor = await db.execute(
-                f"""
-                SELECT COUNT(DISTINCT b.barcode)
-                FROM books b
-                JOIN book_status_history h ON b.barcode = h.barcode
-                {where_clause} AND h.status_type = 'sync' AND h.status_value = 'syncing'
-                AND h.timestamp = (
-                    SELECT MAX(timestamp)
-                    FROM book_status_history h2
-                    WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
-                )
-            """,
-                params,
+        # Currently syncing
+        syncing_count = await self._execute_count_query(
+            f"""
+            SELECT COUNT(DISTINCT b.barcode)
+            FROM books b
+            JOIN book_status_history h ON b.barcode = h.barcode
+            {where_clause} AND h.status_type = 'sync' AND h.status_value = 'syncing'
+            AND h.timestamp = (
+                SELECT MAX(timestamp)
+                FROM book_status_history h2
+                WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
             )
-            row = await cursor.fetchone()
-            syncing_count = row[0] if row else 0
+            """, tuple(params)
+        )
 
-            # Pending/not started (books with no sync status history or latest status is pending)
-            cursor = await db.execute(
-                f"""
-                SELECT COUNT(*) FROM books b {where_clause}
-                AND b.barcode NOT IN (
-                    SELECT DISTINCT barcode
-                    FROM book_status_history
-                    WHERE status_type = 'sync'
-                )
-            """,
-                params,
+        # Pending/not started (books with no sync status history or latest status is pending)
+        no_sync_history = await self._execute_count_query(
+            f"""
+            SELECT COUNT(*) FROM books b {where_clause}
+            AND b.barcode NOT IN (
+                SELECT DISTINCT barcode
+                FROM book_status_history
+                WHERE status_type = 'sync'
             )
-            row = await cursor.fetchone()
-            no_sync_history = row[0] if row else 0
+            """, tuple(params)
+        )
 
-            cursor = await db.execute(
-                f"""
-                SELECT COUNT(DISTINCT b.barcode)
-                FROM books b
-                JOIN book_status_history h ON b.barcode = h.barcode
-                {where_clause} AND h.status_type = 'sync' AND h.status_value = 'pending'
-                AND h.timestamp = (
-                    SELECT MAX(timestamp)
-                    FROM book_status_history h2
-                    WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
-                )
-            """,
-                params,
+        pending_with_history = await self._execute_count_query(
+            f"""
+            SELECT COUNT(DISTINCT b.barcode)
+            FROM books b
+            JOIN book_status_history h ON b.barcode = h.barcode
+            {where_clause} AND h.status_type = 'sync' AND h.status_value = 'pending'
+            AND h.timestamp = (
+                SELECT MAX(timestamp)
+                FROM book_status_history h2
+                WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
             )
-            row = await cursor.fetchone()
-            pending_with_history = row[0] if row else 0
+            """, tuple(params)
+        )
 
-            pending_count = no_sync_history + pending_with_history
+        pending_count = no_sync_history + pending_with_history
 
-            # Decrypted count
-            cursor = await db.execute(f"SELECT COUNT(*) FROM books b {where_clause} AND b.is_decrypted = 1", params)
-            row = await cursor.fetchone()
-            decrypted_count = row[0] if row else 0
+        # Decrypted count
+        decrypted_count = await self._execute_count_query(
+            f"SELECT COUNT(*) FROM books b {where_clause} AND b.is_decrypted = 1", tuple(params)
+        )
 
-            return {
-                "total_converted": total_converted,
-                "synced": synced_count,
-                "failed": failed_count,
-                "pending": pending_count,
-                "syncing": syncing_count,
-                "decrypted": decrypted_count,
-                "storage_type": storage_type,
-            }
+        return {
+            "total_converted": total_converted,
+            "synced": synced_count,
+            "failed": failed_count,
+            "pending": pending_count,
+            "syncing": syncing_count,
+            "decrypted": decrypted_count,
+            "storage_type": storage_type,
+        }
 
     async def get_enrichment_stats(self) -> dict:
         """Get enrichment statistics for books using atomic status history.
@@ -915,102 +810,89 @@ class SQLiteProgressTracker:
         """
         await self.init_db()
 
-        async with connect_async(self.db_path) as db:
-            # Total books in database
-            cursor = await db.execute("SELECT COUNT(*) FROM books")
-            row = await cursor.fetchone()
-            total_books = row[0] if row else 0
+        # Total books in database
+        total_books = await self._execute_count_query("SELECT COUNT(*) FROM books", ())
 
-            # Successfully enriched books (latest status is completed)
-            cursor = await db.execute(
-                """
-                SELECT COUNT(DISTINCT b.barcode)
-                FROM books b
-                JOIN book_status_history h ON b.barcode = h.barcode
-                WHERE h.status_type = 'enrichment' AND h.status_value = 'completed'
-                AND h.timestamp = (
-                    SELECT MAX(timestamp)
-                    FROM book_status_history h2
-                    WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
-                )
-                """
+        # Successfully enriched books (latest status is completed)
+        enriched_count = await self._execute_count_query(
+            """
+            SELECT COUNT(DISTINCT b.barcode)
+            FROM books b
+            JOIN book_status_history h ON b.barcode = h.barcode
+            WHERE h.status_type = 'enrichment' AND h.status_value = 'completed'
+            AND h.timestamp = (
+                SELECT MAX(timestamp)
+                FROM book_status_history h2
+                WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
             )
-            row = await cursor.fetchone()
-            enriched_count = row[0] if row else 0
+            """, ()
+        )
 
-            # Failed enrichment books (latest status is failed)
-            cursor = await db.execute(
-                """
-                SELECT COUNT(DISTINCT b.barcode)
-                FROM books b
-                JOIN book_status_history h ON b.barcode = h.barcode
-                WHERE h.status_type = 'enrichment' AND h.status_value = 'failed'
-                AND h.timestamp = (
-                    SELECT MAX(timestamp)
-                    FROM book_status_history h2
-                    WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
-                )
-                """
+        # Failed enrichment books (latest status is failed)
+        failed_count = await self._execute_count_query(
+            """
+            SELECT COUNT(DISTINCT b.barcode)
+            FROM books b
+            JOIN book_status_history h ON b.barcode = h.barcode
+            WHERE h.status_type = 'enrichment' AND h.status_value = 'failed'
+            AND h.timestamp = (
+                SELECT MAX(timestamp)
+                FROM book_status_history h2
+                WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
             )
-            row = await cursor.fetchone()
-            failed_count = row[0] if row else 0
+            """, ()
+        )
 
-            # Currently being enriched (latest status is in_progress)
-            cursor = await db.execute(
-                """
-                SELECT COUNT(DISTINCT b.barcode)
-                FROM books b
-                JOIN book_status_history h ON b.barcode = h.barcode
-                WHERE h.status_type = 'enrichment' AND h.status_value = 'in_progress'
-                AND h.timestamp = (
-                    SELECT MAX(timestamp)
-                    FROM book_status_history h2
-                    WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
-                )
-                """
+        # Currently being enriched (latest status is in_progress)
+        in_progress_count = await self._execute_count_query(
+            """
+            SELECT COUNT(DISTINCT b.barcode)
+            FROM books b
+            JOIN book_status_history h ON b.barcode = h.barcode
+            WHERE h.status_type = 'enrichment' AND h.status_value = 'in_progress'
+            AND h.timestamp = (
+                SELECT MAX(timestamp)
+                FROM book_status_history h2
+                WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
             )
-            row = await cursor.fetchone()
-            in_progress_count = row[0] if row else 0
+            """, ()
+        )
 
-            # Pending enrichment (latest status is pending)
-            cursor = await db.execute(
-                """
-                SELECT COUNT(DISTINCT b.barcode)
-                FROM books b
-                JOIN book_status_history h ON b.barcode = h.barcode
-                WHERE h.status_type = 'enrichment' AND h.status_value = 'pending'
-                AND h.timestamp = (
-                    SELECT MAX(timestamp)
-                    FROM book_status_history h2
-                    WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
-                )
-                """
+        # Pending enrichment (latest status is pending)
+        pending_count = await self._execute_count_query(
+            """
+            SELECT COUNT(DISTINCT b.barcode)
+            FROM books b
+            JOIN book_status_history h ON b.barcode = h.barcode
+            WHERE h.status_type = 'enrichment' AND h.status_value = 'pending'
+            AND h.timestamp = (
+                SELECT MAX(timestamp)
+                FROM book_status_history h2
+                WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
             )
-            row = await cursor.fetchone()
-            pending_count = row[0] if row else 0
+            """, ()
+        )
 
-            # Books with no enrichment history
-            cursor = await db.execute(
-                """
-                SELECT COUNT(*) FROM books b
-                WHERE b.barcode NOT IN (
-                    SELECT DISTINCT barcode
-                    FROM book_status_history
-                    WHERE status_type = 'enrichment'
-                )
-                """
+        # Books with no enrichment history
+        no_enrichment_history = await self._execute_count_query(
+            """
+            SELECT COUNT(*) FROM books b
+            WHERE b.barcode NOT IN (
+                SELECT DISTINCT barcode
+                FROM book_status_history
+                WHERE status_type = 'enrichment'
             )
-            row = await cursor.fetchone()
-            no_enrichment_history = row[0] if row else 0
+            """, ()
+        )
 
-            return {
-                "total_books": total_books,
-                "enriched": enriched_count,
-                "failed": failed_count,
-                "pending": pending_count,
-                "in_progress": in_progress_count,
-                "no_enrichment_history": no_enrichment_history,
-            }
+        return {
+            "total_books": total_books,
+            "enriched": enriched_count,
+            "failed": failed_count,
+            "pending": pending_count,
+            "in_progress": in_progress_count,
+            "no_enrichment_history": no_enrichment_history,
+        }
 
     async def get_enrichment_rate_stats(self, time_window_hours: int = 24) -> dict:
         """Get enrichment rate statistics for estimating completion time.
@@ -1023,45 +905,36 @@ class SQLiteProgressTracker:
         """
         await self.init_db()
 
-        async with connect_async(self.db_path) as db:
-            # Get enrichments completed in the time window
-            cutoff_time = datetime.now(UTC) - timedelta(hours=time_window_hours)
-            cutoff_iso = cutoff_time.isoformat()
+        # Get enrichments completed in the time window
+        cutoff_time = datetime.now(UTC) - timedelta(hours=time_window_hours)
+        cutoff_iso = cutoff_time.isoformat()
 
-            cursor = await db.execute(
-                """
-                SELECT COUNT(*)
-                FROM book_status_history
-                WHERE status_type = 'enrichment'
-                AND status_value = 'completed'
-                AND timestamp >= ?
-                """,
-                (cutoff_iso,),
-            )
-            row = await cursor.fetchone()
-            completed_in_window = row[0] if row else 0
+        completed_in_window = await self._execute_count_query(
+            """
+            SELECT COUNT(*)
+            FROM book_status_history
+            WHERE status_type = 'enrichment'
+            AND status_value = 'completed'
+            AND timestamp >= ?
+            """,
+            (cutoff_iso,)
+        )
 
-            # Calculate rate (enrichments per hour)
-            rate_per_hour = completed_in_window / time_window_hours if time_window_hours > 0 else 0
+        # Calculate rate (enrichments per hour)
+        rate_per_hour = completed_in_window / time_window_hours if time_window_hours > 0 else 0
 
-            return {
-                "completed_in_window": completed_in_window,
-                "time_window_hours": time_window_hours,
-                "rate_per_hour": rate_per_hour,
-                "rate_per_day": rate_per_hour * 24,
-            }
+        return {
+            "completed_in_window": completed_in_window,
+            "time_window_hours": time_window_hours,
+            "rate_per_hour": rate_per_hour,
+            "rate_per_day": rate_per_hour * 24,
+        }
 
     async def get_converted_books_count(self) -> int:
         """Get count of books in converted state (ready for sync)."""
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute("""
-                SELECT COUNT(*) FROM books
-                WHERE grin_state = 'converted'
-            """)
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        return await self._execute_count_query(
+            "SELECT COUNT(*) FROM books WHERE grin_state = 'converted'", ()
+        )
 
     async def get_latest_status(self, barcode: str, status_type: str) -> str | None:
         """Get the latest status value for a book and status type.
@@ -1073,20 +946,15 @@ class SQLiteProgressTracker:
         Returns:
             Latest status value or None if no status found
         """
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(
-                """
-                SELECT status_value FROM book_status_history
-                WHERE barcode = ? AND status_type = ?
-                ORDER BY timestamp DESC, id DESC
-                LIMIT 1
-                """,
-                (barcode, status_type),
-            )
-            row = await cursor.fetchone()
-            return row[0] if row else None
+        return await self._execute_single_value_query(
+            """
+            SELECT status_value FROM book_status_history
+            WHERE barcode = ? AND status_type = ?
+            ORDER BY timestamp DESC, id DESC
+            LIMIT 1
+            """,
+            (barcode, status_type)
+        )
 
     async def get_latest_status_with_metadata(self, barcode: str, status_type: str) -> tuple[str | None, dict | None]:
         """Get the latest status value and metadata for a book and status type.
@@ -1156,3 +1024,96 @@ class SQLiteProgressTracker:
             cursor = await db.execute(base_query, params)
             rows = await cursor.fetchall()
             return [(row[0], row[1]) for row in rows]
+
+    async def _execute_barcode_query(self, query: str, params: tuple) -> set[str]:
+        """Execute a SQL query and return a set of barcodes.
+
+        Args:
+            query: SQL query that selects barcodes
+            params: Query parameters
+
+        Returns:
+            Set of barcodes from query results
+        """
+        await self.init_db()
+
+        async with connect_async(self.db_path) as db:
+            cursor = await db.execute(query, params)
+            rows = await cursor.fetchall()
+            return {row[0] for row in rows}
+
+    async def _execute_single_value_query(self, query: str, params: tuple, default_value=None):
+        """Execute a SQL query and return the first column of the first row.
+
+        Args:
+            query: SQL query that selects a single value
+            params: Query parameters
+            default_value: Value to return if no row found (default: None)
+
+        Returns:
+            First column value of first row, or default_value if no row found
+        """
+        await self.init_db()
+
+        async with connect_async(self.db_path) as db:
+            cursor = await db.execute(query, params)
+            row = await cursor.fetchone()
+            return row[0] if row else default_value
+
+    async def _execute_count_query(self, query: str, params: tuple) -> int:
+        """Execute a COUNT query and return the result as integer.
+
+        Args:
+            query: SQL COUNT query
+            params: Query parameters
+
+        Returns:
+            Count result as integer (0 if no row found)
+        """
+        result = await self._execute_single_value_query(query, params, 0)
+        return result if result is not None else 0
+
+    async def _execute_exists_query(self, query: str, params: tuple) -> bool:
+        """Execute an existence query and return True if any row exists.
+
+        Args:
+            query: SQL query to check for existence (typically SELECT 1 FROM ...)
+            params: Query parameters
+
+        Returns:
+            True if at least one row exists, False otherwise
+        """
+        await self.init_db()
+
+        async with connect_async(self.db_path) as db:
+            cursor = await db.execute(query, params)
+            return await cursor.fetchone() is not None
+
+    async def get_books_by_grin_state(self, grin_state: str) -> set[str]:
+        """Get barcodes for books with specific GRIN state.
+
+        Args:
+            grin_state: GRIN state to filter by (e.g., 'PREVIOUSLY_DOWNLOADED')
+
+        Returns:
+            Set of barcodes with the specified GRIN state
+        """
+        return await self._execute_barcode_query(
+            "SELECT barcode FROM books WHERE grin_state = ?",
+            (grin_state,)
+        )
+
+    async def get_books_with_status(self, status_value: str, status_type: str = "sync") -> set[str]:
+        """Get barcodes for books with specific status value.
+
+        Args:
+            status_value: Status value to filter by (e.g., 'verified_unavailable')
+            status_type: Status type to filter by (default: 'sync')
+
+        Returns:
+            Set of barcodes with the specified status
+        """
+        return await self._execute_barcode_query(
+            "SELECT DISTINCT barcode FROM book_status_history WHERE status_type = ? AND status_value = ?",
+            (status_type, status_value)
+        )
