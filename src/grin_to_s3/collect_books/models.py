@@ -357,60 +357,6 @@ class SQLiteProgressTracker:
 
         return is_known
 
-    async def load_known_barcodes_batch(self, barcodes: set[str]) -> set[str]:
-        """
-        Batch load known barcodes (processed or failed) for performance.
-
-        Args:
-            barcodes: Set of barcodes to check
-
-        Returns:
-            Set of barcodes that are known (processed or failed)
-        """
-        if not barcodes:
-            return set()
-
-        await self.init_db()
-        known_barcodes: set[str] = set()
-
-        # Convert to list for SQL query
-        barcode_list = list(barcodes)
-
-        async with connect_async(self.db_path) as db:
-            # Check processed barcodes in batch
-            placeholders = ",".join("?" * len(barcode_list))
-
-            cursor = await db.execute(f"SELECT barcode FROM processed WHERE barcode IN ({placeholders})", barcode_list)
-            processed_rows = await cursor.fetchall()
-            known_barcodes.update(row[0] for row in processed_rows)
-
-            # Check failed barcodes in batch
-            cursor = await db.execute(f"SELECT barcode FROM failed WHERE barcode IN ({placeholders})", barcode_list)
-            failed_rows = await cursor.fetchall()
-            known_barcodes.update(row[0] for row in failed_rows)
-
-        return known_barcodes
-
-    async def get_all_known_barcodes(self) -> set[str]:
-        """
-        Load all known barcodes (processed + failed) into memory.
-        Use carefully - only for small to medium datasets.
-        """
-        await self.init_db()
-        known_barcodes: set[str] = set()
-
-        async with connect_async(self.db_path) as db:
-            # Get all processed barcodes
-            cursor = await db.execute("SELECT barcode FROM processed")
-            processed_rows = await cursor.fetchall()
-            known_barcodes.update(row[0] for row in processed_rows)
-
-            # Get all failed barcodes
-            cursor = await db.execute("SELECT barcode FROM failed")
-            failed_rows = await cursor.fetchall()
-            known_barcodes.update(row[0] for row in failed_rows)
-
-        return known_barcodes
 
     async def get_processed_count(self) -> int:
         """Get total number of successfully processed barcodes."""
