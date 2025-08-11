@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS book_status_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     barcode TEXT NOT NULL,
     status_type TEXT NOT NULL, -- "processing_request", "sync", "enrichment", etc.
-    status_value TEXT NOT NULL, -- "pending", "requested", "in_process", "converted", "failed", etc.
+    status_value TEXT NOT NULL, -- "pending", "requested", "in_process", "converted", "failed", "verified_unavailable", etc.
     timestamp TEXT NOT NULL,
     session_id TEXT, -- Optional identifier for tracking batches/runs
     metadata TEXT, -- Optional JSON metadata for additional context
