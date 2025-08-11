@@ -422,21 +422,11 @@ class SQLiteProgressTracker:
 
     async def get_processed_count(self) -> int:
         """Get total number of successfully processed barcodes."""
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM processed")
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        return await self._execute_count_query("SELECT COUNT(*) FROM processed", ())
 
     async def get_failed_count(self) -> int:
         """Get total number of failed barcodes."""
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM failed")
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        return await self._execute_count_query("SELECT COUNT(*) FROM failed", ())
 
     async def get_session_stats(self) -> dict:
         """Get statistics for current session."""
@@ -609,12 +599,7 @@ class SQLiteProgressTracker:
 
     async def get_book_count(self) -> int:
         """Get total number of books in database."""
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute("SELECT COUNT(*) FROM books")
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        return await self._execute_count_query("SELECT COUNT(*) FROM books", ())
 
     async def get_enriched_book_count(self) -> int:
         """Get count of books with enrichment data."""
@@ -1053,15 +1038,9 @@ class SQLiteProgressTracker:
 
     async def get_converted_books_count(self) -> int:
         """Get count of books in converted state (ready for sync)."""
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute("""
-                SELECT COUNT(*) FROM books
-                WHERE grin_state = 'converted'
-            """)
-            row = await cursor.fetchone()
-            return row[0] if row else 0
+        return await self._execute_count_query(
+            "SELECT COUNT(*) FROM books WHERE grin_state = 'converted'", ()
+        )
 
     async def get_latest_status(self, barcode: str, status_type: str) -> str | None:
         """Get the latest status value for a book and status type.
@@ -1073,20 +1052,15 @@ class SQLiteProgressTracker:
         Returns:
             Latest status value or None if no status found
         """
-        await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(
-                """
-                SELECT status_value FROM book_status_history
-                WHERE barcode = ? AND status_type = ?
-                ORDER BY timestamp DESC, id DESC
-                LIMIT 1
-                """,
-                (barcode, status_type),
-            )
-            row = await cursor.fetchone()
-            return row[0] if row else None
+        return await self._execute_single_value_query(
+            """
+            SELECT status_value FROM book_status_history
+            WHERE barcode = ? AND status_type = ?
+            ORDER BY timestamp DESC, id DESC
+            LIMIT 1
+            """,
+            (barcode, status_type)
+        )
 
     async def get_latest_status_with_metadata(self, barcode: str, status_type: str) -> tuple[str | None, dict | None]:
         """Get the latest status value and metadata for a book and status type.
@@ -1173,6 +1147,37 @@ class SQLiteProgressTracker:
             cursor = await db.execute(query, params)
             rows = await cursor.fetchall()
             return {row[0] for row in rows}
+
+    async def _execute_single_value_query(self, query: str, params: tuple, default_value=None):
+        """Execute a SQL query and return the first column of the first row.
+
+        Args:
+            query: SQL query that selects a single value
+            params: Query parameters
+            default_value: Value to return if no row found (default: None)
+
+        Returns:
+            First column value of first row, or default_value if no row found
+        """
+        await self.init_db()
+
+        async with connect_async(self.db_path) as db:
+            cursor = await db.execute(query, params)
+            row = await cursor.fetchone()
+            return row[0] if row else default_value
+
+    async def _execute_count_query(self, query: str, params: tuple) -> int:
+        """Execute a COUNT query and return the result as integer.
+
+        Args:
+            query: SQL COUNT query
+            params: Query parameters
+
+        Returns:
+            Count result as integer (0 if no row found)
+        """
+        result = await self._execute_single_value_query(query, params, 0)
+        return result if result is not None else 0
 
     async def get_books_by_grin_state(self, grin_state: str) -> set[str]:
         """Get barcodes for books with specific GRIN state.
