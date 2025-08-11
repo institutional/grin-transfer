@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import Any
 
 import aiofiles
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
+import aiohttp
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
@@ -66,9 +67,31 @@ def extract_archive(archive_path: Path, extraction_dir: Path, barcode: str, cont
     return extraction_duration
 
 
+def _should_retry_download_error(retry_state) -> bool:
+    """
+    Determine if a download error should be retried.
+
+    Excludes 404 (Not Found) errors from retries as these indicate the book archive
+    is not available, which retrying will not fix. Other HTTP errors are retried.
+
+    Returns True if the error should be retried, False otherwise.
+    """
+    if not (retry_state.outcome and retry_state.outcome.failed):
+        return False  # Don't retry successful operations
+
+    exception = retry_state.outcome.exception()
+    if isinstance(exception, aiohttp.ClientResponseError) and exception.status == 404:
+        return False  # Don't retry 404 errors
+
+    return True  # Retry all other exceptions
+
+
 def create_download_retry_decorator(max_retries: int = DEFAULT_DOWNLOAD_RETRIES):
     """
     Create a retry decorator for download operations.
+
+    Excludes 404 (Not Found) errors from retries as these indicate the book archive
+    is not available, which retrying will not fix. Other errors are retried.
 
     Args:
         max_retries: Maximum number of retry attempts
@@ -78,7 +101,7 @@ def create_download_retry_decorator(max_retries: int = DEFAULT_DOWNLOAD_RETRIES)
     """
     return retry(
         stop=stop_after_attempt(max_retries + 1),  # +1 because tenacity counts initial attempt
-        retry=retry_if_exception_type((Exception,)),  # Retry on any exception
+        retry=_should_retry_download_error,  # Only exclude 404s from retries
         wait=wait_fixed(DEFAULT_RETRY_WAIT_SECONDS),  # Wait between retries
         reraise=True,  # Re-raise the exception after max attempts
     )
