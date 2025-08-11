@@ -30,10 +30,11 @@ class TestETagOperations:
         with patch("grin_to_s3.common.create_http_session") as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
-            etag, file_size = await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123")
+            etag, file_size, status_code = await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123")
 
             assert etag == "abc123def"  # ETag should be stripped of quotes
             assert file_size == 1024
+            assert status_code == 200
 
     @pytest.mark.asyncio
     async def test_check_encrypted_etag_no_etag(self, mock_grin_client):
@@ -47,23 +48,41 @@ class TestETagOperations:
         with patch("grin_to_s3.common.create_http_session") as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
-            etag, file_size = await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123")
+            etag, file_size, status_code = await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123")
 
             assert etag is None
             assert file_size == 2048
+            assert status_code == 200
 
     @pytest.mark.asyncio
     async def test_check_encrypted_etag_error(self, mock_grin_client):
-        """Test ETag check when request fails."""
+        """Test ETag check when request fails with non-HTTP error."""
         mock_grin_client.auth.make_authenticated_request.side_effect = Exception("Network error")
 
         with patch("grin_to_s3.common.create_http_session") as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
-            etag, file_size = await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123")
+            # Non-HTTP errors should bubble up for retry handling
+            with pytest.raises(Exception, match="Network error"):
+                await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123")
+
+    @pytest.mark.asyncio
+    async def test_check_encrypted_etag_404_error(self, mock_grin_client):
+        """Test ETag check when HEAD returns 404."""
+        import aiohttp
+
+        mock_grin_client.auth.make_authenticated_request.side_effect = aiohttp.ClientResponseError(
+            request_info=None, history=None, status=404, message="Not Found"
+        )
+
+        with patch("grin_to_s3.common.create_http_session") as mock_session:
+            mock_session.return_value.__aenter__.return_value = MagicMock()
+
+            etag, file_size, status_code = await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123")
 
             assert etag is None
             assert file_size is None
+            assert status_code == 404
 
     @pytest.mark.asyncio
     async def test_should_skip_download_force_flag(self, mock_storage_config):

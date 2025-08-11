@@ -14,6 +14,8 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
+from grin_to_s3.common import create_http_session
+
 from ..database import connect_async
 from ..storage.factories import get_storage_protocol, load_r2_credentials, s3_credentials_available
 
@@ -177,7 +179,7 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
         return False
 
 
-async def check_encrypted_etag(grin_client, library_directory: str, barcode: str) -> tuple[str | None, int | None]:
+async def check_encrypted_etag(grin_client, library_directory: str, barcode: str) -> tuple[str | None, int | None, int | None]:
     """Make HEAD request to get encrypted file's ETag and file size before downloading.
 
     Args:
@@ -186,10 +188,10 @@ async def check_encrypted_etag(grin_client, library_directory: str, barcode: str
         barcode: Book barcode
 
     Returns:
-        tuple: (etag, file_size) or (None, None) if check fails
+        tuple: (etag, file_size, status_code) where status_code is 200 on success or HTTP status on error
     """
     try:
-        from grin_to_s3.common import create_http_session
+        import aiohttp
 
         grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
         logger.debug(f"[{barcode}] Checking encrypted ETag via HEAD request to {grin_url}")
@@ -206,14 +208,15 @@ async def check_encrypted_etag(grin_client, library_directory: str, barcode: str
 
             if etag:
                 logger.debug(f"[{barcode}] Encrypted ETag: {etag}, size: {file_size or 'unknown'}")
-                return etag, file_size
+                return etag, file_size, 200
             else:
                 logger.debug(f"[{barcode}] No ETag found in Google response")
-                return None, file_size
+                return None, file_size, 200
 
-    except Exception as e:
-        logger.warning(f"[{barcode}] Failed to check encrypted ETag: {e}")
-        return None, None
+    except aiohttp.ClientResponseError as e:
+        # Return HTTP status code for HTTP errors (404, 500, etc.)
+        logger.info(f"[{barcode}] HEAD request returned HTTP {e.status}")
+        return None, None, e.status
 
 
 async def should_skip_download(

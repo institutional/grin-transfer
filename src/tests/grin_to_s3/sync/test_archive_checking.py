@@ -31,7 +31,7 @@ class TestArchiveAvailabilityChecking:
         """Test successful HEAD request with ETag returned."""
         # Mock successful HEAD response with ETag and Content-Length
         with patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check:
-            mock_check.return_value = ("test-etag-123", 1234567)
+            mock_check.return_value = ("test-etag-123", 1234567, 200)
 
             result = await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library")
 
@@ -48,7 +48,7 @@ class TestArchiveAvailabilityChecking:
     async def test_archive_available_no_etag(self, mock_grin_client):
         """Test successful HEAD request without ETag but with file size."""
         with patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check:
-            mock_check.return_value = (None, 1234567)
+            mock_check.return_value = (None, 1234567, 200)
 
             result = await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library")
 
@@ -62,7 +62,7 @@ class TestArchiveAvailabilityChecking:
     async def test_archive_not_available_404(self, mock_grin_client):
         """Test HEAD request returning 404 (archive not available)."""
         with patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check:
-            mock_check.return_value = (None, None)
+            mock_check.return_value = (None, None, 404)
 
             result = await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library")
 
@@ -74,25 +74,21 @@ class TestArchiveAvailabilityChecking:
 
     @pytest.mark.asyncio
     async def test_archive_check_exception(self, mock_grin_client):
-        """Test exception during archive availability check."""
+        """Test exception during archive availability check bubbles up for retry."""
         with patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check:
             mock_check.side_effect = Exception("Network error")
 
-            result = await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library")
-
-            assert result["available"] is False
-            assert result["etag"] is None
-            assert result["file_size"] is None
-            assert result["http_status"] is None
-            assert result["needs_conversion"] is False  # Don't attempt conversion on errors
+            # Non-HTTP errors should bubble up for upstream retry handling
+            with pytest.raises(Exception, match="Network error"):
+                await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library")
 
     @pytest.mark.asyncio
     async def test_multiple_books_mixed_availability(self, mock_grin_client):
         """Test checking multiple books with different availability states."""
         test_cases = [
-            ("available_book", ("etag-123", 1000000)),
-            ("unavailable_book", (None, None)),
-            ("partial_book", (None, 500000)),
+            ("available_book", ("etag-123", 1000000, 200)),
+            ("unavailable_book", (None, None, 404)),
+            ("partial_book", (None, 500000, 200)),
         ]
 
         with patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check:
@@ -122,7 +118,7 @@ class TestArchiveAvailabilityChecking:
         # handled in the sync pipeline logic
         with patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check:
             test_etag = 'W/"abc123def456"'
-            mock_check.return_value = (test_etag, 2000000)
+            mock_check.return_value = (test_etag, 2000000, 200)
 
             result = await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library")
 
@@ -140,23 +136,20 @@ class TestArchiveAvailabilityChecking:
 
         with patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check:
             # Test unavailable case
-            mock_check.return_value = (None, None)
+            mock_check.return_value = (None, None, 404)
 
             await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library")
 
             # Check debug log for unavailable archive
-            assert "Archive not available, may need conversion" in caplog.text
+            assert "Archive not available (404), may need conversion" in caplog.text
 
     @pytest.mark.asyncio
     async def test_error_logging(self, mock_grin_client, caplog):
-        """Test error logging when check_encrypted_etag raises exception."""
+        """Test error logging when check_encrypted_etag raises non-HTTP exception."""
         with patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check:
             mock_check.side_effect = aiohttp.ClientError("Connection failed")
 
-            result = await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library")
-
-            assert result["available"] is False
-            assert result["needs_conversion"] is False
-            assert "Archive availability check failed" in caplog.text
-            assert "Connection failed" in caplog.text
+            # Non-HTTP errors should bubble up for upstream retry handling
+            with pytest.raises(aiohttp.ClientError, match="Connection failed"):
+                await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library")
 

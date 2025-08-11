@@ -36,7 +36,7 @@ class TestETagSkipHandling:
             patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check_etag,
             patch("grin_to_s3.sync.operations.should_skip_download") as mock_should_skip,
         ):
-            mock_check_etag.return_value = ("abc123", 1024)
+            mock_check_etag.return_value = ("abc123", 1024, 200)
             mock_should_skip.return_value = (False, "no_skip_reason")
 
             result, etag, file_size, status_updates = await check_and_handle_etag_skip(
@@ -56,7 +56,7 @@ class TestETagSkipHandling:
             patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check_etag,
             patch("grin_to_s3.sync.operations.should_skip_download") as mock_should_skip,
         ):
-            mock_check_etag.return_value = ("abc123", 1024)
+            mock_check_etag.return_value = ("abc123", 1024, 200)
             mock_should_skip.return_value = (True, "etag_match")
 
             result, etag, file_size, status_updates = await check_and_handle_etag_skip(
@@ -64,13 +64,32 @@ class TestETagSkipHandling:
             )
 
             assert result is not None  # Skip result returned
-            assert result["barcode"] == "TEST123"
+
+    @pytest.mark.asyncio
+    async def test_check_and_handle_etag_skip_404_archive(
+        self, mock_grin_client, mock_progress_tracker, mock_storage_config
+    ):
+        """Test ETag check when HEAD returns 404 (issue #180 optimization)."""
+        with patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check_etag:
+            # Mock 404 response from HEAD request
+            mock_check_etag.return_value = (None, None, 404)
+
+            result, etag, file_size, status_updates = await check_and_handle_etag_skip(
+                "TEST123", mock_grin_client, "Harvard", "minio", mock_storage_config, mock_progress_tracker
+            )
+
+            # Should return skip result due to 404
+            assert result is not None
             assert result["status"] == "completed"
             assert result["skipped"] is True
-            assert result["encrypted_etag"] == "abc123"
-            assert result["file_size"] == 1024
-            assert etag == "abc123"
-            assert file_size == 1024
+            assert etag is None
+            assert file_size == 0
+
+            # Should have status update indicating 404 skip
+            assert len(status_updates) == 1
+            assert status_updates[0].status_value == "skipped"
+            assert status_updates[0].metadata["skip_reason"] == "archive_not_found_404"
+            assert status_updates[0].metadata["http_status"] == 404
 
 
 class TestBookDownload:

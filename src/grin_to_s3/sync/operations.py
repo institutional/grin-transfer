@@ -178,37 +178,42 @@ async def check_archive_availability_with_etag(
     """
     try:
         # Use existing HEAD checking function
-        etag, file_size = await check_encrypted_etag(grin_client, library_directory, barcode)
+        etag, file_size, status_code = await check_encrypted_etag(grin_client, library_directory, barcode)
 
-        if etag is not None or file_size is not None:
+        if status_code == 200:
             # Archive is available
             return {
                 "available": True,
                 "etag": etag,
                 "file_size": file_size,
-                "http_status": 200,
+                "http_status": status_code,
                 "needs_conversion": False,
             }
-        else:
-            # Archive is not available (likely 404)
-            logger.debug(f"[{barcode}] Archive not available, may need conversion")
+        elif status_code == 404:
+            # Archive not found
+            logger.debug(f"[{barcode}] Archive not available (404), may need conversion")
             return {
                 "available": False,
                 "etag": None,
                 "file_size": None,
-                "http_status": 404,
+                "http_status": status_code,
                 "needs_conversion": True,
+            }
+        else:
+            # Other HTTP error
+            logger.warning(f"[{barcode}] Archive check returned HTTP {status_code}")
+            return {
+                "available": False,
+                "etag": None,
+                "file_size": None,
+                "http_status": status_code,
+                "needs_conversion": False,  # Don't attempt conversion on other errors
             }
 
     except Exception as e:
+        # Network/other errors that should be retried upstream
         logger.warning(f"[{barcode}] Archive availability check failed: {e}")
-        return {
-            "available": False,
-            "etag": None,
-            "file_size": None,
-            "http_status": None,
-            "needs_conversion": False,  # Don't attempt conversion on errors
-        }
+        raise  # Let upstream handle retries
 
 
 async def check_and_handle_etag_skip(
@@ -239,7 +244,34 @@ async def check_and_handle_etag_skip(
         - sync_status_updates: List of status updates to be written by caller
     """
     # Check encrypted ETag first
-    encrypted_etag, encrypted_file_size = await check_encrypted_etag(grin_client, library_directory, barcode)
+    encrypted_etag, encrypted_file_size, status_code = await check_encrypted_etag(grin_client, library_directory, barcode)
+
+    # If HEAD request returned 404, skip download entirely
+    if status_code == 404:
+        logger.info(f"[{barcode}] Archive not available (404) - skipping download")
+
+        # Collect status for 404 archives
+        sync_status_updates = [
+            collect_status(
+                barcode,
+                "sync",
+                "skipped",
+                metadata={
+                    "etag_checked_at": datetime.now(UTC).isoformat(),
+                    "storage_type": storage_type,
+                    "skipped": True,
+                    "skip_reason": "archive_not_found_404",
+                    "http_status": 404,
+                },
+            )
+        ]
+
+        return (
+            create_book_sync_result(barcode, "completed", True, None, 0, 0),
+            None,
+            0,
+            sync_status_updates,
+        )
 
     # Check if we should skip download based on ETag match
     should_skip, skip_reason = await should_skip_download(
