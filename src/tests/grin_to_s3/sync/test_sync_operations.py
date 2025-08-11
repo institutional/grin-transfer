@@ -8,6 +8,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import pytest
 from aioresponses import aioresponses
 
@@ -121,16 +122,68 @@ class TestBookDownload:
         mock_staging_file = MagicMock()
         mock_staging_manager.get_encrypted_file_path.return_value = mock_staging_file
 
-        # Override the mock to simulate HTTP failure
-        mock_grin_client.auth.make_authenticated_request.side_effect = Exception("HTTP 404 Not Found")
+        # Override the mock to simulate 404 HTTP error
+        mock_404_error = aiohttp.ClientResponseError(
+            request_info=aiohttp.RequestInfo(url="https://example.com", method="GET", headers={}),
+            history=(),
+            status=404,
+            message="Not Found"
+        )
+        mock_grin_client.auth.make_authenticated_request.side_effect = mock_404_error
 
-        with pytest.raises(Exception) as exc_info:
+        # Track how many times the request was attempted
+        call_count_before = len(mock_grin_client.auth.make_authenticated_request.call_args_list)
+
+        with pytest.raises(aiohttp.ClientResponseError) as exc_info:
             await download_book_to_staging(
-                "TEST123", mock_grin_client, "Harvard", mock_staging_manager, "abc123"
+                "TEST123", mock_grin_client, "Harvard", mock_staging_manager, "abc123", download_retries=2
             )
 
-        # The error should be related to HTTP status or authentication
-        assert "404" in str(exc_info.value) or "Not Found" in str(exc_info.value)
+        # Verify that it's a 404 error
+        assert exc_info.value.status == 404
+
+        # Verify that 404 was NOT retried (only 1 attempt should be made)
+        call_count_after = len(mock_grin_client.auth.make_authenticated_request.call_args_list)
+        attempts_made = call_count_after - call_count_before
+        assert attempts_made == 1, f"Expected 1 attempt for 404, but {attempts_made} attempts were made"
+
+    @pytest.mark.asyncio
+    async def test_download_book_retries_non_404_errors(self, mock_staging_manager):
+        """Test that non-404 HTTP errors are retried."""
+        # Create a mock client
+        from grin_to_s3.auth.grin_auth import GRINAuth
+        mock_grin_client = MagicMock()
+        mock_grin_client.auth = MagicMock(spec=GRINAuth)
+
+        # Create a mock Path object for the staging file
+        mock_staging_file = MagicMock()
+        mock_staging_manager.get_encrypted_file_path.return_value = mock_staging_file
+
+        # Override the mock to simulate 500 HTTP error (should be retried)
+        import aiohttp
+        mock_500_error = aiohttp.ClientResponseError(
+            request_info=aiohttp.RequestInfo(url="https://example.com", method="GET", headers={}),
+            history=(),
+            status=500,
+            message="Internal Server Error"
+        )
+        mock_grin_client.auth.make_authenticated_request.side_effect = mock_500_error
+
+        # Track how many times the request was attempted
+        call_count_before = len(mock_grin_client.auth.make_authenticated_request.call_args_list)
+
+        with pytest.raises(aiohttp.ClientResponseError) as exc_info:
+            await download_book_to_staging(
+                "TEST123", mock_grin_client, "Harvard", mock_staging_manager, "abc123", download_retries=2
+            )
+
+        # Verify that it's a 500 error
+        assert exc_info.value.status == 500
+
+        # Verify that 500 WAS retried (3 attempts should be made: initial + 2 retries)
+        call_count_after = len(mock_grin_client.auth.make_authenticated_request.call_args_list)
+        attempts_made = call_count_after - call_count_before
+        assert attempts_made == 3, f"Expected 3 attempts for 500 error, but {attempts_made} attempts were made"
 
 
 class TestBookUpload:
