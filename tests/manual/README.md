@@ -11,9 +11,9 @@ Comprehensive end-to-end testing script that validates the entire pipeline with 
 **What it does:**
 - Checks out the repository in a temporary directory
 - Performs fresh installation from scratch
-- Runs `python grin.py sync pipeline --limit 20` on the local machine
+- Runs `python grin.py sync pipeline --queue converted --limit 20` on the local machine
 - Builds Docker image from scratch
-- Runs `./grin-docker sync pipeline --limit 20` in Docker
+- Runs `./grin-docker sync pipeline --queue converted --limit 20` in Docker
 
 **Requirements:**
 - Real GRIN credentials in `~/.config/grin-to-s3/client_secret.json`

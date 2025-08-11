@@ -126,7 +126,7 @@ async def _run_sync_pipeline(args, run_config: RunConfig, sync_stage) -> None:
 
     # Execute the sync pipeline
     sync_stage.add_progress_update("Starting sync pipeline")
-    await pipeline.run_sync(limit=args.limit, specific_barcodes=specific_barcodes)
+    await pipeline.run_sync(queues=args.queue, limit=args.limit, specific_barcodes=specific_barcodes)
     sync_stage.add_progress_update("Sync pipeline completed successfully")
 
 
@@ -301,12 +301,15 @@ async def main() -> None:
         epilog="""
 Examples:
   # Sync all converted books in collection
-  python grin.py sync pipeline --run-name harvard_2024
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted
 
-  # Sync specific books only
+  # Sync books from multiple queues in order
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --queue previous
+
+  # Sync specific books only (no --queue needed)
   python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
 
-  # Sync a single book (auto-optimized settings)
+  # Sync a single book (no --queue needed)
   python grin.py sync pipeline --run-name harvard_2024 --barcodes "39015123456789"
 
   # Check sync status
@@ -325,27 +328,33 @@ Examples:
         epilog="""
 Examples:
   # Basic sync (auto-detects storage config from run)
-  python grin.py sync pipeline --run-name harvard_2024
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted
 
   # Sync with explicit storage configuration
-  python grin.py sync pipeline --run-name harvard_2024 --storage r2
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --storage r2
       --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
-  # Sync specific books only
+  # Sync specific books only (no --queue needed with --barcodes)
   python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
 
   # Retry failed syncs only
-  python grin.py sync pipeline --run-name harvard_2024 --status failed
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --status failed
 
   # Sync with limit and force overwrite
-  python grin.py sync pipeline --run-name harvard_2024 --limit 100 --force
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --limit 100 --force
 
   # Preview what would be processed without actually doing it
-  python grin.py sync pipeline --run-name harvard_2024 --dry-run --limit 10
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --dry-run --limit 10
         """,
     )
 
     pipeline_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
+    pipeline_parser.add_argument(
+        "--queue",
+        choices=["converted", "previous", "changed", "all"],
+        action="append",
+        help="Queue type to process. Multiple options allowed (e.g., --queue converted --queue previous). Processed in order specified. Required unless --barcodes is provided."
+    )
 
     # Storage configuration
     pipeline_parser.add_argument(
@@ -450,6 +459,16 @@ Examples:
     if not args.command:
         parser.print_help()
         sys.exit(1)
+
+    # Validate --queue and --barcodes mutual exclusivity for pipeline command
+    if args.command == "pipeline":
+        if hasattr(args, "queue") and hasattr(args, "barcodes"):
+            if args.queue and args.barcodes:
+                print("Error: --queue and --barcodes are mutually exclusive. Use either --queue to process from queues or --barcodes to process specific books.")
+                sys.exit(1)
+            elif not args.queue and not args.barcodes:
+                print("Error: Either --queue or --barcodes is required. Use --queue to process from queues or --barcodes to process specific books.")
+                sys.exit(1)
 
     if args.command == "pipeline":
         await cmd_pipeline(args)

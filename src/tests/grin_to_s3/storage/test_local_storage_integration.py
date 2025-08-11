@@ -78,7 +78,7 @@ class TestLocalStorageIntegration:
             with patch("grin_to_s3.sync.utils.get_converted_books", return_value=set()):
                 # Capture print output to verify storage configuration display
                 with patch("builtins.print") as mock_print:
-                    await pipeline.run_sync(limit=0)
+                    await pipeline.run_sync(queues=["converted"], limit=0)
 
                     # Check that target directory was printed in startup configuration
                     print_calls = [str(call) for call in mock_print.call_args_list]
@@ -90,7 +90,7 @@ class TestLocalStorageIntegration:
 
             with patch("grin_to_s3.sync.utils.get_converted_books", return_value=set()):
                 with patch("builtins.print") as mock_print:
-                    await pipeline.run_sync(limit=0)
+                    await pipeline.run_sync(queues=["converted"], limit=0)
 
                     # Should handle None gracefully by showing "None"
                     print_calls = [str(call) for call in mock_print.call_args_list]

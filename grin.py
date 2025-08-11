@@ -58,7 +58,7 @@ Examples:
   python grin.py process monitor --run-name harvard_2024
 
   # Sync converted books to storage
-  python grin.py sync pipeline --run-name harvard_2024
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted
 
   # Check sync status
   python grin.py sync status --run-name harvard_2024

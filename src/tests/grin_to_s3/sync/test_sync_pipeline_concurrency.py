@@ -59,7 +59,7 @@ class TestSyncPipelineConcurrency:
                     mock_batch_write.return_value = None
 
                     # Run sync with limit
-                    await sync_pipeline.run_sync(limit=5)
+                    await sync_pipeline.run_sync(queues=["converted"], limit=5)
 
         # Verify concurrency was respected
         assert max_concurrent <= sync_pipeline.concurrent_downloads, (
@@ -111,7 +111,7 @@ class TestSyncPipelineConcurrency:
                     mock_batch_write.return_value = None
 
                     # Run sync
-                    await pipeline.run_sync(limit=2)
+                    await pipeline.run_sync(queues=["converted"], limit=2)
 
         # Verify progress reports had consistent data
         for report in progress_reports:

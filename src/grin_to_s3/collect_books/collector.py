@@ -808,7 +808,7 @@ class BookCollector:
         print("=" * 60)
         print("Next Step: Sync Pipeline")
         print("=" * 60)
-        print(f"{base_cmd} sync pipeline --run-name {run_name}")
+        print(f"{base_cmd} sync pipeline --run-name {run_name} --queue converted")
         print()
 
     async def process_book(self, grin_row: GRINRow) -> BookRecord | None:

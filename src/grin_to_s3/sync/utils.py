@@ -342,3 +342,34 @@ async def get_converted_books(grin_client, library_directory: str) -> set[str]:
     except Exception as e:
         logger.warning(f"Failed to get converted books: {e}")
         return set()
+
+
+async def get_books_from_queue(grin_client, library_directory: str, queue_name: str, db_tracker=None) -> set[str]:
+    """Get barcodes from specified queue.
+
+    Args:
+        grin_client: GRIN client instance
+        library_directory: Library directory name
+        queue_name: Queue name (converted, previous, changed, all)
+        db_tracker: Database tracker instance (needed for previous queue)
+
+    Returns:
+        set: Set of barcodes for the specified queue
+    """
+    if queue_name == "converted":
+        return await get_converted_books(grin_client, library_directory)
+    elif queue_name == "previous":
+        # TODO: Implement previous queue (books with PREVIOUSLY_DOWNLOADED status)
+        logger.warning("Previous queue not yet implemented")
+        return set()
+    elif queue_name == "changed":
+        # TODO: Implement changed queue (books with newer versions in GRIN)
+        logger.warning("Changed queue not yet implemented")
+        return set()
+    elif queue_name == "all":
+        # Union of converted and previous queues
+        converted = await get_converted_books(grin_client, library_directory)
+        # TODO: Add previous queue when implemented
+        return converted
+    else:
+        raise ValueError(f"Unknown queue name: {queue_name}")

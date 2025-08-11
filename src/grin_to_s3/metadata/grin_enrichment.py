@@ -522,7 +522,7 @@ class GRINEnrichmentPipeline:
             # Suggest next steps since enrichment is complete
             run_name = Path(self.db_path).parent.name
             print("\nNext steps:")
-            print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name}")
+            print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name} --queue converted")
             return
 
         # Start enrichment
@@ -672,7 +672,7 @@ class GRINEnrichmentPipeline:
             if total_enriched > 0:
                 run_name = Path(self.db_path).parent.name
                 print("\nNext steps:")
-                print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name}")
+                print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name} --queue converted")
 
 
 async def main() -> None:
