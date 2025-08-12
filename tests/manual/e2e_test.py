@@ -225,11 +225,19 @@ class E2ETestRunner:
             "--library-directory", "Harvard"
         ], cwd=repo_dir)
 
-        # Sync with local storage
+        # Sync with local storage - converted queue
         self._run_command([
             self.venv_python, "grin.py", "sync", "pipeline",
             "--run-name", local_run_name,
             "--queue", "converted",
+            "--limit", "1"
+        ], cwd=repo_dir, timeout=60)
+
+        # Sync with local storage - previous queue (test PR5 functionality)
+        self._run_command([
+            self.venv_python, "grin.py", "sync", "pipeline",
+            "--run-name", local_run_name,
+            "--queue", "previous",
             "--limit", "1"
         ], cwd=repo_dir, timeout=60)
 
