@@ -51,8 +51,8 @@ class ConversionRequestHandler:
             if result == "Success":
                 logger.info(f"[{barcode}] Conversion requested successfully")
                 return "requested"
-            elif "already in process" in result.lower() or "already available" in result.lower():
-                logger.warning(f"[{barcode}] Already in process (shouldn't happen with filtering): {result}")
+            elif "already in process" in result.lower() or "already available" in result.lower() or "already being converted" in result.lower():
+                logger.info(f"[{barcode}] Already being processed: {result}")
                 return "in_process"
             else:
                 # Mark as verified_unavailable
@@ -61,9 +61,14 @@ class ConversionRequestHandler:
                 return "unavailable"
 
         except ProcessingRequestError as e:
-            logger.error(f"[{barcode}] Conversion request failed: {e}")
-            await self._mark_verified_unavailable(barcode, str(e))
-            return "unavailable"
+            error_msg = str(e).lower()
+            if "already being converted" in error_msg or "already in process" in error_msg or "already available" in error_msg:
+                logger.info(f"[{barcode}] Already being processed: {e}")
+                return "in_process"
+            else:
+                logger.error(f"[{barcode}] Conversion request failed: {e}")
+                await self._mark_verified_unavailable(barcode, str(e))
+                return "unavailable"
         except Exception as e:
             logger.error(f"[{barcode}] Unexpected error during conversion request: {e}")
             await self._mark_verified_unavailable(barcode, str(e))

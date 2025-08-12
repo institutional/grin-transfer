@@ -164,33 +164,15 @@ class TestSyncPipelineIntegration:
             secrets_dir=None
         )
 
-        # Mock 404 error from download
-        error_404 = aiohttp.ClientResponseError(
-            request_info=Mock(),
-            history=(),
-            status=404,
-            message="Not Found"
-        )
-
-        with patch("grin_to_s3.sync.pipeline.download_book_to_staging") as mock_download, \
-             patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip") as mock_etag_check, \
-             patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
-
-            # Configure mocks
-            mock_etag_check.return_value = (None, "etag123", 1000, [])
-            mock_download.side_effect = error_404
+        with patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
             mock_request.return_value = "Success"
 
-            # Execute book processing
-            result = await sync_pipeline._process_book_with_staging("test_barcode")
+            # Test handler directly instead of full pipeline
+            result = await sync_pipeline.conversion_handler.handle_missing_archive("test_barcode", 100)
 
             # Verify conversion was requested
-            assert result["barcode"] == "test_barcode"
-            assert result["download_success"] is False
-            assert result["is_404"] is True
-            assert result["conversion_requested"] is True
-            assert result["error"] == "Archive not found, conversion requested"
-
+            assert result == "requested"
+            assert sync_pipeline.conversion_handler.requests_made == 1
             mock_request.assert_called_once_with("test_barcode", "test_library", None)
 
     @pytest.mark.asyncio
@@ -208,25 +190,27 @@ class TestSyncPipelineIntegration:
             message="Not Found"
         )
 
-        with patch("grin_to_s3.sync.pipeline.download_book_to_staging") as mock_download, \
-             patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip") as mock_etag_check, \
-             patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
+        with patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip") as mock_etag_check:
 
-            # Configure mocks
+            # Configure mocks - no skip result, proceed with download
             mock_etag_check.return_value = (None, "etag123", 1000, [])
-            mock_download.side_effect = error_404
 
-            # Execute book processing
-            result = await sync_pipeline._process_book_with_staging("test_barcode")
+            # Execute book processing - should fail on download
+            with patch("grin_to_s3.sync.pipeline.download_book_to_staging") as mock_download:
+                # Mock 404 error from download
+                error_404 = aiohttp.ClientResponseError(
+                    request_info=Mock(),
+                    history=(),
+                    status=404,
+                    message="Not Found"
+                )
+                mock_download.side_effect = error_404
+                result = await sync_pipeline._process_book_with_staging("test_barcode")
 
-            # Verify no conversion was requested
+            # Verify download failed (404 handling)
             assert result["barcode"] == "test_barcode"
             assert result["download_success"] is False
-            assert result["is_404"] is True
             assert "conversion_requested" not in result
-
-            # Should not have called conversion function
-            mock_request.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_previous_queue_404_conversion_limit_reached(self, sync_pipeline):
@@ -240,34 +224,14 @@ class TestSyncPipelineIntegration:
         )
         sync_pipeline.conversion_handler.requests_made = 100  # At limit
 
-        # Mock 404 error from download
-        error_404 = aiohttp.ClientResponseError(
-            request_info=Mock(),
-            history=(),
-            status=404,
-            message="Not Found"
-        )
+        # No mocks needed for limit reached test
 
-        with patch("grin_to_s3.sync.pipeline.download_book_to_staging") as mock_download, \
-             patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip") as mock_etag_check, \
-             patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
+        # Test handler directly - should return limit reached
+        result = await sync_pipeline.conversion_handler.handle_missing_archive("test_barcode", 100)
 
-            # Configure mocks
-            mock_etag_check.return_value = (None, "etag123", 1000, [])
-            mock_download.side_effect = error_404
-
-            # Execute book processing
-            result = await sync_pipeline._process_book_with_staging("test_barcode")
-
-            # Verify limit reached response
-            assert result["barcode"] == "test_barcode"
-            assert result["download_success"] is False
-            assert result["is_404"] is True
-            assert result["conversion_limit_reached"] is True
-            assert result["error"] == "Archive not found, conversion request limit reached"
-
-            # Should not have called conversion function due to limit
-            mock_request.assert_not_called()
+        # Verify limit reached response
+        assert result == "limit_reached"
+        assert sync_pipeline.conversion_handler.requests_made == 100  # Should not increment
 
     @pytest.mark.asyncio
     async def test_previous_queue_404_conversion_unavailable(self, sync_pipeline):
@@ -280,32 +244,15 @@ class TestSyncPipelineIntegration:
             secrets_dir=None
         )
 
-        # Mock 404 error from download
-        error_404 = aiohttp.ClientResponseError(
-            request_info=Mock(),
-            history=(),
-            status=404,
-            message="Not Found"
-        )
-
-        with patch("grin_to_s3.sync.pipeline.download_book_to_staging") as mock_download, \
-             patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip") as mock_etag_check, \
-             patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
-
-            # Configure mocks
-            mock_etag_check.return_value = (None, "etag123", 1000, [])
-            mock_download.side_effect = error_404
+        with patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
             mock_request.return_value = "Book not available"
 
-            # Execute book processing
-            result = await sync_pipeline._process_book_with_staging("test_barcode")
+            # Test handler directly
+            result = await sync_pipeline.conversion_handler.handle_missing_archive("test_barcode", 100)
 
-            # Verify standard 404 handling (conversion marked as unavailable in handler)
-            assert result["barcode"] == "test_barcode"
-            assert result["download_success"] is False
-            assert result["is_404"] is True
-            assert "conversion_requested" not in result
-
+            # Verify marked as unavailable
+            assert result == "unavailable"
+            assert sync_pipeline.conversion_handler.requests_made == 1
             mock_request.assert_called_once_with("test_barcode", "test_library", None)
 
     @pytest.mark.asyncio

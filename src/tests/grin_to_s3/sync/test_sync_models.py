@@ -84,7 +84,7 @@ class TestSyncStats:
         """Test creating initialized sync statistics."""
         stats = create_sync_stats()
         assert stats["processed"] == 0
-        assert stats["completed"] == 0
+        assert stats["synced"] == 0
         assert stats["failed"] == 0
         assert stats["skipped"] == 0
         assert stats["uploaded"] == 0
@@ -94,11 +94,11 @@ class TestSyncStats:
         """Test that sync statistics can be modified."""
         stats = create_sync_stats()
         stats["processed"] = 5
-        stats["completed"] = 3
+        stats["synced"] = 3
         stats["failed"] = 1
         stats["skipped"] = 1
         assert stats["processed"] == 5
-        assert stats["completed"] == 3
+        assert stats["synced"] == 3
         assert stats["failed"] == 1
         assert stats["skipped"] == 1
 

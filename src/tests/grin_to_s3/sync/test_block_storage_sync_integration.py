@@ -225,6 +225,6 @@ class TestBlockStorageSyncIntegration:
                 await pipeline._run_block_storage_sync(["TEST1", "TEST2"], 2)
 
                 # Verify statistics are correct
-                assert pipeline.stats["completed"] == 1  # TEST1 succeeded
+                assert pipeline.stats["synced"] == 1  # TEST1 succeeded
                 assert pipeline.stats["failed"] == 1  # TEST2 failed
                 assert pipeline.stats["skipped"] == 0

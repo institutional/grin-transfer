@@ -848,7 +848,7 @@ class SyncPipeline:
                             result = await task
                             self._completed_count += 1  # Book is fully processed (success or failure)
                             if result["status"] == "completed":
-                                self.stats["completed"] += 1
+                                self.stats["synced"] += 1
                                 self.stats["uploaded"] += 1
                                 rate_calculator.add_batch(time.time(), processed_count)
                                 self._handle_success(completed_barcode)
@@ -1024,11 +1024,33 @@ class SyncPipeline:
                                     active_uploads[barcode] = upload_task
                                     self._pending_upload_count = len(active_uploads)
                                     logger.debug(f"[{barcode}] Started upload task")
+                                elif result.get("completed"):
+                                    # Conversion requested/in_process or marked as unavailable
+                                    self._completed_count += 1  # Book is fully processed
+                                    self._handle_success(barcode)  # Reset failure counter for successful items
+
+                                    if result.get("conversion_requested"):
+                                        logger.info(f"[{barcode}] ✅ Conversion requested successfully")
+                                        print(f"✅ [{barcode}] Conversion requested")
+                                    elif result.get("already_in_process"):
+                                        logger.info(f"[{barcode}] ✅ Already being processed")
+                                        print(f"✅ [{barcode}] Already in process")
+                                    elif result.get("marked_unavailable"):
+                                        logger.info(f"[{barcode}] ✅ Marked as unavailable")
+                                        print(f"✅ [{barcode}] Marked unavailable")
+
+                                    # Track as successful in process summary
+                                    self.process_summary_stage.increment_items(successful=1)
                                 elif result.get("skipped"):
-                                    # Download skipped due to ETag match, count as completed
+                                    # Download skipped due to ETag match or conversion limit, count as completed
                                     self._completed_count += 1  # Book is fully processed (already up to date)
-                                    self.stats["skipped"] += 1
                                     self._handle_success(barcode)  # Reset failure counter for skipped items
+
+                                    if result.get("conversion_limit_reached"):
+                                        logger.warning(f"[{barcode}] ⚠️  Conversion limit reached")
+                                        print(f"⚠️  [{barcode}] Conversion limit reached")
+                                    else:
+                                        logger.info(f"[{barcode}] ✅ Skipped (ETag match)")
 
                                     # Track skipped as successful in process summary
                                     self.process_summary_stage.increment_items(successful=1)
@@ -1084,7 +1106,7 @@ class SyncPipeline:
 
                                 # Update stats based on upload result
                                 if result.get("upload_success"):
-                                    self.stats["completed"] += 1
+                                    self.stats["synced"] += 1
                                     self._handle_success(barcode)
                                     # Queue for enrichment after successful sync
                                     await self.queue_book_for_enrichment(barcode)
@@ -1146,15 +1168,21 @@ class SyncPipeline:
         print(f"\nSync completed for run: {run_name}")
         print(f"  Runtime: {format_duration(total_elapsed)}")
         print(f"  Books processed: {books_processed:,}")
-        print(f"  Successfully synced: {self.stats['completed']:,}")
+        print(f"  Successfully synced: {self.stats['synced']:,}")
         print(f"  Failed: {self.stats['failed']:,}")
 
-        # Show skipped count only for block storage (has ETag matching)
-        if self.storage_protocol != "local" and self.stats.get("skipped", 0) > 0:
-            print(f"  Skipped (ETag match): {self.stats['skipped']:,}")
+        # Show detailed breakdown of results
+        if self.stats.get("conversion_requested", 0) > 0:
+            print(f"  Conversion requested: {self.stats['conversion_requested']:,}")
+        if self.stats.get("marked_unavailable", 0) > 0:
+            print(f"  Marked unavailable: {self.stats['marked_unavailable']:,}")
+        if self.stats.get("skipped_etag_match", 0) > 0:
+            print(f"  Skipped (ETag match): {self.stats['skipped_etag_match']:,}")
+        if self.stats.get("skipped_conversion_limit", 0) > 0:
+            print(f"  Skipped (conversion limit): {self.stats['skipped_conversion_limit']:,}")
 
-        if total_elapsed > 0 and self.stats["completed"] > 0:
-            avg_rate = self.stats["completed"] / total_elapsed
+        if total_elapsed > 0 and self.stats["synced"] > 0:
+            avg_rate = self.stats["synced"] / total_elapsed
             print(f"  Average rate: {avg_rate:.1f} books/second")
 
         # Export CSV and database
@@ -1212,17 +1240,40 @@ class SyncPipeline:
                     self.db_tracker,
                     self._download_semaphore,
                     self.force,
+                    self.current_queues,
+                    self.conversion_handler,
                 )
 
                 if skip_result:
-                    # Write sync status updates for skipped books
+                    # Write sync status updates for books that don't need download
                     if sync_status_updates and self.db_tracker:
                         try:
                             await batch_write_status_updates(str(self.db_tracker.db_path), sync_status_updates)
                         except Exception as e:
-                            logger.warning(f"[{barcode}] Failed to write skip status updates: {e}")
-                    self.stats["skipped"] += 1
-                    return {"barcode": barcode, "download_success": False, "skipped": True, "skip_result": skip_result}
+                            logger.warning(f"[{barcode}] Failed to write status updates: {e}")
+
+                    # Check the first status update to determine the result type
+                    status_value = sync_status_updates[0].status_value if sync_status_updates else "unknown"
+                    conversion_status = sync_status_updates[0].metadata.get("conversion_status") if sync_status_updates and sync_status_updates[0].metadata else None
+
+                    if status_value == "completed" and conversion_status == "requested":
+                        self.stats["conversion_requested"] += 1
+                        return {"barcode": barcode, "download_success": False, "completed": True, "conversion_requested": True}
+                    elif status_value == "completed" and conversion_status == "in_process":
+                        self.stats["conversion_requested"] += 1  # Count in_process as conversion_requested in stats
+                        return {"barcode": barcode, "download_success": False, "completed": True, "already_in_process": True}
+                    elif status_value == "marked_unavailable":
+                        self.stats["marked_unavailable"] += 1
+                        return {"barcode": barcode, "download_success": False, "marked_unavailable": True}
+                    elif status_value == "skipped" and sync_status_updates[0].metadata and sync_status_updates[0].metadata.get("skip_reason") == "conversion_limit_reached":
+                        self.stats["skipped_conversion_limit"] += 1
+                        self.stats["skipped"] += 1
+                        return {"barcode": barcode, "download_success": False, "skipped": True, "conversion_limit_reached": True}
+                    else:
+                        # Default ETag match or other skip
+                        self.stats["skipped_etag_match"] += 1
+                        self.stats["skipped"] += 1
+                        return {"barcode": barcode, "download_success": False, "skipped": True, "skip_result": skip_result}
 
                 # Download to staging
                 _, staging_file_path, metadata = await download_book_to_staging(
@@ -1249,10 +1300,6 @@ class SyncPipeline:
                 is_404 = _is_404_error(e)
 
                 if is_404:
-                    # Handle 404 with possible conversion request
-                    conversion_result = await self._handle_404_with_conversion(barcode)
-                    if conversion_result:
-                        return conversion_result
                     logger.info(f"[{barcode}] Archive not found (404)")
                 else:
                     logger.error(f"[{barcode}] Download failed: {e}", exc_info=True)
