@@ -40,8 +40,8 @@ from .database_backup import create_local_database_backup, upload_database_to_st
 from .models import create_sync_stats
 from .operations import (
     check_and_handle_etag_skip,
+    download_book_to_filesystem,
     download_book_to_local,
-    download_book_to_staging,
     is_404_error,
     upload_book_from_staging,
 )
@@ -906,12 +906,12 @@ class SyncPipeline:
                     )
 
                 else:
-                    _, staging_file_path, metadata = await download_book_to_staging(
+                    _, staging_file_path, metadata = await download_book_to_filesystem(
                         barcode,
                         self.grin_client,
                         self.library_directory,
-                        self.staging_manager,
                         encrypted_etag,
+                        self.staging_manager,
                         self.secrets_dir,
                         self.download_timeout,
                         self.download_retries,

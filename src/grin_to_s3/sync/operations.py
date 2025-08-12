@@ -40,6 +40,7 @@ from grin_to_s3.storage.staging import StagingDirectoryManager
 from .models import BookSyncResult, create_book_sync_result
 from .utils import check_encrypted_etag, should_skip_download
 
+logger = logging.getLogger(__name__)
 
 def extract_archive(archive_path: Path, extraction_dir: Path, barcode: str, context: str = "") -> float:
     """Extract a tarball archive with timing and logging.
@@ -145,9 +146,6 @@ def _convert_marc_keys_to_db_fields(marc_data: dict[str, str | None]) -> dict[st
     db_data["marc_extraction_timestamp"] = datetime.now(UTC).isoformat()
 
     return db_data
-
-
-logger = logging.getLogger(__name__)
 
 
 def get_download_target_path(barcode: str, storage_protocol: str, storage_config: dict[str, Any], staging_manager: StagingDirectoryManager | None = None) -> tuple[Path, Path]:
@@ -446,32 +444,15 @@ async def check_and_handle_etag_skip(
 
     return None, encrypted_etag, encrypted_file_size or 0, []
 
-
-async def download_book_to_staging(
-    barcode: str,
+async def download_book_to_filesystem(barcode: str,
     grin_client: GRINClient,
     library_directory: str,
-    staging_manager,
     encrypted_etag: str | None,
+    staging_manager: StagingDirectoryManager | None = None,
     secrets_dir: str | None = None,
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
     download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
 ) -> tuple[str, str, dict[str, Any]]:
-    """Download a book to staging directory.
-
-    Args:
-        barcode: Book barcode
-        grin_client: GRIN client instance
-        library_directory: Library directory name
-        staging_manager: Staging directory manager
-        encrypted_etag: Encrypted ETag for the file
-        secrets_dir: Secrets directory path
-        download_timeout: Timeout for download request in seconds
-        download_retries: Number of retry attempts for failed downloads
-
-    Returns:
-        tuple: (barcode, staging_file_path, metadata)
-    """
 
     # Create retry decorator with specified retries
     retry_decorator = create_download_retry_decorator(download_retries)
@@ -485,54 +466,53 @@ async def download_book_to_staging(
         logger.info(f"[{barcode}] Starting download from {grin_url}")
 
         # Get staging file path using consolidated function
-        staging_file, _ = get_download_target_path(barcode, "staging", {}, staging_manager)
+        encrypted_path, _ = get_download_target_path(barcode, "staging" if staging_manager else "local", {}, staging_manager)
 
-        # Download directly to staging file with specified timeout
         async with create_http_session(timeout=download_timeout) as session:
             response = await client.auth.make_authenticated_request(session, grin_url)
 
             total_bytes = 0
-            async with aiofiles.open(staging_file, "wb") as f:
+            async with aiofiles.open(encrypted_path, "wb") as f:
                 async for chunk in response.content.iter_chunked(1024 * 1024):
                     await f.write(chunk)
                     total_bytes += len(chunk)
-
-                    # Check disk space periodically during download
-                    if total_bytes % (50 * 1024 * 1024) == 0:  # Every 50MB
-                        if not staging_manager.check_disk_space():
-                            # Clean up partial file and wait for space
-                            staging_file.unlink(missing_ok=True)
-                            logger.warning(
-                                f"[{barcode}] Disk space exhausted during download, cleaning up and waiting for space..."
-                            )
-                            await staging_manager.wait_for_disk_space(check_interval=60)
-                            # Retry the download with the same parameters
-                            return await download_book_to_staging(
-                                barcode,
-                                grin_client,
-                                library_directory,
-                                staging_manager,
-                                encrypted_etag,
-                                secrets_dir,
-                                download_timeout,
-                                download_retries,
-                            )
+                    # If we're using a staging directory + cloud storage, monitor space
+                    if staging_manager:
+                        # Check disk space periodically during download
+                        if total_bytes % (50 * 1024 * 1024) == 0:  # Every 50MB
+                            if not staging_manager.check_disk_space():
+                                # Clean up partial file and wait for space
+                                encrypted_path.unlink(missing_ok=True)
+                                logger.warning(
+                                    f"[{barcode}] Disk space exhausted during download, cleaning up and waiting for space..."
+                                )
+                                await staging_manager.wait_for_disk_space(check_interval=60)
+                                # Retry the download with the same parameters
+                                return await download_book_to_filesystem(
+                                    barcode,
+                                    grin_client,
+                                    library_directory,
+                                    encrypted_etag,
+                                    staging_manager,
+                                    secrets_dir,
+                                    download_timeout,
+                                    download_retries,
+                                )
 
                 # Ensure all data is flushed to disk
                 await f.flush()
 
             # Verify file size matches what we downloaded
-            actual_size = staging_file.stat().st_size
+            actual_size = encrypted_path.stat().st_size
             if actual_size != total_bytes:
-                staging_file.unlink(missing_ok=True)
+                encrypted_path.unlink(missing_ok=True)
                 raise Exception(f"File size mismatch: expected {total_bytes}, got {actual_size}")
 
             return (
                 barcode,
-                str(staging_file),
+                str(encrypted_path),
                 {
                     "file_size": total_bytes,
-                    "total_time": 0,  # We'll track this separately
                     "google_etag": encrypted_etag,
                 },
             )

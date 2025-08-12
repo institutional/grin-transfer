@@ -14,8 +14,8 @@ from .models import (
 )
 from .operations import (
     check_and_handle_etag_skip,
+    download_book_to_filesystem,
     download_book_to_local,
-    download_book_to_staging,
     upload_book_from_staging,
 )
 from .pipeline import SyncPipeline
@@ -37,7 +37,7 @@ __all__ = [
     "main",
     # Core sync functions
     "check_and_handle_etag_skip",
-    "download_book_to_staging",
+    "download_book_to_filesystem",
     "download_book_to_local",
     "upload_book_from_staging",
     # Models and data structures
