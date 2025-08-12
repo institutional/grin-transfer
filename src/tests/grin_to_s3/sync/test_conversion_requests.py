@@ -196,7 +196,7 @@ class TestSyncPipelineIntegration:
             mock_etag_check.return_value = (None, "etag123", 1000, [])
 
             # Execute book processing - should fail on download
-            with patch("grin_to_s3.sync.pipeline.download_book_to_staging") as mock_download:
+            with patch("grin_to_s3.sync.pipeline.download_book_to_filesystem") as mock_download:
                 # Mock 404 error from download
                 error_404 = aiohttp.ClientResponseError(
                     request_info=Mock(),

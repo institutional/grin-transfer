@@ -15,8 +15,8 @@ from aioresponses import aioresponses
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.sync.operations import (
     check_and_handle_etag_skip,
+    download_book_to_filesystem,
     download_book_to_local,
-    download_book_to_staging,
     extract_and_upload_ocr_text,
     upload_book_from_staging,
 )
@@ -102,7 +102,7 @@ class TestBookDownload:
     """Test book download functionality."""
 
     @pytest.mark.asyncio
-    async def test_download_book_to_staging_success(self, mock_grin_client, mock_staging_manager):
+    async def test_download_book_to_filesystem_success(self, mock_grin_client, mock_staging_manager):
         """Test successful book download to staging."""
         # Mock staging manager
         mock_staging_manager.check_disk_space.return_value = True
@@ -129,8 +129,8 @@ class TestBookDownload:
             mock_aiofiles.return_value.__aenter__.return_value = mock_file
             mock_aiofiles.return_value.__aexit__.return_value = None
 
-            barcode, staging_file_path, metadata = await download_book_to_staging(
-                "TEST123", mock_grin_client, "Harvard", mock_staging_manager, "abc123"
+            barcode, staging_file_path, metadata = await download_book_to_filesystem(
+                "TEST123", mock_grin_client, "Harvard", "abc123", staging_manager=mock_staging_manager
             )
 
             assert barcode == "TEST123"
@@ -138,7 +138,7 @@ class TestBookDownload:
             assert metadata["google_etag"] == "abc123"
 
     @pytest.mark.asyncio
-    async def test_download_book_to_staging_failure(self, mock_grin_client, mock_staging_manager):
+    async def test_download_book_to_filesystem_failure(self, mock_grin_client, mock_staging_manager):
         """Test book download failure handling."""
         # Mock staging manager
         mock_staging_manager.check_disk_space.return_value = True
@@ -160,8 +160,8 @@ class TestBookDownload:
         call_count_before = len(mock_grin_client.auth.make_authenticated_request.call_args_list)
 
         with pytest.raises(aiohttp.ClientResponseError) as exc_info:
-            await download_book_to_staging(
-                "TEST123", mock_grin_client, "Harvard", mock_staging_manager, "abc123", download_retries=2
+            await download_book_to_filesystem(
+                "TEST123", mock_grin_client, "Harvard", "abc123", staging_manager=mock_staging_manager, download_retries=2
             )
 
         # Verify that it's a 404 error
@@ -198,8 +198,8 @@ class TestBookDownload:
         call_count_before = len(mock_grin_client.auth.make_authenticated_request.call_args_list)
 
         with pytest.raises(aiohttp.ClientResponseError) as exc_info:
-            await download_book_to_staging(
-                "TEST123", mock_grin_client, "Harvard", mock_staging_manager, "abc123", download_retries=2
+            await download_book_to_filesystem(
+                "TEST123", mock_grin_client, "Harvard", "abc123", staging_manager=mock_staging_manager, download_retries=2
             )
 
         # Verify that it's a 500 error
@@ -831,12 +831,12 @@ class TestDiskSpaceHandling:
                         mock_grin_client.auth.make_authenticated_request.return_value = mock_response
 
                         # This should trigger the mid-download space check and retry
-                        result = await download_book_to_staging(
+                        result = await download_book_to_filesystem(
                             "TEST123",
                             mock_grin_client,
                             "Harvard",
-                            staging_manager,
-                            "etag123"
+                            "etag123",
+                            staging_manager=staging_manager
                         )
 
                         # Should eventually succeed after retry
