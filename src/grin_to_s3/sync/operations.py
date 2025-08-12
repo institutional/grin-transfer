@@ -970,7 +970,7 @@ async def sync_book_to_local_storage(
     skip_extract_marc: bool = False,
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
     download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
-) -> tuple:
+) -> tuple[str, str, dict]:
     """Sync a book directly to local storage without staging.
 
     Args:
@@ -1143,7 +1143,7 @@ async def sync_book_to_local_storage(
 
     return (
         barcode,
-        final_encrypted_path,
+        str(final_encrypted_path),
         sync_data
     )
 
