@@ -91,9 +91,9 @@ class TestSyncStagingCleanup:
 
     @pytest.mark.asyncio
     async def test_cleanup_called_with_success_status_in_run_sync(self, sync_pipeline):
-        """Test that run_sync calls cleanup with correct success status."""
+        """Test that setup_sync_loop calls cleanup with correct success status."""
         # Mock the pipeline methods to avoid actual sync work
-        with patch.object(sync_pipeline, "_run_block_storage_sync"):
+        with patch.object(sync_pipeline, "_run_sync"):
             with patch.object(sync_pipeline, "cleanup") as mock_cleanup:
                 with patch("grin_to_s3.processing.get_converted_books") as mock_get_books:
                     mock_get_books.return_value = []  # No books to process
@@ -116,35 +116,35 @@ class TestSyncStagingCleanup:
                             "pending": 0
                         }
 
-                        await sync_pipeline.run_sync(queues=["converted"])
+                        await sync_pipeline.setup_sync_loop(queues=["converted"])
 
                         # Verify cleanup was called with success=True (no books to process is success)
                         mock_cleanup.assert_called_once_with(True)
 
     @pytest.mark.asyncio
     async def test_cleanup_called_with_failure_status_on_exception(self, sync_pipeline):
-        """Test that run_sync calls cleanup with failure status on exception."""
+        """Test that setup_sync_loop calls cleanup with failure status on exception."""
         with patch.object(sync_pipeline, "cleanup") as mock_cleanup:
             with patch("grin_to_s3.sync.pipeline.get_books_from_queue") as mock_get_books:
                 # Mock an exception during sync
                 mock_get_books.side_effect = Exception("Test error")
 
                 # Run sync and expect it to handle the exception
-                await sync_pipeline.run_sync(queues=["converted"])
+                await sync_pipeline.setup_sync_loop(queues=["converted"])
 
                 # Verify cleanup was called with success=False
                 mock_cleanup.assert_called_once_with(False)
 
     @pytest.mark.asyncio
     async def test_cleanup_called_with_failure_status_on_keyboard_interrupt(self, sync_pipeline):
-        """Test that run_sync calls cleanup with failure status on keyboard interrupt."""
+        """Test that setup_sync_loop calls cleanup with failure status on keyboard interrupt."""
         with patch.object(sync_pipeline, "cleanup") as mock_cleanup:
             with patch("grin_to_s3.sync.pipeline.get_books_from_queue") as mock_get_books:
                 # Mock a keyboard interrupt during sync
                 mock_get_books.side_effect = KeyboardInterrupt()
 
                 # Run sync and expect it to handle the interrupt
-                await sync_pipeline.run_sync(queues=["converted"])
+                await sync_pipeline.setup_sync_loop(queues=["converted"])
 
                 # Verify cleanup was called with success=False
                 mock_cleanup.assert_called_once_with(False)

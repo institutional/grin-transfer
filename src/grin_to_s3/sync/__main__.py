@@ -126,7 +126,7 @@ async def _run_sync_pipeline(args, run_config: RunConfig, sync_stage) -> None:
 
     # Execute the sync pipeline
     sync_stage.add_progress_update("Starting sync pipeline")
-    await pipeline.run_sync(queues=args.queue, limit=args.limit, specific_barcodes=specific_barcodes)
+    await pipeline.setup_sync_loop(queues=args.queue, limit=args.limit, specific_barcodes=specific_barcodes)
     sync_stage.add_progress_update("Sync pipeline completed successfully")
 
 

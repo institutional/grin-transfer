@@ -157,16 +157,13 @@ class TestSyncPipelineLocalOptimization:
             )
 
             # Create sync pipeline with local storage
-            pipeline = SyncPipeline.from_run_config(
+            SyncPipeline.from_run_config(
                 config=config,
                 process_summary_stage=mock_process_stage,
             )
 
             # Verify staging directory is not created for local storage
             assert not (Path(temp_dir) / "staging").exists()
-
-            # Test that local storage sync method exists
-            assert hasattr(pipeline, "_run_local_storage_sync")
 
             # Close database connection
             if hasattr(db_tracker, "_db") and db_tracker._db:

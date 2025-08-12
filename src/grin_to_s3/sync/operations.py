@@ -40,6 +40,7 @@ from grin_to_s3.storage.staging import StagingDirectoryManager
 from .models import BookSyncResult, create_book_sync_result
 from .utils import check_encrypted_etag, should_skip_download
 
+logger = logging.getLogger(__name__)
 
 def extract_archive(archive_path: Path, extraction_dir: Path, barcode: str, context: str = "") -> float:
     """Extract a tarball archive with timing and logging.
@@ -147,10 +148,59 @@ def _convert_marc_keys_to_db_fields(marc_data: dict[str, str | None]) -> dict[st
     return db_data
 
 
-logger = logging.getLogger(__name__)
+def get_download_target_path(barcode: str, storage_protocol: str, storage_config: dict[str, Any], staging_manager: StagingDirectoryManager | None = None) -> tuple[Path, Path]:
+    """Get download target paths based on storage protocol.
+
+    Args:
+        barcode: Book barcode
+        storage_protocol: Storage protocol ("staging" or "local")
+        storage_config: Storage configuration dict
+        staging_manager: Staging manager instance (required for "staging" protocol)
+
+    Returns:
+        tuple: (encrypted_path, decrypted_path)
+    """
+    if storage_protocol == "staging":
+        if staging_manager is None:
+            raise ValueError("staging_manager is required for staging protocol")
+
+        encrypted_path = staging_manager.get_encrypted_file_path(barcode)
+        decrypted_path = staging_manager.get_decrypted_file_path(barcode)
+
+        # Ensure parent directories exist
+        encrypted_path.parent.mkdir(parents=True, exist_ok=True)
+
+        return encrypted_path, decrypted_path
+
+    elif storage_protocol == "local":
+        # Validate base_path requirement for local storage
+        base_path = storage_config.get("base_path") if storage_config else None
+        if not base_path:
+            raise ValueError("Local storage requires base_path in configuration")
+
+        # Generate final file paths
+        encrypted_filename = f"{barcode}.tar.gz.gpg"
+        decrypted_filename = f"{barcode}.tar.gz"
+
+        # For local storage, construct paths using proper bucket structure
+        bucket_raw = LOCAL_STORAGE_DEFAULTS["bucket_raw"]
+        relative_encrypted_path = f"{bucket_raw}/{barcode}/{encrypted_filename}"
+        relative_decrypted_path = f"{bucket_raw}/{barcode}/{decrypted_filename}"
+
+        # Get absolute paths for local storage
+        encrypted_path = Path(base_path) / relative_encrypted_path
+        decrypted_path = Path(base_path) / relative_decrypted_path
+
+        # Ensure directory exists
+        encrypted_path.parent.mkdir(parents=True, exist_ok=True)
+
+        return encrypted_path, decrypted_path
+
+    else:
+        raise ValueError(f"Unsupported storage protocol: {storage_protocol}")
 
 
-def _is_404_error(exception: Exception) -> bool:
+def is_404_error(exception: Exception) -> bool:
     """Check if an exception is a 404 (Not Found) error."""
     return isinstance(exception, aiohttp.ClientResponseError) and exception.status == 404
 
@@ -394,32 +444,15 @@ async def check_and_handle_etag_skip(
 
     return None, encrypted_etag, encrypted_file_size or 0, []
 
-
-async def download_book_to_staging(
-    barcode: str,
+async def download_book_to_filesystem(barcode: str,
     grin_client: GRINClient,
     library_directory: str,
-    staging_manager,
     encrypted_etag: str | None,
+    staging_manager: StagingDirectoryManager | None = None,
     secrets_dir: str | None = None,
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
     download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
 ) -> tuple[str, str, dict[str, Any]]:
-    """Download a book to staging directory.
-
-    Args:
-        barcode: Book barcode
-        grin_client: GRIN client instance
-        library_directory: Library directory name
-        staging_manager: Staging directory manager
-        encrypted_etag: Encrypted ETag for the file
-        secrets_dir: Secrets directory path
-        download_timeout: Timeout for download request in seconds
-        download_retries: Number of retry attempts for failed downloads
-
-    Returns:
-        tuple: (barcode, staging_file_path, metadata)
-    """
 
     # Create retry decorator with specified retries
     retry_decorator = create_download_retry_decorator(download_retries)
@@ -432,55 +465,54 @@ async def download_book_to_staging(
 
         logger.info(f"[{barcode}] Starting download from {grin_url}")
 
-        # Get staging file path
-        staging_file = staging_manager.get_encrypted_file_path(barcode)
+        # Get staging file path using consolidated function
+        encrypted_path, _ = get_download_target_path(barcode, "staging" if staging_manager else "local", {}, staging_manager)
 
-        # Download directly to staging file with specified timeout
         async with create_http_session(timeout=download_timeout) as session:
             response = await client.auth.make_authenticated_request(session, grin_url)
 
             total_bytes = 0
-            async with aiofiles.open(staging_file, "wb") as f:
+            async with aiofiles.open(encrypted_path, "wb") as f:
                 async for chunk in response.content.iter_chunked(1024 * 1024):
                     await f.write(chunk)
                     total_bytes += len(chunk)
-
-                    # Check disk space periodically during download
-                    if total_bytes % (50 * 1024 * 1024) == 0:  # Every 50MB
-                        if not staging_manager.check_disk_space():
-                            # Clean up partial file and wait for space
-                            staging_file.unlink(missing_ok=True)
-                            logger.warning(
-                                f"[{barcode}] Disk space exhausted during download, cleaning up and waiting for space..."
-                            )
-                            await staging_manager.wait_for_disk_space(check_interval=60)
-                            # Retry the download with the same parameters
-                            return await download_book_to_staging(
-                                barcode,
-                                grin_client,
-                                library_directory,
-                                staging_manager,
-                                encrypted_etag,
-                                secrets_dir,
-                                download_timeout,
-                                download_retries,
-                            )
+                    # If we're using a staging directory + cloud storage, monitor space
+                    if staging_manager:
+                        # Check disk space periodically during download
+                        if total_bytes % (50 * 1024 * 1024) == 0:  # Every 50MB
+                            if not staging_manager.check_disk_space():
+                                # Clean up partial file and wait for space
+                                encrypted_path.unlink(missing_ok=True)
+                                logger.warning(
+                                    f"[{barcode}] Disk space exhausted during download, cleaning up and waiting for space..."
+                                )
+                                await staging_manager.wait_for_disk_space(check_interval=60)
+                                # Retry the download with the same parameters
+                                return await download_book_to_filesystem(
+                                    barcode,
+                                    grin_client,
+                                    library_directory,
+                                    encrypted_etag,
+                                    staging_manager,
+                                    secrets_dir,
+                                    download_timeout,
+                                    download_retries,
+                                )
 
                 # Ensure all data is flushed to disk
                 await f.flush()
 
             # Verify file size matches what we downloaded
-            actual_size = staging_file.stat().st_size
+            actual_size = encrypted_path.stat().st_size
             if actual_size != total_bytes:
-                staging_file.unlink(missing_ok=True)
+                encrypted_path.unlink(missing_ok=True)
                 raise Exception(f"File size mismatch: expected {total_bytes}, got {actual_size}")
 
             return (
                 barcode,
-                str(staging_file),
+                str(encrypted_path),
                 {
                     "file_size": total_bytes,
-                    "total_time": 0,  # We'll track this separately
                     "google_etag": encrypted_etag,
                 },
             )
@@ -958,7 +990,7 @@ async def upload_book_from_staging(
         }
 
 
-async def sync_book_to_local_storage(
+async def download_book_to_local(
     barcode: str,
     grin_client: GRINClient,
     library_directory: str,
@@ -970,7 +1002,7 @@ async def sync_book_to_local_storage(
     skip_extract_marc: bool = False,
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
     download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
-) -> dict[str, Any]:
+) -> tuple[str, str, dict]:
     """Sync a book directly to local storage without staging.
 
     Args:
@@ -989,176 +1021,144 @@ async def sync_book_to_local_storage(
     Returns:
         dict: Sync result
     """
+    # Get download target paths using consolidated function
+    final_encrypted_path, final_decrypted_path = get_download_target_path(barcode, "local", storage_config)
+
+    # Create storage and BookManager instance for OCR extraction
+    storage = create_storage_from_config("local", storage_config or {})
+    bucket_config_dict = extract_bucket_config("local", storage_config or {})
+    bucket_config: BucketConfig = {
+        "bucket_raw": bucket_config_dict["bucket_raw"],
+        "bucket_meta": bucket_config_dict["bucket_meta"],
+        "bucket_full": bucket_config_dict["bucket_full"],
+    }
+    book_manager = BookManager(storage, bucket_config=bucket_config)
+
+    # Download directly to final location with retry logic
+    retry_decorator = create_download_retry_decorator(download_retries)
+
+    @retry_decorator
+    async def _download_local_with_retry():
+        """Inner function with retry logic for local download."""
+        client = grin_client
+        grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
+
+        logger.info(f"[{barcode}] Downloading directly to {final_encrypted_path}")
+
+        async with create_http_session(timeout=download_timeout) as session:
+            response = await client.auth.make_authenticated_request(session, grin_url)
+
+            total_bytes = 0
+            async with aiofiles.open(final_encrypted_path, "wb") as f:
+                async for chunk in response.content.iter_chunked(1024 * 1024):
+                    await f.write(chunk)
+                    total_bytes += len(chunk)
+                await f.flush()
+
+            return total_bytes
+
+    total_bytes = await _download_local_with_retry()
+
+    logger.info(f"[{barcode}] Downloaded {total_bytes / (1024 * 1024):.1f} MB")
+
+    # Decrypt directly to final location
+    logger.info(f"[{barcode}] Decrypting to {final_decrypted_path}")
     try:
-        # Create storage for base_path validation
-        storage = create_storage_from_config("local", storage_config or {})
-        base_path = storage_config.get("base_path") if storage_config else None
-        if not base_path:
-            raise ValueError("Local storage requires base_path in configuration")
-
-        # Create BookManager instance for OCR extraction
-        bucket_config_dict = extract_bucket_config("local", storage_config or {})
-        bucket_config: BucketConfig = {
-            "bucket_raw": bucket_config_dict["bucket_raw"],
-            "bucket_meta": bucket_config_dict["bucket_meta"],
-            "bucket_full": bucket_config_dict["bucket_full"],
-        }
-        book_manager = BookManager(storage, bucket_config=bucket_config)
-
-        # Generate final file paths
-        encrypted_filename = f"{barcode}.tar.gz.gpg"
-        decrypted_filename = f"{barcode}.tar.gz"
-
-        # For local storage, construct paths using proper bucket structure
-        bucket_raw = LOCAL_STORAGE_DEFAULTS["bucket_raw"]
-        relative_encrypted_path = f"{bucket_raw}/{barcode}/{encrypted_filename}"
-        relative_decrypted_path = f"{bucket_raw}/{barcode}/{decrypted_filename}"
-
-        # Get absolute paths for local storage
-        final_encrypted_path = Path(base_path) / relative_encrypted_path
-        final_decrypted_path = Path(base_path) / relative_decrypted_path
-
-        # Ensure directory exists
-        final_encrypted_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Download directly to final location with retry logic
-        retry_decorator = create_download_retry_decorator(download_retries)
-
-        @retry_decorator
-        async def _download_local_with_retry():
-            """Inner function with retry logic for local download."""
-            client = grin_client
-            grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
-
-            logger.info(f"[{barcode}] Downloading directly to {final_encrypted_path}")
-
-            async with create_http_session(timeout=download_timeout) as session:
-                response = await client.auth.make_authenticated_request(session, grin_url)
-
-                total_bytes = 0
-                async with aiofiles.open(final_encrypted_path, "wb") as f:
-                    async for chunk in response.content.iter_chunked(1024 * 1024):
-                        await f.write(chunk)
-                        total_bytes += len(chunk)
-                    await f.flush()
-
-                return total_bytes
-
-        total_bytes = await _download_local_with_retry()
-
-        logger.info(f"[{barcode}] Downloaded {total_bytes / (1024 * 1024):.1f} MB")
-
-        # Decrypt directly to final location
-        logger.info(f"[{barcode}] Decrypting to {final_decrypted_path}")
-        try:
-            await decrypt_gpg_file(str(final_encrypted_path), str(final_decrypted_path), secrets_dir)
-            # For local storage, delete encrypted file after successful decryption (new behavior)
-            logger.info(f"[{barcode}] Deleting encrypted file after successful decryption")
-            final_encrypted_path.unlink(missing_ok=True)
-        except Exception as e:
-            logger.error(f"[{barcode}] Decryption failed: {e}")
-            # Clean up encrypted file on decryption failure
-            final_encrypted_path.unlink(missing_ok=True)
-            raise
-
-        # Collect sync completion status updates for batching
-        metadata = {
-            "encrypted_etag": encrypted_etag,
-            "etag_stored_at": datetime.now(UTC).isoformat(),
-            "storage_type": "local",
-            "decrypted_success": True,
-        }
-        sync_completion_status_updates = [
-            collect_status(barcode, "sync", "decrypted", metadata=metadata),
-            collect_status(barcode, "sync", "completed", metadata=metadata),
-        ]
-
-        # Update book record with sync data
-        sync_data: dict[str, Any] = {
-            "storage_type": "local",
-            "storage_path": str(final_decrypted_path),
-            "is_decrypted": True,
-            "sync_timestamp": datetime.now(UTC).isoformat(),
-            "encrypted_etag": encrypted_etag,
-            "last_etag_check": datetime.now(UTC).isoformat(),
-        }
-        await db_tracker.update_sync_data(barcode, sync_data)
-
-        # Perform OCR and MARC extraction after successful decryption
-        extraction_tasks = []
-        temp_extracted_dir = Path(tempfile.mkdtemp(prefix=f"{barcode}_extracted_"))
-
-        # Extract archive atomically for both OCR and MARC extraction
-        if (not skip_extract_ocr) or (not skip_extract_marc):
-            try:
-                extract_archive(final_decrypted_path, temp_extracted_dir, barcode, "local storage")
-
-                if not skip_extract_ocr:
-                    # Run OCR extraction for local storage
-                    ocr_task = asyncio.create_task(
-                        extract_and_upload_ocr_text(barcode, temp_extracted_dir, book_manager, db_tracker, None)
-                    )
-                    extraction_tasks.append(ocr_task)
-
-                if not skip_extract_marc:
-                    # Run MARC extraction for local storage
-                    marc_task = asyncio.create_task(
-                        extract_and_update_marc_metadata(barcode, temp_extracted_dir, db_tracker)
-                    )
-                    extraction_tasks.append(marc_task)
-
-            except Exception as extraction_error:
-                logger.error(f"[{barcode}] Archive extraction failed (local storage): {extraction_error}")
-
-        # Wait for extraction tasks to complete (non-blocking for sync success)
-        if extraction_tasks:
-            try:
-                extraction_results = await asyncio.gather(*extraction_tasks, return_exceptions=True)
-
-                # Collect all status updates from extraction tasks
-                all_status_updates = []
-                for result in extraction_results:
-                    if isinstance(result, list):  # Status updates from extraction tasks
-                        all_status_updates.extend(result)
-                    elif isinstance(result, Exception):
-                        logger.warning(f"[{barcode}] Extraction task failed: {result}")
-
-                # Add sync completion status updates
-                all_status_updates.extend(sync_completion_status_updates)
-
-                # Batch write all status updates
-                if all_status_updates:
-                    await batch_write_status_updates(db_tracker.db_path, all_status_updates)
-
-                logger.info(f"[{barcode}] Extraction tasks completed")
-            except Exception as e:
-                logger.warning(f"[{barcode}] Some extraction tasks failed: {e}")
-            finally:
-                # Clean up temporary extracted directory
-                shutil.rmtree(temp_extracted_dir, ignore_errors=True)
-        else:
-            # No extraction tasks, but still need to write sync completion status
-            await batch_write_status_updates(db_tracker.db_path, sync_completion_status_updates)
-
-        logger.info(f"[{barcode}] ✅ Successfully synced to local storage")
-
-        return {
-            "barcode": barcode,
-            "status": "completed",
-            "decrypted_success": True,
-        }
-
+        await decrypt_gpg_file(str(final_encrypted_path), str(final_decrypted_path), secrets_dir)
+        # For local storage, delete encrypted file after successful decryption (new behavior)
+        logger.info(f"[{barcode}] Deleting encrypted file after successful decryption")
+        final_encrypted_path.unlink(missing_ok=True)
     except Exception as e:
-        # Check if this is a 404 error
-        is_404 = _is_404_error(e)
+        logger.error(f"[{barcode}] Decryption failed: {e}")
+        # Clean up encrypted file on decryption failure
+        final_encrypted_path.unlink(missing_ok=True)
+        raise
 
-        if is_404:
-            logger.info(f"[{barcode}] Archive not found (404)")
-        else:
-            logger.error(f"[{barcode}] Local storage sync failed: {e}")
-        return {
-            "barcode": barcode,
-            "status": "failed",
-            "error": str(e),
-            "is_404": is_404,
-        }
+    # Collect sync completion status updates for batching
+    metadata = {
+        "encrypted_etag": encrypted_etag,
+        "etag_stored_at": datetime.now(UTC).isoformat(),
+        "storage_type": "local",
+        "decrypted_success": True,
+    }
+    sync_completion_status_updates = [
+        collect_status(barcode, "sync", "decrypted", metadata=metadata),
+        collect_status(barcode, "sync", "completed", metadata=metadata),
+    ]
+
+    # Update book record with sync data
+    sync_data: dict[str, Any] = {
+        "storage_type": "local",
+        "storage_path": str(final_decrypted_path),
+        "is_decrypted": True,
+        "sync_timestamp": datetime.now(UTC).isoformat(),
+        "encrypted_etag": encrypted_etag,
+        "last_etag_check": datetime.now(UTC).isoformat(),
+    }
+    await db_tracker.update_sync_data(barcode, sync_data)
+
+    # Perform OCR and MARC extraction after successful decryption
+    extraction_tasks = []
+    temp_extracted_dir = Path(tempfile.mkdtemp(prefix=f"{barcode}_extracted_"))
+
+    # Extract archive atomically for both OCR and MARC extraction
+    if (not skip_extract_ocr) or (not skip_extract_marc):
+        try:
+            extract_archive(final_decrypted_path, temp_extracted_dir, barcode, "local storage")
+
+            if not skip_extract_ocr:
+                # Run OCR extraction for local storage
+                ocr_task = asyncio.create_task(
+                    extract_and_upload_ocr_text(barcode, temp_extracted_dir, book_manager, db_tracker, None)
+                )
+                extraction_tasks.append(ocr_task)
+
+            if not skip_extract_marc:
+                # Run MARC extraction for local storage
+                marc_task = asyncio.create_task(
+                    extract_and_update_marc_metadata(barcode, temp_extracted_dir, db_tracker)
+                )
+                extraction_tasks.append(marc_task)
+
+        except Exception as extraction_error:
+            logger.error(f"[{barcode}] Archive extraction failed (local storage): {extraction_error}")
+
+    # Wait for extraction tasks to complete (non-blocking for sync success)
+    if extraction_tasks:
+        try:
+            extraction_results = await asyncio.gather(*extraction_tasks, return_exceptions=True)
+
+            # Collect all status updates from extraction tasks
+            all_status_updates = []
+            for result in extraction_results:
+                if isinstance(result, list):  # Status updates from extraction tasks
+                    all_status_updates.extend(result)
+                elif isinstance(result, Exception):
+                    logger.warning(f"[{barcode}] Extraction task failed: {result}")
+
+            # Add sync completion status updates
+            all_status_updates.extend(sync_completion_status_updates)
+
+            # Batch write all status updates
+            if all_status_updates:
+                await batch_write_status_updates(db_tracker.db_path, all_status_updates)
+
+            logger.info(f"[{barcode}] Extraction tasks completed")
+        except Exception as e:
+            logger.warning(f"[{barcode}] Some extraction tasks failed: {e}")
+        finally:
+            # Clean up temporary extracted directory
+            shutil.rmtree(temp_extracted_dir, ignore_errors=True)
+    else:
+        # No extraction tasks, but still need to write sync completion status
+        await batch_write_status_updates(db_tracker.db_path, sync_completion_status_updates)
+
+    logger.info(f"[{barcode}] ✅ Successfully synced to local storage")
+
+    return (
+        barcode,
+        str(final_encrypted_path),
+        sync_data
+    )
+
+
