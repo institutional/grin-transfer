@@ -35,6 +35,7 @@ from grin_to_s3.process_summary import (
 )
 from grin_to_s3.run_config import apply_run_config_to_args, find_run_config, setup_run_database_path
 
+from .constants import GRIN_RATE_LIMIT_DELAY
 from .database import connect_async, connect_sync
 
 logger = logging.getLogger(__name__)
@@ -1367,6 +1368,23 @@ def detect_status_changes(previous: dict, current: dict) -> list[str]:
 # Exported functions for use by other modules
 
 
+def _create_processing_client(library_directory: str, secrets_dir: str | None = None) -> ProcessingClient:
+    """Create a ProcessingClient instance with consistent configuration.
+
+    Args:
+        library_directory: GRIN library directory
+        secrets_dir: Directory containing GRIN secrets files
+
+    Returns:
+        Configured ProcessingClient instance
+    """
+    return ProcessingClient(
+        directory=library_directory,
+        rate_limit_delay=GRIN_RATE_LIMIT_DELAY,
+        secrets_dir=secrets_dir,
+    )
+
+
 async def request_conversion(barcode: str, library_directory: str, secrets_dir: str | None = None) -> str:
     """Request conversion for a single book.
 
@@ -1381,11 +1399,7 @@ async def request_conversion(barcode: str, library_directory: str, secrets_dir: 
     Raises:
         ProcessingRequestError: If the request fails
     """
-    processing_client = ProcessingClient(
-        directory=library_directory,
-        rate_limit_delay=0.2,  # 5 QPS
-        secrets_dir=secrets_dir,
-    )
+    processing_client = _create_processing_client(library_directory, secrets_dir)
 
     try:
         return await processing_client.request_processing(barcode)
@@ -1409,11 +1423,7 @@ async def request_conversions_batch(
     Raises:
         ProcessingRequestError: If the request fails
     """
-    processing_client = ProcessingClient(
-        directory=library_directory,
-        rate_limit_delay=0.2,  # 5 QPS
-        secrets_dir=secrets_dir,
-    )
+    processing_client = _create_processing_client(library_directory, secrets_dir)
 
     try:
         return await processing_client.request_processing_batch(barcodes)

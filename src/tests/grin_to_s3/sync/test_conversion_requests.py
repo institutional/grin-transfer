@@ -10,9 +10,10 @@ import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.processing import ProcessingRequestError
-from grin_to_s3.sync.conversion_handler import ConversionRequestHandler, handle_missing_archive_for_previous_queue
+from grin_to_s3.sync.conversion_handler import ConversionRequestHandler
 
 
+@patch("grin_to_s3.sync.conversion_handler.mark_verified_unavailable")
 class TestConversionRequestHandler:
     """Test the ConversionRequestHandler class."""
 
@@ -21,6 +22,7 @@ class TestConversionRequestHandler:
         """Mock database tracker."""
         tracker = Mock(spec=SQLiteProgressTracker)
         tracker.add_status = AsyncMock()
+        tracker.db_path = "/test/path/books.db"
         return tracker
 
     @pytest.fixture
@@ -33,7 +35,7 @@ class TestConversionRequestHandler:
         )
 
     @pytest.mark.asyncio
-    async def test_handle_missing_archive_successful_request(self, handler, mock_db_tracker):
+    async def test_handle_missing_archive_successful_request(self, mock_mark_unavailable, handler, mock_db_tracker):
         """Test successful conversion request."""
         with patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
             mock_request.return_value = "Success"
@@ -43,10 +45,10 @@ class TestConversionRequestHandler:
             assert result == "requested"
             assert handler.requests_made == 1
             mock_request.assert_called_once_with("test_barcode", "test_library", "test_secrets")
-            mock_db_tracker.add_status.assert_not_called()
+            mock_mark_unavailable.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_handle_missing_archive_already_in_process(self, handler, mock_db_tracker):
+    async def test_handle_missing_archive_already_in_process(self, mock_mark_unavailable, handler, mock_db_tracker):
         """Test when book is already in process."""
         with patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
             mock_request.return_value = "Book already in process"
@@ -55,10 +57,10 @@ class TestConversionRequestHandler:
 
             assert result == "in_process"
             assert handler.requests_made == 1
-            mock_db_tracker.add_status.assert_not_called()
+            mock_mark_unavailable.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_handle_missing_archive_already_available(self, handler, mock_db_tracker):
+    async def test_handle_missing_archive_already_available(self, mock_mark_unavailable, handler, mock_db_tracker):
         """Test when book is already available."""
         with patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
             mock_request.return_value = "Already available for download"
@@ -67,10 +69,10 @@ class TestConversionRequestHandler:
 
             assert result == "in_process"
             assert handler.requests_made == 1
-            mock_db_tracker.add_status.assert_not_called()
+            mock_mark_unavailable.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_handle_missing_archive_unavailable(self, handler, mock_db_tracker):
+    async def test_handle_missing_archive_unavailable(self, mock_mark_unavailable, handler, mock_db_tracker):
         """Test when conversion fails (book unavailable)."""
         with patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
             mock_request.return_value = "Book not available for processing"
@@ -79,15 +81,10 @@ class TestConversionRequestHandler:
 
             assert result == "unavailable"
             assert handler.requests_made == 1
-            mock_db_tracker.add_status.assert_called_once_with(
-                barcode="test_barcode",
-                status_type="sync",
-                status_value="verified_unavailable",
-                details={"reason": "Book not available for processing"}
-            )
+            mock_mark_unavailable.assert_called_once_with("/test/path/books.db", "test_barcode", "Book not available for processing")
 
     @pytest.mark.asyncio
-    async def test_handle_missing_archive_request_limit_reached(self, handler, mock_db_tracker):
+    async def test_handle_missing_archive_request_limit_reached(self, mock_mark_unavailable, handler, mock_db_tracker):
         """Test when conversion request limit is reached."""
         handler.requests_made = 100  # At limit
 
@@ -97,7 +94,7 @@ class TestConversionRequestHandler:
         assert handler.requests_made == 100  # Should not increment
 
     @pytest.mark.asyncio
-    async def test_handle_missing_archive_processing_error(self, handler, mock_db_tracker):
+    async def test_handle_missing_archive_processing_error(self, mock_mark_unavailable, handler, mock_db_tracker):
         """Test when ProcessingRequestError is raised."""
         with patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
             mock_request.side_effect = ProcessingRequestError("Processing failed")
@@ -106,15 +103,10 @@ class TestConversionRequestHandler:
 
             assert result == "unavailable"
             assert handler.requests_made == 0  # Should not increment on error
-            mock_db_tracker.add_status.assert_called_once_with(
-                barcode="test_barcode",
-                status_type="sync",
-                status_value="verified_unavailable",
-                details={"reason": "Processing failed"}
-            )
+            mock_mark_unavailable.assert_called_once_with("/test/path/books.db", "test_barcode", "Processing failed")
 
     @pytest.mark.asyncio
-    async def test_handle_missing_archive_unexpected_error(self, handler, mock_db_tracker):
+    async def test_handle_missing_archive_unexpected_error(self, mock_mark_unavailable, handler, mock_db_tracker):
         """Test when unexpected error is raised."""
         with patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
             mock_request.side_effect = Exception("Network error")
@@ -123,20 +115,16 @@ class TestConversionRequestHandler:
 
             assert result == "unavailable"
             assert handler.requests_made == 0  # Should not increment on error
-            mock_db_tracker.add_status.assert_called_once_with(
-                barcode="test_barcode",
-                status_type="sync",
-                status_value="verified_unavailable",
-                details={"reason": "Network error"}
-            )
+            mock_mark_unavailable.assert_called_once_with("/test/path/books.db", "test_barcode", "Network error")
 
     @pytest.mark.asyncio
-    async def test_mark_verified_unavailable_database_error(self, handler, mock_db_tracker):
+    async def test_mark_verified_unavailable_database_error(self, mock_mark_unavailable, handler, mock_db_tracker):
         """Test when database marking fails."""
         mock_db_tracker.add_status.side_effect = Exception("Database error")
 
         with patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
             mock_request.return_value = "Book not found"
+            mock_mark_unavailable.side_effect = Exception("Database error")
 
             result = await handler.handle_missing_archive("test_barcode", 100)
 
@@ -160,41 +148,6 @@ class TestStandaloneFunctions:
         tracker.add_status = AsyncMock()
         return tracker
 
-    @pytest.mark.asyncio
-    async def test_handle_missing_archive_for_previous_queue(self, mock_grin_client, mock_db_tracker):
-        """Test the standalone function."""
-        with patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
-            mock_request.return_value = "Success"
-
-            result = await handle_missing_archive_for_previous_queue(
-                barcode="test_barcode",
-                grin_client=mock_grin_client,
-                library_directory="test_library",
-                db_tracker=mock_db_tracker,
-                request_limit=100,
-                requests_made=5,
-                secrets_dir="test_secrets"
-            )
-
-            assert result["status"] == "requested"
-            assert result["requests_made"] == 6
-            mock_request.assert_called_once_with("test_barcode", "test_library", "test_secrets")
-
-    @pytest.mark.asyncio
-    async def test_handle_missing_archive_for_previous_queue_limit_reached(self, mock_grin_client, mock_db_tracker):
-        """Test standalone function when limit is reached."""
-        result = await handle_missing_archive_for_previous_queue(
-            barcode="test_barcode",
-            grin_client=mock_grin_client,
-            library_directory="test_library",
-            db_tracker=mock_db_tracker,
-            request_limit=10,
-            requests_made=10,  # At limit
-            secrets_dir="test_secrets"
-        )
-
-        assert result["status"] == "limit_reached"
-        assert result["requests_made"] == 10  # Should not increment
 
 
 class TestSyncPipelineIntegration:

@@ -23,6 +23,7 @@ from grin_to_s3.common import (
     format_duration,
     pluralize,
 )
+from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT, GRIN_RATE_LIMIT_DELAY
 from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
@@ -257,7 +258,7 @@ class SyncPipeline:
         # Conversion request handling for previous queue
         self.current_queues: list[str] = []  # Track which queues are being processed
         self.conversion_handler: ConversionRequestHandler | None = None  # Lazy initialization
-        self.conversion_request_limit = 100  # Default limit for conversion requests per sync
+        self.conversion_request_limit = DEFAULT_CONVERSION_REQUEST_LIMIT
         self.book_manager = BookManager(self.storage, bucket_config=self.bucket_config, base_prefix=self.base_prefix)
 
     @property
@@ -520,7 +521,7 @@ class SyncPipeline:
         enrichment_pipeline = GRINEnrichmentPipeline(
             directory=self.library_directory,
             db_path=self.db_path,
-            rate_limit_delay=0.2,  # 5 QPS
+            rate_limit_delay=GRIN_RATE_LIMIT_DELAY,
             batch_size=100,  # Smaller batches for background processing
             max_concurrent_requests=1,  # Conservative for background work
             secrets_dir=self.secrets_dir,
@@ -1248,44 +1249,14 @@ class SyncPipeline:
                 is_404 = _is_404_error(e)
 
                 if is_404:
-                    # For previous queue, attempt conversion request for missing archives
-                    if "previous" in self.current_queues and self.conversion_handler is not None:
-                        try:
-                            logger.info(
-                                f"[{barcode}] Archive not found (404), requesting conversion for previous queue"
-                            )
-                            conversion_status = await self.conversion_handler.handle_missing_archive(
-                                barcode, self.conversion_request_limit
-                            )
-
-                            if conversion_status == "requested":
-                                logger.info(f"[{barcode}] Conversion requested successfully")
-                                return {
-                                    "barcode": barcode,
-                                    "download_success": False,
-                                    "error": "Archive not found, conversion requested",
-                                    "is_404": True,
-                                    "conversion_requested": True,
-                                }
-                            elif conversion_status == "limit_reached":
-                                logger.warning(f"[{barcode}] Conversion request limit reached")
-                                return {
-                                    "barcode": barcode,
-                                    "download_success": False,
-                                    "error": "Archive not found, conversion request limit reached",
-                                    "is_404": True,
-                                    "conversion_limit_reached": True,
-                                }
-                            else:
-                                # unavailable or in_process
-                                logger.warning(f"[{barcode}] Conversion not possible: {conversion_status}")
-                        except Exception as conversion_error:
-                            logger.error(f"[{barcode}] Conversion request failed: {conversion_error}")
-
+                    # Handle 404 with possible conversion request
+                    conversion_result = await self._handle_404_with_conversion(barcode)
+                    if conversion_result:
+                        return conversion_result
                     logger.info(f"[{barcode}] Archive not found (404)")
                 else:
                     logger.error(f"[{barcode}] Download failed: {e}", exc_info=True)
-                return {"barcode": barcode, "download_success": False, "error": str(e), "is_404": is_404}
+                return self._build_download_result(barcode, success=False, error=str(e), is_404=is_404)
             finally:
                 self._active_download_count -= 1
                 logger.info(
@@ -1585,3 +1556,87 @@ class SyncPipeline:
         print(f"{'=' * 60}")
 
         logger.info(f"DRY-RUN: Would process {books_to_process} books with storage type {self.storage_type}")
+
+    async def _handle_404_with_conversion(self, barcode: str) -> dict[str, Any] | None:
+        """Handle 404 error with possible conversion request for previous queue.
+
+        Args:
+            barcode: Book barcode that returned 404
+
+        Returns:
+            Result dict if conversion was attempted, None if no conversion needed
+        """
+        # Only attempt conversion for previous queue
+        if "previous" not in self.current_queues or self.conversion_handler is None:
+            return None
+
+        try:
+            logger.info(f"[{barcode}] Archive not found (404), requesting conversion for previous queue")
+            conversion_status = await self.conversion_handler.handle_missing_archive(
+                barcode, self.conversion_request_limit
+            )
+
+            if conversion_status == "requested":
+                logger.info(f"[{barcode}] Conversion requested successfully")
+                return self._build_download_result(
+                    barcode,
+                    success=False,
+                    error="Archive not found, conversion requested",
+                    is_404=True,
+                    conversion_requested=True,
+                )
+            elif conversion_status == "limit_reached":
+                logger.warning(f"[{barcode}] Conversion request limit reached")
+                return self._build_download_result(
+                    barcode,
+                    success=False,
+                    error="Archive not found, conversion request limit reached",
+                    is_404=True,
+                    conversion_limit_reached=True,
+                )
+            else:
+                # unavailable or in_process
+                logger.warning(f"[{barcode}] Conversion not possible: {conversion_status}")
+                return None
+
+        except Exception as conversion_error:
+            logger.error(f"[{barcode}] Conversion request failed: {conversion_error}")
+            return None
+
+    def _build_download_result(
+        self,
+        barcode: str,
+        success: bool,
+        error: str = "",
+        is_404: bool = False,
+        conversion_requested: bool = False,
+        conversion_limit_reached: bool = False,
+    ) -> dict[str, Any]:
+        """Build a standardized download result dictionary.
+
+        Args:
+            barcode: Book barcode
+            success: Whether the download was successful
+            error: Error message if unsuccessful
+            is_404: Whether this was a 404 error
+            conversion_requested: Whether conversion was requested
+            conversion_limit_reached: Whether conversion limit was reached
+
+        Returns:
+            Standardized result dictionary
+        """
+        result = {
+            "barcode": barcode,
+            "download_success": success,
+        }
+
+        if error:
+            result["error"] = error
+        if is_404:
+            result["is_404"] = is_404
+        if conversion_requested:
+            result["conversion_requested"] = conversion_requested
+        if conversion_limit_reached:
+            result["conversion_limit_reached"] = conversion_limit_reached
+
+        return result
