@@ -45,7 +45,7 @@ from .operations import (
     sync_book_to_local_storage,
     upload_book_from_staging,
 )
-from .utils import reset_bucket_cache
+from .utils import build_download_result, reset_bucket_cache
 
 # Progress reporting intervals
 INITIAL_PROGRESS_INTERVAL = 60  # 1 minute for first few reports
@@ -933,7 +933,7 @@ class SyncPipeline:
                     logger.info(f"[{barcode}] Archive not found (404)")
                 else:
                     logger.error(f"[{barcode}] Download failed: {e}", exc_info=True)
-                return self._build_download_result(barcode, success=False, error=str(e), is_404=is_404)
+                return build_download_result(barcode, success=False, error=str(e), is_404=is_404)
             finally:
                 self._active_download_count -= 1
                 logger.info(
@@ -1473,7 +1473,7 @@ class SyncPipeline:
 
             if conversion_status == "requested":
                 logger.info(f"[{barcode}] Conversion requested successfully")
-                return self._build_download_result(
+                return build_download_result(
                     barcode,
                     success=False,
                     error="Archive not found, conversion requested",
@@ -1482,7 +1482,7 @@ class SyncPipeline:
                 )
             elif conversion_status == "limit_reached":
                 logger.warning(f"[{barcode}] Conversion request limit reached")
-                return self._build_download_result(
+                return build_download_result(
                     barcode,
                     success=False,
                     error="Archive not found, conversion request limit reached",
@@ -1498,40 +1498,3 @@ class SyncPipeline:
             logger.error(f"[{barcode}] Conversion request failed: {conversion_error}")
             return None
 
-    def _build_download_result(
-        self,
-        barcode: str,
-        success: bool,
-        error: str = "",
-        is_404: bool = False,
-        conversion_requested: bool = False,
-        conversion_limit_reached: bool = False,
-    ) -> dict[str, Any]:
-        """Build a standardized download result dictionary.
-
-        Args:
-            barcode: Book barcode
-            success: Whether the download was successful
-            error: Error message if unsuccessful
-            is_404: Whether this was a 404 error
-            conversion_requested: Whether conversion was requested
-            conversion_limit_reached: Whether conversion limit was reached
-
-        Returns:
-            Standardized result dictionary
-        """
-        result = {
-            "barcode": barcode,
-            "download_success": success,
-        }
-
-        if error:
-            result["error"] = error
-        if is_404:
-            result["is_404"] = is_404
-        if conversion_requested:
-            result["conversion_requested"] = conversion_requested
-        if conversion_limit_reached:
-            result["conversion_limit_reached"] = conversion_limit_reached
-
-        return result

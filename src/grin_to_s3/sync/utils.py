@@ -326,4 +326,40 @@ async def should_skip_download(
         return False, f"error_{type(e).__name__.lower()}"
 
 
+def build_download_result(
+    barcode: str,
+    success: bool,
+    error: str = "",
+    is_404: bool = False,
+    conversion_requested: bool = False,
+    conversion_limit_reached: bool = False,
+) -> dict[str, Any]:
+    """Build a standardized download result dictionary.
+
+    Args:
+        barcode: Book barcode
+        success: Whether the download was successful
+        error: Error message if unsuccessful
+        is_404: Whether this was a 404 error
+        conversion_requested: Whether conversion was requested
+        conversion_limit_reached: Whether conversion limit was reached
+
+    Returns:
+        Standardized result dictionary
+    """
+    result = {
+        "barcode": barcode,
+        "download_success": success,
+    }
+
+    if error:
+        result["error"] = error
+    if is_404:
+        result["is_404"] = is_404
+    if conversion_requested:
+        result["conversion_requested"] = conversion_requested
+    if conversion_limit_reached:
+        result["conversion_limit_reached"] = conversion_limit_reached
+
+    return result
 
