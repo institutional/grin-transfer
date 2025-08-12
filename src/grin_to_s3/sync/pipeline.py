@@ -33,6 +33,7 @@ from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.staging import StagingDirectoryManager
 from grin_to_s3.sync.utils import logger
 
+from .conversion_handler import ConversionRequestHandler
 from .csv_export import CSVExportResult, export_and_upload_csv, export_csv_local
 from .database_backup import create_local_database_backup, upload_database_to_storage
 from .models import create_sync_stats
@@ -252,6 +253,11 @@ class SyncPipeline:
         self.storage = create_storage_from_config(self.storage_type, self.storage_config or {})
         self.base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
         self.bucket_config = extract_bucket_config(self.storage_type, self.storage_config or {})
+
+        # Conversion request handling for previous queue
+        self.current_queues: list[str] = []  # Track which queues are being processed
+        self.conversion_handler: ConversionRequestHandler | None = None  # Lazy initialization
+        self.conversion_request_limit = 100  # Default limit for conversion requests per sync
         self.book_manager = BookManager(self.storage, bucket_config=self.bucket_config, base_prefix=self.base_prefix)
 
     @property
@@ -854,8 +860,21 @@ class SyncPipeline:
                                 if result.get("is_404"):
                                     # 404s don't count toward sequential failures
                                     self.stats["failed"] += 1
-                                    logger.error(f"[{completed_barcode}] ❌ Failed: Archive not found (404)")
-                                    print(f"❌ [{completed_barcode}] Failed: Archive not found (404)")
+
+                                    # Provide specific messaging for conversion requests
+                                    if result.get("conversion_requested"):
+                                        logger.info(f"[{completed_barcode}] ✓ Archive not found, conversion requested")
+                                        print(f"✓ [{completed_barcode}] Archive not found, conversion requested")
+                                    elif result.get("conversion_limit_reached"):
+                                        logger.error(
+                                            f"[{completed_barcode}] ❌ Failed: Archive not found, conversion request limit reached"
+                                        )
+                                        print(
+                                            f"❌ [{completed_barcode}] Failed: Archive not found, conversion request limit reached"
+                                        )
+                                    else:
+                                        logger.error(f"[{completed_barcode}] ❌ Failed: Archive not found (404)")
+                                        print(f"❌ [{completed_barcode}] Failed: Archive not found (404)")
                                 else:
                                     # Other failures count toward sequential failures
                                     should_exit = self._handle_failure(
@@ -1020,8 +1039,21 @@ class SyncPipeline:
                                     if result.get("is_404"):
                                         # 404s don't count toward sequential failures
                                         self.stats["failed"] += 1
-                                        logger.error(f"[{barcode}] ❌ Failed: Archive not found (404)")
-                                        print(f"❌ [{barcode}] Failed: Archive not found (404)")
+
+                                        # Provide specific messaging for conversion requests
+                                        if result.get("conversion_requested"):
+                                            logger.info(f"[{barcode}] ✓ Archive not found, conversion requested")
+                                            print(f"✓ [{barcode}] Archive not found, conversion requested")
+                                        elif result.get("conversion_limit_reached"):
+                                            logger.error(
+                                                f"[{barcode}] ❌ Failed: Archive not found, conversion request limit reached"
+                                            )
+                                            print(
+                                                f"❌ [{barcode}] Failed: Archive not found, conversion request limit reached"
+                                            )
+                                        else:
+                                            logger.error(f"[{barcode}] ❌ Failed: Archive not found (404)")
+                                            print(f"❌ [{barcode}] Failed: Archive not found (404)")
                                     else:
                                         # Other failures count toward sequential failures
                                         error_detail = result.get("error", "Unknown error")
@@ -1216,6 +1248,40 @@ class SyncPipeline:
                 is_404 = _is_404_error(e)
 
                 if is_404:
+                    # For previous queue, attempt conversion request for missing archives
+                    if "previous" in self.current_queues and self.conversion_handler is not None:
+                        try:
+                            logger.info(
+                                f"[{barcode}] Archive not found (404), requesting conversion for previous queue"
+                            )
+                            conversion_status = await self.conversion_handler.handle_missing_archive(
+                                barcode, self.conversion_request_limit
+                            )
+
+                            if conversion_status == "requested":
+                                logger.info(f"[{barcode}] Conversion requested successfully")
+                                return {
+                                    "barcode": barcode,
+                                    "download_success": False,
+                                    "error": "Archive not found, conversion requested",
+                                    "is_404": True,
+                                    "conversion_requested": True,
+                                }
+                            elif conversion_status == "limit_reached":
+                                logger.warning(f"[{barcode}] Conversion request limit reached")
+                                return {
+                                    "barcode": barcode,
+                                    "download_success": False,
+                                    "error": "Archive not found, conversion request limit reached",
+                                    "is_404": True,
+                                    "conversion_limit_reached": True,
+                                }
+                            else:
+                                # unavailable or in_process
+                                logger.warning(f"[{barcode}] Conversion not possible: {conversion_status}")
+                        except Exception as conversion_error:
+                            logger.error(f"[{barcode}] Conversion request failed: {conversion_error}")
+
                     logger.info(f"[{barcode}] Archive not found (404)")
                 else:
                     logger.error(f"[{barcode}] Download failed: {e}", exc_info=True)
@@ -1275,6 +1341,14 @@ class SyncPipeline:
             specific_barcodes: Optional list of specific barcodes to sync
             queues: List of queue types to process (converted, previous, changed, all)
         """
+        # Store current queues for use in conversion request handling
+        self.current_queues = queues or []
+
+        # Initialize conversion handler if processing previous queue
+        if "previous" in self.current_queues:
+            self.conversion_handler = ConversionRequestHandler(
+                library_directory=self.library_directory, db_tracker=self.db_tracker, secrets_dir=self.secrets_dir
+            )
         print("Starting GRIN-to-Storage sync pipeline")
         if self.dry_run:
             print("🔍 DRY-RUN MODE: No files will be downloaded or uploaded")
