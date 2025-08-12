@@ -150,7 +150,59 @@ def _convert_marc_keys_to_db_fields(marc_data: dict[str, str | None]) -> dict[st
 logger = logging.getLogger(__name__)
 
 
-def _is_404_error(exception: Exception) -> bool:
+def get_download_target_path(barcode: str, storage_protocol: str, storage_config: dict[str, Any], staging_manager: StagingDirectoryManager | None = None) -> tuple[Path, Path]:
+    """Get download target paths based on storage protocol.
+
+    Args:
+        barcode: Book barcode
+        storage_protocol: Storage protocol ("staging" or "local")
+        storage_config: Storage configuration dict
+        staging_manager: Staging manager instance (required for "staging" protocol)
+
+    Returns:
+        tuple: (encrypted_path, decrypted_path)
+    """
+    if storage_protocol == "staging":
+        if staging_manager is None:
+            raise ValueError("staging_manager is required for staging protocol")
+
+        encrypted_path = staging_manager.get_encrypted_file_path(barcode)
+        decrypted_path = staging_manager.get_decrypted_file_path(barcode)
+
+        # Ensure parent directories exist
+        encrypted_path.parent.mkdir(parents=True, exist_ok=True)
+
+        return encrypted_path, decrypted_path
+
+    elif storage_protocol == "local":
+        # Validate base_path requirement for local storage
+        base_path = storage_config.get("base_path") if storage_config else None
+        if not base_path:
+            raise ValueError("Local storage requires base_path in configuration")
+
+        # Generate final file paths
+        encrypted_filename = f"{barcode}.tar.gz.gpg"
+        decrypted_filename = f"{barcode}.tar.gz"
+
+        # For local storage, construct paths using proper bucket structure
+        bucket_raw = LOCAL_STORAGE_DEFAULTS["bucket_raw"]
+        relative_encrypted_path = f"{bucket_raw}/{barcode}/{encrypted_filename}"
+        relative_decrypted_path = f"{bucket_raw}/{barcode}/{decrypted_filename}"
+
+        # Get absolute paths for local storage
+        encrypted_path = Path(base_path) / relative_encrypted_path
+        decrypted_path = Path(base_path) / relative_decrypted_path
+
+        # Ensure directory exists
+        encrypted_path.parent.mkdir(parents=True, exist_ok=True)
+
+        return encrypted_path, decrypted_path
+
+    else:
+        raise ValueError(f"Unsupported storage protocol: {storage_protocol}")
+
+
+def is_404_error(exception: Exception) -> bool:
     """Check if an exception is a 404 (Not Found) error."""
     return isinstance(exception, aiohttp.ClientResponseError) and exception.status == 404
 
@@ -432,8 +484,8 @@ async def download_book_to_staging(
 
         logger.info(f"[{barcode}] Starting download from {grin_url}")
 
-        # Get staging file path
-        staging_file = staging_manager.get_encrypted_file_path(barcode)
+        # Get staging file path using consolidated function
+        staging_file, _ = get_download_target_path(barcode, "staging", {}, staging_manager)
 
         # Download directly to staging file with specified timeout
         async with create_http_session(timeout=download_timeout) as session:
@@ -958,7 +1010,7 @@ async def upload_book_from_staging(
         }
 
 
-async def sync_book_to_local_storage(
+async def download_book_to_local(
     barcode: str,
     grin_client: GRINClient,
     library_directory: str,
@@ -989,13 +1041,11 @@ async def sync_book_to_local_storage(
     Returns:
         dict: Sync result
     """
-    # Create storage for base_path validation
-    storage = create_storage_from_config("local", storage_config or {})
-    base_path = storage_config.get("base_path") if storage_config else None
-    if not base_path:
-        raise ValueError("Local storage requires base_path in configuration")
+    # Get download target paths using consolidated function
+    final_encrypted_path, final_decrypted_path = get_download_target_path(barcode, "local", storage_config)
 
-    # Create BookManager instance for OCR extraction
+    # Create storage and BookManager instance for OCR extraction
+    storage = create_storage_from_config("local", storage_config or {})
     bucket_config_dict = extract_bucket_config("local", storage_config or {})
     bucket_config: BucketConfig = {
         "bucket_raw": bucket_config_dict["bucket_raw"],
@@ -1003,22 +1053,6 @@ async def sync_book_to_local_storage(
         "bucket_full": bucket_config_dict["bucket_full"],
     }
     book_manager = BookManager(storage, bucket_config=bucket_config)
-
-    # Generate final file paths
-    encrypted_filename = f"{barcode}.tar.gz.gpg"
-    decrypted_filename = f"{barcode}.tar.gz"
-
-    # For local storage, construct paths using proper bucket structure
-    bucket_raw = LOCAL_STORAGE_DEFAULTS["bucket_raw"]
-    relative_encrypted_path = f"{bucket_raw}/{barcode}/{encrypted_filename}"
-    relative_decrypted_path = f"{bucket_raw}/{barcode}/{decrypted_filename}"
-
-    # Get absolute paths for local storage
-    final_encrypted_path = Path(base_path) / relative_encrypted_path
-    final_decrypted_path = Path(base_path) / relative_decrypted_path
-
-    # Ensure directory exists
-    final_encrypted_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Download directly to final location with retry logic
     retry_decorator = create_download_retry_decorator(download_retries)

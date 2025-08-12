@@ -15,9 +15,9 @@ from aioresponses import aioresponses
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.sync.operations import (
     check_and_handle_etag_skip,
+    download_book_to_local,
     download_book_to_staging,
     extract_and_upload_ocr_text,
-    sync_book_to_local_storage,
     upload_book_from_staging,
 )
 from tests.test_utils.parametrize_helpers import extraction_scenarios_parametrize, meaningful_storage_parametrize
@@ -326,7 +326,7 @@ class TestLocalStorageSync:
 
                 mock_decrypt.side_effect = mock_decrypt_side_effect
 
-                result = await sync_book_to_local_storage(
+                result = await download_book_to_local(
                     "TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker
                 )
 
@@ -343,7 +343,7 @@ class TestLocalStorageSync:
         storage_config = {}  # No base_path
 
         with pytest.raises(ValueError) as exc_info:
-            await sync_book_to_local_storage(
+            await download_book_to_local(
             "TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker
             )
         assert "Local storage requires" in str(exc_info.value)
@@ -416,7 +416,7 @@ class TestLocalStorageSync:
                     return MockAsyncFile(path)
 
                 with patch("aiofiles.open", side_effect=mock_aiofiles_open):
-                    result = await sync_book_to_local_storage(
+                    result = await download_book_to_local(
                         "TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker
                     )
 

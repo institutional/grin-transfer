@@ -39,10 +39,10 @@ from .csv_export import CSVExportResult, export_and_upload_csv, export_csv_local
 from .database_backup import create_local_database_backup, upload_database_to_storage
 from .models import create_sync_stats
 from .operations import (
-    _is_404_error,
     check_and_handle_etag_skip,
+    download_book_to_local,
     download_book_to_staging,
-    sync_book_to_local_storage,
+    is_404_error,
     upload_book_from_staging,
 )
 from .utils import build_download_result, reset_bucket_cache
@@ -891,7 +891,7 @@ class SyncPipeline:
 
                 # We didn't skip, so do the download to either staging (if cloud storage) or local
                 if self.storage_protocol == "local":
-                    _, staging_file_path, metadata = await sync_book_to_local_storage(
+                    _, staging_file_path, metadata = await download_book_to_local(
                         barcode,
                         self.grin_client,
                         self.library_directory,
@@ -927,7 +927,7 @@ class SyncPipeline:
 
             except Exception as e:
                 # Check if this is a 404 error
-                is_404 = _is_404_error(e)
+                is_404 = is_404_error(e)
 
                 if is_404:
                     logger.info(f"[{barcode}] Archive not found (404)")
