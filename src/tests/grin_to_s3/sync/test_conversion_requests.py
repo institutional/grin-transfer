@@ -257,15 +257,15 @@ class TestSyncPipelineIntegration:
 
     @pytest.mark.asyncio
     async def test_run_sync_initializes_conversion_handler_for_previous_queue(self, sync_pipeline):
-        """Test that run_sync initializes conversion handler when previous queue is specified."""
+        """Test that setup_sync_loop initializes conversion handler when previous queue is specified."""
         with patch("grin_to_s3.sync.pipeline.get_books_from_queue") as mock_get_books, \
              patch.object(sync_pipeline, "_run_sync"):
 
             # Mock no books to avoid actual processing
             mock_get_books.return_value = set()
 
-            # Call run_sync with previous queue
-            await sync_pipeline.run_sync(queues=["previous"])
+            # Call setup_sync_loop with previous queue
+            await sync_pipeline.setup_sync_loop(queues=["previous"])
 
             # Verify conversion handler was initialized
             assert sync_pipeline.current_queues == ["previous"]
@@ -274,15 +274,15 @@ class TestSyncPipelineIntegration:
 
     @pytest.mark.asyncio
     async def test_run_sync_no_conversion_handler_for_other_queues(self, sync_pipeline):
-        """Test that run_sync does not initialize conversion handler for other queues."""
+        """Test that setup_sync_loop does not initialize conversion handler for other queues."""
         with patch("grin_to_s3.sync.pipeline.get_books_from_queue") as mock_get_books, \
              patch.object(sync_pipeline, "_run_sync"):
 
             # Mock no books to avoid actual processing
             mock_get_books.return_value = set()
 
-            # Call run_sync with converted queue
-            await sync_pipeline.run_sync(queues=["converted"])
+            # Call setup_sync_loop with converted queue
+            await sync_pipeline.setup_sync_loop(queues=["converted"])
 
             # Verify conversion handler was not initialized
             assert sync_pipeline.current_queues == ["converted"]

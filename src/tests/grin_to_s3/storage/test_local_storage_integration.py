@@ -71,14 +71,14 @@ class TestLocalStorageIntegration:
                 process_summary_stage=mock_process_stage,
             )
 
-            # Mock dependencies for run_sync startup
+            # Mock dependencies for setup_sync_loop startup
             pipeline.db_tracker.get_books_for_sync = AsyncMock(return_value=[])
 
             # Mock get_converted_books to return empty list so sync exits early
             with patch("grin_to_s3.processing.get_converted_books", return_value=set()):
                 # Capture print output to verify storage configuration display
                 with patch("builtins.print") as mock_print:
-                    await pipeline.run_sync(queues=["converted"], limit=0)
+                    await pipeline.setup_sync_loop(queues=["converted"], limit=0)
 
                     # Check that target directory was printed in startup configuration
                     print_calls = [str(call) for call in mock_print.call_args_list]
@@ -90,7 +90,7 @@ class TestLocalStorageIntegration:
 
             with patch("grin_to_s3.processing.get_converted_books", return_value=set()):
                 with patch("builtins.print") as mock_print:
-                    await pipeline.run_sync(queues=["converted"], limit=0)
+                    await pipeline.setup_sync_loop(queues=["converted"], limit=0)
 
                     # Should handle None gracefully by showing "None"
                     print_calls = [str(call) for call in mock_print.call_args_list]

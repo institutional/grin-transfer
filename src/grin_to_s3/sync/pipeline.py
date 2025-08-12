@@ -979,7 +979,7 @@ class SyncPipeline:
                     f"[{barcode}] Upload task completed (active: {self._active_upload_count}/{self.concurrent_uploads})"
                 )
 
-    async def run_sync(
+    async def setup_sync_loop(
         self, queues: list[str] | None = None, limit: int | None = None, specific_barcodes: list[str] | None = None
     ) -> None:
         """Run the complete sync pipeline.
@@ -1162,6 +1162,106 @@ class SyncPipeline:
         finally:
             await self.cleanup(sync_successful)
 
+    def _should_exit_for_failure_limit(self) -> bool:
+        """Check if pipeline should exit due to sequential failure limit."""
+        return self._sequential_failures >= self.max_sequential_failures
+
+    def _should_exit_for_shutdown(self) -> bool:
+        """Check if pipeline should exit due to shutdown request."""
+        return self._shutdown_requested
+
+    async def _process_download_result(self, barcode: str, result: dict[str, Any], processed_count: int, rate_calculator, start_time: float) -> tuple[bool, int]:
+        """Process download completion result and return (should_exit, updated_processed_count)."""
+        if result.get("download_success"):
+            # For local storage, successful downloads should be treated as completed
+            if self.storage_protocol == "local":
+                self._completed_count += 1
+                self.stats["synced"] += 1
+                self._handle_success(barcode)
+                await self.queue_book_for_enrichment(barcode)
+                self.process_summary_stage.increment_items(successful=1)
+            # For cloud storage, downloads get uploaded separately
+            processed_count += 1
+            self._processed_count = processed_count
+            rate_calculator.add_batch(time.time(), processed_count)
+            self.process_summary_stage.increment_items(processed=1)
+            return False, processed_count
+
+        if result.get("completed"):
+            self._completed_count += 1
+            self._handle_success(barcode)
+
+            if result.get("conversion_requested"):
+                logger.info(f"[{barcode}] Conversion requested successfully")
+                print(f"✅ [{barcode}] Conversion requested")
+            elif result.get("already_in_process"):
+                logger.info(f"[{barcode}] Already being processed")
+                print(f"✅ [{barcode}] Already in process")
+            elif result.get("marked_unavailable"):
+                logger.info(f"[{barcode}] Marked as unavailable")
+                print(f"✅ [{barcode}] Marked unavailable")
+
+            self.process_summary_stage.increment_items(successful=1)
+        elif result.get("skipped"):
+            self._completed_count += 1
+            self._handle_success(barcode)
+
+            if result.get("conversion_limit_reached"):
+                logger.warning(f"[{barcode}] Conversion limit reached")
+                print(f"⚠️  [{barcode}] Conversion limit reached")
+            else:
+                logger.info(f"[{barcode}] Skipped (ETag match)")
+
+            self.process_summary_stage.increment_items(successful=1)
+        else:
+            self._completed_count += 1
+
+            if result.get("is_404"):
+                self.stats["failed"] += 1
+
+                if result.get("conversion_requested"):
+                    logger.info(f"[{barcode}] Archive not found, conversion requested")
+                    print(f"✓ [{barcode}] Archive not found, conversion requested")
+                elif result.get("conversion_limit_reached"):
+                    logger.error(f"[{barcode}] Failed: Archive not found, conversion request limit reached")
+                    print(f"❌ [{barcode}] Failed: Archive not found, conversion request limit reached")
+                else:
+                    logger.error(f"[{barcode}] Failed: Archive not found (404)")
+                    print(f"❌ [{barcode}] Failed: Archive not found (404)")
+            else:
+                error_detail = result.get("error", "Unknown error")
+                should_exit = self._handle_failure(barcode, f"Download failed: {error_detail}")
+                if should_exit:
+                    return True, processed_count
+
+            self.process_summary_stage.increment_items(failed=1)
+
+        processed_count += 1
+        self._processed_count = processed_count
+        rate_calculator.add_batch(time.time(), processed_count)
+        self.process_summary_stage.increment_items(processed=1)
+
+        return False, processed_count
+
+    async def _process_upload_result(self, barcode: str, result: dict[str, Any]) -> bool:
+        """Process upload completion result and return should_exit."""
+        self._completed_count += 1
+        logger.info(f"[{barcode}] Upload completed (success: {result.get('upload_success', False)})")
+
+        if result.get("upload_success"):
+            self.stats["synced"] += 1
+            self._handle_success(barcode)
+            await self.queue_book_for_enrichment(barcode)
+            self.process_summary_stage.increment_items(successful=1)
+        else:
+            error_detail = result.get("error", "Unknown error")
+            should_exit = self._handle_failure(barcode, f"Upload failed: {error_detail}")
+            if should_exit:
+                return True
+            self.process_summary_stage.increment_items(failed=1)
+
+        return False
+
     async def _run_sync(self, available_to_sync: list[str], books_to_process: int, specific_barcodes: list[str] | None = None
 ) -> None:
 
@@ -1185,7 +1285,7 @@ class SyncPipeline:
 
             # Process downloads and uploads
             while len(active_downloads) < self.concurrent_downloads or active_downloads or active_uploads:
-                if self._shutdown_requested:
+                if self._should_exit_for_shutdown():
                     break
 
                 # Refill download queue if under limit and more books available
@@ -1203,7 +1303,6 @@ class SyncPipeline:
                         break
 
                 all_tasks = list(active_downloads.values()) + list(active_uploads.values())
-
                 if not all_tasks:
                     break
 
@@ -1212,122 +1311,37 @@ class SyncPipeline:
                 for completed_task in done:
                     try:
                         result = await completed_task
+                        if not result or not result.get("barcode"):
+                            logger.warning("Upload/download task completed with no result")
+                            continue
 
-                        if result:
-                            barcode = result.get("barcode")
+                        barcode = result.get("barcode")
 
-                            # Handle download completion
-                            if barcode in active_downloads and active_downloads[barcode] == completed_task:
-                                del active_downloads[barcode]
-                                logger.debug(
-                                    f"[{barcode}] Download completed (success: {result.get('download_success', False)})"
-                                )
+                        # Handle download completion
+                        if barcode in active_downloads and active_downloads[barcode] == completed_task:
+                            del active_downloads[barcode]
+                            logger.debug(f"[{barcode}] Download completed (success: {result.get('download_success', False)})")
 
-                                # If download successful...
-                                if result.get("download_success"):
-                                    # ...start upload if not using local storage
-                                    if self.storage_protocol != "local":
-                                        upload_task = asyncio.create_task(self._upload_book_from_staging(barcode, result))
-                                        active_uploads[barcode] = upload_task
-                                        self._pending_upload_count = len(active_uploads)
-                                        logger.debug(f"[{barcode}] Started upload task")
-                                elif result.get("completed"):
-                                    # Conversion requested/in_process or marked as unavailable
-                                    self._completed_count += 1  # Book is fully processed
-                                    self._handle_success(barcode)  # Reset failure counter for successful items
-
-                                    if result.get("conversion_requested"):
-                                        logger.info(f"[{barcode}] ✅ Conversion requested successfully")
-                                        print(f"✅ [{barcode}] Conversion requested")
-                                    elif result.get("already_in_process"):
-                                        logger.info(f"[{barcode}] ✅ Already being processed")
-                                        print(f"✅ [{barcode}] Already in process")
-                                    elif result.get("marked_unavailable"):
-                                        logger.info(f"[{barcode}] ✅ Marked as unavailable")
-                                        print(f"✅ [{barcode}] Marked unavailable")
-
-                                    # Track as successful in process summary
-                                    self.process_summary_stage.increment_items(successful=1)
-                                elif result.get("skipped"):
-                                    # Download skipped due to ETag match or conversion limit, count as completed
-                                    self._completed_count += 1  # Book is fully processed (already up to date)
-                                    self._handle_success(barcode)  # Reset failure counter for skipped items
-
-                                    if result.get("conversion_limit_reached"):
-                                        logger.warning(f"[{barcode}] ⚠️  Conversion limit reached")
-                                        print(f"⚠️  [{barcode}] Conversion limit reached")
-                                    else:
-                                        logger.info(f"[{barcode}] ✅ Skipped (ETag match)")
-
-                                    # Track skipped as successful in process summary
-                                    self.process_summary_stage.increment_items(successful=1)
-                                else:
-                                    # Download failed, update stats
-                                    self._completed_count += 1  # Book is fully processed (failed)
-
-                                    # Check if this is a 404 - don't count 404s toward sequential failures
-                                    if result.get("is_404"):
-                                        # 404s don't count toward sequential failures
-                                        self.stats["failed"] += 1
-
-                                        # Provide specific messaging for conversion requests
-                                        if result.get("conversion_requested"):
-                                            logger.info(f"[{barcode}] ✓ Archive not found, conversion requested")
-                                            print(f"✓ [{barcode}] Archive not found, conversion requested")
-                                        elif result.get("conversion_limit_reached"):
-                                            logger.error(
-                                                f"[{barcode}] ❌ Failed: Archive not found, conversion request limit reached"
-                                            )
-                                            print(
-                                                f"❌ [{barcode}] Failed: Archive not found, conversion request limit reached"
-                                            )
-                                        else:
-                                            logger.error(f"[{barcode}] ❌ Failed: Archive not found (404)")
-                                            print(f"❌ [{barcode}] Failed: Archive not found (404)")
-                                    else:
-                                        # Other failures count toward sequential failures
-                                        error_detail = result.get("error", "Unknown error")
-                                        should_exit = self._handle_failure(barcode, f"Download failed: {error_detail}")
-                                        if should_exit:
-                                            return
-
-                                    # Track download failure in process summary
-                                    self.process_summary_stage.increment_items(failed=1)
-
-                                # Update progress
-                                processed_count += 1
-                                self._processed_count = processed_count
-                                rate_calculator.add_batch(time.time(), processed_count)
-
-                                # Track in process summary
-                                self.process_summary_stage.increment_items(processed=1)
-
-                            # Handle upload completion
-                            elif barcode in active_uploads and active_uploads[barcode] == completed_task:
-                                del active_uploads[barcode]
+                            if result.get("download_success") and self.storage_protocol != "local":
+                                upload_task = asyncio.create_task(self._upload_book_from_staging(barcode, result))
+                                active_uploads[barcode] = upload_task
                                 self._pending_upload_count = len(active_uploads)
-                                self._completed_count += 1  # Book is fully processed (success or failure)
-                                logger.info(
-                                    f"[{barcode}] Upload completed (success: {result.get('upload_success', False)})"
+                                logger.debug(f"[{barcode}] Started upload task")
+                            else:
+                                should_exit, processed_count = await self._process_download_result(
+                                    barcode, result, processed_count, rate_calculator, start_time
                                 )
+                                if should_exit:
+                                    return
 
-                                # Update stats based on upload result
-                                if result.get("upload_success"):
-                                    self.stats["synced"] += 1
-                                    self._handle_success(barcode)
-                                    # Queue for enrichment after successful sync
-                                    await self.queue_book_for_enrichment(barcode)
-
-                                    # Track success in process summary
-                                    self.process_summary_stage.increment_items(successful=1)
-                                else:
-                                    error_detail = result.get("error", "Unknown error")
-                                    should_exit = self._handle_failure(barcode, f"Upload failed: {error_detail}")
-                                    if should_exit:
-                                        return
-
-                                    # Track failure in process summary
-                                    self.process_summary_stage.increment_items(failed=1)
+                        # Handle upload completion
+                        elif barcode in active_uploads and active_uploads[barcode] == completed_task:
+                            del active_uploads[barcode]
+                            self._pending_upload_count = len(active_uploads)
+                            
+                            should_exit = await self._process_upload_result(barcode, result)
+                            if should_exit:
+                                return
 
                     except Exception as e:
                         logger.error(f"Error processing completed task: {e}", exc_info=True)
@@ -1335,7 +1349,6 @@ class SyncPipeline:
                         if should_exit:
                             return
 
-                        # Track exception as failure in process summary
                         self.process_summary_stage.increment_items(failed=1)
                         self.process_summary_stage.add_error(type(e).__name__, str(e))
 
