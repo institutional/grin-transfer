@@ -205,7 +205,7 @@ class TestSyncPipelineIntegration:
                     message="Not Found"
                 )
                 mock_download.side_effect = error_404
-                result = await sync_pipeline._process_book_with_staging("test_barcode")
+                result = await sync_pipeline._download_book("test_barcode")
 
             # Verify download failed (404 handling)
             assert result["barcode"] == "test_barcode"
@@ -259,7 +259,7 @@ class TestSyncPipelineIntegration:
     async def test_run_sync_initializes_conversion_handler_for_previous_queue(self, sync_pipeline):
         """Test that run_sync initializes conversion handler when previous queue is specified."""
         with patch("grin_to_s3.sync.pipeline.get_books_from_queue") as mock_get_books, \
-             patch.object(sync_pipeline, "_run_local_storage_sync"):
+             patch.object(sync_pipeline, "_run_sync"):
 
             # Mock no books to avoid actual processing
             mock_get_books.return_value = set()
@@ -276,7 +276,7 @@ class TestSyncPipelineIntegration:
     async def test_run_sync_no_conversion_handler_for_other_queues(self, sync_pipeline):
         """Test that run_sync does not initialize conversion handler for other queues."""
         with patch("grin_to_s3.sync.pipeline.get_books_from_queue") as mock_get_books, \
-             patch.object(sync_pipeline, "_run_local_storage_sync"):
+             patch.object(sync_pipeline, "_run_sync"):
 
             # Mock no books to avoid actual processing
             mock_get_books.return_value = set()

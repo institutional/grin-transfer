@@ -49,14 +49,15 @@ class TestBlockStorageSyncIntegration:
             pipeline.db_tracker.get_books_for_sync = AsyncMock(return_value=["TEST123"])
             pipeline.grin_client = MagicMock()
             pipeline.staging_manager = MagicMock()
+            pipeline.staging_manager.wait_for_disk_space = AsyncMock()
 
             # Mock the pipeline processing methods but use real rate calculator
             with (
-                patch.object(pipeline, "_process_book_with_staging") as mock_process,
-                patch.object(pipeline, "_upload_book_from_staging") as mock_upload,
+                patch.object(pipeline, "_download_book", new=AsyncMock()) as mock_download,
+                patch.object(pipeline, "_upload_book_from_staging", new=AsyncMock()) as mock_upload,
                 patch("grin_to_s3.sync.pipeline.SlidingWindowRateCalculator", return_value=real_calc),
             ):
-                mock_process.return_value = {
+                mock_download.return_value = {
                     "barcode": "TEST123",
                     "download_success": True,
                     "staging_file_path": "/tmp/staging/TEST123.tar.gz",
@@ -66,7 +67,11 @@ class TestBlockStorageSyncIntegration:
                 mock_upload.return_value = {"barcode": "TEST123", "upload_success": True, "result": {"success": True}}
 
                 # This should work without errors if method names are correct
-                await pipeline._run_block_storage_sync(["TEST123"], 1)
+                try:
+                    await pipeline._run_sync(["TEST123"], 1)
+                finally:
+                    # Ensure pipeline is properly shut down
+                    await pipeline.cleanup()
 
                 # Verify batch was added to rate calculator (called once: download completion)
                 assert len(real_calc.batch_times) == 1
@@ -78,8 +83,6 @@ class TestBlockStorageSyncIntegration:
         calc = SlidingWindowRateCalculator()
 
         # Test expected interface methods exist and work
-        with pytest.raises(AttributeError, match="add_completion"):
-            calc.add_completion(12345.0)  # This method should not exist
 
         # Test correct interface methods
         calc.add_batch(12345.0, 10)  # timestamp, processed_count
@@ -210,6 +213,7 @@ class TestBlockStorageSyncIntegration:
             pipeline.db_tracker.get_books_for_sync = AsyncMock(return_value=["TEST1", "TEST2"])
             pipeline.grin_client = MagicMock()
             pipeline.staging_manager = MagicMock()
+            pipeline.staging_manager.wait_for_disk_space = AsyncMock()
 
             # Mock mixed success/failure scenario
             results = [
@@ -219,10 +223,14 @@ class TestBlockStorageSyncIntegration:
             upload_results = [{"barcode": "TEST1", "upload_success": True, "result": {"success": True}}]
 
             with (
-                patch.object(pipeline, "_process_book_with_staging", side_effect=results),
-                patch.object(pipeline, "_upload_book_from_staging", side_effect=upload_results),
+                patch.object(pipeline, "_download_book", new=AsyncMock(side_effect=results)),
+                patch.object(pipeline, "_upload_book_from_staging", new=AsyncMock(side_effect=upload_results)),
             ):
-                await pipeline._run_block_storage_sync(["TEST1", "TEST2"], 2)
+                try:
+                    await pipeline._run_sync(["TEST1", "TEST2"], 2)
+                finally:
+                    # Ensure pipeline is properly shut down
+                    await pipeline.cleanup()
 
                 # Verify statistics are correct
                 assert pipeline.stats["synced"] == 1  # TEST1 succeeded

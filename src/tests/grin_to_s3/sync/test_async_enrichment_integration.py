@@ -292,8 +292,8 @@ class TestAsyncEnrichmentWorkerLifecycle:
         for barcode in test_barcodes:
             await pipeline.queue_book_for_enrichment(barcode)
 
-        # Wait for processing
-        await asyncio.sleep(0.5)
+        # Wait for all queued tasks to complete
+        await asyncio.wait_for(pipeline.enrichment_queue.join(), timeout=5.0)
 
         # Verify enrichment was called for each book
         assert mock_grin_enrichment_pipeline.enrich_books_batch.call_count == len(test_barcodes)

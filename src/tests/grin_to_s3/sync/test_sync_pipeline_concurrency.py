@@ -146,7 +146,7 @@ class TestSyncPipelineConcurrency:
         # Test semaphore with multiple tasks
         tasks = []
         for i in range(5):  # More than concurrency limit
-            task = asyncio.create_task(sync_pipeline._process_book_with_staging(f"book{i}"))
+            task = asyncio.create_task(sync_pipeline._download_book(f"book{i}"))
             tasks.append(task)
 
         # Mock the actual operations to avoid real network calls
@@ -350,7 +350,7 @@ class TestDiskSpaceRaceConditionFix:
                             # Start multiple concurrent tasks
                             tasks = []
                             for i in range(3):
-                                task = asyncio.create_task(pipeline._process_book_with_staging(f"book{i}"))
+                                task = asyncio.create_task(pipeline._download_book(f"book{i}"))
                                 tasks.append(task)
 
                             # Wait for all tasks to complete
@@ -412,7 +412,7 @@ class TestDiskSpaceRaceConditionFix:
                             # Start multiple concurrent tasks
                             tasks = []
                             for i in range(3):
-                                task = asyncio.create_task(pipeline._process_book_with_staging(f"book{i}"))
+                                task = asyncio.create_task(pipeline._download_book(f"book{i}"))
                                 tasks.append(task)
 
                             # Wait for all tasks

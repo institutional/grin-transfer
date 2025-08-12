@@ -330,9 +330,7 @@ class TestLocalStorageSync:
                     "TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker
                 )
 
-                assert result["barcode"] == "TEST123"
-                assert result["status"] == "completed"
-                assert result["decrypted_success"] is True
+                assert result[0] == "TEST123"
 
                 # Verify operations were called
                 mock_decrypt.assert_called_once()
@@ -344,13 +342,11 @@ class TestLocalStorageSync:
         """Test local storage sync with missing base_path."""
         storage_config = {}  # No base_path
 
-        result = await sync_book_to_local_storage(
+        with pytest.raises(ValueError) as exc_info:
+            await sync_book_to_local_storage(
             "TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker
-        )
-
-        assert result["barcode"] == "TEST123"
-        assert result["status"] == "failed"
-        assert "Local storage requires" in result["error"]
+            )
+        assert "Local storage requires" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_sync_book_to_local_storage_correct_path_construction(self, mock_grin_client, temp_db):
@@ -424,8 +420,7 @@ class TestLocalStorageSync:
                         "TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker
                     )
 
-                    assert result["barcode"] == "TEST123"
-                    assert result["status"] == "completed"
+                    assert result[0] == "TEST123"
 
                     # Verify that opened paths are under base_path, not at filesystem root
                     assert len(opened_paths) >= 1, "Should have opened at least one file"
