@@ -357,6 +357,59 @@ class SQLiteProgressTracker:
 
         return is_known
 
+    async def load_known_barcodes_batch(self, barcodes: set[str]) -> set[str]:
+        """Load known barcodes (processed or failed) from a batch set with caching.
+
+        Args:
+            barcodes: Set of barcodes to check
+
+        Returns:
+            Set of barcodes that are known (processed or failed)
+        """
+        if not barcodes:
+            return set()
+
+        await self.init_db()
+
+        known_barcodes: set[str] = set()
+        uncached_barcodes: set[str] = set()
+
+        # Check cache first
+        for barcode in barcodes:
+            if barcode in self._known_cache:
+                known_barcodes.add(barcode)
+            elif barcode not in self._unknown_cache:
+                uncached_barcodes.add(barcode)
+
+        # Query database for uncached barcodes if any
+        if uncached_barcodes:
+            async with connect_async(self.db_path) as db:
+                # Create placeholders for IN clause
+                placeholders = ",".join("?" * len(uncached_barcodes))
+                uncached_list = list(uncached_barcodes)
+
+                # Query both processed and failed tables
+                query = f"""
+                    SELECT DISTINCT barcode FROM (
+                        SELECT barcode FROM processed WHERE barcode IN ({placeholders})
+                        UNION
+                        SELECT barcode FROM failed WHERE barcode IN ({placeholders})
+                    )
+                """
+
+                cursor = await db.execute(query, uncached_list + uncached_list)
+                db_known = {row[0] for row in await cursor.fetchall()}
+
+                # Update caches and results
+                for barcode in uncached_barcodes:
+                    if barcode in db_known:
+                        self._known_cache.add(barcode)
+                        known_barcodes.add(barcode)
+                    else:
+                        self._unknown_cache.add(barcode)
+
+        return known_barcodes
+
 
     async def get_processed_count(self) -> int:
         """Get total number of successfully processed barcodes."""

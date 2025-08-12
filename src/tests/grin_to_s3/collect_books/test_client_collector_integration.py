@@ -2,12 +2,14 @@
 Test integration between client and collector to catch type mismatches.
 """
 
+import tempfile
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.collector import BookCollector
+from grin_to_s3.collect_books.models import SQLiteProgressTracker
 
 
 @pytest.mark.asyncio
@@ -54,36 +56,44 @@ async def test_client_collector_integration():
             mock_response.text.return_value = mock_html
             mock_request.return_value = mock_response
 
-            # Create collector and replace client
-            collector = BookCollector(
-                directory="Harvard",
-                process_summary_stage=AsyncMock(),
-                test_mode=True
-            )
-            collector.client = client
-            collector.sqlite_tracker = AsyncMock()
+            # Create a temporary database for real SQLiteProgressTracker
+            with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+                # Create collector and replace client
+                collector = BookCollector(
+                    directory="Harvard",
+                    process_summary_stage=AsyncMock(),
+                    test_mode=True
+                )
+                collector.client = client
+                collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
 
-            # Test that collector can handle GRINRow from get_converted_books_html
-            books = []
-            async for book_data, _known_barcodes in collector.get_converted_books_html():
-                books.append(book_data)
-                if len(books) >= 1:  # Just test one book
-                    break
+                try:
+                    # Test that collector can handle GRINRow from get_converted_books_html
+                    books = []
+                    async for book_data, _known_barcodes in collector.get_converted_books_html():
+                        books.append(book_data)
+                        if len(books) >= 1:  # Just test one book
+                            break
 
-            # This should not fail with 'dict' object has no attribute 'strip'
-            assert len(books) == 1
-            book_data = books[0]
+                    # This should not fail with 'dict' object has no attribute 'strip'
+                    assert len(books) == 1
+                    book_data = books[0]
 
-            # The collector should now handle GRINRow dicts properly
-            # Either by converting them to strings or handling them directly
-            assert isinstance(book_data, str | dict)
+                    # The collector should now handle GRINRow dicts properly
+                    # Either by converting them to strings or handling them directly
+                    assert isinstance(book_data, str | dict)
 
-            if isinstance(book_data, dict):
-                assert "barcode" in book_data
-                assert book_data["barcode"] == "test_barcode_123"
-            else:
-                # If it's still a string, it should contain the barcode
-                assert "test_barcode_123" in book_data
+                    if isinstance(book_data, dict):
+                        assert "barcode" in book_data
+                        assert book_data["barcode"] == "test_barcode_123"
+                    else:
+                        # If it's still a string, it should contain the barcode
+                        assert "test_barcode_123" in book_data
+                finally:
+                    # Clean up database connection
+                    await collector.sqlite_tracker.close()
+                    import os
+                    os.unlink(tmp_db.name)
 
 
 @pytest.mark.asyncio
@@ -99,24 +109,32 @@ async def test_collector_stream_all_books_integration():
 
         mock_stream.return_value = mock_generator()
 
-        collector = BookCollector(
-            directory="Harvard",
-            process_summary_stage=AsyncMock(),
-            test_mode=True
-        )
-        collector.client = client
-        collector.sqlite_tracker = AsyncMock()
+        # Create a temporary database for real SQLiteProgressTracker
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            collector = BookCollector(
+                directory="Harvard",
+                process_summary_stage=AsyncMock(),
+                test_mode=True
+            )
+            collector.client = client
+            collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
 
-        # This should not crash with attribute errors
-        books = []
-        async for book_data, _known_barcodes in collector.get_all_books():
-            books.append(book_data)
-            if len(books) >= 1:
-                break
+            try:
+                # This should not crash with attribute errors (including missing load_known_barcodes_batch)
+                books = []
+                async for book_data, _known_barcodes in collector.get_all_books():
+                    books.append(book_data)
+                    if len(books) >= 1:
+                        break
 
-        assert len(books) == 1
-        book_data = books[0]
+                assert len(books) == 1
+                book_data = books[0]
 
-        # Should handle the GRINRow properly
-        assert isinstance(book_data, dict)
-        assert "barcode" in book_data
+                # Should handle the GRINRow properly
+                assert isinstance(book_data, dict)
+                assert "barcode" in book_data
+            finally:
+                # Clean up database connection
+                await collector.sqlite_tracker.close()
+                import os
+                os.unlink(tmp_db.name)
