@@ -17,7 +17,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from grin_to_s3.collect_books.collector import BookCollector, RateLimiter
 from grin_to_s3.collect_books.config import ExportConfig
-from grin_to_s3.collect_books.models import BookRecord
+from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from tests.mocks import get_test_data, setup_mock_exporter
 
 
@@ -201,6 +201,119 @@ class TestRateLimiter:
 
         # Should be delayed by approximately 1/10 second
         assert 0.08 < elapsed < 0.15
+
+
+class TestSQLiteProgressTracker:
+    """Test SQLiteProgressTracker functionality."""
+
+    @pytest.mark.asyncio
+    async def test_load_known_barcodes_batch_empty_set(self):
+        """Test load_known_barcodes_batch with empty set."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+                result = await tracker.load_known_barcodes_batch(set())
+                assert result == set()
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
+    @pytest.mark.asyncio
+    async def test_load_known_barcodes_batch_all_unknown(self):
+        """Test load_known_barcodes_batch with all unknown barcodes."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+                barcodes = {"UNKNOWN1", "UNKNOWN2", "UNKNOWN3"}
+                result = await tracker.load_known_barcodes_batch(barcodes)
+                assert result == set()
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
+    @pytest.mark.asyncio
+    async def test_load_known_barcodes_batch_mixed_known_unknown(self):
+        """Test load_known_barcodes_batch with mix of known and unknown barcodes."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+
+                # Mark some barcodes as processed and failed
+                await tracker.mark_processed("PROCESSED1")
+                await tracker.mark_processed("PROCESSED2")
+                await tracker.mark_failed("FAILED1", "Test error")
+
+                # Test with mix of known and unknown barcodes
+                barcodes = {"PROCESSED1", "PROCESSED2", "FAILED1", "UNKNOWN1", "UNKNOWN2"}
+                result = await tracker.load_known_barcodes_batch(barcodes)
+
+                expected = {"PROCESSED1", "PROCESSED2", "FAILED1"}
+                assert result == expected
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
+    @pytest.mark.asyncio
+    async def test_load_known_barcodes_batch_cache_behavior(self):
+        """Test that load_known_barcodes_batch uses and updates caches correctly."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+
+                # Mark one barcode as processed
+                await tracker.mark_processed("PROCESSED1")
+
+                # First call should query database and populate cache
+                barcodes = {"PROCESSED1", "UNKNOWN1"}
+                result1 = await tracker.load_known_barcodes_batch(barcodes)
+                assert result1 == {"PROCESSED1"}
+
+                # Check that caches are populated
+                assert "PROCESSED1" in tracker._known_cache
+                assert "UNKNOWN1" in tracker._unknown_cache
+
+                # Second call with same barcodes should use cache (no DB query)
+                result2 = await tracker.load_known_barcodes_batch(barcodes)
+                assert result2 == {"PROCESSED1"}
+
+                # Add a new processed barcode
+                await tracker.mark_processed("PROCESSED2")
+
+                # Call with mix of cached and new barcodes
+                barcodes = {"PROCESSED1", "PROCESSED2", "UNKNOWN1", "UNKNOWN2"}
+                result3 = await tracker.load_known_barcodes_batch(barcodes)
+                assert result3 == {"PROCESSED1", "PROCESSED2"}
+
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
+    @pytest.mark.asyncio
+    async def test_load_known_barcodes_batch_large_batch(self):
+        """Test load_known_barcodes_batch with large batch size."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+
+                # Create a large number of processed barcodes
+                for i in range(100):
+                    await tracker.mark_processed(f"PROCESSED{i:03d}")
+
+                # Create test batch with some known and some unknown
+                test_barcodes = set()
+                for i in range(150):
+                    test_barcodes.add(f"PROCESSED{i:03d}")  # First 100 exist, next 50 don't
+
+                result = await tracker.load_known_barcodes_batch(test_barcodes)
+
+                # Should return the first 100 that exist
+                expected = {f"PROCESSED{i:03d}" for i in range(100)}
+                assert result == expected
+                assert len(result) == 100
+
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
 
 
 class TestBookCollector:

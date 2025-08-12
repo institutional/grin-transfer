@@ -226,6 +226,8 @@ async def check_and_handle_etag_skip(
     db_tracker,
     grin_semaphore: asyncio.Semaphore,
     force: bool = False,
+    current_queues: list[str] | None = None,
+    conversion_handler = None,
 ) -> tuple[BookSyncResult | None, str | None, int, list]:
     """Check ETag and handle skip scenario if applicable.
 
@@ -238,6 +240,8 @@ async def check_and_handle_etag_skip(
         db_tracker: Database tracker instance
         grin_semaphore: Semaphore to control GRIN API concurrency (shares 5 QPS limit)
         force: Force download even if ETag matches
+        current_queues: List of current queues being processed
+        conversion_handler: Handler for conversion requests (for previous queue)
 
     Returns:
         tuple: (skip_result, encrypted_etag, encrypted_file_size, sync_status_updates)
@@ -249,8 +253,90 @@ async def check_and_handle_etag_skip(
     # Check encrypted ETag first
     encrypted_etag, encrypted_file_size, status_code = await check_encrypted_etag(grin_client, library_directory, barcode, grin_semaphore)
 
-    # If HEAD request returned 404, skip download entirely
+    # If HEAD request returned 404, handle based on queue type
     if status_code == 404:
+        # For previous queue, attempt conversion request
+        if current_queues and "previous" in current_queues and conversion_handler is not None:
+            try:
+                logger.info(f"[{barcode}] Archive not found (404), requesting conversion for previous queue")
+                conversion_status = await conversion_handler.handle_missing_archive(barcode, 100)  # Use default limit for now
+
+                if conversion_status == "requested" or conversion_status == "in_process":
+                    success_msg = "requested successfully" if conversion_status == "requested" else "already in process"
+                    logger.info(f"[{barcode}] Conversion {success_msg} - marked as completed")
+                    # This is a success - conversion requested or already being processed
+                    sync_status_updates = [
+                        collect_status(
+                            barcode,
+                            "sync",
+                            "completed",
+                            metadata={
+                                "etag_checked_at": datetime.now(UTC).isoformat(),
+                                "storage_type": storage_type,
+                                "conversion_status": conversion_status,
+                                "http_status": 404,
+                            },
+                        )
+                    ]
+                    return (
+                        create_book_sync_result(barcode, "completed", False, None, 0, 0),
+                        None,
+                        0,
+                        sync_status_updates,
+                    )
+
+                elif conversion_status == "limit_reached":
+                    logger.warning(f"[{barcode}] Conversion request limit reached")
+                    sync_status_updates = [
+                        collect_status(
+                            barcode,
+                            "sync",
+                            "skipped",
+                            metadata={
+                                "etag_checked_at": datetime.now(UTC).isoformat(),
+                                "storage_type": storage_type,
+                                "skipped": True,
+                                "skip_reason": "conversion_limit_reached",
+                                "http_status": 404,
+                            },
+                        )
+                    ]
+                    return (
+                        create_book_sync_result(barcode, "completed", True, None, 0, 0),
+                        None,
+                        0,
+                        sync_status_updates,
+                    )
+                elif conversion_status == "unavailable":
+                    logger.info(f"[{barcode}] Conversion not possible - marked as unavailable")
+                    # This is marked as unavailable - track separately from failures
+                    sync_status_updates = [
+                        collect_status(
+                            barcode,
+                            "sync",
+                            "marked_unavailable",
+                            metadata={
+                                "etag_checked_at": datetime.now(UTC).isoformat(),
+                                "storage_type": storage_type,
+                                "conversion_status": conversion_status,
+                                "http_status": 404,
+                            },
+                        )
+                    ]
+                    return (
+                        create_book_sync_result(barcode, "completed", False, None, 0, 0),
+                        None,
+                        0,
+                        sync_status_updates,
+                    )
+                else:
+                    # Unknown status
+                    logger.warning(f"[{barcode}] Unknown conversion status: {conversion_status}")
+
+            except Exception as conversion_error:
+                logger.error(f"[{barcode}] Conversion request failed: {conversion_error}")
+
+        # Default 404 handling (for non-previous queues or when conversion fails/unavailable)
         logger.info(f"[{barcode}] Archive not available (404) - skipping download")
 
         # Collect status for 404 archives

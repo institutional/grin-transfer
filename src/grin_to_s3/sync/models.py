@@ -19,9 +19,13 @@ class SyncStats(TypedDict):
     """Statistics for sync operations."""
 
     processed: int
-    completed: int
+    synced: int  # Actually downloaded and uploaded to storage
     failed: int
     skipped: int
+    skipped_etag_match: int
+    skipped_conversion_limit: int
+    conversion_requested: int
+    marked_unavailable: int
     uploaded: int
     total_bytes: int
     enrichment_queue_size: int
@@ -42,9 +46,13 @@ def create_sync_stats() -> SyncStats:
     """Create initialized sync statistics."""
     return SyncStats(
         processed=0,
-        completed=0,
+        synced=0,
         failed=0,
         skipped=0,
+        skipped_etag_match=0,
+        skipped_conversion_limit=0,
+        conversion_requested=0,
+        marked_unavailable=0,
         uploaded=0,
         total_bytes=0,
         enrichment_queue_size=0,

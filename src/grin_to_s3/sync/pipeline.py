@@ -23,6 +23,7 @@ from grin_to_s3.common import (
     format_duration,
     pluralize,
 )
+from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT, GRIN_RATE_LIMIT_DELAY
 from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
@@ -33,6 +34,7 @@ from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.staging import StagingDirectoryManager
 from grin_to_s3.sync.utils import logger
 
+from .conversion_handler import ConversionRequestHandler
 from .csv_export import CSVExportResult, export_and_upload_csv, export_csv_local
 from .database_backup import create_local_database_backup, upload_database_to_storage
 from .models import create_sync_stats
@@ -252,6 +254,11 @@ class SyncPipeline:
         self.storage = create_storage_from_config(self.storage_type, self.storage_config or {})
         self.base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
         self.bucket_config = extract_bucket_config(self.storage_type, self.storage_config or {})
+
+        # Conversion request handling for previous queue
+        self.current_queues: list[str] = []  # Track which queues are being processed
+        self.conversion_handler: ConversionRequestHandler | None = None  # Lazy initialization
+        self.conversion_request_limit = DEFAULT_CONVERSION_REQUEST_LIMIT
         self.book_manager = BookManager(self.storage, bucket_config=self.bucket_config, base_prefix=self.base_prefix)
 
     @property
@@ -514,7 +521,7 @@ class SyncPipeline:
         enrichment_pipeline = GRINEnrichmentPipeline(
             directory=self.library_directory,
             db_path=self.db_path,
-            rate_limit_delay=0.2,  # 5 QPS
+            rate_limit_delay=GRIN_RATE_LIMIT_DELAY,
             batch_size=100,  # Smaller batches for background processing
             max_concurrent_requests=1,  # Conservative for background work
             secrets_dir=self.secrets_dir,
@@ -841,7 +848,7 @@ class SyncPipeline:
                             result = await task
                             self._completed_count += 1  # Book is fully processed (success or failure)
                             if result["status"] == "completed":
-                                self.stats["completed"] += 1
+                                self.stats["synced"] += 1
                                 self.stats["uploaded"] += 1
                                 rate_calculator.add_batch(time.time(), processed_count)
                                 self._handle_success(completed_barcode)
@@ -854,8 +861,21 @@ class SyncPipeline:
                                 if result.get("is_404"):
                                     # 404s don't count toward sequential failures
                                     self.stats["failed"] += 1
-                                    logger.error(f"[{completed_barcode}] ❌ Failed: Archive not found (404)")
-                                    print(f"❌ [{completed_barcode}] Failed: Archive not found (404)")
+
+                                    # Provide specific messaging for conversion requests
+                                    if result.get("conversion_requested"):
+                                        logger.info(f"[{completed_barcode}] ✓ Archive not found, conversion requested")
+                                        print(f"✓ [{completed_barcode}] Archive not found, conversion requested")
+                                    elif result.get("conversion_limit_reached"):
+                                        logger.error(
+                                            f"[{completed_barcode}] ❌ Failed: Archive not found, conversion request limit reached"
+                                        )
+                                        print(
+                                            f"❌ [{completed_barcode}] Failed: Archive not found, conversion request limit reached"
+                                        )
+                                    else:
+                                        logger.error(f"[{completed_barcode}] ❌ Failed: Archive not found (404)")
+                                        print(f"❌ [{completed_barcode}] Failed: Archive not found (404)")
                                 else:
                                     # Other failures count toward sequential failures
                                     should_exit = self._handle_failure(
@@ -1004,11 +1024,33 @@ class SyncPipeline:
                                     active_uploads[barcode] = upload_task
                                     self._pending_upload_count = len(active_uploads)
                                     logger.debug(f"[{barcode}] Started upload task")
+                                elif result.get("completed"):
+                                    # Conversion requested/in_process or marked as unavailable
+                                    self._completed_count += 1  # Book is fully processed
+                                    self._handle_success(barcode)  # Reset failure counter for successful items
+
+                                    if result.get("conversion_requested"):
+                                        logger.info(f"[{barcode}] ✅ Conversion requested successfully")
+                                        print(f"✅ [{barcode}] Conversion requested")
+                                    elif result.get("already_in_process"):
+                                        logger.info(f"[{barcode}] ✅ Already being processed")
+                                        print(f"✅ [{barcode}] Already in process")
+                                    elif result.get("marked_unavailable"):
+                                        logger.info(f"[{barcode}] ✅ Marked as unavailable")
+                                        print(f"✅ [{barcode}] Marked unavailable")
+
+                                    # Track as successful in process summary
+                                    self.process_summary_stage.increment_items(successful=1)
                                 elif result.get("skipped"):
-                                    # Download skipped due to ETag match, count as completed
+                                    # Download skipped due to ETag match or conversion limit, count as completed
                                     self._completed_count += 1  # Book is fully processed (already up to date)
-                                    self.stats["skipped"] += 1
                                     self._handle_success(barcode)  # Reset failure counter for skipped items
+
+                                    if result.get("conversion_limit_reached"):
+                                        logger.warning(f"[{barcode}] ⚠️  Conversion limit reached")
+                                        print(f"⚠️  [{barcode}] Conversion limit reached")
+                                    else:
+                                        logger.info(f"[{barcode}] ✅ Skipped (ETag match)")
 
                                     # Track skipped as successful in process summary
                                     self.process_summary_stage.increment_items(successful=1)
@@ -1020,8 +1062,21 @@ class SyncPipeline:
                                     if result.get("is_404"):
                                         # 404s don't count toward sequential failures
                                         self.stats["failed"] += 1
-                                        logger.error(f"[{barcode}] ❌ Failed: Archive not found (404)")
-                                        print(f"❌ [{barcode}] Failed: Archive not found (404)")
+
+                                        # Provide specific messaging for conversion requests
+                                        if result.get("conversion_requested"):
+                                            logger.info(f"[{barcode}] ✓ Archive not found, conversion requested")
+                                            print(f"✓ [{barcode}] Archive not found, conversion requested")
+                                        elif result.get("conversion_limit_reached"):
+                                            logger.error(
+                                                f"[{barcode}] ❌ Failed: Archive not found, conversion request limit reached"
+                                            )
+                                            print(
+                                                f"❌ [{barcode}] Failed: Archive not found, conversion request limit reached"
+                                            )
+                                        else:
+                                            logger.error(f"[{barcode}] ❌ Failed: Archive not found (404)")
+                                            print(f"❌ [{barcode}] Failed: Archive not found (404)")
                                     else:
                                         # Other failures count toward sequential failures
                                         error_detail = result.get("error", "Unknown error")
@@ -1051,7 +1106,7 @@ class SyncPipeline:
 
                                 # Update stats based on upload result
                                 if result.get("upload_success"):
-                                    self.stats["completed"] += 1
+                                    self.stats["synced"] += 1
                                     self._handle_success(barcode)
                                     # Queue for enrichment after successful sync
                                     await self.queue_book_for_enrichment(barcode)
@@ -1113,15 +1168,21 @@ class SyncPipeline:
         print(f"\nSync completed for run: {run_name}")
         print(f"  Runtime: {format_duration(total_elapsed)}")
         print(f"  Books processed: {books_processed:,}")
-        print(f"  Successfully synced: {self.stats['completed']:,}")
+        print(f"  Successfully synced: {self.stats['synced']:,}")
         print(f"  Failed: {self.stats['failed']:,}")
 
-        # Show skipped count only for block storage (has ETag matching)
-        if self.storage_protocol != "local" and self.stats.get("skipped", 0) > 0:
-            print(f"  Skipped (ETag match): {self.stats['skipped']:,}")
+        # Show detailed breakdown of results
+        if self.stats.get("conversion_requested", 0) > 0:
+            print(f"  Conversion requested: {self.stats['conversion_requested']:,}")
+        if self.stats.get("marked_unavailable", 0) > 0:
+            print(f"  Marked unavailable: {self.stats['marked_unavailable']:,}")
+        if self.stats.get("skipped_etag_match", 0) > 0:
+            print(f"  Skipped (ETag match): {self.stats['skipped_etag_match']:,}")
+        if self.stats.get("skipped_conversion_limit", 0) > 0:
+            print(f"  Skipped (conversion limit): {self.stats['skipped_conversion_limit']:,}")
 
-        if total_elapsed > 0 and self.stats["completed"] > 0:
-            avg_rate = self.stats["completed"] / total_elapsed
+        if total_elapsed > 0 and self.stats["synced"] > 0:
+            avg_rate = self.stats["synced"] / total_elapsed
             print(f"  Average rate: {avg_rate:.1f} books/second")
 
         # Export CSV and database
@@ -1179,17 +1240,40 @@ class SyncPipeline:
                     self.db_tracker,
                     self._download_semaphore,
                     self.force,
+                    self.current_queues,
+                    self.conversion_handler,
                 )
 
                 if skip_result:
-                    # Write sync status updates for skipped books
+                    # Write sync status updates for books that don't need download
                     if sync_status_updates and self.db_tracker:
                         try:
                             await batch_write_status_updates(str(self.db_tracker.db_path), sync_status_updates)
                         except Exception as e:
-                            logger.warning(f"[{barcode}] Failed to write skip status updates: {e}")
-                    self.stats["skipped"] += 1
-                    return {"barcode": barcode, "download_success": False, "skipped": True, "skip_result": skip_result}
+                            logger.warning(f"[{barcode}] Failed to write status updates: {e}")
+
+                    # Check the first status update to determine the result type
+                    status_value = sync_status_updates[0].status_value if sync_status_updates else "unknown"
+                    conversion_status = sync_status_updates[0].metadata.get("conversion_status") if sync_status_updates and sync_status_updates[0].metadata else None
+
+                    if status_value == "completed" and conversion_status == "requested":
+                        self.stats["conversion_requested"] += 1
+                        return {"barcode": barcode, "download_success": False, "completed": True, "conversion_requested": True}
+                    elif status_value == "completed" and conversion_status == "in_process":
+                        self.stats["conversion_requested"] += 1  # Count in_process as conversion_requested in stats
+                        return {"barcode": barcode, "download_success": False, "completed": True, "already_in_process": True}
+                    elif status_value == "marked_unavailable":
+                        self.stats["marked_unavailable"] += 1
+                        return {"barcode": barcode, "download_success": False, "marked_unavailable": True}
+                    elif status_value == "skipped" and sync_status_updates[0].metadata and sync_status_updates[0].metadata.get("skip_reason") == "conversion_limit_reached":
+                        self.stats["skipped_conversion_limit"] += 1
+                        self.stats["skipped"] += 1
+                        return {"barcode": barcode, "download_success": False, "skipped": True, "conversion_limit_reached": True}
+                    else:
+                        # Default ETag match or other skip
+                        self.stats["skipped_etag_match"] += 1
+                        self.stats["skipped"] += 1
+                        return {"barcode": barcode, "download_success": False, "skipped": True, "skip_result": skip_result}
 
                 # Download to staging
                 _, staging_file_path, metadata = await download_book_to_staging(
@@ -1219,7 +1303,7 @@ class SyncPipeline:
                     logger.info(f"[{barcode}] Archive not found (404)")
                 else:
                     logger.error(f"[{barcode}] Download failed: {e}", exc_info=True)
-                return {"barcode": barcode, "download_success": False, "error": str(e), "is_404": is_404}
+                return self._build_download_result(barcode, success=False, error=str(e), is_404=is_404)
             finally:
                 self._active_download_count -= 1
                 logger.info(
@@ -1275,6 +1359,14 @@ class SyncPipeline:
             specific_barcodes: Optional list of specific barcodes to sync
             queues: List of queue types to process (converted, previous, changed, all)
         """
+        # Store current queues for use in conversion request handling
+        self.current_queues = queues or []
+
+        # Initialize conversion handler if processing previous queue
+        if "previous" in self.current_queues:
+            self.conversion_handler = ConversionRequestHandler(
+                library_directory=self.library_directory, db_tracker=self.db_tracker, secrets_dir=self.secrets_dir
+            )
         print("Starting GRIN-to-Storage sync pipeline")
         if self.dry_run:
             print("🔍 DRY-RUN MODE: No files will be downloaded or uploaded")
@@ -1511,3 +1603,87 @@ class SyncPipeline:
         print(f"{'=' * 60}")
 
         logger.info(f"DRY-RUN: Would process {books_to_process} books with storage type {self.storage_type}")
+
+    async def _handle_404_with_conversion(self, barcode: str) -> dict[str, Any] | None:
+        """Handle 404 error with possible conversion request for previous queue.
+
+        Args:
+            barcode: Book barcode that returned 404
+
+        Returns:
+            Result dict if conversion was attempted, None if no conversion needed
+        """
+        # Only attempt conversion for previous queue
+        if "previous" not in self.current_queues or self.conversion_handler is None:
+            return None
+
+        try:
+            logger.info(f"[{barcode}] Archive not found (404), requesting conversion for previous queue")
+            conversion_status = await self.conversion_handler.handle_missing_archive(
+                barcode, self.conversion_request_limit
+            )
+
+            if conversion_status == "requested":
+                logger.info(f"[{barcode}] Conversion requested successfully")
+                return self._build_download_result(
+                    barcode,
+                    success=False,
+                    error="Archive not found, conversion requested",
+                    is_404=True,
+                    conversion_requested=True,
+                )
+            elif conversion_status == "limit_reached":
+                logger.warning(f"[{barcode}] Conversion request limit reached")
+                return self._build_download_result(
+                    barcode,
+                    success=False,
+                    error="Archive not found, conversion request limit reached",
+                    is_404=True,
+                    conversion_limit_reached=True,
+                )
+            else:
+                # unavailable or in_process
+                logger.warning(f"[{barcode}] Conversion not possible: {conversion_status}")
+                return None
+
+        except Exception as conversion_error:
+            logger.error(f"[{barcode}] Conversion request failed: {conversion_error}")
+            return None
+
+    def _build_download_result(
+        self,
+        barcode: str,
+        success: bool,
+        error: str = "",
+        is_404: bool = False,
+        conversion_requested: bool = False,
+        conversion_limit_reached: bool = False,
+    ) -> dict[str, Any]:
+        """Build a standardized download result dictionary.
+
+        Args:
+            barcode: Book barcode
+            success: Whether the download was successful
+            error: Error message if unsuccessful
+            is_404: Whether this was a 404 error
+            conversion_requested: Whether conversion was requested
+            conversion_limit_reached: Whether conversion limit was reached
+
+        Returns:
+            Standardized result dictionary
+        """
+        result = {
+            "barcode": barcode,
+            "download_success": success,
+        }
+
+        if error:
+            result["error"] = error
+        if is_404:
+            result["is_404"] = is_404
+        if conversion_requested:
+            result["conversion_requested"] = conversion_requested
+        if conversion_limit_reached:
+            result["conversion_limit_reached"] = conversion_limit_reached
+
+        return result

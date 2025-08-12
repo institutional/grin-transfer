@@ -35,10 +35,10 @@ from grin_to_s3.process_summary import (
 )
 from grin_to_s3.run_config import apply_run_config_to_args, find_run_config, setup_run_database_path
 
+from .constants import GRIN_RATE_LIMIT_DELAY
 from .database import connect_async, connect_sync
 
 logger = logging.getLogger(__name__)
-
 
 
 # Type alias for cache entries: (book_barcodes, cached_timestamp)
@@ -250,7 +250,6 @@ class ProcessingClient:
         return await parse_failed_books_response(self.grin_client, self.directory)
 
 
-
 class ProcessingPipeline:
     """Pipeline for requesting book processing with database tracking."""
 
@@ -368,8 +367,7 @@ class ProcessingPipeline:
             fetch_offset += len(batch_barcodes)
 
             print(
-                f"  Searched {fetch_offset:,}/{total_books:,} books, "
-                f"found {len(candidate_barcodes):,} new candidates"
+                f"  Searched {fetch_offset:,}/{total_books:,} books, found {len(candidate_barcodes):,} new candidates"
             )
 
             # If we found enough candidates, we can stop
@@ -459,7 +457,9 @@ class ProcessingPipeline:
             if not barcodes:
                 print("Getting current GRIN in-process books to avoid duplicates...")
                 try:
-                    in_process_books = await asyncio.wait_for(self.processing_client.get_in_process_books(), timeout=60.0)
+                    in_process_books = await asyncio.wait_for(
+                        self.processing_client.get_in_process_books(), timeout=60.0
+                    )
                     print(f"Found {len(in_process_books):,} books currently in GRIN processing queue")
                 except TimeoutError:
                     print("❌ Getting in-process books timed out after 60 seconds")
@@ -748,7 +748,6 @@ class ProcessingMonitor:
                 await self.grin_client.session.close()
         except Exception as e:
             print(f"Warning: Error closing GRIN client session: {e}")
-
 
     async def get_in_process_books(self) -> BarcodeSet:
         """Get set of books currently in processing queue."""
@@ -1364,6 +1363,72 @@ def detect_status_changes(previous: dict, current: dict) -> list[str]:
                 changes.append(f"{label}: {prev_val:,} → {curr_val:,} ({diff:,})")
 
     return changes
+
+
+# Exported functions for use by other modules
+
+
+def _create_processing_client(library_directory: str, secrets_dir: str | None = None) -> ProcessingClient:
+    """Create a ProcessingClient instance with consistent configuration.
+
+    Args:
+        library_directory: GRIN library directory
+        secrets_dir: Directory containing GRIN secrets files
+
+    Returns:
+        Configured ProcessingClient instance
+    """
+    return ProcessingClient(
+        directory=library_directory,
+        rate_limit_delay=GRIN_RATE_LIMIT_DELAY,
+        secrets_dir=secrets_dir,
+    )
+
+
+async def request_conversion(barcode: str, library_directory: str, secrets_dir: str | None = None) -> str:
+    """Request conversion for a single book.
+
+    Args:
+        barcode: Book barcode to request conversion for
+        library_directory: GRIN library directory
+        secrets_dir: Directory containing GRIN secrets files
+
+    Returns:
+        Status message from GRIN
+
+    Raises:
+        ProcessingRequestError: If the request fails
+    """
+    processing_client = _create_processing_client(library_directory, secrets_dir)
+
+    try:
+        return await processing_client.request_processing(barcode)
+    finally:
+        await processing_client.cleanup()
+
+
+async def request_conversions_batch(
+    barcodes: list[str], library_directory: str, secrets_dir: str | None = None
+) -> dict[str, str]:
+    """Request conversion for a batch of books.
+
+    Args:
+        barcodes: List of book barcodes to request conversion for
+        library_directory: GRIN library directory
+        secrets_dir: Directory containing GRIN secrets files
+
+    Returns:
+        Dict mapping barcode to status message
+
+    Raises:
+        ProcessingRequestError: If the request fails
+    """
+    processing_client = _create_processing_client(library_directory, secrets_dir)
+
+    try:
+        return await processing_client.request_processing_batch(barcodes)
+    finally:
+        await processing_client.cleanup()
 
 
 async def main() -> None:
