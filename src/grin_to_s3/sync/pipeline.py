@@ -1243,7 +1243,7 @@ class SyncPipeline:
 
         return False, processed_count
 
-    async def _process_upload_result(self, barcode: str, result: dict[str, Any]) -> bool:
+    async def _process_upload_result(self, barcode: str, result: dict[str, Any], processed_count: int, rate_calculator) -> tuple[bool, int]:
         """Process upload completion result and return should_exit."""
         self._completed_count += 1
         logger.info(f"[{barcode}] Upload completed (success: {result.get('upload_success', False)})")
@@ -1257,10 +1257,15 @@ class SyncPipeline:
             error_detail = result.get("error", "Unknown error")
             should_exit = self._handle_failure(barcode, f"Upload failed: {error_detail}")
             if should_exit:
-                return True
+                return True, processed_count
             self.process_summary_stage.increment_items(failed=1)
 
-        return False
+        processed_count += 1
+        self._processed_count = processed_count
+        rate_calculator.add_batch(time.time(), processed_count)
+        self.process_summary_stage.increment_items(processed=1)
+
+        return False, processed_count
 
     async def _run_sync(self, available_to_sync: list[str], books_to_process: int, specific_barcodes: list[str] | None = None
 ) -> None:
@@ -1338,8 +1343,8 @@ class SyncPipeline:
                         elif barcode in active_uploads and active_uploads[barcode] == completed_task:
                             del active_uploads[barcode]
                             self._pending_upload_count = len(active_uploads)
-                            
-                            should_exit = await self._process_upload_result(barcode, result)
+
+                            should_exit, processed_count = await self._process_upload_result(barcode, result, processed_count, rate_calculator)
                             if should_exit:
                                 return
 
