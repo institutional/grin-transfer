@@ -10,8 +10,6 @@ import sys
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict, cast
 
-from .storage.factories import find_credential_file, load_json_credentials
-
 # Sync configuration defaults
 DEFAULT_SYNC_CONCURRENT_DOWNLOADS = 5
 DEFAULT_SYNC_CONCURRENT_UPLOADS = 10
@@ -35,9 +33,9 @@ class StorageConfigDict(TypedDict, total=False):
 class StorageConfig(TypedDict):
     """Complete storage configuration."""
 
-    type: str  # Required
-    protocol: str  # Required
-    config: StorageConfigDict  # Required
+    type: str
+    protocol: str
+    config: StorageConfigDict
     prefix: NotRequired[str]  # Optional prefix for all storage operations
 
 
@@ -428,6 +426,8 @@ def build_storage_config_dict(args: Any) -> StorageConfigDict:
     Returns:
         StorageConfigDict with storage configuration (no prefix included)
     """
+    from .storage.factories import find_credential_file, load_json_credentials
+
     storage_dict: dict[str, str] = {}
 
     # Add bucket names if provided

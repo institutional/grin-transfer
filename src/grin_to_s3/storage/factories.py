@@ -306,15 +306,7 @@ def create_book_manager_with_full_text(storage_config: "StorageConfig", base_pre
     # Create single storage instance
     storage = create_storage_from_config(storage_config)
 
-    # Extract bucket configuration
-    config = storage_config["config"]
-    bucket_config: BucketConfig = {
-        "bucket_raw": config["bucket_raw"],
-        "bucket_meta": config["bucket_meta"],
-        "bucket_full": config["bucket_full"],
-    }
-
-    return BookManager(storage=storage, bucket_config=bucket_config, base_prefix=base_prefix)
+    return BookManager(storage=storage, storage_config=storage_config, base_prefix=base_prefix)
 
 
 async def create_local_storage_directories(storage_config: dict) -> None:

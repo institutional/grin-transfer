@@ -16,7 +16,6 @@ from typing import Any
 
 import aiofiles
 
-from .common import extract_bucket_config
 from .compression import compress_file_to_temp, get_compressed_filename
 
 logger = logging.getLogger(__name__)
@@ -429,7 +428,7 @@ def get_current_stage(summary: RunSummary, stage_name: str) -> ProcessStageMetri
 async def create_book_manager_for_uploads(run_name: str):
     """Create a BookManager instance for process summary uploads."""
     from .run_config import find_run_config
-    from .storage.book_manager import BookManager, BucketConfig
+    from .storage.book_manager import BookManager
     from .storage.factories import create_storage_from_config
 
     try:
@@ -447,22 +446,14 @@ async def create_book_manager_for_uploads(run_name: str):
         # Use the full storage config for new API
         storage = create_storage_from_config(run_config.storage_config)
 
-        # Create bucket configuration with appropriate defaults
-        nested_config = run_config.storage_config["config"]
-        bucket_config_dict = extract_bucket_config(storage_type, dict(nested_config))
-        bucket_config: BucketConfig = {
-            "bucket_raw": bucket_config_dict["bucket_raw"],
-            "bucket_meta": bucket_config_dict["bucket_meta"],
-            "bucket_full": bucket_config_dict["bucket_full"],
-        }
-
         # For non-local storage, validate that metadata bucket is configured
-        if storage_type != "local" and not bucket_config["bucket_meta"]:
+        nested_config = run_config.storage_config["config"]
+        if storage_type != "local" and not nested_config.get("bucket_meta"):
             logger.warning(f"No metadata bucket configured for run {run_name}")
             return None
 
         # Create BookStorage with run name as prefix
-        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix=run_name)
+        book_manager = BookManager(storage, storage_config=run_config.storage_config, base_prefix=run_name)
         return book_manager
 
     except Exception as e:

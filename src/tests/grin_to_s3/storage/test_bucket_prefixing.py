@@ -14,7 +14,7 @@ import pytest
 
 from grin_to_s3.storage import BookManager
 from grin_to_s3.sync.operations import upload_book_from_staging
-from tests.test_utils.unified_mocks import mock_minimal_upload
+from tests.test_utils.unified_mocks import mock_minimal_upload, standard_storage_config
 
 
 class TestBucketPrefixingBehavior:
@@ -64,7 +64,7 @@ class TestBucketPrefixingBehavior:
                 }
 
                 # This is how BookStorage should be created
-                book_manager = BookManager(mock_storage, bucket_config=bucket_config, base_prefix=base_prefix)
+                book_manager = BookManager(mock_storage, storage_config=standard_storage_config("s3", config.get("bucket_raw", "test-raw"), config.get("bucket_meta", "test-meta"), config.get("bucket_full", "test-full")), base_prefix=base_prefix)
 
                 # CRITICAL: Check that base_prefix does NOT include bucket names
                 assert base_prefix == ""  # Should be empty, not contain bucket name
@@ -107,10 +107,10 @@ class TestBucketPrefixingBehavior:
                     mock_book_manager_class.assert_called_once()
                     call_args = mock_book_manager_class.call_args
 
-                    # Check bucket configuration - should contain bucket names
-                    bucket_config = call_args[1]["bucket_config"]
-                    assert bucket_config["bucket_raw"] == "local-raw"
-                    assert bucket_config["bucket_full"] == "local-full"
+                    # Check storage configuration - should contain bucket names
+                    storage_config = call_args[1]["storage_config"]
+                    assert storage_config["config"]["bucket_raw"] == "local-raw"
+                    assert storage_config["config"]["bucket_full"] == "local-full"
 
                     # For local storage, base_prefix should still be empty
                     # BookStorage handles bucket names as directory paths internally

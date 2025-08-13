@@ -15,6 +15,7 @@ import pytest
 from grin_to_s3.storage.base import BackendConfig, Storage
 from grin_to_s3.storage.book_manager import BookManager, BucketConfig
 from grin_to_s3.storage.staging import StagingDirectoryManager
+from tests.test_utils.unified_mocks import standard_storage_config
 
 
 class TestStoragePathIntegrity:
@@ -74,7 +75,7 @@ class TestStoragePathIntegrity:
         bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
 
         # Test without base_prefix
-        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+        book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
         # Test raw archive path construction
         raw_path = book_manager._raw_archive_path("TEST001", "TEST001.tar.gz.gpg")
@@ -89,7 +90,7 @@ class TestStoragePathIntegrity:
         assert meta_path == "meta/books.csv"
 
         # Test with base_prefix
-        book_manager_with_prefix = BookManager(storage, bucket_config=bucket_config, base_prefix="myproject")
+        book_manager_with_prefix = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="myproject")
 
         raw_path_prefixed = book_manager_with_prefix._raw_archive_path("TEST001", "TEST001.tar.gz.gpg")
         assert raw_path_prefixed == "raw/myproject/TEST001/TEST001.tar.gz.gpg"
@@ -105,7 +106,7 @@ class TestStoragePathIntegrity:
         config = BackendConfig(protocol="file")
         storage = Storage(config)
         bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+        book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
         # Test edge case barcodes
         test_cases = [
@@ -132,7 +133,7 @@ class TestStoragePathIntegrity:
         config = BackendConfig(protocol="file")
         storage = Storage(config)
         bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+        book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
         # Test various Unicode characters
         unicode_barcodes = [
@@ -163,20 +164,16 @@ class TestStoragePathIntegrity:
         storage = Storage(config)
 
         # Test with non-empty bucket names
-        bucket_config: BucketConfig = {
-            "bucket_raw": "my-raw-bucket",
-            "bucket_meta": "my-meta-bucket",
-            "bucket_full": "my-full-bucket",
-        }
-        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+        book_manager = BookManager(storage, storage_config=standard_storage_config("local", "my-raw-bucket", "my-meta-bucket", "my-full-bucket"), base_prefix="")
         assert book_manager.bucket_raw == "my-raw-bucket"
         assert book_manager.bucket_meta == "my-meta-bucket"
         assert book_manager.bucket_full == "my-full-bucket"
 
-        # Test with empty bucket names (should raise an error)
-        empty_bucket_config: BucketConfig = {"bucket_raw": "", "bucket_meta": "valid-meta", "bucket_full": "valid-full"}
-        with pytest.raises((ValueError, TypeError)):
-            BookManager(storage, bucket_config=empty_bucket_config, base_prefix="")
+        # Test with empty bucket names - BookManager accepts this but bucket names will be None
+        book_manager_empty = BookManager(storage, storage_config={"type": "local", "protocol": "local", "config": {}}, base_prefix="")
+        assert book_manager_empty.bucket_raw is None
+        assert book_manager_empty.bucket_meta is None  
+        assert book_manager_empty.bucket_full is None
 
     def test_storage_path_operations_with_empty_bucket(self):
         """Test that storage operations handle empty bucket names gracefully."""

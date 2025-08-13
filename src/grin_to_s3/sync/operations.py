@@ -34,7 +34,6 @@ from grin_to_s3.extract.tracking import ExtractionStatus, StatusUpdate, collect_
 from grin_to_s3.metadata.marc_extraction import extract_marc_metadata
 from grin_to_s3.run_config import StorageConfigDict, to_run_storage_config
 from grin_to_s3.storage import BookManager, create_storage_from_config, get_storage_protocol
-from grin_to_s3.storage.book_manager import BucketConfig
 from grin_to_s3.storage.factories import LOCAL_STORAGE_DEFAULTS
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
@@ -860,10 +859,7 @@ async def upload_book_from_staging(
 
         # BookStorage handles bucket names as directory paths for all storage types
 
-        # Create bucket configuration
-        bucket_config: BucketConfig = extract_bucket_config(storage_type, storage_config)
-
-        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
+        book_manager = BookManager(storage, storage_config=full_storage_config, base_prefix=base_prefix)
 
         # Get staging file paths
         encrypted_file = Path(staging_file_path)
@@ -1047,13 +1043,7 @@ async def download_book_to_local(
     # This function is specifically for local storage, but use the passed config
     full_storage_config = to_run_storage_config(storage_type="local", protocol="local", config=storage_config)
     storage = create_storage_from_config(full_storage_config)
-    bucket_config_dict = extract_bucket_config("local", storage_config)
-    bucket_config: BucketConfig = {
-        "bucket_raw": bucket_config_dict["bucket_raw"],
-        "bucket_meta": bucket_config_dict["bucket_meta"],
-        "bucket_full": bucket_config_dict["bucket_full"],
-    }
-    book_manager = BookManager(storage, bucket_config=bucket_config)
+    book_manager = BookManager(storage, storage_config=full_storage_config)
 
     # Download directly to final location with retry logic
     retry_decorator = create_download_retry_decorator(download_retries)

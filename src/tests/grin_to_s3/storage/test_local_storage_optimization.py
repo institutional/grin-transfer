@@ -9,6 +9,7 @@ from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.storage import BackendConfig, BookManager, Storage, create_local_storage, create_storage_from_config
 from grin_to_s3.sync.pipeline import SyncPipeline
 from tests.test_utils.storage_helpers import create_local_test_config
+from tests.test_utils.unified_mocks import standard_storage_config
 
 
 class TestLocalStorageValidation:
@@ -90,7 +91,7 @@ class TestLocalStorageDirectWrite:
             config = create_local_test_config(temp_dir)
             storage = create_storage_from_config(config)
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+            book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
             # Test path generation
             barcode = "TEST123"
@@ -108,7 +109,7 @@ class TestLocalStorageDirectWrite:
             config = create_local_test_config(temp_dir)
             storage = create_storage_from_config(config)
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+            book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
             # Test saving archive
             barcode = "TEST456"
@@ -201,7 +202,7 @@ class TestLocalStorageErrorHandling:
                 config = create_local_test_config(str(readonly_dir))
                 storage = create_storage_from_config(config)
                 bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-                book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+                book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
                 # Should fail with permission error
                 with pytest.raises((PermissionError, OSError)):

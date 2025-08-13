@@ -13,7 +13,7 @@ from grin_to_s3.storage.factories import (
     create_book_manager_with_full_text,
     create_storage_for_bucket,
 )
-from tests.test_utils.unified_mocks import create_book_manager_mock, standard_bucket_config
+from tests.test_utils.unified_mocks import create_book_manager_mock, standard_bucket_config, standard_storage_config
 
 
 class TestBookManagerFullText:
@@ -52,7 +52,7 @@ class TestBookManagerFullText:
     def test_full_text_path_without_prefix(self):
         """Test _full_text_path method without base prefix."""
         mock_storage = MagicMock()
-        book_manager = BookManager(storage=mock_storage, bucket_config=standard_bucket_config())
+        book_manager = BookManager(storage=mock_storage, storage_config=standard_storage_config())
 
         path = book_manager._full_text_path("12345", "test.jsonl")
         assert path == "test-full/test.jsonl"
@@ -65,7 +65,7 @@ class TestBookManagerFullText:
         mock_storage = AsyncMock()
         mock_storage.is_s3_compatible = MagicMock(return_value=False)
 
-        book_manager = BookManager(storage=mock_storage, bucket_config=standard_bucket_config())
+        book_manager = BookManager(storage=mock_storage, storage_config=standard_storage_config())
 
         # Create a real temporary JSONL file for compression
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as temp_file:
@@ -98,7 +98,7 @@ class TestBookManagerFullText:
         mock_storage = AsyncMock()
         mock_storage.is_s3_compatible = MagicMock(return_value=True)
 
-        book_manager = BookManager(storage=mock_storage, bucket_config=standard_bucket_config())
+        book_manager = BookManager(storage=mock_storage, storage_config=standard_storage_config())
 
         # Create a real temporary JSONL file for compression
         jsonl_content = '"Page 1 content"\n"Page 2 content"\n'
@@ -137,9 +137,9 @@ class TestBookManagerFullText:
         """Test OCR text JSONL upload fails when full-text storage not configured."""
         mock_storage = MagicMock()
 
-        # This should fail because BookManager requires bucket_config
+        # This should fail because BookManager requires storage_config
         with pytest.raises(TypeError):
-            BookManager(storage=mock_storage)  # Missing bucket_config
+            BookManager(storage=mock_storage)  # Missing storage_config
 
 
 class TestStorageFactories:

@@ -246,7 +246,7 @@ class SyncPipeline:
         self.current_queues: list[str] = []  # Track which queues are being processed
         self.conversion_handler: ConversionRequestHandler | None = None  # Lazy initialization
         self.conversion_request_limit = DEFAULT_CONVERSION_REQUEST_LIMIT
-        self.book_manager = BookManager(self.storage, bucket_config=self.bucket_config, base_prefix=self.base_prefix)
+        self.book_manager = BookManager(self.storage, storage_config=self.full_storage_config, base_prefix=self.base_prefix)
 
     @property
     def uses_block_storage(self) -> bool:

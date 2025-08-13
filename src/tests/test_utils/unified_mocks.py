@@ -448,3 +448,16 @@ def create_progress_tracker_with_db_mock(db_path: str) -> MagicMock:
 def standard_bucket_config() -> dict[str, str]:
     """Standard bucket configuration for tests."""
     return {"bucket_raw": "test-raw", "bucket_meta": "test-meta", "bucket_full": "test-full"}
+
+
+def standard_storage_config(storage_type: str = "local", bucket_raw: str = "test-raw", bucket_meta: str = "test-meta", bucket_full: str = "test-full") -> dict:
+    """Standard storage configuration for tests using new StorageConfig format."""
+    return {
+        "type": storage_type,
+        "protocol": storage_type,
+        "config": {
+            "bucket_raw": bucket_raw,
+            "bucket_meta": bucket_meta,
+            "bucket_full": bucket_full
+        }
+    }

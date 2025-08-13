@@ -256,7 +256,6 @@ async def should_skip_download(
             # Create storage
             from grin_to_s3.run_config import to_run_storage_config
             from grin_to_s3.storage import BookManager, create_storage_from_config
-            from grin_to_s3.storage.book_manager import BucketConfig
 
             full_storage_config = to_run_storage_config(
                 storage_type=storage_type, protocol=storage_protocol, config=storage_config or {}
@@ -274,14 +273,7 @@ async def should_skip_download(
                 else:
                     base_prefix = bucket_name
 
-            # Create bucket configuration
-            bucket_config: BucketConfig = {
-                "bucket_raw": storage_config.get("bucket_raw", ""),
-                "bucket_meta": storage_config.get("bucket_meta", ""),
-                "bucket_full": storage_config.get("bucket_full", ""),
-            }
-
-            book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix=base_prefix)
+            book_manager = BookManager(storage, storage_config=full_storage_config, base_prefix=base_prefix)
 
             # Check if decrypted archive exists and matches encrypted ETag
             if await book_manager.decrypted_archive_exists(barcode):
