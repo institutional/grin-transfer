@@ -75,7 +75,6 @@ class BookManager:
             return f"{self.bucket_meta}/{self.base_prefix}/{filename}"
         return f"{self.bucket_meta}/{filename}"
 
-
     async def save_decrypted_archive(self, barcode: str, archive_data: bytes, encrypted_etag: str | None = None) -> str:
         """Save decrypted archive (.tar.gz) with optional encrypted ETag metadata."""
         filename = f"{barcode}.tar.gz"
@@ -140,11 +139,13 @@ class BookManager:
             compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
 
             # Add compression info to metadata
-            metadata.update({
-                "original_size": str(original_size),
-                "compressed_size": str(compressed_size),
-                "compression_ratio": f"{compression_ratio:.1f}%"
-            })
+            metadata.update(
+                {
+                    "original_size": str(original_size),
+                    "compressed_size": str(compressed_size),
+                    "compression_ratio": f"{compression_ratio:.1f}%",
+                }
+            )
 
             logger.debug(
                 f"JSONL compression for {barcode}: {original_size:,} -> {compressed_size:,} bytes "

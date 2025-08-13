@@ -119,7 +119,6 @@ async def export_and_upload_csv(
         result["status"] = "failed"
         result["export_time"] = time.time() - start_time
 
-
     return result
 
 

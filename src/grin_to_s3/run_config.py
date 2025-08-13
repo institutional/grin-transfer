@@ -8,7 +8,7 @@ Utilities for reading and using configuration written by collect_books runs.
 import json
 import sys
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict
+from typing import Any, TypedDict, cast
 
 from .storage.factories import find_credential_file, load_json_credentials
 
@@ -20,25 +20,47 @@ DEFAULT_SYNC_DISK_SPACE_THRESHOLD = 0.9
 DEFAULT_SYNC_ENRICHMENT_WORKERS = 1
 
 
-class StorageConfigDict(TypedDict):
+class StorageConfigDict(TypedDict, total=False):
     """Inner config dict for storage configuration."""
-    bucket_raw: NotRequired[str]
-    bucket_meta: NotRequired[str]
-    bucket_full: NotRequired[str]
-    base_path: NotRequired[str]  # For local storage
-    endpoint_url: NotRequired[str]  # For MinIO/R2
-    access_key: NotRequired[str]  # Only in memory, not saved
-    secret_key: NotRequired[str]  # Only in memory, not saved
-    credentials_file: NotRequired[str]
+
+    bucket_raw: str
+    bucket_meta: str
+    bucket_full: str
+    base_path: str  # For local storage
+    endpoint_url: str  # For MinIO/R2
+    access_key: str  # Only in memory, not saved
+    secret_key: str  # Only in memory, not saved
+    credentials_file: str
 
 
-class RunStorageConfig(TypedDict):
+class RunStorageConfig(TypedDict, total=False):
     """Complete storage configuration."""
-    type: str  # Always present: "local", "s3", "r2", "minio", "gcs"
-    protocol: str  # Always present: derived from type
-    config: StorageConfigDict
-    prefix: NotRequired[str]  # Optional prefix for all storage operations
 
+    type: str  # Actually required but we handle validation separately
+    protocol: str  # Actually required
+    config: StorageConfigDict
+    prefix: str  # Optional prefix for all storage operations
+
+
+def to_storage_config_dict(source: dict[str, Any]) -> StorageConfigDict:
+    """Convert any dict to StorageConfigDict, keeping only valid keys."""
+    valid_keys = StorageConfigDict.__optional_keys__ | StorageConfigDict.__required_keys__
+    filtered = {k: v for k, v in source.items() if k in valid_keys}
+    return cast(StorageConfigDict, filtered)
+
+
+def to_run_storage_config(
+    storage_type: str, protocol: str, config: dict[str, Any] | StorageConfigDict, prefix: str = ""
+) -> RunStorageConfig:
+    """Create a properly typed RunStorageConfig."""
+    result: RunStorageConfig = {
+        "type": storage_type,
+        "protocol": protocol,
+        "config": to_storage_config_dict(cast(dict[str, Any], config)),
+    }
+    if prefix:
+        result["prefix"] = prefix
+    return result
 
 
 class RunConfig:
@@ -88,16 +110,13 @@ class RunConfig:
         stored_config = self.config_dict.get("storage_config")
         if not stored_config:
             # Default to local storage if not specified or empty
-            return {
-                "type": "local",
-                "protocol": "local",
-                "config": {"base_path": f"{self.output_directory}/storage"}
-            }
+            return {"type": "local", "protocol": "local", "config": {"base_path": f"{self.output_directory}/storage"}}
         # If stored_config exists but is missing required fields, add them
         if "type" not in stored_config:
             stored_config["type"] = "local"
         if "protocol" not in stored_config:
             from .storage.factories import get_storage_protocol
+
             stored_config["protocol"] = get_storage_protocol(stored_config["type"])
         if "config" not in stored_config:
             stored_config["config"] = {}
@@ -167,7 +186,6 @@ class RunConfig:
     def sync_enrichment_workers(self) -> int:
         """Get the enrichment workers setting for sync operations."""
         return self.sync_config.get("enrichment_workers", DEFAULT_SYNC_ENRICHMENT_WORKERS)
-
 
     def get_storage_args(self) -> dict[str, str]:
         """Get storage arguments suitable for command line scripts."""
@@ -408,7 +426,7 @@ def validate_bucket_arguments(args: Any, storage_type: str | None = None) -> lis
     return missing_buckets
 
 
-def build_storage_config_dict(args: Any) -> dict[str, str]:
+def build_storage_config_dict(args: Any) -> StorageConfigDict:
     """
     Build storage configuration dictionary from arguments.
 
@@ -416,7 +434,7 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
         args: Arguments object containing bucket and storage config attributes
 
     Returns:
-        Dictionary with storage configuration (no prefix included)
+        StorageConfigDict with storage configuration (no prefix included)
     """
     storage_dict: dict[str, str] = {}
 
@@ -454,7 +472,9 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
 
                 if not credentials_file:
                     # If still no file found, skip credential loading but warn
-                    print("WARNING: R2 credentials file not found, file syncing will not work properly.", file=sys.stderr)
+                    print(
+                        "WARNING: R2 credentials file not found, file syncing will not work properly.", file=sys.stderr
+                    )
                 else:
                     # Load credentials and extract bucket information
                     creds = load_json_credentials(str(credentials_file))
@@ -475,7 +495,7 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
         if value:
             storage_dict[attr] = value
 
-    return storage_dict
+    return to_storage_config_dict(storage_dict)
 
 
 if __name__ == "__main__":

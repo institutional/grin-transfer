@@ -29,10 +29,7 @@ class DatabaseBackupResult(TypedDict):
     backup_filename: str | None
 
 
-async def create_local_database_backup(
-    db_path: str,
-    backup_dir: str | None = None
-) -> DatabaseBackupResult:
+async def create_local_database_backup(db_path: str, backup_dir: str | None = None) -> DatabaseBackupResult:
     """Create local timestamped backup of database.
 
     Args:
@@ -48,7 +45,7 @@ async def create_local_database_backup(
         "file_size": 0,
         "compressed_size": 0,
         "backup_time": 0.0,
-        "backup_filename": None
+        "backup_filename": None,
     }
 
     try:
@@ -99,10 +96,7 @@ async def create_local_database_backup(
 
 
 async def upload_database_to_storage(
-    db_path: str,
-    book_manager,
-    staging_manager: StagingDirectoryManager | None = None,
-    upload_type: str = "latest"
+    db_path: str, book_manager, staging_manager: StagingDirectoryManager | None = None, upload_type: str = "latest"
 ) -> DatabaseBackupResult:
     """Upload database file to metadata bucket with compression.
 
@@ -121,7 +115,7 @@ async def upload_database_to_storage(
         "file_size": 0,
         "compressed_size": 0,
         "backup_time": 0.0,
-        "backup_filename": None
+        "backup_filename": None,
     }
 
     try:
@@ -154,7 +148,9 @@ async def upload_database_to_storage(
             await book_manager.storage.write_file(storage_path, str(compressed_path))
 
         result["status"] = "completed"
-        compression_ratio = (1 - result["compressed_size"] / result["file_size"]) * 100 if result["file_size"] > 0 else 0
+        compression_ratio = (
+            (1 - result["compressed_size"] / result["file_size"]) * 100 if result["file_size"] > 0 else 0
+        )
         logger.info(
             f"Database uploaded to storage: {compressed_filename} "
             f"({result['file_size']:,} -> {result['compressed_size']:,} bytes, {compression_ratio:.1f}% compression)"

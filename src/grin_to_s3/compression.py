@@ -16,8 +16,10 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_COMPRESSION_LEVEL = 1  # Fastest
 
+
 class CompressionError(Exception):
     """Raised when compression operations fail."""
+
     pass
 
 
@@ -35,7 +37,6 @@ def get_compressed_filename(original_filename: str) -> str:
         get_compressed_filename("books_backup_20240129.db") -> "books_backup_20240129.db.gz"
     """
     return f"{original_filename}.gz"
-
 
 
 def compress_file_to_temp(source_path: str | Path, compression_level: int = DEFAULT_COMPRESSION_LEVEL):
@@ -60,6 +61,7 @@ def compress_file_to_temp(source_path: str | Path, compression_level: int = DEFA
     class AsyncCompressedTempFile:
         def __init__(self, source: Path):
             self.source_path = source
+
         async def __aenter__(self):
             self.temp_file = tempfile.NamedTemporaryFile(suffix=".gz", delete=True)
             temp_path = Path(self.temp_file.name)
@@ -75,6 +77,7 @@ def compress_file_to_temp(source_path: str | Path, compression_level: int = DEFA
                             shutil.copyfileobj(f_in, f_out)
 
                 import asyncio
+
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, _compress)
 
@@ -97,5 +100,3 @@ def compress_file_to_temp(source_path: str | Path, compression_level: int = DEFA
             self.temp_file.close()  # Automatic cleanup
 
     return AsyncCompressedTempFile(source_path)
-
-

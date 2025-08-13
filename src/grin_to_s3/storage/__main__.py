@@ -13,10 +13,13 @@ import logging
 import sys
 from pathlib import Path
 
+from grin_to_s3.storage import get_storage_protocol
+
 from ..run_config import (
     apply_run_config_to_args,
     build_storage_config_dict,
     setup_run_database_path,
+    to_run_storage_config,
 )
 
 logger = logging.getLogger(__name__)
@@ -170,20 +173,21 @@ async def cmd_ls(args) -> None:
         credentials_config = build_storage_config_dict(temp_args)
         storage_config = credentials_config.copy()
         storage_config.update(storage_config_dict.get("config", {}))
-        if "prefix" in storage_config_dict:
-            storage_config["prefix"] = storage_config_dict["prefix"]
 
         print(f"\nStorage Listing for {args.run_name}")
         print("=" * 60)
         print(f"Storage Type: {storage_type}")
 
-        prefix = storage_config.get("prefix", "")
+        prefix = str(storage_config_dict.get("prefix", "") or "")
         if prefix:
             logger.debug(f"Using prefix: {prefix}")
         print()
 
-        # Create storage instance
-        storage = create_storage_from_config(storage_type, storage_config)
+        # Create storage instance using converter function
+        full_storage_config = to_run_storage_config(
+            storage_type=storage_type, protocol=get_storage_protocol(storage_type), config=storage_config, prefix=prefix
+        )
+        storage = create_storage_from_config(full_storage_config)
 
         # Summarize each bucket
         buckets = {
@@ -306,8 +310,6 @@ async def cmd_cp(args) -> None:
         credentials_config = build_storage_config_dict(temp_args)
         storage_config = credentials_config.copy()
         storage_config.update(storage_config_dict.get("config", {}))
-        if "prefix" in storage_config_dict:
-            storage_config["prefix"] = storage_config_dict["prefix"]
 
         # Get raw bucket
         raw_bucket = storage_config.get("bucket_raw")
@@ -315,7 +317,7 @@ async def cmd_cp(args) -> None:
             print("❌ Error: Raw bucket is not configured")
             sys.exit(1)
 
-        prefix = storage_config.get("prefix", "")
+        prefix = str(storage_config_dict.get("prefix", "") or "")
 
         print(f"\nStorage Copy for {args.run_name}")
         print("=" * 60)
@@ -327,8 +329,11 @@ async def cmd_cp(args) -> None:
             logger.debug(f"Using prefix: {prefix}")
         print()
 
-        # Create storage instance
-        storage = create_storage_from_config(storage_type, storage_config)
+        # Create storage instance using converter function
+        full_storage_config = to_run_storage_config(
+            storage_type=storage_type, protocol=get_storage_protocol(storage_type), config=storage_config, prefix=prefix
+        )
+        storage = create_storage_from_config(full_storage_config)
 
         # Construct full source path with prefix if needed
         source_path = f"{prefix}/{args.filename}" if prefix else args.filename
@@ -413,8 +418,6 @@ async def cmd_rm(args) -> None:
         credentials_config = build_storage_config_dict(temp_args)
         storage_config = credentials_config.copy()
         storage_config.update(storage_config_dict.get("config", {}))
-        if "prefix" in storage_config_dict:
-            storage_config["prefix"] = storage_config_dict["prefix"]
 
         # Find the bucket to remove
         buckets = {
@@ -434,7 +437,7 @@ async def cmd_rm(args) -> None:
             print(f"❌ Error: Bucket '{bucket_name}' is not configured")
             sys.exit(1)
 
-        prefix = storage_config.get("prefix", "")
+        prefix = str(storage_config_dict.get("prefix", "") or "")
 
         print(f"\nStorage Removal for {args.run_name}")
         print("=" * 60)
@@ -444,8 +447,11 @@ async def cmd_rm(args) -> None:
             logger.debug(f"Using prefix: {prefix}")
         print()
 
-        # Create storage instance
-        storage = create_storage_from_config(storage_type, storage_config)
+        # Create storage instance using converter function
+        full_storage_config = to_run_storage_config(
+            storage_type=storage_type, protocol=get_storage_protocol(storage_type), config=storage_config, prefix=prefix
+        )
+        storage = create_storage_from_config(full_storage_config)
 
         # Check bucket contents
         print("Checking bucket contents...")

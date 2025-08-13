@@ -869,26 +869,54 @@ class SyncPipeline:
 
                     # Check the first status update to determine the result type
                     status_value = sync_status_updates[0].status_value if sync_status_updates else "unknown"
-                    conversion_status = sync_status_updates[0].metadata.get("conversion_status") if sync_status_updates and sync_status_updates[0].metadata else None
+                    conversion_status = (
+                        sync_status_updates[0].metadata.get("conversion_status")
+                        if sync_status_updates and sync_status_updates[0].metadata
+                        else None
+                    )
 
                     if status_value == "completed" and conversion_status == "requested":
                         self.stats["conversion_requested"] += 1
-                        return {"barcode": barcode, "download_success": False, "completed": True, "conversion_requested": True}
+                        return {
+                            "barcode": barcode,
+                            "download_success": False,
+                            "completed": True,
+                            "conversion_requested": True,
+                        }
                     elif status_value == "completed" and conversion_status == "in_process":
                         self.stats["conversion_requested"] += 1  # Count in_process as conversion_requested in stats
-                        return {"barcode": barcode, "download_success": False, "completed": True, "already_in_process": True}
+                        return {
+                            "barcode": barcode,
+                            "download_success": False,
+                            "completed": True,
+                            "already_in_process": True,
+                        }
                     elif status_value == "marked_unavailable":
                         self.stats["marked_unavailable"] += 1
                         return {"barcode": barcode, "download_success": False, "marked_unavailable": True}
-                    elif status_value == "skipped" and sync_status_updates[0].metadata and sync_status_updates[0].metadata.get("skip_reason") == "conversion_limit_reached":
+                    elif (
+                        status_value == "skipped"
+                        and sync_status_updates[0].metadata
+                        and sync_status_updates[0].metadata.get("skip_reason") == "conversion_limit_reached"
+                    ):
                         self.stats["skipped_conversion_limit"] += 1
                         self.stats["skipped"] += 1
-                        return {"barcode": barcode, "download_success": False, "skipped": True, "conversion_limit_reached": True}
+                        return {
+                            "barcode": barcode,
+                            "download_success": False,
+                            "skipped": True,
+                            "conversion_limit_reached": True,
+                        }
                     else:
                         # Default ETag match or other skip
                         self.stats["skipped_etag_match"] += 1
                         self.stats["skipped"] += 1
-                        return {"barcode": barcode, "download_success": False, "skipped": True, "skip_result": skip_result}
+                        return {
+                            "barcode": barcode,
+                            "download_success": False,
+                            "skipped": True,
+                            "skip_result": skip_result,
+                        }
 
                 # We didn't skip, so do the download to either staging (if cloud storage) or local
                 if self.storage_protocol == "local":
@@ -1171,7 +1199,9 @@ class SyncPipeline:
         """Check if pipeline should exit due to shutdown request."""
         return self._shutdown_requested
 
-    async def _process_download_result(self, barcode: str, result: dict[str, Any], processed_count: int, rate_calculator, start_time: float) -> tuple[bool, int]:
+    async def _process_download_result(
+        self, barcode: str, result: dict[str, Any], processed_count: int, rate_calculator, start_time: float
+    ) -> tuple[bool, int]:
         """Process download completion result and return (should_exit, updated_processed_count)."""
         if result.get("download_success"):
             # For local storage, successful downloads should be treated as completed
@@ -1244,7 +1274,9 @@ class SyncPipeline:
 
         return False, processed_count
 
-    async def _process_upload_result(self, barcode: str, result: dict[str, Any], processed_count: int, rate_calculator) -> tuple[bool, int]:
+    async def _process_upload_result(
+        self, barcode: str, result: dict[str, Any], processed_count: int, rate_calculator
+    ) -> tuple[bool, int]:
         """Process upload completion result and return should_exit."""
         self._completed_count += 1
         logger.info(f"[{barcode}] Upload completed (success: {result.get('upload_success', False)})")
@@ -1268,9 +1300,9 @@ class SyncPipeline:
 
         return False, processed_count
 
-    async def _run_sync(self, available_to_sync: list[str], books_to_process: int, specific_barcodes: list[str] | None = None
-) -> None:
-
+    async def _run_sync(
+        self, available_to_sync: list[str], books_to_process: int, specific_barcodes: list[str] | None = None
+    ) -> None:
         """Run sync pipeline"""
         start_time = time.time()
         processed_count = 0
@@ -1326,7 +1358,9 @@ class SyncPipeline:
                         # Handle download completion
                         if barcode in active_downloads and active_downloads[barcode] == completed_task:
                             del active_downloads[barcode]
-                            logger.debug(f"[{barcode}] Download completed (success: {result.get('download_success', False)})")
+                            logger.debug(
+                                f"[{barcode}] Download completed (success: {result.get('download_success', False)})"
+                            )
 
                             if result.get("download_success") and self.storage_protocol != "local":
                                 upload_task = asyncio.create_task(self._upload_book_from_staging(barcode, result))
@@ -1345,7 +1379,9 @@ class SyncPipeline:
                             del active_uploads[barcode]
                             self._pending_upload_count = len(active_uploads)
 
-                            should_exit, processed_count = await self._process_upload_result(barcode, result, processed_count, rate_calculator)
+                            should_exit, processed_count = await self._process_upload_result(
+                                barcode, result, processed_count, rate_calculator
+                            )
                             if should_exit:
                                 return
 
@@ -1498,4 +1534,3 @@ class SyncPipeline:
         except Exception as conversion_error:
             logger.error(f"[{barcode}] Conversion request failed: {conversion_error}")
             return None
-

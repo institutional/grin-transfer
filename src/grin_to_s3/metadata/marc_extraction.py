@@ -199,7 +199,9 @@ def _get_datafield_subfield(record: ET.Element, tag: str, subfield: str) -> str 
     return field.text.strip() if field is not None and field.text else None
 
 
-def _get_datafield_subfield_list(record: ET.Element, tag: str, subfield: str, strip_periods: bool = False) -> str | None:
+def _get_datafield_subfield_list(
+    record: ET.Element, tag: str, subfield: str, strip_periods: bool = False
+) -> str | None:
     """Get all values from MARC datafield subfields, joined with commas."""
     fields = record.findall(f".//slim:datafield[@tag='{tag}']/slim:subfield[@code='{subfield}']", NAMESPACES)
     if fields:
@@ -247,4 +249,3 @@ def _extract_language_from_008(field_008: str) -> str | None:
         lang = field_008[35:38]
         return lang if lang and lang != "   " else None
     return None
-

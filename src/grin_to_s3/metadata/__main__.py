@@ -2,6 +2,7 @@
 """
 MARC metadata extraction testing CLI.
 """
+
 import argparse
 import asyncio
 import json
@@ -23,10 +24,7 @@ async def test_marc_extraction(tarballs: list[str], output_file: str = None) -> 
             # Extract MARC metadata directly from the archive
             marc_metadata = extract_marc_metadata(tarball_path)
 
-            result = {
-                "barcode": barcode,
-                "marc_metadata": marc_metadata
-            }
+            result = {"barcode": barcode, "marc_metadata": marc_metadata}
             results.append(result)
             print(f"  ✅ Extracted MARC metadata for {barcode}")
 
@@ -45,9 +43,9 @@ async def test_marc_extraction(tarballs: list[str], output_file: str = None) -> 
 
 def print_marc_summary(results: list[dict[str, Any]]):
     """Print a summary of extracted MARC metadata."""
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print("MARC EXTRACTION SUMMARY")
-    print("="*80)
+    print("=" * 80)
     print(f"Successfully processed {len(results)} books\n")
 
     for result in results:
@@ -71,24 +69,12 @@ def print_marc_summary(results: list[dict[str, Any]]):
 async def main():
     """Main entry point for metadata testing."""
     parser = argparse.ArgumentParser(
-        prog="python -m grin_to_s3.metadata",
-        description="Test MARC metadata extraction from Google Books archives"
+        prog="python -m grin_to_s3.metadata", description="Test MARC metadata extraction from Google Books archives"
     )
 
-    parser.add_argument(
-        "tarballs",
-        nargs="+",
-        help="Path(s) to .tar.gz files to process"
-    )
-    parser.add_argument(
-        "--output", "-o",
-        help="Output JSON file to save results"
-    )
-    parser.add_argument(
-        "--quiet", "-q",
-        action="store_true",
-        help="Suppress summary output"
-    )
+    parser.add_argument("tarballs", nargs="+", help="Path(s) to .tar.gz files to process")
+    parser.add_argument("--output", "-o", help="Output JSON file to save results")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Suppress summary output")
 
     args = parser.parse_args()
 

@@ -49,9 +49,6 @@ class InvalidPageFormatError(TextExtractionError):
     pass
 
 
-
-
-
 async def extract_ocr_pages(
     extracted_dir_path: str,
     db_path: str,
@@ -117,14 +114,16 @@ async def extract_ocr_pages(
         # Track completion
         extraction_time_ms = int((time.time() - start_time) * 1000)
         file_size = Path(output_file).stat().st_size
-        status_updates.append(track_completion_collect(
-            barcode,
-            page_count,
-            extraction_time_ms,
-            session_id,
-            file_size,
-            str(output_file),
-        ))
+        status_updates.append(
+            track_completion_collect(
+                barcode,
+                page_count,
+                extraction_time_ms,
+                session_id,
+                file_size,
+                str(output_file),
+            )
+        )
 
         # Write all status updates
         await batch_write_status_updates(db_path, status_updates)
@@ -139,7 +138,6 @@ async def extract_ocr_pages(
         raise TextExtractionError(f"Unexpected error during extraction: {e}") from e
 
 
-
 def _validate_and_finalize_extraction(
     page_data: dict[int, str], txt_files_found: int, archive_path: str
 ) -> dict[int, str]:
@@ -152,7 +150,6 @@ def _validate_and_finalize_extraction(
 
     logger.debug(f"OCR extraction completed: {len(page_data)} valid pages from {txt_files_found} .txt files")
     return page_data
-
 
 
 def _parse_page_number(filename: str) -> int | None:
@@ -340,9 +337,9 @@ def _extract_ocr_to_jsonl_file(extracted_dir_path: str, output_path: Path) -> in
             page_count += 1
 
             if page_count % 100 == 0:
-                logger.debug(f"Streaming filesystem extraction progress: {page_count} pages written, last page was {page_num}")
+                logger.debug(
+                    f"Streaming filesystem extraction progress: {page_count} pages written, last page was {page_num}"
+                )
 
     logger.debug(f"OCR text saved to JSONL file (streaming filesystem): {output_path} ({page_count} pages)")
     return page_count
-
-

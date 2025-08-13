@@ -210,8 +210,15 @@ class TestExtractCLIIntegration:
         mock_path_exists.assert_called()
         mock_json_load.assert_called()
 
-        # Verify storage was created
-        mock_create_storage.assert_called_once_with("r2", {"bucket_full": "test-full-bucket"}, "")
+        # Verify storage was created - check the call structure matches to_run_storage_config output
+        mock_create_storage.assert_called_once()
+        args, kwargs = mock_create_storage.call_args
+        storage_config = args[0]
+        assert storage_config["type"] == "r2"
+        assert storage_config["protocol"] == "s3"
+        assert "bucket_full" in storage_config["config"]
+        assert storage_config["config"]["bucket_full"] == "test-full-bucket"
+        assert args[1] == ""  # storage_prefix
 
         # Verify extraction was called with bucket storage
         mock_extract_single.assert_called_once()

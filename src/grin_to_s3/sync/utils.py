@@ -27,8 +27,6 @@ logger = logging.getLogger(__name__)
 _bucket_checked_cache: set[str] = set()
 
 
-
-
 def reset_bucket_cache() -> None:
     """Reset the bucket existence cache (useful for testing)."""
     global _bucket_checked_cache
@@ -78,7 +76,9 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
             elif storage_type == "s3":
                 # For S3, check if credentials are available via boto3
                 if not s3_credentials_available():
-                    logger.error("Missing S3 credentials. Please ensure credentials are configured via environment variables or ~/.aws/credentials")
+                    logger.error(
+                        "Missing S3 credentials. Please ensure credentials are configured via environment variables or ~/.aws/credentials"
+                    )
                     return False
                 # Don't set access_key/secret_key - let boto3 handle credential loading
 
@@ -181,7 +181,9 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
         return False
 
 
-async def check_encrypted_etag(grin_client, library_directory: str, barcode: str, grin_semaphore: asyncio.Semaphore) -> tuple[str | None, int | None, int | None]:
+async def check_encrypted_etag(
+    grin_client, library_directory: str, barcode: str, grin_semaphore: asyncio.Semaphore
+) -> tuple[str | None, int | None, int | None]:
     """Make HEAD request to get encrypted file's ETag and file size before downloading.
 
     Args:
@@ -251,11 +253,15 @@ async def should_skip_download(
     # For S3-compatible storage, check metadata on decrypted file
     if storage_protocol == "s3":
         try:
+            # Create storage
+            from grin_to_s3.run_config import to_run_storage_config
             from grin_to_s3.storage import BookManager, create_storage_from_config
             from grin_to_s3.storage.book_manager import BucketConfig
 
-            # Create storage
-            storage = create_storage_from_config(storage_type, storage_config or {})
+            full_storage_config = to_run_storage_config(
+                storage_type=storage_type, protocol=storage_protocol, config=storage_config or {}
+            )
+            storage = create_storage_from_config(full_storage_config)
 
             # Get bucket and prefix information
             base_prefix = storage_config.get("prefix", "")
@@ -362,4 +368,3 @@ def build_download_result(
         result["conversion_limit_reached"] = conversion_limit_reached
 
     return result
-

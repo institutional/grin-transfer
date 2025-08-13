@@ -286,17 +286,18 @@ class TestBookStorageIntegration:
             mock_storage = MagicMock()
             mock_create.return_value = mock_storage
 
-            book_manager = create_book_manager_with_full_text(storage_type, config, "test-prefix")
-
-            # Verify factory was called correctly (now uses single storage)
-            # With backward compatibility, it should be called with full storage config
+            # Create full storage config
             from grin_to_s3.storage import get_storage_protocol
-            expected_config = {
+            full_storage_config = {
                 "type": storage_type,
                 "protocol": get_storage_protocol(storage_type),
                 "config": config,
                 "prefix": ""
             }
+            book_manager = create_book_manager_with_full_text(full_storage_config, "test-prefix")
+
+            # Verify factory was called correctly (now uses single storage)
+            expected_config = full_storage_config
             mock_create.assert_called_once_with(expected_config)
 
             # Verify BookStorage was configured correctly
@@ -402,7 +403,7 @@ class TestBookStorageIntegration:
         with tempfile.TemporaryDirectory() as temp_dir:
             with mock_cloud_storage_backend("s3", ["test-raw", "test-meta", "test-full"]) as storage_config:
                 # Create real storage instance but patch write_file to avoid aiohttp/moto issues
-                storage = create_storage_from_config(storage_config["type"], storage_config["config"])
+                storage = create_storage_from_config(storage_config)
 
                 # Patch just the write_file method to avoid file upload complexity
                 with patch.object(storage, "write_file", new_callable=AsyncMock) as mock_write:

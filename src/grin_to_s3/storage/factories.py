@@ -21,13 +21,9 @@ from .book_manager import BookManager, BucketConfig
 logger = logging.getLogger(__name__)
 
 
-
 # Default directory names for local storage
-LOCAL_STORAGE_DEFAULTS = {
-    "bucket_raw": "raw",
-    "bucket_meta": "meta",
-    "bucket_full": "full"
-}
+LOCAL_STORAGE_DEFAULTS = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+
 
 def get_storage_protocol(storage_type: str) -> str:
     """
@@ -60,12 +56,14 @@ def s3_credentials_available() -> bool:
     """Check if S3 credentials are available via boto3's credential resolution."""
     try:
         import boto3
+    except ImportError:
+        return False
+    try:
         session = boto3.Session()
         credentials = session.get_credentials()
         return credentials is not None and credentials.access_key is not None
     except Exception:
         return False
-
 
 
 def load_r2_credentials() -> tuple[str, str] | None:
@@ -74,13 +72,14 @@ def load_r2_credentials() -> tuple[str, str] | None:
     Returns:
         Tuple of (access_key, secret_key) if successful, None if failed
     """
-    import logging
 
     logger = logging.getLogger(__name__)
     credentials_file = find_credential_file("r2_credentials.json")
 
     if not credentials_file:
-        logger.error("Missing R2 credentials file. Please ensure credentials are properly configured in ~/.config/grin-to-s3/r2_credentials.json")
+        logger.error(
+            "Missing R2 credentials file. Please ensure credentials are properly configured in ~/.config/grin-to-s3/r2_credentials.json"
+        )
         return None
 
     try:
@@ -115,15 +114,14 @@ def validate_required_keys(data: dict, required_keys: list, context: str = "conf
         raise ValueError(f"Missing required {context} keys: {missing_keys}")
 
 
-def create_storage_from_config(storage_config_or_type, config_dict=None) -> Storage:
+def create_storage_from_config(storage_config: "RunStorageConfig") -> Storage:
     """
     Create storage instance based on storage configuration.
 
     Centralized storage factory to eliminate duplication between modules.
 
     Args:
-        storage_config_or_type: Either a complete StorageConfig dict or storage type string (for backward compatibility)
-        config_dict: Configuration dict (used only with backward compatibility mode)
+        storage_config: Complete storage configuration dict
 
     Returns:
         Storage: Configured storage instance
@@ -131,16 +129,8 @@ def create_storage_from_config(storage_config_or_type, config_dict=None) -> Stor
     Raises:
         ValueError: If storage type is unknown or configuration is invalid
     """
-    # Handle backward compatibility
-    if isinstance(storage_config_or_type, str):
-        # Old signature: create_storage_from_config(storage_type, config)
-        storage_type = storage_config_or_type
-        config = config_dict or {}
-    else:
-        # New signature: create_storage_from_config(storage_config)
-        storage_config = storage_config_or_type
-        storage_type = storage_config["type"]
-        config = storage_config["config"]
+    storage_type = storage_config["type"]
+    config = storage_config["config"]
     match storage_type:
         case "local":
             base_path = config.get("base_path")
@@ -185,7 +175,7 @@ def create_storage_from_config(storage_config_or_type, config_dict=None) -> Stor
 
         case "s3":
             bucket = config.get("bucket") or config.get("bucket_raw")
-            if not bucket:
+            if not bucket or not isinstance(bucket, str):
                 raise ValueError("S3 storage requires bucket name")
 
             # AWS credentials from environment or ~/.aws/credentials
@@ -193,7 +183,7 @@ def create_storage_from_config(storage_config_or_type, config_dict=None) -> Stor
 
         case "gcs":
             project = config.get("project")
-            if not project:
+            if not project or not isinstance(project, str):
                 raise ValueError("GCS storage requires project ID")
 
             # Use Application Default Credentials (ADC) - set up via: gcloud auth application-default login
@@ -299,13 +289,12 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
             raise ValueError(f"Storage type {storage_type} does not support bucket-based storage")
 
 
-def create_book_manager_with_full_text(storage_config_or_type: "RunStorageConfig | str", config_dict=None, base_prefix: str = "") -> BookManager:
+def create_book_manager_with_full_text(storage_config: "RunStorageConfig", base_prefix: str = "") -> BookManager:
     """
     Create BookManager instance with full-text bucket support.
 
     Args:
-        storage_config_or_type: Either a complete StorageConfig dict or storage type string (for backward compatibility)
-        config_dict: Configuration dict (used only with backward compatibility mode)
+        storage_config: Complete storage configuration dict
         base_prefix: Optional prefix for storage paths
 
     Returns:
@@ -314,26 +303,11 @@ def create_book_manager_with_full_text(storage_config_or_type: "RunStorageConfig
     Raises:
         ValueError: If required buckets are not configured
     """
-    # Handle backward compatibility
-    if isinstance(storage_config_or_type, str):
-        # Old signature: create_book_manager_with_full_text(storage_type, config, base_prefix)
-        from grin_to_s3.storage import get_storage_protocol
-        full_storage_config = {
-            "type": storage_config_or_type,
-            "protocol": get_storage_protocol(storage_config_or_type),
-            "config": config_dict or {},
-            "prefix": ""
-        }
-        config = config_dict or {}
-    else:
-        # New signature: create_book_manager_with_full_text(storage_config, base_prefix)
-        full_storage_config = dict(storage_config_or_type)
-        config = full_storage_config["config"]
-
     # Create single storage instance
-    storage = create_storage_from_config(full_storage_config)
+    storage = create_storage_from_config(storage_config)
 
     # Extract bucket configuration
+    config = storage_config["config"]
     bucket_config: BucketConfig = {
         "bucket_raw": config["bucket_raw"],
         "bucket_meta": config["bucket_meta"],
