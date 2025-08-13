@@ -189,8 +189,7 @@ jobs:
             storage_config = {
                 "type": "minio",
                 "protocol": "s3", 
-                "config": {},
-                "prefix": ""
+                "config": {}
             }
             storage = create_storage_from_config(storage_config)
             print('✅ Storage factory works with auto-configuration')
