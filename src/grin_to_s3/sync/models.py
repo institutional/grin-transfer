@@ -28,7 +28,6 @@ class SyncStats(TypedDict):
     marked_unavailable: int
     uploaded: int
     total_bytes: int
-    enrichment_queue_size: int
 
 
 class BookSyncResult(FileResult):
@@ -53,7 +52,6 @@ def create_sync_stats() -> SyncStats:
         marked_unavailable=0,
         uploaded=0,
         total_bytes=0,
-        enrichment_queue_size=0,
     )
 
 

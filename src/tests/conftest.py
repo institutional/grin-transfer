@@ -96,10 +96,6 @@ class ConfigBuilder:
         self._config["sync_config"]["batch_size"] = size
         return self
 
-    def with_enrichment_workers(self, count: int):
-        """Set enrichment workers count."""
-        self._config["sync_config"]["enrichment_workers"] = count
-        return self
 
     def with_staging_dir(self, staging_dir: str):
         """Set staging directory."""

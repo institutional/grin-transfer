@@ -17,7 +17,6 @@ DEFAULT_SYNC_CONCURRENT_DOWNLOADS = 5
 DEFAULT_SYNC_CONCURRENT_UPLOADS = 10
 DEFAULT_SYNC_BATCH_SIZE = 100
 DEFAULT_SYNC_DISK_SPACE_THRESHOLD = 0.9
-DEFAULT_SYNC_ENRICHMENT_WORKERS = 1
 
 
 class StorageConfigDict(TypedDict, total=False):
@@ -180,10 +179,6 @@ class RunConfig:
         """Get the disk space threshold setting for sync operations."""
         return self.sync_config.get("disk_space_threshold", DEFAULT_SYNC_DISK_SPACE_THRESHOLD)
 
-    @property
-    def sync_enrichment_workers(self) -> int:
-        """Get the enrichment workers setting for sync operations."""
-        return self.sync_config.get("enrichment_workers", DEFAULT_SYNC_ENRICHMENT_WORKERS)
 
     def get_storage_args(self) -> dict[str, str]:
         """Get storage arguments suitable for command line scripts."""
@@ -363,7 +358,6 @@ def print_run_config_info(db_path: str) -> None:
             print(f"    Concurrent Uploads: {config.sync_concurrent_uploads}")
             print(f"    Batch Size: {config.sync_batch_size}")
             print(f"    Disk Space Threshold: {config.sync_disk_space_threshold}")
-            print(f"    Enrichment Workers: {config.sync_enrichment_workers}")
             if config.sync_staging_dir:
                 print(f"    Staging Directory: {config.sync_staging_dir}")
     else:

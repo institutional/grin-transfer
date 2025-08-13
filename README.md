@@ -112,7 +112,7 @@ Each run begins with the **collection** step, where book metadata is first downl
 
 GRIN needs to "convert" archives to make them available for download. This pipeline can **request** conversions up to Google's maximum of 50,000 queued.
 
-The next step is to start the **sync pipeline**, in which the original book archives are downloaded from GRIN, decrypted, **enriched** with additional GRIN metadata, and uploaded or copied to storage. 
+The next step is to start the **sync pipeline**, in which the original book archives are downloaded from GRIN, decrypted, and uploaded or copied to storage. 
 
 Finally, there are utilities for checking progress and gathering statistics about the run. 
 

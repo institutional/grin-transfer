@@ -115,7 +115,6 @@ async def _run_sync_pipeline(args, run_config: RunConfig, sync_stage) -> None:
         dry_run=args.dry_run,
         skip_extract_ocr=args.skip_extract_ocr,
         skip_extract_marc=args.skip_extract_marc,
-        skip_enrichment=args.skip_enrichment,
         skip_csv_export=args.skip_csv_export,
         skip_staging_cleanup=args.skip_staging_cleanup,
         skip_database_backup=args.skip_database_backup,
@@ -398,10 +397,6 @@ Examples:
         "--skip-extract-marc", action="store_true", help="Skip MARC metadata extraction (default: extract MARC)"
     )
 
-    # Enrichment options
-    pipeline_parser.add_argument(
-        "--skip-enrichment", action="store_true", help="Skip automatic enrichment (default: enrichment enabled)"
-    )
     pipeline_parser.add_argument(
         "--skip-csv-export", action="store_true", help="Skip automatic CSV export (default: export CSV)"
     )
