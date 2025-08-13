@@ -49,8 +49,6 @@ async def temp_db_tracker():
     Path(db_path).unlink(missing_ok=True)
 
 
-
-
 @pytest.fixture
 def test_extracted_directory_with_content():
     """Create a test extracted directory with realistic page content."""
@@ -73,7 +71,6 @@ def test_extracted_directory_with_content():
 
 class TestExtractionWithTracking:
     """Test text extraction with full database tracking."""
-
 
     @pytest.mark.asyncio
     async def test_jsonl_extraction_with_tracking(self, temp_db_tracker, test_extracted_directory_with_content):
@@ -181,7 +178,9 @@ class TestQueryFunctionsIntegration:
     """Test query functions with real database data."""
 
     @pytest.mark.asyncio
-    async def test_status_summary_with_mixed_extractions(self, temp_db_tracker, test_extracted_directory_with_content, temp_jsonl_file):
+    async def test_status_summary_with_mixed_extractions(
+        self, temp_db_tracker, test_extracted_directory_with_content, temp_jsonl_file
+    ):
         """Test status summary query with multiple extraction records."""
         # Perform several extractions with different outcomes
 
@@ -195,30 +194,36 @@ class TestQueryFunctionsIntegration:
 
         # Another successful extraction (different barcode)
         # We'll simulate this by directly adding to database since we need different barcodes
-        status_updates = [collect_status(
-            "book2",
-            TEXT_EXTRACTION_STATUS_TYPE,
-            ExtractionStatus.COMPLETED.value,
-            metadata={"page_count": 100, "extraction_time_ms": 2000},
-        )]
+        status_updates = [
+            collect_status(
+                "book2",
+                TEXT_EXTRACTION_STATUS_TYPE,
+                ExtractionStatus.COMPLETED.value,
+                metadata={"page_count": 100, "extraction_time_ms": 2000},
+            )
+        ]
         await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Failed extraction
-        status_updates = [collect_status(
-            "book3",
-            TEXT_EXTRACTION_STATUS_TYPE,
-            ExtractionStatus.FAILED.value,
-            metadata={"error_type": "CorruptedArchiveError", "error_message": "Archive damaged"},
-        )]
+        status_updates = [
+            collect_status(
+                "book3",
+                TEXT_EXTRACTION_STATUS_TYPE,
+                ExtractionStatus.FAILED.value,
+                metadata={"error_type": "CorruptedArchiveError", "error_message": "Archive damaged"},
+            )
+        ]
         await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # In-progress extraction
-        status_updates = [collect_status(
-            "book4",
-            TEXT_EXTRACTION_STATUS_TYPE,
-            ExtractionStatus.EXTRACTING.value,
-            metadata={"page_count": 50},
-        )]
+        status_updates = [
+            collect_status(
+                "book4",
+                TEXT_EXTRACTION_STATUS_TYPE,
+                ExtractionStatus.EXTRACTING.value,
+                metadata={"page_count": 50},
+            )
+        ]
         await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Allow time for async tasks
@@ -253,12 +258,14 @@ class TestQueryFunctionsIntegration:
         ]
 
         for case in failure_cases:
-            status_updates = [collect_status(
-                case["barcode"],
-                TEXT_EXTRACTION_STATUS_TYPE,
-                ExtractionStatus.FAILED.value,
-                metadata=case,
-            )]
+            status_updates = [
+                collect_status(
+                    case["barcode"],
+                    TEXT_EXTRACTION_STATUS_TYPE,
+                    ExtractionStatus.FAILED.value,
+                    metadata=case,
+                )
+            ]
             await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Query failed extractions
@@ -290,21 +297,25 @@ class TestQueryFunctionsIntegration:
         ]
 
         for i, case in enumerate(completed_cases, 1):
-            status_updates = [collect_status(
-                f"completed_book_{i}",
-                TEXT_EXTRACTION_STATUS_TYPE,
-                ExtractionStatus.COMPLETED.value,
-                metadata=case,
-            )]
+            status_updates = [
+                collect_status(
+                    f"completed_book_{i}",
+                    TEXT_EXTRACTION_STATUS_TYPE,
+                    ExtractionStatus.COMPLETED.value,
+                    metadata=case,
+                )
+            ]
             await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Add a failure for comprehensive stats
-        status_updates = [collect_status(
-            "failed_book",
-            TEXT_EXTRACTION_STATUS_TYPE,
-            ExtractionStatus.FAILED.value,
-            metadata={"error_type": "TestError", "partial_page_count": 10},
-        )]
+        status_updates = [
+            collect_status(
+                "failed_book",
+                TEXT_EXTRACTION_STATUS_TYPE,
+                ExtractionStatus.FAILED.value,
+                metadata={"error_type": "TestError", "partial_page_count": 10},
+            )
+        ]
         await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Get progress statistics
@@ -329,7 +340,9 @@ class TestSessionTracking:
     """Test session-based tracking functionality."""
 
     @pytest.mark.asyncio
-    async def test_session_tracking_isolation(self, temp_db_tracker, test_extracted_directory_with_content, temp_jsonl_file):
+    async def test_session_tracking_isolation(
+        self, temp_db_tracker, test_extracted_directory_with_content, temp_jsonl_file
+    ):
         """Test that session IDs properly isolate batch operations."""
         session1 = "batch_session_1"
         session2 = "batch_session_2"
@@ -343,13 +356,15 @@ class TestSessionTracking:
         )
 
         # Add another book manually for session2
-        status_updates = [collect_status(
-            "book_session2",
-            TEXT_EXTRACTION_STATUS_TYPE,
-            ExtractionStatus.COMPLETED.value,
-            session_id=session2,
-            metadata={"page_count": 75, "extraction_time_ms": 1500},
-        )]
+        status_updates = [
+            collect_status(
+                "book_session2",
+                TEXT_EXTRACTION_STATUS_TYPE,
+                ExtractionStatus.COMPLETED.value,
+                session_id=session2,
+                metadata={"page_count": 75, "extraction_time_ms": 1500},
+            )
+        ]
         await batch_write_status_updates(temp_db_tracker.db_path, status_updates)
 
         # Allow time for async tasks

@@ -29,9 +29,7 @@ class TestConversionRequestHandler:
     def handler(self, mock_db_tracker):
         """Create ConversionRequestHandler instance."""
         return ConversionRequestHandler(
-            library_directory="test_library",
-            db_tracker=mock_db_tracker,
-            secrets_dir="test_secrets"
+            library_directory="test_library", db_tracker=mock_db_tracker, secrets_dir="test_secrets"
         )
 
     @pytest.mark.asyncio
@@ -81,7 +79,9 @@ class TestConversionRequestHandler:
 
             assert result == "unavailable"
             assert handler.requests_made == 1
-            mock_mark_unavailable.assert_called_once_with("/test/path/books.db", "test_barcode", "Book not available for processing")
+            mock_mark_unavailable.assert_called_once_with(
+                "/test/path/books.db", "test_barcode", "Book not available for processing"
+            )
 
     @pytest.mark.asyncio
     async def test_handle_missing_archive_request_limit_reached(self, mock_mark_unavailable, handler, mock_db_tracker):
@@ -149,7 +149,6 @@ class TestStandaloneFunctions:
         return tracker
 
 
-
 class TestSyncPipelineIntegration:
     """Test conversion request integration with sync pipeline."""
 
@@ -159,9 +158,7 @@ class TestSyncPipelineIntegration:
         # Set up pipeline for previous queue
         sync_pipeline.current_queues = ["previous"]
         sync_pipeline.conversion_handler = ConversionRequestHandler(
-            library_directory="test_library",
-            db_tracker=sync_pipeline.db_tracker,
-            secrets_dir=None
+            library_directory="test_library", db_tracker=sync_pipeline.db_tracker, secrets_dir=None
         )
 
         with patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
@@ -183,15 +180,9 @@ class TestSyncPipelineIntegration:
         sync_pipeline.conversion_handler = None
 
         # Mock 404 error from download
-        error_404 = aiohttp.ClientResponseError(
-            request_info=Mock(),
-            history=(),
-            status=404,
-            message="Not Found"
-        )
+        error_404 = aiohttp.ClientResponseError(request_info=Mock(), history=(), status=404, message="Not Found")
 
         with patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip") as mock_etag_check:
-
             # Configure mocks - no skip result, proceed with download
             mock_etag_check.return_value = (None, "etag123", 1000, [])
 
@@ -199,10 +190,7 @@ class TestSyncPipelineIntegration:
             with patch("grin_to_s3.sync.pipeline.download_book_to_filesystem") as mock_download:
                 # Mock 404 error from download
                 error_404 = aiohttp.ClientResponseError(
-                    request_info=Mock(),
-                    history=(),
-                    status=404,
-                    message="Not Found"
+                    request_info=Mock(), history=(), status=404, message="Not Found"
                 )
                 mock_download.side_effect = error_404
                 result = await sync_pipeline._download_book("test_barcode")
@@ -218,9 +206,7 @@ class TestSyncPipelineIntegration:
         # Set up pipeline for previous queue with handler at limit
         sync_pipeline.current_queues = ["previous"]
         sync_pipeline.conversion_handler = ConversionRequestHandler(
-            library_directory="test_library",
-            db_tracker=sync_pipeline.db_tracker,
-            secrets_dir=None
+            library_directory="test_library", db_tracker=sync_pipeline.db_tracker, secrets_dir=None
         )
         sync_pipeline.conversion_handler.requests_made = 100  # At limit
 
@@ -239,9 +225,7 @@ class TestSyncPipelineIntegration:
         # Set up pipeline for previous queue
         sync_pipeline.current_queues = ["previous"]
         sync_pipeline.conversion_handler = ConversionRequestHandler(
-            library_directory="test_library",
-            db_tracker=sync_pipeline.db_tracker,
-            secrets_dir=None
+            library_directory="test_library", db_tracker=sync_pipeline.db_tracker, secrets_dir=None
         )
 
         with patch("grin_to_s3.sync.conversion_handler.request_conversion") as mock_request:
@@ -258,9 +242,10 @@ class TestSyncPipelineIntegration:
     @pytest.mark.asyncio
     async def test_run_sync_initializes_conversion_handler_for_previous_queue(self, sync_pipeline):
         """Test that setup_sync_loop initializes conversion handler when previous queue is specified."""
-        with patch("grin_to_s3.sync.pipeline.get_books_from_queue") as mock_get_books, \
-             patch.object(sync_pipeline, "_run_sync"):
-
+        with (
+            patch("grin_to_s3.sync.pipeline.get_books_from_queue") as mock_get_books,
+            patch.object(sync_pipeline, "_run_sync"),
+        ):
             # Mock no books to avoid actual processing
             mock_get_books.return_value = set()
 
@@ -275,9 +260,10 @@ class TestSyncPipelineIntegration:
     @pytest.mark.asyncio
     async def test_run_sync_no_conversion_handler_for_other_queues(self, sync_pipeline):
         """Test that setup_sync_loop does not initialize conversion handler for other queues."""
-        with patch("grin_to_s3.sync.pipeline.get_books_from_queue") as mock_get_books, \
-             patch.object(sync_pipeline, "_run_sync"):
-
+        with (
+            patch("grin_to_s3.sync.pipeline.get_books_from_queue") as mock_get_books,
+            patch.object(sync_pipeline, "_run_sync"),
+        ):
             # Mock no books to avoid actual processing
             mock_get_books.return_value = set()
 

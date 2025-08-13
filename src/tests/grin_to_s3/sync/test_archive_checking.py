@@ -40,7 +40,9 @@ class TestArchiveAvailabilityChecking:
         with patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check:
             mock_check.return_value = ("test-etag-123", 1234567, 200)
 
-            result = await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library", mock_semaphore)
+            result = await check_archive_availability_with_etag(
+                "test_barcode", mock_grin_client, "test_library", mock_semaphore
+            )
 
             assert result["available"] is True
             assert result["etag"] == "test-etag-123"
@@ -57,7 +59,9 @@ class TestArchiveAvailabilityChecking:
         with patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check:
             mock_check.return_value = (None, 1234567, 200)
 
-            result = await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library", mock_semaphore)
+            result = await check_archive_availability_with_etag(
+                "test_barcode", mock_grin_client, "test_library", mock_semaphore
+            )
 
             assert result["available"] is True
             assert result["etag"] is None
@@ -71,7 +75,9 @@ class TestArchiveAvailabilityChecking:
         with patch("grin_to_s3.sync.operations.check_encrypted_etag") as mock_check:
             mock_check.return_value = (None, None, 404)
 
-            result = await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library", mock_semaphore)
+            result = await check_archive_availability_with_etag(
+                "test_barcode", mock_grin_client, "test_library", mock_semaphore
+            )
 
             assert result["available"] is False
             assert result["etag"] is None
@@ -87,7 +93,9 @@ class TestArchiveAvailabilityChecking:
 
             # Non-HTTP errors should bubble up for upstream retry handling
             with pytest.raises(Exception, match="Network error"):
-                await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library", mock_semaphore)
+                await check_archive_availability_with_etag(
+                    "test_barcode", mock_grin_client, "test_library", mock_semaphore
+                )
 
     @pytest.mark.asyncio
     async def test_multiple_books_mixed_availability(self, mock_grin_client, mock_semaphore):
@@ -102,7 +110,9 @@ class TestArchiveAvailabilityChecking:
             for barcode, return_value in test_cases:
                 mock_check.return_value = return_value
 
-                result = await check_archive_availability_with_etag(barcode, mock_grin_client, "test_library", mock_semaphore)
+                result = await check_archive_availability_with_etag(
+                    barcode, mock_grin_client, "test_library", mock_semaphore
+                )
 
                 if barcode == "available_book":
                     assert result["available"] is True
@@ -127,7 +137,9 @@ class TestArchiveAvailabilityChecking:
             test_etag = 'W/"abc123def456"'
             mock_check.return_value = (test_etag, 2000000, 200)
 
-            result = await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library", mock_semaphore)
+            result = await check_archive_availability_with_etag(
+                "test_barcode", mock_grin_client, "test_library", mock_semaphore
+            )
 
             # Function should return the raw ETag for comparison by caller
             assert result["etag"] == test_etag
@@ -158,5 +170,6 @@ class TestArchiveAvailabilityChecking:
 
             # Non-HTTP errors should bubble up for upstream retry handling
             with pytest.raises(aiohttp.ClientError, match="Connection failed"):
-                await check_archive_availability_with_etag("test_barcode", mock_grin_client, "test_library", mock_semaphore)
-
+                await check_archive_availability_with_etag(
+                    "test_barcode", mock_grin_client, "test_library", mock_semaphore
+                )

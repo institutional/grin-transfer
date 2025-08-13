@@ -37,7 +37,9 @@ class TestStoragePathIntegrity:
         # Test S3 path normalization (strips leading slashes and normalizes consecutive slashes)
         assert s3_storage._normalize_path("/path/file.txt") == "path/file.txt"
         assert s3_storage._normalize_path("//path//file.txt") == "path/file.txt"  # Consecutive slashes normalized
-        assert s3_storage._normalize_path("///path///to///file.txt") == "path/to/file.txt"  # Multiple consecutive slashes
+        assert (
+            s3_storage._normalize_path("///path///to///file.txt") == "path/to/file.txt"
+        )  # Multiple consecutive slashes
         assert s3_storage._normalize_path("path/file.txt") == "path/file.txt"
 
         # Test additional edge cases
@@ -69,11 +71,7 @@ class TestStoragePathIntegrity:
         """Test BookManager path construction."""
         config = StorageConfig(protocol="file")
         storage = Storage(config)
-        bucket_config: BucketConfig = {
-            "bucket_raw": "raw",
-            "bucket_meta": "meta",
-            "bucket_full": "full"
-        }
+        bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
 
         # Test without base_prefix
         book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
@@ -106,11 +104,7 @@ class TestStoragePathIntegrity:
         """Test BookManager path construction with edge case barcode values."""
         config = StorageConfig(protocol="file")
         storage = Storage(config)
-        bucket_config: BucketConfig = {
-            "bucket_raw": "raw",
-            "bucket_meta": "meta",
-            "bucket_full": "full"
-        }
+        bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
         book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
 
         # Test edge case barcodes
@@ -137,11 +131,7 @@ class TestStoragePathIntegrity:
         """Test handling of Unicode characters in barcodes."""
         config = StorageConfig(protocol="file")
         storage = Storage(config)
-        bucket_config: BucketConfig = {
-            "bucket_raw": "raw",
-            "bucket_meta": "meta",
-            "bucket_full": "full"
-        }
+        bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
         book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
 
         # Test various Unicode characters
@@ -176,7 +166,7 @@ class TestStoragePathIntegrity:
         bucket_config: BucketConfig = {
             "bucket_raw": "my-raw-bucket",
             "bucket_meta": "my-meta-bucket",
-            "bucket_full": "my-full-bucket"
+            "bucket_full": "my-full-bucket",
         }
         book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
         assert book_manager.bucket_raw == "my-raw-bucket"
@@ -184,11 +174,7 @@ class TestStoragePathIntegrity:
         assert book_manager.bucket_full == "my-full-bucket"
 
         # Test with empty bucket names (should raise an error)
-        empty_bucket_config: BucketConfig = {
-            "bucket_raw": "",
-            "bucket_meta": "valid-meta",
-            "bucket_full": "valid-full"
-        }
+        empty_bucket_config: BucketConfig = {"bucket_raw": "", "bucket_meta": "valid-meta", "bucket_full": "valid-full"}
         with pytest.raises((ValueError, TypeError)):
             BookManager(storage, bucket_config=empty_bucket_config, base_prefix="")
 
@@ -212,7 +198,6 @@ class TestStoragePathIntegrity:
         slash_only_path = "///"
         normalized_slashes = s3_storage._normalize_path(slash_only_path)
         assert normalized_slashes == ""
-
 
 
 class TestStorageAtomicOperations:
@@ -340,28 +325,14 @@ class TestStorageConfigurationIntegrity:
             # Valid S3 config
             {
                 "storage_type": "s3",
-                "credentials": {
-                    "aws_access_key_id": "test_key",
-                    "aws_secret_access_key": "test_secret"
-                }
+                "credentials": {"aws_access_key_id": "test_key", "aws_secret_access_key": "test_secret"},
             },
             # Missing credentials
-            {
-                "storage_type": "s3",
-                "credentials": {}
-            },
+            {"storage_type": "s3", "credentials": {}},
             # Malformed credentials
-            {
-                "storage_type": "s3",
-                "credentials": {
-                    "wrong_key": "wrong_value"
-                }
-            },
+            {"storage_type": "s3", "credentials": {"wrong_key": "wrong_value"}},
             # Local storage (no credentials needed)
-            {
-                "storage_type": "local",
-                "credentials": {}
-            }
+            {"storage_type": "local", "credentials": {}},
         ]
 
         for config in test_configs:
@@ -392,29 +363,13 @@ class TestStorageConfigurationIntegrity:
         # Test various bucket configurations
         bucket_configs = [
             # Valid configuration
-            {
-                "raw_bucket": "valid-raw",
-                "meta_bucket": "valid-meta",
-                "full_bucket": "valid-full"
-            },
+            {"raw_bucket": "valid-raw", "meta_bucket": "valid-meta", "full_bucket": "valid-full"},
             # Empty bucket names
-            {
-                "raw_bucket": "",
-                "meta_bucket": "valid-meta",
-                "full_bucket": "valid-full"
-            },
+            {"raw_bucket": "", "meta_bucket": "valid-meta", "full_bucket": "valid-full"},
             # Same bucket for multiple purposes
-            {
-                "raw_bucket": "same-bucket",
-                "meta_bucket": "same-bucket",
-                "full_bucket": "same-bucket"
-            },
+            {"raw_bucket": "same-bucket", "meta_bucket": "same-bucket", "full_bucket": "same-bucket"},
             # Special characters in bucket names
-            {
-                "raw_bucket": "bucket-with-special.chars_123",
-                "meta_bucket": "meta",
-                "full_bucket": "full"
-            }
+            {"raw_bucket": "bucket-with-special.chars_123", "meta_bucket": "meta", "full_bucket": "full"},
         ]
 
         for config in bucket_configs:
@@ -434,12 +389,7 @@ class TestStorageConfigurationIntegrity:
         # Mock different storage backends
         backends = ["local", "s3", "r2"]
 
-        test_operations = [
-            "normalize_path",
-            "head",
-            "upload",
-            "download"
-        ]
+        test_operations = ["normalize_path", "head", "upload", "download"]
 
         # Each backend should implement the same interface
         for backend in backends:
@@ -465,15 +415,12 @@ class TestStorageConfigurationIntegrity:
             "storage_type": "s3",
             "bucket_name": "test-bucket",
             "base_prefix": "test/prefix",
-            "credentials": {
-                "aws_access_key_id": "test_key",
-                "aws_secret_access_key": "test_secret"
-            },
+            "credentials": {"aws_access_key_id": "test_key", "aws_secret_access_key": "test_secret"},
             "options": {
                 "multipart_threshold": 1024 * 1024 * 5,  # 5MB
                 "max_concurrency": 10,
-                "use_ssl": True
-            }
+                "use_ssl": True,
+            },
         }
 
         # Serialize to JSON
@@ -490,10 +437,7 @@ class TestStorageConfigurationIntegrity:
             "storage_type": "",
             "bucket_name": None,
             "credentials": {},
-            "options": {
-                "timeout": 0,
-                "retries": -1
-            }
+            "options": {"timeout": 0, "retries": -1},
         }
 
         # Should handle edge cases in serialization

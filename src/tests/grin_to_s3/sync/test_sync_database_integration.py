@@ -48,9 +48,7 @@ async def test_sync_pipeline_database_backup_enabled(mock_run_config):
     # Setup
     process_summary_stage = Mock()
     pipeline = SyncPipeline.from_run_config(
-        config=mock_run_config,
-        process_summary_stage=process_summary_stage,
-        skip_database_backup=False
+        config=mock_run_config, process_summary_stage=process_summary_stage, skip_database_backup=False
     )
 
     with patch.object(pipeline, "_backup_database_at_start") as mock_backup_start:
@@ -70,14 +68,12 @@ async def test_sync_pipeline_database_backup_disabled(mock_run_config):
     # Setup
     process_summary_stage = Mock()
     pipeline = SyncPipeline.from_run_config(
-        config=mock_run_config,
-        process_summary_stage=process_summary_stage,
-        skip_database_backup=True
+        config=mock_run_config, process_summary_stage=process_summary_stage, skip_database_backup=True
     )
 
     # Verify skip behavior
     await pipeline._backup_database_at_start()  # Should do nothing
-    result = await pipeline._upload_latest_database()   # Should return skip result
+    result = await pipeline._upload_latest_database()  # Should return skip result
 
     # Verify skipped status
     assert result["status"] == "skipped"
@@ -92,18 +88,17 @@ async def test_sync_pipeline_backup_methods_with_mocked_dependencies(mock_run_co
         with patch("grin_to_s3.sync.pipeline.upload_database_to_storage") as mock_upload:
             with patch("grin_to_s3.sync.pipeline.create_storage_from_config") as mock_create_storage:
                 with patch("grin_to_s3.sync.pipeline.BookManager") as mock_book_manager:
-
                     # Configure mocks before creating pipeline (storage is now initialized in constructor)
                     mock_create_backup.return_value = {
                         "status": "completed",
                         "backup_filename": "test_backup_123.db",
-                        "file_size": 1024
+                        "file_size": 1024,
                     }
 
                     mock_upload.return_value = {
                         "status": "completed",
                         "backup_filename": "books_backup_123.db",
-                        "file_size": 1024
+                        "file_size": 1024,
                     }
 
                     mock_storage = Mock()
@@ -111,9 +106,7 @@ async def test_sync_pipeline_backup_methods_with_mocked_dependencies(mock_run_co
 
                     # Create pipeline after mocks are set up (storage is initialized in constructor)
                     pipeline = SyncPipeline.from_run_config(
-                        config=mock_run_config,
-                        process_summary_stage=process_summary_stage,
-                        skip_database_backup=False
+                        config=mock_run_config, process_summary_stage=process_summary_stage, skip_database_backup=False
                     )
 
                     # Test backup at start
@@ -134,12 +127,11 @@ async def test_sync_pipeline_upload_latest_database_with_mocked_dependencies(moc
     with patch("grin_to_s3.sync.pipeline.upload_database_to_storage") as mock_upload:
         with patch("grin_to_s3.sync.pipeline.create_storage_from_config") as mock_create_storage:
             with patch("grin_to_s3.sync.pipeline.BookManager") as mock_book_manager:
-
                 # Configure mocks before creating pipeline (storage is now initialized in constructor)
                 mock_upload.return_value = {
                     "status": "completed",
                     "backup_filename": "books_latest.db",
-                    "file_size": 1024
+                    "file_size": 1024,
                 }
 
                 mock_storage = Mock()
@@ -147,9 +139,7 @@ async def test_sync_pipeline_upload_latest_database_with_mocked_dependencies(moc
 
                 # Create pipeline after mocks are set up (storage is initialized in constructor)
                 pipeline = SyncPipeline.from_run_config(
-                    config=mock_run_config,
-                    process_summary_stage=process_summary_stage,
-                    skip_database_backup=False
+                    config=mock_run_config, process_summary_stage=process_summary_stage, skip_database_backup=False
                 )
 
                 # Test upload latest
@@ -167,7 +157,7 @@ async def test_sync_pipeline_upload_latest_database_with_mocked_dependencies(moc
                     mock_run_config.sqlite_db_path,
                     mock_book_manager.return_value,
                     None,  # staging_manager
-                    upload_type="latest"
+                    upload_type="latest",
                 )
 
 
@@ -176,9 +166,7 @@ async def test_sync_pipeline_backup_error_handling(mock_run_config):
     """Test error handling in database backup methods."""
     process_summary_stage = Mock()
     pipeline = SyncPipeline.from_run_config(
-        config=mock_run_config,
-        process_summary_stage=process_summary_stage,
-        skip_database_backup=False
+        config=mock_run_config, process_summary_stage=process_summary_stage, skip_database_backup=False
     )
 
     with patch("grin_to_s3.sync.pipeline.create_local_database_backup") as mock_create_backup:
@@ -206,9 +194,7 @@ async def test_sync_pipeline_upload_latest_error_handling(mock_run_config):
 
         # Create pipeline (storage creation should succeed)
         pipeline = SyncPipeline.from_run_config(
-            config=mock_run_config,
-            process_summary_stage=process_summary_stage,
-            skip_database_backup=False
+            config=mock_run_config, process_summary_stage=process_summary_stage, skip_database_backup=False
         )
 
         # Test error handling - should return failed result
@@ -228,26 +214,19 @@ async def test_export_csv_and_upload_database_result(mock_run_config):
     """Test the combined CSV export and database upload result method."""
     process_summary_stage = Mock()
     pipeline = SyncPipeline.from_run_config(
-        config=mock_run_config,
-        process_summary_stage=process_summary_stage,
-        skip_database_backup=False
+        config=mock_run_config, process_summary_stage=process_summary_stage, skip_database_backup=False
     )
 
     with patch.object(pipeline, "_export_csv_if_enabled") as mock_csv_export:
         with patch.object(pipeline, "_upload_latest_database") as mock_db_upload:
             with patch("builtins.print") as mock_print:
-
                 # Configure mocks
-                mock_csv_export.return_value = {
-                    "status": "completed",
-                    "num_rows": 100,
-                    "file_size": 2048
-                }
+                mock_csv_export.return_value = {"status": "completed", "num_rows": 100, "file_size": 2048}
 
                 mock_db_upload.return_value = {
                     "status": "completed",
                     "backup_filename": "books_latest.db",
-                    "file_size": 1024
+                    "file_size": 1024,
                 }
 
                 # Test combined method

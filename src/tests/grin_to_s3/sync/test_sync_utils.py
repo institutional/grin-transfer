@@ -37,7 +37,9 @@ class TestETagOperations:
         with patch("grin_to_s3.common.create_http_session") as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
-            etag, file_size, status_code = await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123", mock_semaphore)
+            etag, file_size, status_code = await check_encrypted_etag(
+                mock_grin_client, "Harvard", "TEST123", mock_semaphore
+            )
 
             assert etag == "abc123def"  # ETag should be stripped of quotes
             assert file_size == 1024
@@ -55,7 +57,9 @@ class TestETagOperations:
         with patch("grin_to_s3.common.create_http_session") as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
-            etag, file_size, status_code = await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123", mock_semaphore)
+            etag, file_size, status_code = await check_encrypted_etag(
+                mock_grin_client, "Harvard", "TEST123", mock_semaphore
+            )
 
             assert etag is None
             assert file_size == 2048
@@ -85,7 +89,9 @@ class TestETagOperations:
         with patch("grin_to_s3.common.create_http_session") as mock_session:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
-            etag, file_size, status_code = await check_encrypted_etag(mock_grin_client, "Harvard", "TEST123", mock_semaphore)
+            etag, file_size, status_code = await check_encrypted_etag(
+                mock_grin_client, "Harvard", "TEST123", mock_semaphore
+            )
 
             assert etag is None
             assert file_size is None

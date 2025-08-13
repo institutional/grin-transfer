@@ -50,7 +50,6 @@ def create_test_archive(pages: dict[str, str], temp_dir: Path, archive_name: str
     return archive_path
 
 
-
 def create_extracted_directory(pages: dict[str, str], temp_dir: Path, dir_name: str = "extracted") -> Path:
     """
     Create a directory with extracted page files for testing.

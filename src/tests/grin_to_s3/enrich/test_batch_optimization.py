@@ -30,7 +30,7 @@ class TestBatchOptimization:
             process_summary_stage=mock_process_stage,
             db_path="/tmp/test.db",
             max_concurrent_requests=5,
-            batch_size=2000
+            batch_size=2000,
         )
 
     def test_optimal_batch_composition_perfect_fit(self, pipeline):
@@ -129,8 +129,9 @@ class TestBatchOptimization:
         seq_batch_sizes = [len(batch) for batch in sequential_batches]
 
         # Optimization should create fewer or equal batches
-        assert len(optimized_batches) <= len(sequential_batches), \
+        assert len(optimized_batches) <= len(sequential_batches), (
             f"Optimized should have ≤ batches: {len(optimized_batches)} vs {len(sequential_batches)}"
+        )
 
         # Both should process all books
         assert sum(opt_batch_sizes) == sum(seq_batch_sizes) == 2000
@@ -152,15 +153,15 @@ class TestBatchOptimization:
         url_capacity = pipeline._calculate_max_batch_size(typical_barcodes)
         expected_optimal = 5 * url_capacity  # max_concurrent_requests * url_capacity
 
-        assert optimal_with_sample == expected_optimal, \
-            f"Expected {expected_optimal}, got {optimal_with_sample}"
+        assert optimal_with_sample == expected_optimal, f"Expected {expected_optimal}, got {optimal_with_sample}"
 
         # Test without sample (should use conservative estimate)
         optimal_without_sample = pipeline.get_optimal_batch_size_recommendation()
         expected_conservative = 5 * 490  # max_concurrent_requests * conservative_estimate
 
-        assert optimal_without_sample == expected_conservative, \
+        assert optimal_without_sample == expected_conservative, (
             f"Expected {expected_conservative}, got {optimal_without_sample}"
+        )
 
     def test_batch_composition_preserves_order(self, pipeline):
         """Test that batch composition preserves barcode order."""
@@ -184,8 +185,8 @@ class TestBatchOptimization:
         """Test batch composition with barcodes of varying lengths."""
         # Mix of short and long barcodes
         mixed_barcodes = (
-            [f"SHORT{i}" for i in range(100)] +  # Short barcodes
-            [f"VERY_LONG_BARCODE_WITH_MANY_CHARACTERS_{i:06d}" for i in range(100)]  # Long barcodes
+            [f"SHORT{i}" for i in range(100)]  # Short barcodes
+            + [f"VERY_LONG_BARCODE_WITH_MANY_CHARACTERS_{i:06d}" for i in range(100)]  # Long barcodes
         )
 
         batches = pipeline._create_optimal_batch_composition(mixed_barcodes)
@@ -210,13 +211,17 @@ class TestBatchOptimization:
             batches = pipeline._create_optimal_batch_composition(test_barcodes)
 
             # Calculate concurrent rounds needed
-            concurrent_rounds = (len(batches) + pipeline.max_concurrent_requests - 1) // pipeline.max_concurrent_requests
+            concurrent_rounds = (
+                len(batches) + pipeline.max_concurrent_requests - 1
+            ) // pipeline.max_concurrent_requests
 
             # Calculate efficiency: books per concurrent round
             books_per_round = book_count / concurrent_rounds
 
             # For reference, store results
-            print(f"{book_count} books → {len(batches)} batches → {concurrent_rounds} rounds → {books_per_round:.1f} books/round")
+            print(
+                f"{book_count} books → {len(batches)} batches → {concurrent_rounds} rounds → {books_per_round:.1f} books/round"
+            )
 
             # Basic sanity checks
             assert len(batches) > 0, f"Should create batches for {book_count} books"
@@ -229,7 +234,7 @@ class TestBatchOptimization:
             directory="TestLibrary",
             process_summary_stage=mock_process_stage,
             max_concurrent_requests=max_concurrent,
-            batch_size=2000
+            batch_size=2000,
         )
 
         # Large book set
@@ -336,7 +341,9 @@ class TestBatchOptimization:
 
         total_books_cycle2 = len(processing2) + len(leftovers2)
         expected_cycle2 = len(leftovers1) + 2500
-        assert total_books_cycle2 == expected_cycle2, f"Second cycle mismatch: {total_books_cycle2} vs {expected_cycle2}"
+        assert total_books_cycle2 == expected_cycle2, (
+            f"Second cycle mismatch: {total_books_cycle2} vs {expected_cycle2}"
+        )
 
         # First book in second processing batch should be from leftovers
         if leftovers1 and processing2:
@@ -357,7 +364,9 @@ class TestBatchOptimization:
         # Verify leftover books are included in processing
         leftover_books_in_processing = [b for b in processing_barcodes if b.startswith("LEFTOVER_")]
 
-        assert len(leftover_books_in_processing) == 150, f"Expected 150 leftover books in processing, got {len(leftover_books_in_processing)}"
+        assert len(leftover_books_in_processing) == 150, (
+            f"Expected 150 leftover books in processing, got {len(leftover_books_in_processing)}"
+        )
 
         # Verify they maintain their original order and content
         expected_leftovers = leftover_books  # All 150 should be processed

@@ -508,6 +508,7 @@ class TestAsyncEnrichmentErrorHandling:
 
         # Mock the database write to capture what would be written
         captured_status_updates = []
+
         async def capture_batch_write(db_path_arg, status_updates):
             captured_status_updates.extend(status_updates)
             return None

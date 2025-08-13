@@ -49,21 +49,27 @@ class ConfigBuilder:
         self._config["storage_config"] = {"type": "local", "config": {"base_path": base_path}}
         return self
 
-    def s3_storage(self, bucket_raw: str = "test-raw", bucket_meta: str = "test-meta", bucket_full: str = "test-full", **kwargs):
+    def s3_storage(
+        self, bucket_raw: str = "test-raw", bucket_meta: str = "test-meta", bucket_full: str = "test-full", **kwargs
+    ):
         """Configure S3 storage."""
         config = {"bucket_raw": bucket_raw, "bucket_meta": bucket_meta, "bucket_full": bucket_full}
         config.update(kwargs)
         self._config["storage_config"] = {"type": "s3", "config": config}
         return self
 
-    def r2_storage(self, bucket_raw: str = "test-raw", bucket_meta: str = "test-meta", bucket_full: str = "test-full", **kwargs):
+    def r2_storage(
+        self, bucket_raw: str = "test-raw", bucket_meta: str = "test-meta", bucket_full: str = "test-full", **kwargs
+    ):
         """Configure R2 storage."""
         config = {"bucket_raw": bucket_raw, "bucket_meta": bucket_meta, "bucket_full": bucket_full}
         config.update(kwargs)
         self._config["storage_config"] = {"type": "r2", "config": config}
         return self
 
-    def minio_storage(self, bucket_raw: str = "test-raw", bucket_meta: str = "test-meta", bucket_full: str = "test-full", **kwargs):
+    def minio_storage(
+        self, bucket_raw: str = "test-raw", bucket_meta: str = "test-meta", bucket_full: str = "test-full", **kwargs
+    ):
         """Configure MinIO storage."""
         config = {"bucket_raw": bucket_raw, "bucket_meta": bucket_meta, "bucket_full": bucket_full}
         config.update(kwargs)

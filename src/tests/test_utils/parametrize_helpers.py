@@ -32,9 +32,8 @@ def combined_scenarios_parametrize():
             for storage in MEANINGFUL_STORAGE_TYPES  # Use meaningful storage types only
             for (ocr, marc), extraction_id in zip(
                 [(False, False), (True, False), (False, True), (True, True)],
-                ["both_enabled", "skip_ocr", "skip_marc", "skip_both"], strict=False
+                ["both_enabled", "skip_ocr", "skip_marc", "skip_both"],
+                strict=False,
             )
-        ]
+        ],
     )
-
-

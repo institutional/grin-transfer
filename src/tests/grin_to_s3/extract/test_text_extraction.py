@@ -105,7 +105,9 @@ class TestTextExtraction:
             }
             extracted_dir = create_extracted_directory(pages, temp_path)
 
-            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            page_count = await extract_ocr_pages(
+                str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file
+            )
             assert page_count == 3
 
             # Verify JSONL content
@@ -119,7 +121,9 @@ class TestTextExtraction:
             pages = {"00000001.txt": "Page 1", "00000003.txt": "Page 3", "00000005.txt": "Page 5"}
             extracted_dir = create_extracted_directory(pages, temp_path)
 
-            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            page_count = await extract_ocr_pages(
+                str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file
+            )
             assert page_count == 5
 
             # Verify JSONL content
@@ -139,7 +143,9 @@ class TestTextExtraction:
             }
             extracted_dir = create_extracted_directory(pages, temp_path)
 
-            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            page_count = await extract_ocr_pages(
+                str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file
+            )
             assert page_count == 2
 
             # Verify JSONL content
@@ -158,7 +164,9 @@ class TestTextExtraction:
             }
             extracted_dir = create_extracted_directory(pages, temp_path)
 
-            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            page_count = await extract_ocr_pages(
+                str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file
+            )
             assert page_count == 4
 
             # Verify JSONL content
@@ -177,7 +185,9 @@ class TestTextExtraction:
             }
             extracted_dir = create_extracted_directory(pages, temp_path)
 
-            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            page_count = await extract_ocr_pages(
+                str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file
+            )
             assert page_count == 4
 
             # Verify JSONL content
@@ -195,7 +205,9 @@ class TestTextExtraction:
             }
             extracted_dir = create_extracted_directory(pages, temp_path)
 
-            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            page_count = await extract_ocr_pages(
+                str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file
+            )
             assert page_count == 3
 
             # Verify JSONL content
@@ -207,14 +219,15 @@ class TestTextExtraction:
     async def test_extract_nonexistent_file(self, temp_db, temp_jsonl_file):
         """Test extraction with nonexistent extracted directory."""
         with pytest.raises(TextExtractionError, match="Extracted directory not found"):
-            await extract_ocr_pages("/nonexistent/path/archive.tar.gz", temp_db, "test_session", output_file=temp_jsonl_file)
+            await extract_ocr_pages(
+                "/nonexistent/path/archive.tar.gz", temp_db, "test_session", output_file=temp_jsonl_file
+            )
 
     async def test_extract_wrong_file_type(self, temp_db, temp_jsonl_file):
         """Test extraction with wrong file type."""
         with tempfile.NamedTemporaryFile(suffix=".txt") as temp_file:
             with pytest.raises(TextExtractionError, match="Expected directory, got file"):
                 await extract_ocr_pages(temp_file.name, temp_db, "test_session", output_file=temp_jsonl_file)
-
 
     async def test_extract_no_txt_files(self, temp_db, temp_jsonl_file):
         """Test extraction with directory containing no txt files."""
@@ -527,7 +540,9 @@ class TestPerformanceConsiderations:
 
             extracted_dir = create_extracted_directory(pages, temp_path)
 
-            page_count = await extract_ocr_pages(str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file)
+            page_count = await extract_ocr_pages(
+                str(extracted_dir), temp_db, "test_session", output_file=temp_jsonl_file
+            )
             assert page_count == 100
 
             # Verify JSONL content
@@ -535,8 +550,6 @@ class TestPerformanceConsiderations:
             assert len(result) == 100
             assert result[0].startswith("Content for page 1")
             assert result[99].startswith("Content for page 100")
-
-
 
 
 class TestBarcodeExtraction:

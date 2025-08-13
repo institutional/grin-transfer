@@ -108,8 +108,9 @@ class TestCSVExport:
 
         # All MARC fields should be consecutive
         for i in range(1, len(marc_positions)):
-            assert marc_positions[i] == marc_positions[i-1] + 1, \
-                f"MARC fields not consecutive at positions {marc_positions[i-1]} and {marc_positions[i]}"
+            assert marc_positions[i] == marc_positions[i - 1] + 1, (
+                f"MARC fields not consecutive at positions {marc_positions[i - 1]} and {marc_positions[i]}"
+            )
 
     def test_empty_marc_fields_display(self, sample_book_no_marc):
         """Test that empty MARC fields display as empty strings."""
@@ -308,8 +309,9 @@ class TestCSVExport:
         sample_book = BookRecord(barcode="TEST001", title="Test")
         csv_row = sample_book.to_csv_row()
 
-        assert len(csv_row) == len(headers), \
+        assert len(csv_row) == len(headers), (
             f"CSV row length ({len(csv_row)}) doesn't match headers length ({len(headers)})"
+        )
 
         # Verify all headers are strings
         for header in headers:
@@ -349,5 +351,6 @@ class TestCSVExport:
 
         # Verify no extra unexpected MARC fields
         actual_marc_fields = [h for h in headers if h.startswith("MARC ")]
-        assert len(actual_marc_fields) == len(required_marc_fields), \
+        assert len(actual_marc_fields) == len(required_marc_fields), (
             f"Expected {len(required_marc_fields)} MARC fields, found {len(actual_marc_fields)}"
+        )

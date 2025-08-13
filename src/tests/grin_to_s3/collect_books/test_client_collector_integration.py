@@ -43,14 +43,13 @@ async def test_client_collector_integration():
     # Mock the HTML parsing to return our test data
     with patch.object(client, "_parse_books_from_html") as mock_parse:
         # This should return GRINRow dicts, not strings
-        mock_parse.return_value = [
-            {"barcode": "test_barcode_123", "title": "Test Book Title", "date": "2024-01-01"}
-        ]
+        mock_parse.return_value = [{"barcode": "test_barcode_123", "title": "Test Book Title", "date": "2024-01-01"}]
 
         # Mock the prefetch and network calls
-        with patch.object(client, "_prefetch_page"), \
-             patch.object(client.auth, "make_authenticated_request") as mock_request:
-
+        with (
+            patch.object(client, "_prefetch_page"),
+            patch.object(client.auth, "make_authenticated_request") as mock_request,
+        ):
             # Mock response
             mock_response = AsyncMock()
             mock_response.text.return_value = mock_html
@@ -59,11 +58,7 @@ async def test_client_collector_integration():
             # Create a temporary database for real SQLiteProgressTracker
             with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
                 # Create collector and replace client
-                collector = BookCollector(
-                    directory="Harvard",
-                    process_summary_stage=AsyncMock(),
-                    test_mode=True
-                )
+                collector = BookCollector(directory="Harvard", process_summary_stage=AsyncMock(), test_mode=True)
                 collector.client = client
                 collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
 
@@ -93,6 +88,7 @@ async def test_client_collector_integration():
                     # Clean up database connection
                     await collector.sqlite_tracker.close()
                     import os
+
                     os.unlink(tmp_db.name)
 
 
@@ -111,11 +107,7 @@ async def test_collector_stream_all_books_integration():
 
         # Create a temporary database for real SQLiteProgressTracker
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
-            collector = BookCollector(
-                directory="Harvard",
-                process_summary_stage=AsyncMock(),
-                test_mode=True
-            )
+            collector = BookCollector(directory="Harvard", process_summary_stage=AsyncMock(), test_mode=True)
             collector.client = client
             collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
 
@@ -137,4 +129,5 @@ async def test_collector_stream_all_books_integration():
                 # Clean up database connection
                 await collector.sqlite_tracker.close()
                 import os
+
                 os.unlink(tmp_db.name)
