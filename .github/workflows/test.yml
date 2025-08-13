@@ -186,11 +186,14 @@ jobs:
         
         def test_storage_factories():
             # Test storage factory with empty config (should auto-configure)
+            print('Creating storage config...')
             storage_config = {
-                "type": "minio",
-                "protocol": "s3", 
-                "config": {}
+                'type': 'minio',
+                'protocol': 's3', 
+                'config': {}
             }
+            print(f'Storage config created: {storage_config}')
+            print('Calling create_storage_from_config...')
             storage = create_storage_from_config(storage_config)
             print('✅ Storage factory works with auto-configuration')
             
