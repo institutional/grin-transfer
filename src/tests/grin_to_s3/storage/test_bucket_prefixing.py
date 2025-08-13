@@ -57,7 +57,7 @@ class TestBucketPrefixingBehavior:
                 #     base_prefix = bucket_name  # This was the bug!
 
                 # Create bucket configuration
-                bucket_config = {
+                {
                     "bucket_raw": config.get("bucket_raw", "test-raw"),
                     "bucket_meta": config.get("bucket_meta", "test-meta"),
                     "bucket_full": config.get("bucket_full", "test-full"),

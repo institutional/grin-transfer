@@ -16,7 +16,6 @@ from grin_to_s3.docker import process_local_storage_path
 
 from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR, find_credential_file
 from .base import BackendConfig, Storage
-from .book_manager import BookManager, BucketConfig
 
 logger = logging.getLogger(__name__)
 
@@ -289,24 +288,6 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
             raise ValueError(f"Storage type {storage_type} does not support bucket-based storage")
 
 
-def create_book_manager_with_full_text(storage_config: "StorageConfig", base_prefix: str = "") -> BookManager:
-    """
-    Create BookManager instance with full-text bucket support.
-
-    Args:
-        storage_config: Complete storage configuration dict
-        base_prefix: Optional prefix for storage paths
-
-    Returns:
-        BookManager: Configured BookManager instance with full-text support
-
-    Raises:
-        ValueError: If required buckets are not configured
-    """
-    # Create single storage instance
-    storage = create_storage_from_config(storage_config)
-
-    return BookManager(storage=storage, storage_config=storage_config, base_prefix=base_prefix)
 
 
 async def create_local_storage_directories(storage_config: dict) -> None:

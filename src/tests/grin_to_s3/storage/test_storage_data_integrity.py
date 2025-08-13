@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from grin_to_s3.storage.base import BackendConfig, Storage
-from grin_to_s3.storage.book_manager import BookManager, BucketConfig
+from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.staging import StagingDirectoryManager
 from tests.test_utils.unified_mocks import standard_storage_config
 
@@ -72,7 +72,6 @@ class TestStoragePathIntegrity:
         """Test BookManager path construction."""
         config = BackendConfig(protocol="file")
         storage = Storage(config)
-        bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
 
         # Test without base_prefix
         book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
@@ -105,7 +104,6 @@ class TestStoragePathIntegrity:
         """Test BookManager path construction with edge case barcode values."""
         config = BackendConfig(protocol="file")
         storage = Storage(config)
-        bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
         book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
         # Test edge case barcodes
@@ -132,7 +130,6 @@ class TestStoragePathIntegrity:
         """Test handling of Unicode characters in barcodes."""
         config = BackendConfig(protocol="file")
         storage = Storage(config)
-        bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
         book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
         # Test various Unicode characters
@@ -172,7 +169,7 @@ class TestStoragePathIntegrity:
         # Test with empty bucket names - BookManager accepts this but bucket names will be None
         book_manager_empty = BookManager(storage, storage_config={"type": "local", "protocol": "local", "config": {}}, base_prefix="")
         assert book_manager_empty.bucket_raw is None
-        assert book_manager_empty.bucket_meta is None  
+        assert book_manager_empty.bucket_meta is None
         assert book_manager_empty.bucket_full is None
 
     def test_storage_path_operations_with_empty_bucket(self):

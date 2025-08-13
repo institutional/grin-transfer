@@ -26,7 +26,6 @@ from grin_to_s3.common import (
     DEFAULT_RETRY_WAIT_SECONDS,
     create_http_session,
     decrypt_gpg_file,
-    extract_bucket_config,
 )
 from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.text_extraction import extract_ocr_pages

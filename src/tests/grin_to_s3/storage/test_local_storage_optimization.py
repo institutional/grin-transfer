@@ -90,7 +90,6 @@ class TestLocalStorageDirectWrite:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = create_local_test_config(temp_dir)
             storage = create_storage_from_config(config)
-            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
             book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
             # Test path generation
@@ -108,7 +107,6 @@ class TestLocalStorageDirectWrite:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = create_local_test_config(temp_dir)
             storage = create_storage_from_config(config)
-            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
             book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
             # Test saving archive
@@ -201,7 +199,6 @@ class TestLocalStorageErrorHandling:
             try:
                 config = create_local_test_config(str(readonly_dir))
                 storage = create_storage_from_config(config)
-                bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
                 book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
                 # Should fail with permission error

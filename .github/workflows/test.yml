@@ -181,7 +181,8 @@ jobs:
         docker compose exec grin-to-s3 python -c "
         import sys
         sys.path.append('/app/src')
-        from grin_to_s3.storage.factories import create_storage_from_config, create_book_manager_with_full_text
+        from grin_to_s3.storage.factories import create_storage_from_config
+        from grin_to_s3.storage.book_manager import BookManager
         from grin_to_s3.common import auto_configure_minio
         
         def test_storage_factories():
@@ -205,7 +206,8 @@ jobs:
                 'protocol': 's3',
                 'config': config
             }
-            book_manager = create_book_manager_with_full_text(storage_config_with_buckets)
+            storage = create_storage_from_config(storage_config_with_buckets)
+            book_manager = BookManager(storage=storage, storage_config=storage_config_with_buckets)
             
             # Verify bucket configuration was set
             assert book_manager.bucket_raw == 'grin-raw', f'Expected grin-raw, got {book_manager.bucket_raw}'

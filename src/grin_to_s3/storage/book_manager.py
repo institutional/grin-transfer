@@ -37,7 +37,7 @@ class BookManager:
     Implements storage patterns for book data organization.
     """
 
-    def __init__(self, storage: Storage, *, storage_config: StorageConfig, base_prefix: str = ""):
+    def __init__(self, storage: Storage, storage_config: StorageConfig, base_prefix: str = ""):
         """Initialize BookStorage with type-safe bucket configuration.
 
         Args:
