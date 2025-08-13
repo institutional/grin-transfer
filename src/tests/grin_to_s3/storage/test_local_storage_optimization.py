@@ -6,9 +6,10 @@ from pathlib import Path
 import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.storage import BookManager, Storage, StorageConfig, create_local_storage, create_storage_from_config
+from grin_to_s3.storage import BackendConfig, BookManager, Storage, create_local_storage, create_storage_from_config
 from grin_to_s3.sync.pipeline import SyncPipeline
 from tests.test_utils.storage_helpers import create_local_test_config
+from tests.test_utils.unified_mocks import standard_storage_config
 
 
 class TestLocalStorageValidation:
@@ -55,10 +56,10 @@ class TestLocalStorageValidation:
         """Test StorageConfig.local validation."""
         # Test with empty string
         with pytest.raises(ValueError, match="Local storage requires explicit base_path"):
-            StorageConfig.local("")
+            BackendConfig.local("")
 
         # Test with valid path
-        config = StorageConfig.local("/tmp/test")
+        config = BackendConfig.local("/tmp/test")
         assert config.protocol == "file"
         assert config.options["base_path"] == "/tmp/test"
 
@@ -66,7 +67,7 @@ class TestLocalStorageValidation:
     async def test_normalize_path_validation(self):
         """Test that _normalize_path validates base_path."""
         # Create storage with missing base_path in options
-        config = StorageConfig(protocol="file")
+        config = BackendConfig(protocol="file")
 
         storage = Storage(config)
 
@@ -89,8 +90,7 @@ class TestLocalStorageDirectWrite:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = create_local_test_config(temp_dir)
             storage = create_storage_from_config(config)
-            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+            book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
             # Test path generation
             barcode = "TEST123"
@@ -107,8 +107,7 @@ class TestLocalStorageDirectWrite:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = create_local_test_config(temp_dir)
             storage = create_storage_from_config(config)
-            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+            book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
             # Test saving archive
             barcode = "TEST456"
@@ -200,8 +199,7 @@ class TestLocalStorageErrorHandling:
             try:
                 config = create_local_test_config(str(readonly_dir))
                 storage = create_storage_from_config(config)
-                bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-                book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+                book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
                 # Should fail with permission error
                 with pytest.raises((PermissionError, OSError)):

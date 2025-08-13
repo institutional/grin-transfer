@@ -18,11 +18,24 @@ import pytest
 from moto import mock_aws
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
+from grin_to_s3.run_config import StorageConfig
 from tests.utils import create_test_archive
 
 # =============================================================================
 # Mock Creation Functions
 # =============================================================================
+
+def standard_storage_config(storage_type: str = "local", bucket_raw: str = "test-raw", bucket_meta: str = "test-meta", bucket_full: str = "test-full") -> StorageConfig:
+    """Standard storage configuration"""
+    return {
+        "type": storage_type,
+        "protocol": storage_type,
+        "config": {
+            "bucket_raw": bucket_raw,
+            "bucket_meta": bucket_meta,
+            "bucket_full": bucket_full
+        }
+    }
 
 
 def create_storage_mock(
@@ -82,7 +95,7 @@ def create_storage_mock(
 
 def create_book_manager_mock(
     storage: MagicMock | None = None,
-    bucket_config: dict[str, str] | None = None,
+    storage_config: StorageConfig | None = None,
     base_prefix: str = "",
     should_fail: bool = False,
     custom_config: dict[str, Any] | None = None,
@@ -100,12 +113,13 @@ def create_book_manager_mock(
     Returns:
         Configured BookManager mock that wraps the storage mock
     """
-    if bucket_config is None:
-        bucket_config = {"bucket_raw": "test-raw", "bucket_meta": "test-meta", "bucket_full": "test-full"}
 
     # Create or use provided storage mock
     if storage is None:
         storage = create_storage_mock(should_fail=should_fail, custom_config=custom_config)
+
+    if storage_config is None:
+        storage_config = standard_storage_config()
 
     config = custom_config or {}
     mock_book_manager = MagicMock()
@@ -114,16 +128,16 @@ def create_book_manager_mock(
     mock_book_manager.storage = storage
 
     # Set bucket attributes
-    mock_book_manager.bucket_raw = bucket_config["bucket_raw"]
-    mock_book_manager.bucket_meta = bucket_config["bucket_meta"]
-    mock_book_manager.bucket_full = bucket_config["bucket_full"]
+    mock_book_manager.bucket_raw = storage_config["config"].get("bucket_raw")
+    mock_book_manager.bucket_meta = storage_config["config"].get("bucket_meta")
+    mock_book_manager.bucket_full = storage_config["config"].get("bucket_full")
     mock_book_manager.base_prefix = base_prefix
 
     # Add path generation helper
     def meta_path(filename: str) -> str:
         if base_prefix:
-            return f"{bucket_config['bucket_meta']}/{base_prefix}/{filename}"
-        return f"{bucket_config['bucket_meta']}/{filename}"
+            return f"{mock_book_manager.bucket_meta}/{base_prefix}/{filename}"
+        return f"{mock_book_manager.bucket_meta }/{filename}"
 
     mock_book_manager._meta_path = meta_path
 
@@ -142,13 +156,13 @@ def create_book_manager_mock(
         )
         mock_book_manager.save_timestamp = AsyncMock(
             return_value=config.get(
-                "timestamp_path", f"{bucket_config['bucket_raw']}/TEST123/TEST123.tar.gz.gpg.retrieval"
+                "timestamp_path", f"{mock_book_manager.bucket_raw}/TEST123/TEST123.tar.gz.gpg.retrieval"
             )
         )
 
     mock_book_manager.archive_exists = AsyncMock(return_value=config.get("archive_exists", False))
     mock_book_manager.save_text_jsonl = AsyncMock(
-        return_value=config.get("text_jsonl_path", f"{bucket_config['bucket_raw']}/TEST123/TEST123.jsonl")
+        return_value=config.get("text_jsonl_path", f"{mock_book_manager.bucket_raw}/TEST123/TEST123.jsonl")
     )
 
     return mock_book_manager
@@ -448,3 +462,4 @@ def create_progress_tracker_with_db_mock(db_path: str) -> MagicMock:
 def standard_bucket_config() -> dict[str, str]:
     """Standard bucket configuration for tests."""
     return {"bucket_raw": "test-raw", "bucket_meta": "test-meta", "bucket_full": "test-full"}
+

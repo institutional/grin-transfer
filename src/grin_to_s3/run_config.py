@@ -10,8 +10,6 @@ import sys
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict, cast
 
-from .storage.factories import find_credential_file, load_json_credentials
-
 # Sync configuration defaults
 DEFAULT_SYNC_CONCURRENT_DOWNLOADS = 5
 DEFAULT_SYNC_CONCURRENT_UPLOADS = 10
@@ -32,12 +30,12 @@ class StorageConfigDict(TypedDict, total=False):
     credentials_file: str
 
 
-class RunStorageConfig(TypedDict):
+class StorageConfig(TypedDict):
     """Complete storage configuration."""
 
-    type: str  # Required
-    protocol: str  # Required
-    config: StorageConfigDict  # Required
+    type: str
+    protocol: str
+    config: StorageConfigDict
     prefix: NotRequired[str]  # Optional prefix for all storage operations
 
 
@@ -50,9 +48,9 @@ def to_storage_config_dict(source: dict[str, Any]) -> StorageConfigDict:
 
 def to_run_storage_config(
     storage_type: str, protocol: str, config: dict[str, Any] | StorageConfigDict, prefix: str = ""
-) -> RunStorageConfig:
+) -> StorageConfig:
     """Create a properly typed RunStorageConfig."""
-    result: RunStorageConfig = {
+    result: StorageConfig = {
         "type": storage_type,
         "protocol": protocol,
         "config": to_storage_config_dict(cast(dict[str, Any], config)),
@@ -104,7 +102,7 @@ class RunConfig:
         return self.config_dict.get("secrets_dir")
 
     @property
-    def storage_config(self) -> RunStorageConfig:
+    def storage_config(self) -> StorageConfig:
         """Get the storage configuration."""
         stored_config = self.config_dict.get("storage_config")
         if not stored_config:
@@ -428,6 +426,8 @@ def build_storage_config_dict(args: Any) -> StorageConfigDict:
     Returns:
         StorageConfigDict with storage configuration (no prefix included)
     """
+    from .storage.factories import find_credential_file, load_json_credentials
+
     storage_dict: dict[str, str] = {}
 
     # Add bucket names if provided

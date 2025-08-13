@@ -202,19 +202,19 @@ class TestStorageMetadataETagTracking:
 
     async def test_storage_config_protocol_mapping(self):
         """Test that StorageConfig maps R2/MinIO to 's3' protocol."""
-        from grin_to_s3.storage import StorageConfig
+        from grin_to_s3.storage import BackendConfig
 
         # Test that all S3-compatible configs use 's3' protocol
-        s3_config = StorageConfig.s3("bucket")
+        s3_config = BackendConfig.s3("bucket")
         assert s3_config.protocol == "s3"
 
-        r2_config = StorageConfig.r2("account", "key", "secret")
+        r2_config = BackendConfig.r2("account", "key", "secret")
         assert r2_config.protocol == "s3"  # R2 uses S3 protocol
 
-        minio_config = StorageConfig.minio("http://localhost:9000", "key", "secret")
+        minio_config = BackendConfig.minio("http://localhost:9000", "key", "secret")
         assert minio_config.protocol == "s3"  # MinIO uses S3 protocol
 
-        local_config = StorageConfig.local("/tmp")
+        local_config = BackendConfig.local("/tmp")
         assert local_config.protocol == "file"  # Local uses file protocol
 
     @pytest.mark.asyncio

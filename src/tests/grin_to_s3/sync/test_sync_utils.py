@@ -231,14 +231,16 @@ class TestBookManagerInitializationInUtils:
                 mock_book_manager_class.assert_called_once()
                 call_args = mock_book_manager_class.call_args
 
-                # Should be called with (storage, bucket_config=..., base_prefix=...)
+                # Should be called with (storage, storage_config=..., base_prefix=...)
                 assert len(call_args[0]) == 1  # One positional arg: storage
                 assert call_args[0][0] == mock_storage  # First arg is storage
 
-                # bucket_config should be keyword argument
-                assert "bucket_config" in call_args[1]
-                bucket_config = call_args[1]["bucket_config"]
-                assert isinstance(bucket_config, dict)
-                assert "bucket_raw" in bucket_config
-                assert "bucket_meta" in bucket_config
-                assert "bucket_full" in bucket_config
+                # storage_config should be keyword argument
+                assert "storage_config" in call_args[1]
+                storage_config = call_args[1]["storage_config"]
+                assert isinstance(storage_config, dict)
+                assert "config" in storage_config
+                config = storage_config["config"]
+                assert "bucket_raw" in config
+                assert "bucket_meta" in config
+                assert "bucket_full" in config

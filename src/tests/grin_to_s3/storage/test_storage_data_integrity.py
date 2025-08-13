@@ -12,9 +12,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from grin_to_s3.storage.base import Storage, StorageConfig
-from grin_to_s3.storage.book_manager import BookManager, BucketConfig
+from grin_to_s3.storage.base import BackendConfig, Storage
+from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.staging import StagingDirectoryManager
+from tests.test_utils.unified_mocks import standard_storage_config
 
 
 class TestStoragePathIntegrity:
@@ -23,7 +24,7 @@ class TestStoragePathIntegrity:
     def test_path_normalization_edge_cases(self):
         """Test path normalization with various edge case inputs."""
         # Test with local file storage (requires base_path)
-        local_config = StorageConfig(protocol="file", base_path="/tmp/test")
+        local_config = BackendConfig(protocol="file", base_path="/tmp/test")
         local_storage = Storage(local_config)
 
         # Test basic path normalization for local storage
@@ -31,7 +32,7 @@ class TestStoragePathIntegrity:
         assert local_storage._normalize_path("folder/test.txt").endswith("folder/test.txt")
 
         # Test with S3 storage (different normalization rules)
-        s3_config = StorageConfig(protocol="s3")
+        s3_config = BackendConfig(protocol="s3")
         s3_storage = Storage(s3_config)
 
         # Test S3 path normalization (strips leading slashes and normalizes consecutive slashes)
@@ -51,11 +52,11 @@ class TestStoragePathIntegrity:
     def test_path_normalization_with_different_protocols(self):
         """Test path normalization behavior with different storage protocols."""
         # Test file protocol
-        file_config = StorageConfig(protocol="file", base_path="/tmp/test")
+        file_config = BackendConfig(protocol="file", base_path="/tmp/test")
         file_storage = Storage(file_config)
 
         # Test S3 protocol
-        s3_config = StorageConfig(protocol="s3")
+        s3_config = BackendConfig(protocol="s3")
         s3_storage = Storage(s3_config)
 
         # Both should normalize paths consistently
@@ -69,12 +70,11 @@ class TestStoragePathIntegrity:
 
     def test_book_path_construction(self):
         """Test BookManager path construction."""
-        config = StorageConfig(protocol="file")
+        config = BackendConfig(protocol="file")
         storage = Storage(config)
-        bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
 
         # Test without base_prefix
-        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+        book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
         # Test raw archive path construction
         raw_path = book_manager._raw_archive_path("TEST001", "TEST001.tar.gz.gpg")
@@ -89,7 +89,7 @@ class TestStoragePathIntegrity:
         assert meta_path == "meta/books.csv"
 
         # Test with base_prefix
-        book_manager_with_prefix = BookManager(storage, bucket_config=bucket_config, base_prefix="myproject")
+        book_manager_with_prefix = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="myproject")
 
         raw_path_prefixed = book_manager_with_prefix._raw_archive_path("TEST001", "TEST001.tar.gz.gpg")
         assert raw_path_prefixed == "raw/myproject/TEST001/TEST001.tar.gz.gpg"
@@ -102,10 +102,9 @@ class TestStoragePathIntegrity:
 
     def test_book_path_construction_edge_case_barcodes(self):
         """Test BookManager path construction with edge case barcode values."""
-        config = StorageConfig(protocol="file")
+        config = BackendConfig(protocol="file")
         storage = Storage(config)
-        bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+        book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
         # Test edge case barcodes
         test_cases = [
@@ -129,10 +128,9 @@ class TestStoragePathIntegrity:
 
     def test_unicode_barcode_handling(self):
         """Test handling of Unicode characters in barcodes."""
-        config = StorageConfig(protocol="file")
+        config = BackendConfig(protocol="file")
         storage = Storage(config)
-        bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+        book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
 
         # Test various Unicode characters
         unicode_barcodes = [
@@ -159,29 +157,25 @@ class TestStoragePathIntegrity:
 
     def test_bucket_name_handling(self):
         """Test bucket name handling for empty vs non-empty cases."""
-        config = StorageConfig(protocol="file")
+        config = BackendConfig(protocol="file")
         storage = Storage(config)
 
         # Test with non-empty bucket names
-        bucket_config: BucketConfig = {
-            "bucket_raw": "my-raw-bucket",
-            "bucket_meta": "my-meta-bucket",
-            "bucket_full": "my-full-bucket",
-        }
-        book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
+        book_manager = BookManager(storage, storage_config=standard_storage_config("local", "my-raw-bucket", "my-meta-bucket", "my-full-bucket"), base_prefix="")
         assert book_manager.bucket_raw == "my-raw-bucket"
         assert book_manager.bucket_meta == "my-meta-bucket"
         assert book_manager.bucket_full == "my-full-bucket"
 
-        # Test with empty bucket names (should raise an error)
-        empty_bucket_config: BucketConfig = {"bucket_raw": "", "bucket_meta": "valid-meta", "bucket_full": "valid-full"}
-        with pytest.raises((ValueError, TypeError)):
-            BookManager(storage, bucket_config=empty_bucket_config, base_prefix="")
+        # Test with empty bucket names - BookManager accepts this but bucket names will be None
+        book_manager_empty = BookManager(storage, storage_config={"type": "local", "protocol": "local", "config": {}}, base_prefix="")
+        assert book_manager_empty.bucket_raw is None
+        assert book_manager_empty.bucket_meta is None
+        assert book_manager_empty.bucket_full is None
 
     def test_storage_path_operations_with_empty_bucket(self):
         """Test that storage operations handle empty bucket names gracefully."""
         # Test S3 storage with empty bucket name in path
-        s3_config = StorageConfig(protocol="s3")
+        s3_config = BackendConfig(protocol="s3")
         s3_storage = Storage(s3_config)
 
         # Empty bucket name in path should be handled by storage layer

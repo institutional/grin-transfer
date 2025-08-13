@@ -10,13 +10,12 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ..run_config import RunStorageConfig
+    from ..run_config import StorageConfig
 
 from grin_to_s3.docker import process_local_storage_path
 
 from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR, find_credential_file
-from .base import Storage, StorageConfig
-from .book_manager import BookManager, BucketConfig
+from .base import BackendConfig, Storage
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +113,7 @@ def validate_required_keys(data: dict, required_keys: list, context: str = "conf
         raise ValueError(f"Missing required {context} keys: {missing_keys}")
 
 
-def create_storage_from_config(storage_config: "RunStorageConfig") -> Storage:
+def create_storage_from_config(storage_config: "StorageConfig") -> Storage:
     """
     Create storage instance based on storage configuration.
 
@@ -195,19 +194,19 @@ def create_storage_from_config(storage_config: "RunStorageConfig") -> Storage:
 
 def create_s3_storage(bucket: str | None = None, **kwargs: Any) -> Storage:
     """Create AWS S3 storage instance."""
-    config = StorageConfig.s3(bucket=bucket or "", **kwargs)
+    config = BackendConfig.s3(bucket=bucket or "", **kwargs)
     return Storage(config)
 
 
 def create_r2_storage(endpoint_url: str, access_key: str, secret_key: str, **kwargs: Any) -> Storage:
     """Create Cloudflare R2 storage instance."""
-    config = StorageConfig.r2(endpoint_url, access_key, secret_key, **kwargs)
+    config = BackendConfig.r2(endpoint_url, access_key, secret_key, **kwargs)
     return Storage(config)
 
 
 def create_minio_storage(endpoint_url: str, access_key: str, secret_key: str, **kwargs: Any) -> Storage:
     """Create MinIO storage instance."""
-    config = StorageConfig.minio(endpoint_url, access_key, secret_key, **kwargs)
+    config = BackendConfig.minio(endpoint_url, access_key, secret_key, **kwargs)
     return Storage(config)
 
 
@@ -215,19 +214,19 @@ def create_local_storage(base_path: str, **kwargs: Any) -> Storage:
     """Create local filesystem storage instance."""
     if not base_path:
         raise ValueError("Local storage requires explicit base_path")
-    config = StorageConfig.local(base_path)
+    config = BackendConfig.local(base_path)
     return Storage(config)
 
 
 def create_gcs_storage(project: str, **kwargs: Any) -> Storage:
     """Create Google Cloud Storage instance."""
-    config = StorageConfig.gcs(project=project, **kwargs)
+    config = BackendConfig.gcs(project=project, **kwargs)
     return Storage(config)
 
 
 def create_azure_storage(account_name: str, **kwargs: Any) -> Storage:
     """Create Azure Blob Storage instance."""
-    config = StorageConfig(protocol="abfs", account_name=account_name, **kwargs)
+    config = BackendConfig(protocol="abfs", account_name=account_name, **kwargs)
     return Storage(config)
 
 
@@ -289,32 +288,6 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
             raise ValueError(f"Storage type {storage_type} does not support bucket-based storage")
 
 
-def create_book_manager_with_full_text(storage_config: "RunStorageConfig", base_prefix: str = "") -> BookManager:
-    """
-    Create BookManager instance with full-text bucket support.
-
-    Args:
-        storage_config: Complete storage configuration dict
-        base_prefix: Optional prefix for storage paths
-
-    Returns:
-        BookManager: Configured BookManager instance with full-text support
-
-    Raises:
-        ValueError: If required buckets are not configured
-    """
-    # Create single storage instance
-    storage = create_storage_from_config(storage_config)
-
-    # Extract bucket configuration
-    config = storage_config["config"]
-    bucket_config: BucketConfig = {
-        "bucket_raw": config["bucket_raw"],
-        "bucket_meta": config["bucket_meta"],
-        "bucket_full": config["bucket_full"],
-    }
-
-    return BookManager(storage=storage, bucket_config=bucket_config, base_prefix=base_prefix)
 
 
 async def create_local_storage_directories(storage_config: dict) -> None:

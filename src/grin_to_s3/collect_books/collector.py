@@ -26,14 +26,12 @@ from grin_to_s3.client import GRINClient, GRINRow
 from grin_to_s3.common import (
     ProgressReporter,
     RateLimiter,
-    extract_bucket_config,
     format_bytes,
     format_duration,
     pluralize,
     print_oauth_setup_instructions,
 )
 from grin_to_s3.storage import BookManager, create_storage_from_config
-from grin_to_s3.storage.book_manager import BucketConfig
 
 from .config import ExportConfig, PaginationConfig
 from .models import BookRecord, BoundedSet, SQLiteProgressTracker
@@ -113,11 +111,8 @@ class BookCollector:
         self.book_manager: BookManager | None = None
         if storage_config:
             storage = create_storage_from_config(storage_config)
-            # Create bucket config for BookStorage constructor
-            config_dict = storage_config.get("config", {})
-            bucket_config: BucketConfig = extract_bucket_config(storage_config["type"], config_dict)
             prefix = storage_config.get("prefix", "")
-            self.book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix=prefix)
+            self.book_manager = BookManager(storage, storage_config=storage_config, base_prefix=prefix)
 
     def _setup_test_mode(self):
         """Set up test mode with mock data and clients"""

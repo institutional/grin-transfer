@@ -242,12 +242,14 @@ async def main() -> int:
 
                 from ..run_config import to_run_storage_config
                 from ..storage import get_storage_protocol
-                from ..storage.factories import create_book_manager_with_full_text
+                from ..storage.book_manager import BookManager
+                from ..storage.factories import create_storage_from_config
 
                 full_storage_config = to_run_storage_config(
                     storage_type, get_storage_protocol(storage_type), storage_config, storage_prefix
                 )
-                book_manager = create_book_manager_with_full_text(full_storage_config, storage_prefix)
+                storage = create_storage_from_config(full_storage_config)
+                book_manager = BookManager(storage=storage, storage_config=full_storage_config, base_prefix=storage_prefix)
             else:
                 raise FileNotFoundError(f"Run configuration not found: {config_path}")
             if args.verbose:

@@ -14,6 +14,8 @@ from typing import TypedDict
 
 import aiofiles
 
+from grin_to_s3.run_config import StorageConfig
+
 from ..compression import compress_file_to_temp, get_compressed_filename
 from .base import Storage
 
@@ -35,7 +37,7 @@ class BookManager:
     Implements storage patterns for book data organization.
     """
 
-    def __init__(self, storage: Storage, *, bucket_config: BucketConfig, base_prefix: str = ""):
+    def __init__(self, storage: Storage, storage_config: StorageConfig, base_prefix: str = ""):
         """Initialize BookStorage with type-safe bucket configuration.
 
         Args:
@@ -46,15 +48,11 @@ class BookManager:
         Raises:
             ValueError: If any bucket name is empty
         """
-        # Validate bucket names are not empty
-        for bucket_key, bucket_name in bucket_config.items():
-            if not bucket_name or (isinstance(bucket_name, str) and not bucket_name.strip()):
-                raise ValueError(f"Bucket name cannot be empty: {bucket_key}")
 
         self.storage = storage
-        self.bucket_raw = bucket_config["bucket_raw"]
-        self.bucket_meta = bucket_config["bucket_meta"]
-        self.bucket_full = bucket_config["bucket_full"]
+        self.bucket_raw = storage_config["config"].get("bucket_raw")
+        self.bucket_meta = storage_config["config"].get("bucket_meta")
+        self.bucket_full = storage_config["config"].get("bucket_full")
         self.base_prefix = base_prefix.rstrip("/")
 
     def _raw_archive_path(self, barcode: str, filename: str) -> str:

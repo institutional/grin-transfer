@@ -12,10 +12,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.storage.base import Storage, StorageConfig
+from grin_to_s3.storage.base import BackendConfig, Storage
 from grin_to_s3.storage.book_manager import BookManager
-from grin_to_s3.storage.factories import create_book_manager_with_full_text, create_storage_from_config
-from tests.test_utils.unified_mocks import mock_cloud_storage_backend
+from grin_to_s3.storage.factories import create_storage_from_config
+from tests.test_utils.unified_mocks import mock_cloud_storage_backend, standard_storage_config
 
 
 class TestBookStorageIntegration:
@@ -31,10 +31,14 @@ class TestBookStorageIntegration:
             full_dir.mkdir()
 
             # Create storage instances for raw and full buckets
-            raw_storage = Storage(StorageConfig.local(str(raw_dir)))
+            raw_storage = Storage(BackendConfig.local(str(raw_dir)))
 
-            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
+            book_manager = BookManager(storage=raw_storage,
+                                       storage_config=standard_storage_config(
+                                           storage_type="local",
+                                           bucket_raw="raw",
+                                           bucket_meta="meta",
+                                           bucket_full="full"))
 
             text_pages = ["First page content", "Second page content", "Third page content"]
             barcode = "test12345"
@@ -85,11 +89,17 @@ class TestBookStorageIntegration:
             full_dir.mkdir()
 
             # Create storage instances
-            raw_storage = Storage(StorageConfig.local(str(raw_dir)))
+            raw_storage = Storage(BackendConfig.local(str(raw_dir)))
 
             base_prefix = "test-collection"
-            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config, base_prefix=base_prefix)
+
+            book_manager = BookManager(storage=raw_storage,
+                                       storage_config=standard_storage_config(
+                                           storage_type="local",
+                                           bucket_raw="raw",
+                                           bucket_meta="meta",
+                                           bucket_full="full"),
+                                           base_prefix=base_prefix)
 
             text_pages = ["Page with prefix content"]
             barcode = "prefix12345"
@@ -126,10 +136,9 @@ class TestBookStorageIntegration:
             full_dir = Path(temp_dir) / "full"
             full_dir.mkdir()
 
-            raw_storage = Storage(StorageConfig.local(temp_dir))
+            raw_storage = Storage(BackendConfig.local(temp_dir))
 
-            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
+            book_manager = BookManager(storage=raw_storage, storage_config=standard_storage_config(bucket_raw="raw", bucket_meta="meta", bucket_full="full"))
 
             text_pages = [
                 "English text",
@@ -174,10 +183,9 @@ class TestBookStorageIntegration:
             full_dir = Path(temp_dir) / "full"
             full_dir.mkdir()
 
-            raw_storage = Storage(StorageConfig.local(temp_dir))
+            raw_storage = Storage(BackendConfig.local(temp_dir))
 
-            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
+            book_manager = BookManager(storage=raw_storage, storage_config=standard_storage_config(bucket_raw="raw", bucket_meta="meta", bucket_full="full"))
 
             text_pages = []
             barcode = "empty12345"
@@ -215,10 +223,9 @@ class TestBookStorageIntegration:
             full_dir.mkdir()
 
             # Create storage instances
-            raw_storage = Storage(StorageConfig.local(str(raw_dir)))
+            raw_storage = Storage(BackendConfig.local(str(raw_dir)))
 
-            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
+            book_manager = BookManager(storage=raw_storage, storage_config=standard_storage_config(bucket_raw="raw", bucket_meta="meta", bucket_full="full"))
 
             barcode = "multi12345"
             text_pages = ["Page 1", "Page 2"]
@@ -300,7 +307,11 @@ class TestBookStorageIntegration:
                 "config": config,
                 "prefix": "",
             }
-            book_manager = create_book_manager_with_full_text(full_storage_config, "test-prefix")
+
+            # Import the function after the patch is applied
+            from grin_to_s3.storage.factories import create_storage_from_config
+            storage = create_storage_from_config(full_storage_config)
+            book_manager = BookManager(storage=storage, storage_config=full_storage_config, base_prefix="test-prefix")
 
             # Verify factory was called correctly (now uses single storage)
             expected_config = full_storage_config
@@ -325,9 +336,8 @@ class TestBookStorageIntegration:
             timestamped_dir = meta_dir / "timestamped"
             timestamped_dir.mkdir()
 
-            raw_storage = Storage(StorageConfig.local(temp_dir))
-            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
+            raw_storage = Storage(BackendConfig.local(temp_dir))
+            book_manager = BookManager(storage=raw_storage, storage_config=standard_storage_config(bucket_raw="raw", bucket_meta="meta", bucket_full="full"))
 
             # Create a test CSV file
             csv_content = "barcode,title,author\nTEST001,Test Book,Test Author\nTEST002,Another Book,Another Author\n"
@@ -373,9 +383,8 @@ class TestBookStorageIntegration:
             timestamped_dir = meta_dir / "timestamped"
             timestamped_dir.mkdir()
 
-            raw_storage = Storage(StorageConfig.local(temp_dir))
-            bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-            book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
+            raw_storage = Storage(BackendConfig.local(temp_dir))
+            book_manager = BookManager(storage=raw_storage, storage_config=standard_storage_config(bucket_raw="raw", bucket_meta="meta", bucket_full="full"))
 
             # Create a test CSV file
             csv_content = "barcode,title\nTEST001,Custom Export\n"
@@ -409,20 +418,15 @@ class TestBookStorageIntegration:
         """Test OCR text JSONL saving with cloud storage backend using text operations."""
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            with mock_cloud_storage_backend("s3", ["test-raw", "test-meta", "test-full"]) as storage_config:
+            with mock_cloud_storage_backend("s3", ["test-raw", "test-meta", "test-full"]):
                 # Create real storage instance but patch write_file to avoid aiohttp/moto issues
-                storage = create_storage_from_config(storage_config)
+                storage = create_storage_from_config(standard_storage_config())
 
                 # Patch just the write_file method to avoid file upload complexity
                 with patch.object(storage, "write_file", new_callable=AsyncMock) as mock_write:
                     mock_write.return_value = None
 
-                    bucket_config = {
-                        "bucket_raw": storage_config["bucket_raw"],
-                        "bucket_meta": storage_config["bucket_meta"],
-                        "bucket_full": storage_config["bucket_full"],
-                    }
-                    book_manager = BookManager(storage=storage, bucket_config=bucket_config)
+                    book_manager = BookManager(storage=storage, storage_config=standard_storage_config(bucket_raw="raw", bucket_meta="meta", bucket_full="full"))
 
                     text_pages = ["First page content", "Second page content", "Third page content"]
                     barcode = "test12345"

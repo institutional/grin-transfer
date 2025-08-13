@@ -10,10 +10,9 @@ import pytest
 
 from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.factories import (
-    create_book_manager_with_full_text,
     create_storage_for_bucket,
 )
-from tests.test_utils.unified_mocks import create_book_manager_mock, standard_bucket_config
+from tests.test_utils.unified_mocks import create_book_manager_mock, standard_storage_config
 
 
 class TestBookManagerFullText:
@@ -21,7 +20,7 @@ class TestBookManagerFullText:
 
     def test_init_with_bucket_config(self):
         """Test BookManager initialization with bucket configuration."""
-        book_manager = create_book_manager_mock(bucket_config=standard_bucket_config(), base_prefix="test-prefix")
+        book_manager = create_book_manager_mock(base_prefix="test-prefix")
 
         assert book_manager.storage is not None
         assert book_manager.bucket_raw == "test-raw"
@@ -31,7 +30,7 @@ class TestBookManagerFullText:
 
     def test_init_minimal_config(self):
         """Test BookManager initialization with minimal configuration."""
-        book_manager = create_book_manager_mock(bucket_config=standard_bucket_config())
+        book_manager = create_book_manager_mock()
 
         assert book_manager.storage is not None
         assert book_manager.bucket_raw == "test-raw"
@@ -43,7 +42,7 @@ class TestBookManagerFullText:
         """Test _full_text_path method with base prefix."""
         mock_storage = MagicMock()
         book_manager = BookManager(
-            storage=mock_storage, bucket_config=standard_bucket_config(), base_prefix="test-prefix"
+            storage=mock_storage, storage_config=standard_storage_config(), base_prefix="test-prefix"
         )
 
         path = book_manager._full_text_path("12345", "test.jsonl")
@@ -52,7 +51,7 @@ class TestBookManagerFullText:
     def test_full_text_path_without_prefix(self):
         """Test _full_text_path method without base prefix."""
         mock_storage = MagicMock()
-        book_manager = BookManager(storage=mock_storage, bucket_config=standard_bucket_config())
+        book_manager = BookManager(storage=mock_storage, storage_config=standard_storage_config())
 
         path = book_manager._full_text_path("12345", "test.jsonl")
         assert path == "test-full/test.jsonl"
@@ -65,7 +64,7 @@ class TestBookManagerFullText:
         mock_storage = AsyncMock()
         mock_storage.is_s3_compatible = MagicMock(return_value=False)
 
-        book_manager = BookManager(storage=mock_storage, bucket_config=standard_bucket_config())
+        book_manager = BookManager(storage=mock_storage, storage_config=standard_storage_config())
 
         # Create a real temporary JSONL file for compression
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as temp_file:
@@ -98,7 +97,7 @@ class TestBookManagerFullText:
         mock_storage = AsyncMock()
         mock_storage.is_s3_compatible = MagicMock(return_value=True)
 
-        book_manager = BookManager(storage=mock_storage, bucket_config=standard_bucket_config())
+        book_manager = BookManager(storage=mock_storage, storage_config=standard_storage_config())
 
         # Create a real temporary JSONL file for compression
         jsonl_content = '"Page 1 content"\n"Page 2 content"\n'
@@ -131,16 +130,6 @@ class TestBookManagerFullText:
             import os
 
             os.unlink(jsonl_file_path)
-
-    @pytest.mark.asyncio
-    async def test_save_ocr_text_jsonl_from_file_no_full_text_storage(self):
-        """Test OCR text JSONL upload fails when full-text storage not configured."""
-        mock_storage = MagicMock()
-
-        # This should fail because BookManager requires bucket_config
-        with pytest.raises(TypeError):
-            BookManager(storage=mock_storage)  # Missing bucket_config
-
 
 class TestStorageFactories:
     """Test storage factory functions for three-bucket configuration."""
@@ -204,28 +193,3 @@ class TestStorageFactories:
         with pytest.raises(ValueError, match="does not support bucket-based storage"):
             create_storage_for_bucket("local", config, "test-bucket")
 
-    @patch("grin_to_s3.storage.factories.create_storage_from_config")
-    def test_create_book_manager_with_full_text(self, mock_create_storage):
-        """Test creating BookManager with full-text support."""
-        mock_storage = MagicMock()
-        mock_create_storage.return_value = mock_storage
-
-        storage_config = {
-            "type": "s3",
-            "protocol": "s3",
-            "config": {"bucket_raw": "raw-bucket", "bucket_meta": "meta-bucket", "bucket_full": "full-bucket"},
-            "prefix": "",
-        }
-
-        book_manager = create_book_manager_with_full_text(storage_config, "test-prefix")
-
-        # Should be called with the storage config directly
-        expected_config = storage_config
-        mock_create_storage.assert_called_once_with(expected_config)
-
-        assert isinstance(book_manager, BookManager)
-        assert book_manager.storage == mock_storage
-        assert book_manager.bucket_raw == "raw-bucket"
-        assert book_manager.bucket_meta == "meta-bucket"
-        assert book_manager.bucket_full == "full-bucket"
-        assert book_manager.base_prefix == "test-prefix"
