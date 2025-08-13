@@ -19,6 +19,7 @@ import aiofiles
 import aiohttp
 
 from grin_to_s3.docker import is_docker_environment
+from grin_to_s3.run_config import StorageConfigDict
 from grin_to_s3.storage.book_manager import BucketConfig
 
 from .auth.grin_auth import find_credential_file
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 type BarcodeSet = set[str]
 
 
-def extract_bucket_config(storage_type: str, config_dict: dict) -> BucketConfig:
+def extract_bucket_config(storage_type: str, config_dict: StorageConfigDict) -> BucketConfig:
     """
     Extract bucket configuration with appropriate defaults based on storage type.
 

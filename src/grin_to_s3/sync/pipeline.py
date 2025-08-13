@@ -638,10 +638,10 @@ class SyncPipeline:
             print(f"  Full-text: {base_path}/full/")
             print(f"  CSV export: {base_path}/meta/books_latest.csv.gz")
         else:
-            print(f"  Raw data bucket: {self.storage_config['bucket_raw']}")
-            print(f"  Metadata bucket: {self.storage_config['bucket_meta']}")
-            print(f"  Full-text bucket: {self.storage_config['bucket_full']}")
-            print(f"  CSV export: {self.storage_config['bucket_meta']}/books_latest.csv.gz")
+            print(f"  Raw data bucket: {self.storage_config.get('bucket_raw', 'unknown')}")
+            print(f"  Metadata bucket: {self.storage_config.get('bucket_meta', 'unknown')}")
+            print(f"  Full-text bucket: {self.storage_config.get('bucket_full', 'unknown')}")
+            print(f"  CSV export: {self.storage_config.get('bucket_meta', 'unknown')}/books_latest.csv.gz")
 
     async def _cancel_progress_reporter(self) -> None:
         """Cancel the background progress reporter with timeout."""
@@ -1016,7 +1016,7 @@ class SyncPipeline:
         return self._shutdown_requested
 
     async def _process_download_result(
-        self, barcode: str, result: dict[str, Any], processed_count: int, rate_calculator, start_time: float
+        self, barcode: str, result: dict[str, Any], processed_count: int, rate_calculator
     ) -> tuple[bool, int]:
         """Process download completion result and return (should_exit, updated_processed_count)."""
         if result.get("download_success"):
@@ -1183,7 +1183,7 @@ class SyncPipeline:
                                 logger.debug(f"[{barcode}] Started upload task")
                             else:
                                 should_exit, processed_count = await self._process_download_result(
-                                    barcode, result, processed_count, rate_calculator, start_time
+                                    barcode, result, processed_count, rate_calculator
                                 )
                                 if should_exit:
                                     return

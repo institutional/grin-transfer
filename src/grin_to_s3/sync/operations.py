@@ -32,7 +32,7 @@ from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.text_extraction import extract_ocr_pages
 from grin_to_s3.extract.tracking import ExtractionStatus, StatusUpdate, collect_status
 from grin_to_s3.metadata.marc_extraction import extract_marc_metadata
-from grin_to_s3.run_config import to_run_storage_config
+from grin_to_s3.run_config import StorageConfigDict, to_run_storage_config
 from grin_to_s3.storage import BookManager, create_storage_from_config, get_storage_protocol
 from grin_to_s3.storage.book_manager import BucketConfig
 from grin_to_s3.storage.factories import LOCAL_STORAGE_DEFAULTS
@@ -281,7 +281,7 @@ async def check_and_handle_etag_skip(
     grin_client: GRINClient,
     library_directory: str,
     storage_type: str,
-    storage_config: dict[str, Any],
+    storage_config: StorageConfigDict,
     db_tracker,
     grin_semaphore: asyncio.Semaphore,
     force: bool = False,
@@ -811,7 +811,7 @@ async def upload_book_from_staging(
     barcode: str,
     staging_file_path: str,
     storage_type: str,
-    storage_config: dict[str, Any],
+    storage_config: StorageConfigDict,
     staging_manager,
     db_tracker,
     encrypted_etag: str | None = None,
@@ -1013,7 +1013,7 @@ async def download_book_to_local(
     barcode: str,
     grin_client: GRINClient,
     library_directory: str,
-    storage_config: dict[str, Any],
+    storage_config: StorageConfigDict,
     db_tracker,
     encrypted_etag: str | None = None,
     secrets_dir: str | None = None,
