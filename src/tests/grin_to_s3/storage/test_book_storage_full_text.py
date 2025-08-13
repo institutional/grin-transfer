@@ -214,7 +214,7 @@ class TestStorageFactories:
             "type": "s3",
             "protocol": "s3",
             "config": {"bucket_raw": "raw-bucket", "bucket_meta": "meta-bucket", "bucket_full": "full-bucket"},
-            "prefix": ""
+            "prefix": "",
         }
 
         book_manager = create_book_manager_with_full_text(storage_config, "test-prefix")

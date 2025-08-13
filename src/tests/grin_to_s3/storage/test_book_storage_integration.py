@@ -293,11 +293,12 @@ class TestBookStorageIntegration:
 
             # Create full storage config
             from grin_to_s3.storage import get_storage_protocol
+
             full_storage_config = {
                 "type": storage_type,
                 "protocol": get_storage_protocol(storage_type),
                 "config": config,
-                "prefix": ""
+                "prefix": "",
             }
             book_manager = create_book_manager_with_full_text(full_storage_config, "test-prefix")
 

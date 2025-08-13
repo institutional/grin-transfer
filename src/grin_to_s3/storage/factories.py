@@ -59,7 +59,6 @@ def s3_credentials_available() -> bool:
     except ImportError:
         return False
     try:
-
         session = boto3.Session()
         credentials = session.get_credentials()
         return credentials is not None and credentials.access_key is not None

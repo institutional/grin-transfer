@@ -7,6 +7,7 @@ from grin_to_s3.storage import get_storage_protocol
 
 class TestStorageConfig(TypedDict):
     """Test storage configuration for easy test setup."""
+
     type: str
     protocol: str
     config: dict
@@ -29,7 +30,7 @@ def create_test_storage_config(storage_type: str, prefix: str = "", **config_kwa
         "type": storage_type,
         "protocol": get_storage_protocol(storage_type),
         "config": config_kwargs,
-        "prefix": prefix
+        "prefix": prefix,
     }
 
 
@@ -47,10 +48,6 @@ def create_s3_test_config(prefix: str = "", **bucket_config) -> TestStorageConfi
 
 def create_minio_test_config(prefix: str = "", **bucket_config) -> TestStorageConfig:
     """Create a MinIO storage config for testing."""
-    config = {
-        "endpoint_url": "http://minio:9000",
-        "access_key": "minioadmin",
-        "secret_key": "minioadmin123"
-    }
+    config = {"endpoint_url": "http://minio:9000", "access_key": "minioadmin", "secret_key": "minioadmin123"}
     config.update(bucket_config)
     return create_test_storage_config("minio", prefix, **config)

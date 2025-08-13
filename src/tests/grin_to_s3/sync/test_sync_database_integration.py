@@ -23,12 +23,7 @@ def mock_run_config():
         config.storage_config = {
             "type": "local",
             "protocol": "local",
-            "config": {
-                "base_path": temp_dir,
-                "bucket_raw": "raw",
-                "bucket_meta": "meta",
-                "bucket_full": "full"
-            }
+            "config": {"base_path": temp_dir, "bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"},
         }
         config.library_directory = "test_lib"
         config.secrets_dir = None
