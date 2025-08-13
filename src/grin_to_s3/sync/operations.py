@@ -32,7 +32,8 @@ from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.text_extraction import extract_ocr_pages
 from grin_to_s3.extract.tracking import ExtractionStatus, StatusUpdate, collect_status
 from grin_to_s3.metadata.marc_extraction import extract_marc_metadata
-from grin_to_s3.storage import BookManager, create_storage_from_config
+from grin_to_s3.run_config import to_run_storage_config
+from grin_to_s3.storage import BookManager, create_storage_from_config, get_storage_protocol
 from grin_to_s3.storage.book_manager import BucketConfig
 from grin_to_s3.storage.factories import LOCAL_STORAGE_DEFAULTS
 from grin_to_s3.storage.staging import StagingDirectoryManager
@@ -849,9 +850,6 @@ async def upload_book_from_staging(
             }
 
         # Create storage
-        from grin_to_s3.run_config import to_run_storage_config
-        from grin_to_s3.storage import get_storage_protocol
-
         full_storage_config = to_run_storage_config(
             storage_type=storage_type, protocol=get_storage_protocol(storage_type), config=storage_config or {}
         )
@@ -1046,8 +1044,6 @@ async def download_book_to_local(
     final_encrypted_path, final_decrypted_path = get_download_target_path(barcode, "local", storage_config)
 
     # Create storage and BookManager instance for OCR extraction
-    from grin_to_s3.run_config import to_run_storage_config
-
     # This function is specifically for local storage, but use the passed config
     full_storage_config = to_run_storage_config(storage_type="local", protocol="local", config=storage_config)
     storage = create_storage_from_config(full_storage_config)
