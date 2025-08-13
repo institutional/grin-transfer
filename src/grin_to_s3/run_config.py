@@ -32,7 +32,7 @@ class StorageConfigDict(TypedDict, total=False):
     credentials_file: str
 
 
-class RunStorageConfig(TypedDict):
+class StorageConfig(TypedDict):
     """Complete storage configuration."""
 
     type: str  # Required
@@ -50,9 +50,9 @@ def to_storage_config_dict(source: dict[str, Any]) -> StorageConfigDict:
 
 def to_run_storage_config(
     storage_type: str, protocol: str, config: dict[str, Any] | StorageConfigDict, prefix: str = ""
-) -> RunStorageConfig:
+) -> StorageConfig:
     """Create a properly typed RunStorageConfig."""
-    result: RunStorageConfig = {
+    result: StorageConfig = {
         "type": storage_type,
         "protocol": protocol,
         "config": to_storage_config_dict(cast(dict[str, Any], config)),
@@ -104,7 +104,7 @@ class RunConfig:
         return self.config_dict.get("secrets_dir")
 
     @property
-    def storage_config(self) -> RunStorageConfig:
+    def storage_config(self) -> StorageConfig:
         """Get the storage configuration."""
         stored_config = self.config_dict.get("storage_config")
         if not stored_config:

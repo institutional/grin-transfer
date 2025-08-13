@@ -10,7 +10,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from ..run_config import RunStorageConfig
+    from ..run_config import StorageConfig
 
 from grin_to_s3.docker import process_local_storage_path
 
@@ -114,7 +114,7 @@ def validate_required_keys(data: dict, required_keys: list, context: str = "conf
         raise ValueError(f"Missing required {context} keys: {missing_keys}")
 
 
-def create_storage_from_config(storage_config: "RunStorageConfig") -> Storage:
+def create_storage_from_config(storage_config: "StorageConfig") -> Storage:
     """
     Create storage instance based on storage configuration.
 
@@ -289,7 +289,7 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
             raise ValueError(f"Storage type {storage_type} does not support bucket-based storage")
 
 
-def create_book_manager_with_full_text(storage_config: "RunStorageConfig", base_prefix: str = "") -> BookManager:
+def create_book_manager_with_full_text(storage_config: "StorageConfig", base_prefix: str = "") -> BookManager:
     """
     Create BookManager instance with full-text bucket support.
 
