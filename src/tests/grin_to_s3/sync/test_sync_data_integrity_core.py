@@ -18,33 +18,48 @@ class TestMARCFieldMappingIntegrity:
         """Test that MARC field mapping covers all expected database fields."""
         # Get the mapping from MARC extraction keys to database fields
         # Use the actual MARC extraction field names from the real implementation
-        marc_keys_to_db = _convert_marc_keys_to_db_fields({
-            "control_number": "001234",
-            "date_type": "s",
-            "date1": "2024",
-            "date2": "2025",
-            "language": "eng",
-            "loc_control_number": "2024001234",
-            "loc_call_number": "QA76.76.O63",
-            "isbn": "9781234567890",
-            "oclc": "(OCoLC)1234567890",
-            "title": "Test Title",
-            "title_remainder": "subtitle",
-            "author100": "Smith, John",
-            "author110": "Test Corporation",
-            "author111": "Test Conference",
-            "subject": "Computer programming",
-            "genre": "Technical manual",
-            "note": "Includes index"
-        })
+        marc_keys_to_db = _convert_marc_keys_to_db_fields(
+            {
+                "control_number": "001234",
+                "date_type": "s",
+                "date1": "2024",
+                "date2": "2025",
+                "language": "eng",
+                "loc_control_number": "2024001234",
+                "loc_call_number": "QA76.76.O63",
+                "isbn": "9781234567890",
+                "oclc": "(OCoLC)1234567890",
+                "title": "Test Title",
+                "title_remainder": "subtitle",
+                "author100": "Smith, John",
+                "author110": "Test Corporation",
+                "author111": "Test Conference",
+                "subject": "Computer programming",
+                "genre": "Technical manual",
+                "note": "Includes index",
+            }
+        )
 
         # Expected database field names (from actual database schema and implementation)
         expected_db_fields = {
-            "marc_control_number", "marc_date_type", "marc_date_1", "marc_date_2",
-            "marc_language", "marc_lccn", "marc_lc_call_number", "marc_isbn",
-            "marc_oclc_numbers", "marc_title", "marc_title_remainder",
-            "marc_author_personal", "marc_author_corporate", "marc_author_meeting",
-            "marc_subjects", "marc_genres", "marc_general_note", "marc_extraction_timestamp"
+            "marc_control_number",
+            "marc_date_type",
+            "marc_date_1",
+            "marc_date_2",
+            "marc_language",
+            "marc_lccn",
+            "marc_lc_call_number",
+            "marc_isbn",
+            "marc_oclc_numbers",
+            "marc_title",
+            "marc_title_remainder",
+            "marc_author_personal",
+            "marc_author_corporate",
+            "marc_author_meeting",
+            "marc_subjects",
+            "marc_genres",
+            "marc_general_note",
+            "marc_extraction_timestamp",
         }
 
         # Verify all expected fields are mapped
@@ -69,19 +84,15 @@ class TestMARCFieldMappingIntegrity:
             {"control_number": "001234", "expected_type": str},
             {"title": "Test Title", "expected_type": str},
             {"oclc": "(OCoLC)1234567890", "expected_type": str},
-
             # Empty/None cases
             {"control_number": "", "expected_type": str},
             {"title": None, "expected_type": type(None)},
-
             # Special characters and Unicode
             {"title": "Café Programming: A naïve approach", "expected_type": str},
             {"author100": "Müller, José María", "expected_type": str},
-
             # Numbers that should be strings
             {"isbn": "9781234567890", "expected_type": str},
             {"date1": "2024", "expected_type": str},
-
             # Multi-value fields (should be concatenated strings)
             {"subject": "Programming; Computer science; Software", "expected_type": str},
             {"genre": "Technical manual; Reference", "expected_type": str},
@@ -110,8 +121,9 @@ class TestMARCFieldMappingIntegrity:
                     if expected_type is type(None):
                         assert mapped_value is None or mapped_value == ""
                     else:
-                        assert isinstance(mapped_value, expected_type), \
+                        assert isinstance(mapped_value, expected_type), (
                             f"Field {field} -> {db_field_name}: expected {expected_type}, got {type(mapped_value)}"
+                        )
 
     def test_marc_unicode_handling_integrity(self):
         """Test that Unicode characters in MARC fields are handled correctly."""
@@ -149,7 +161,9 @@ class TestMARCFieldMappingIntegrity:
                     if original_value and isinstance(original_value, str):
                         assert isinstance(mapped_value, str)
                         # Basic preservation test - mapped value should equal original for direct mappings
-                        assert mapped_value == original_value, f"Unicode not preserved: {original_value} -> {mapped_value}"
+                        assert mapped_value == original_value, (
+                            f"Unicode not preserved: {original_value} -> {mapped_value}"
+                        )
 
     def test_marc_field_length_validation(self):
         """Test that MARC fields handle various lengths appropriately."""
@@ -158,15 +172,12 @@ class TestMARCFieldMappingIntegrity:
             # Empty fields
             {"title": "", "expected_valid": True},
             {"title": None, "expected_valid": True},
-
             # Normal length fields
             {"title": "A" * 100, "expected_valid": True},
             {"author100": "B" * 255, "expected_valid": True},
-
             # Very long fields (should be handled gracefully)
             {"title": "C" * 1000, "expected_valid": True},
             {"subject": "D" * 2000, "expected_valid": True},
-
             # Single character
             {"isbn": "X", "expected_valid": True},
             {"language": "en", "expected_valid": True},
@@ -198,13 +209,13 @@ class TestETagComparisonIntegrity:
         """Test that ETag quote handling is consistent across storage and database operations."""
         # Test various ETag quote formats that Google might return
         etag_variations = [
-            '"abc123"',      # Standard quoted
-            "abc123",        # Unquoted
-            '""abc123""',    # Double quoted
-            '"abc123',       # Missing closing quote
-            'abc123"',       # Missing opening quote
-            "",              # Empty ETag
-            None,            # Null ETag
+            '"abc123"',  # Standard quoted
+            "abc123",  # Unquoted
+            '""abc123""',  # Double quoted
+            '"abc123',  # Missing closing quote
+            'abc123"',  # Missing opening quote
+            "",  # Empty ETag
+            None,  # Null ETag
         ]
 
         for etag in etag_variations:

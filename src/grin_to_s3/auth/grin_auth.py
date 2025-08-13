@@ -33,11 +33,7 @@ def detect_remote_shell() -> bool:
         bool: True if remote shell environment is detected
     """
     # Check for SSH connection indicators
-    ssh_indicators = [
-        "SSH_CLIENT",
-        "SSH_TTY",
-        "SSH_CONNECTION"
-    ]
+    ssh_indicators = ["SSH_CLIENT", "SSH_TTY", "SSH_CONNECTION"]
 
     for indicator in ssh_indicators:
         if os.environ.get(indicator):
@@ -50,15 +46,9 @@ def detect_remote_shell() -> bool:
 
     # Check if DISPLAY is not set (headless environment)
     # But exclude Docker containers which also don't have DISPLAY but should use Docker flow
-    if (not os.environ.get("DISPLAY") and
-        not sys.platform.startswith("win") and
-        not is_docker_environment()):
+    if not os.environ.get("DISPLAY") and not sys.platform.startswith("win") and not is_docker_environment():
         # Additional check: if we're on a known cloud platform
-        cloud_indicators = [
-            "AWS_EXECUTION_ENV",
-            "GOOGLE_CLOUD_PROJECT",
-            "AZURE_FUNCTIONS_ENVIRONMENT"
-        ]
+        cloud_indicators = ["AWS_EXECUTION_ENV", "GOOGLE_CLOUD_PROJECT", "AZURE_FUNCTIONS_ENVIRONMENT"]
         for indicator in cloud_indicators:
             if os.environ.get(indicator):
                 return True
@@ -83,15 +73,12 @@ def manual_authorization_flow(flow: InstalledAppFlow) -> Credentials:
     flow.redirect_uri = "urn:ietf:wg:oauth:2.0:oob"
 
     # Generate authorization URL
-    auth_url, _ = flow.authorization_url(
-        prompt="consent",
-        access_type="offline"
-    )
+    auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
 
     # Display instructions to user
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("REMOTE SHELL OAUTH2 SETUP")
-    print("="*60)
+    print("=" * 60)
     print("Remote shell detected - manual authorization required")
     print()
     print("1. Open this URL in a browser on your LOCAL machine:")
@@ -100,7 +87,7 @@ def manual_authorization_flow(flow: InstalledAppFlow) -> Credentials:
     print("2. Complete Google authentication with your GRIN account")
     print("3. Google will display an authorization code")
     print("4. Copy the code and paste it below")
-    print("="*60)
+    print("=" * 60)
     print()
 
     # Get authorization code from user
@@ -568,9 +555,9 @@ def _do_credential_setup(secrets_path: Path, creds_path: Path, remote_auth: bool
             # Show Docker-specific setup instructions immediately
             print("\nStep 2: OAuth2 Authorization")
             print("Running in Docker container - using port forwarding flow")
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("DOCKER OAUTH2 SETUP")
-            print("="*60)
+            print("=" * 60)
 
             # Get OAuth2 port from environment
             oauth_port = int(os.environ.get("GRIN_OAUTH_PORT", "58432"))
@@ -580,14 +567,11 @@ def _do_credential_setup(secrets_path: Path, creds_path: Path, remote_auth: bool
             print("3. Complete the Google authorization")
             print(f"4. The browser will redirect to localhost:{oauth_port}")
             print("   This will complete authentication automatically")
-            print("="*60)
+            print("=" * 60)
 
             # Generate and display the authorization URL
             flow.redirect_uri = f"http://localhost:{oauth_port}"
-            auth_url, _ = flow.authorization_url(
-                prompt="consent",
-                access_type="offline"
-            )
+            auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
 
             # Start local server with Docker-compatible settings
             import urllib.parse
@@ -609,13 +593,19 @@ def _do_credential_setup(secrets_path: Path, creds_path: Path, remote_auth: bool
                         self.send_response(200)
                         self.send_header("Content-type", "text/html")
                         self.end_headers()
-                        self.wfile.write(b"<html><body><h1>Authentication successful!</h1><p>You can close this browser tab.</p></body></html>")
+                        self.wfile.write(
+                            b"<html><body><h1>Authentication successful!</h1><p>You can close this browser tab.</p></body></html>"
+                        )
                     elif "error" in query_params:
                         server_error = query_params["error"][0]
                         self.send_response(400)
                         self.send_header("Content-type", "text/html")
                         self.end_headers()
-                        self.wfile.write(b"<html><body><h1>Authentication failed!</h1><p>Error: " + server_error.encode() + b"</p></body></html>")
+                        self.wfile.write(
+                            b"<html><body><h1>Authentication failed!</h1><p>Error: "
+                            + server_error.encode()
+                            + b"</p></body></html>"
+                        )
                     else:
                         self.send_response(400)
                         self.send_header("Content-type", "text/html")
@@ -730,7 +720,9 @@ def _do_credential_setup(secrets_path: Path, creds_path: Path, remote_auth: bool
     return True, "Setup completed successfully"
 
 
-def setup_credentials(secrets_file: str | None = None, credentials_file: str | None = None, remote_auth: bool = False) -> bool:
+def setup_credentials(
+    secrets_file: str | None = None, credentials_file: str | None = None, remote_auth: bool = False
+) -> bool:
     """
     Interactive setup to walk user through credential configuration.
 
@@ -773,10 +765,13 @@ def setup_credentials(secrets_file: str | None = None, credentials_file: str | N
 def _display_missing_secrets_error(secrets_path: str) -> None:
     """Display detailed instructions for missing secrets file."""
     print("\nStep 1: OAuth2 Client Configuration")
-    print(f"""
+    print(
+        f"""
 ❌ Missing OAuth 2.0 client secrets file: {secrets_path}
 
-If you already have a client_secret.json file, """, end="")
+If you already have a client_secret.json file, """,
+        end="",
+    )
 
     print("save it in your home directory at ~/.config/grin-to-s3/client_secret.json")
 
@@ -787,8 +782,7 @@ If you don't have a client_secret.json file, follow these steps to create one:
    2. Create a new project or select existing
    3. Click 'Create Credentials' → 'OAuth 2.0 Client IDs'
    4. Application type: 'Desktop application'
-   5. Download the JSON file"""
-    )
+   5. Download the JSON file""")
 
     # Detect Docker environment and provide appropriate instructions
     if is_docker_environment():
@@ -826,16 +820,16 @@ def _display_setup_progress(secrets_path: Path, creds_path: Path, is_remote: boo
         print("Remote shell environment detected - using manual authorization")
     elif is_docker:
         print("Running in Docker container - using port forwarding flow")
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("DOCKER OAUTH2 SETUP")
-        print("="*60)
+        print("=" * 60)
         oauth_port = int(os.environ.get("GRIN_OAUTH_PORT", "58432"))
         print(f"1. The OAuth2 server will start on port {oauth_port}")
         print("2. A URL will be displayed for you to visit")
         print("3. Complete the Google authorization")
         print(f"4. The browser will redirect to localhost:{oauth_port}")
         print("   This will complete authentication automatically")
-        print("="*60)
+        print("=" * 60)
         print("Starting OAuth2 server...")
     else:
         print("This will open your browser for Google authentication")

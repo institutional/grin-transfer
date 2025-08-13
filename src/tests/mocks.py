@@ -14,7 +14,16 @@ from grin_to_s3.process_summary import ProcessStageMetrics
 def _generate_title(seed: int) -> str:
     """Generate a consistent random title using the given seed."""
     random.seed(seed)
-    adjectives = ["Advanced", "Complete", "Modern", "Essential", "Practical", "Comprehensive", "Professional", "Strategic"]
+    adjectives = [
+        "Advanced",
+        "Complete",
+        "Modern",
+        "Essential",
+        "Practical",
+        "Comprehensive",
+        "Professional",
+        "Strategic",
+    ]
     nouns = ["Methods", "Principles", "Systems", "Analysis", "Framework", "Theory", "Research", "Studies"]
     return f"{random.choice(adjectives)} {random.choice(nouns)}"
 
@@ -117,54 +126,279 @@ class MockStorage:
 def get_test_data():
     """Standard test data for consistent testing - kept small for speed"""
     return [
-        {"barcode": "TEST001", "title": _generate_title(1001), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test001"},
-        {"barcode": "TEST002", "title": _generate_title(1002), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test002"},
-        {"barcode": "TEST003", "title": _generate_title(1003), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test003"},
-        {"barcode": "TEST004", "title": _generate_title(1004), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test004"},
-        {"barcode": "TEST005", "title": _generate_title(1005), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test005"},
+        {
+            "barcode": "TEST001",
+            "title": _generate_title(1001),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test001",
+        },
+        {
+            "barcode": "TEST002",
+            "title": _generate_title(1002),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test002",
+        },
+        {
+            "barcode": "TEST003",
+            "title": _generate_title(1003),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test003",
+        },
+        {
+            "barcode": "TEST004",
+            "title": _generate_title(1004),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test004",
+        },
+        {
+            "barcode": "TEST005",
+            "title": _generate_title(1005),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test005",
+        },
     ]
 
 
 def get_large_test_data():
     """Larger test data for specific tests that need more records"""
     return [
-        {"barcode": "TEST001", "title": _generate_title(2001), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test001"},
-        {"barcode": "TEST002", "title": _generate_title(2002), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test002"},
-        {"barcode": "TEST003", "title": _generate_title(2003), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test003"},
-        {"barcode": "TEST004", "title": _generate_title(2004), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test004"},
-        {"barcode": "TEST005", "title": _generate_title(2005), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test005"},
-        {"barcode": "TEST006", "title": _generate_title(2006), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test006"},
-        {"barcode": "TEST007", "title": _generate_title(2007), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test007"},
-        {"barcode": "TEST008", "title": _generate_title(2008), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test008"},
-        {"barcode": "TEST009", "title": _generate_title(2009), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test009"},
-        {"barcode": "TEST010", "title": _generate_title(2010), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-02 12:00", "processed_date": "2023-01-03 12:00", "ocr_date": "2023-01-04 12:00", "google_books_link": "https://books.google.com/books?id=test010"},
+        {
+            "barcode": "TEST001",
+            "title": _generate_title(2001),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test001",
+        },
+        {
+            "barcode": "TEST002",
+            "title": _generate_title(2002),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test002",
+        },
+        {
+            "barcode": "TEST003",
+            "title": _generate_title(2003),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test003",
+        },
+        {
+            "barcode": "TEST004",
+            "title": _generate_title(2004),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test004",
+        },
+        {
+            "barcode": "TEST005",
+            "title": _generate_title(2005),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test005",
+        },
+        {
+            "barcode": "TEST006",
+            "title": _generate_title(2006),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test006",
+        },
+        {
+            "barcode": "TEST007",
+            "title": _generate_title(2007),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test007",
+        },
+        {
+            "barcode": "TEST008",
+            "title": _generate_title(2008),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test008",
+        },
+        {
+            "barcode": "TEST009",
+            "title": _generate_title(2009),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test009",
+        },
+        {
+            "barcode": "TEST010",
+            "title": _generate_title(2010),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-02 12:00",
+            "processed_date": "2023-01-03 12:00",
+            "ocr_date": "2023-01-04 12:00",
+            "google_books_link": "https://books.google.com/books?id=test010",
+        },
     ]
 
 
 def get_html_test_data():
     """HTML format test data matching GRIN HTML table output"""
     return [
-        {"barcode": "HTML001", "title": _generate_title(3001), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-05 14:30", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML002", "title": _generate_title(3002), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-06 09:15", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML003", "title": _generate_title(3003), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-07 16:45", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML004", "title": _generate_title(3004), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-08 11:20", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML005", "title": _generate_title(3005), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-09 13:45", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {
+            "barcode": "HTML001",
+            "title": _generate_title(3001),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-05 14:30",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML002",
+            "title": _generate_title(3002),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-06 09:15",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML003",
+            "title": _generate_title(3003),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-07 16:45",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML004",
+            "title": _generate_title(3004),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-08 11:20",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML005",
+            "title": _generate_title(3005),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-09 13:45",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
     ]
 
 
 def get_large_html_test_data():
     """Larger HTML format test data for tests that need more records"""
     return [
-        {"barcode": "HTML001", "title": _generate_title(4001), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-05 14:30", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML002", "title": _generate_title(4002), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-06 09:15", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML003", "title": _generate_title(4003), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-07 16:45", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML004", "title": _generate_title(4004), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-08 11:20", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML005", "title": _generate_title(4005), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-09 13:45", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML006", "title": _generate_title(4006), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-10 10:30", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML007", "title": _generate_title(4007), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-11 15:20", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML008", "title": _generate_title(4008), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-12 08:45", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML009", "title": _generate_title(4009), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-13 12:15", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
-        {"barcode": "HTML010", "title": _generate_title(4010), "scanned_date": "2023-01-01 12:00", "converted_date": "2023-01-14 17:00", "processed_date": "2023-01-02 12:00", "analyzed_date": "2023-01-03 12:00"},
+        {
+            "barcode": "HTML001",
+            "title": _generate_title(4001),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-05 14:30",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML002",
+            "title": _generate_title(4002),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-06 09:15",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML003",
+            "title": _generate_title(4003),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-07 16:45",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML004",
+            "title": _generate_title(4004),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-08 11:20",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML005",
+            "title": _generate_title(4005),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-09 13:45",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML006",
+            "title": _generate_title(4006),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-10 10:30",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML007",
+            "title": _generate_title(4007),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-11 15:20",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML008",
+            "title": _generate_title(4008),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-12 08:45",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML009",
+            "title": _generate_title(4009),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-13 12:15",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
+        {
+            "barcode": "HTML010",
+            "title": _generate_title(4010),
+            "scanned_date": "2023-01-01 12:00",
+            "converted_date": "2023-01-14 17:00",
+            "processed_date": "2023-01-02 12:00",
+            "analyzed_date": "2023-01-03 12:00",
+        },
     ]
 
 

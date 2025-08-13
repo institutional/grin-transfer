@@ -26,9 +26,6 @@ class ExtractionStatus(Enum):
     FAILED = "failed"
 
 
-
-
-
 # Status update tuple for collecting updates before writing
 class StatusUpdate(NamedTuple):
     barcode: str
@@ -38,15 +35,11 @@ class StatusUpdate(NamedTuple):
     session_id: str | None = None
 
 
-
-
 def collect_status(
     barcode: str, status_type: str, status_value: str, metadata: dict | None = None, session_id: str | None = None
 ) -> StatusUpdate:
     """Collect a status update without writing to database."""
     return StatusUpdate(barcode, status_type, status_value, metadata, session_id)
-
-
 
 
 def track_start_collect(barcode: str, session_id: str | None = None) -> StatusUpdate:
@@ -58,8 +51,6 @@ def track_start_collect(barcode: str, session_id: str | None = None) -> StatusUp
     return collect_status(barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.STARTING.value, metadata, session_id)
 
 
-
-
 def track_progress_collect(barcode: str, page_count: int, session_id: str | None = None) -> StatusUpdate:
     """Collect extraction progress status update (recommended)."""
     metadata: dict[str, str | int] = {
@@ -68,8 +59,6 @@ def track_progress_collect(barcode: str, page_count: int, session_id: str | None
         "progress_at": datetime.now(UTC).isoformat(),
     }
     return collect_status(barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.EXTRACTING.value, metadata, session_id)
-
-
 
 
 def track_completion_collect(
@@ -92,8 +81,6 @@ def track_completion_collect(
         metadata["output_path"] = output_path
 
     return collect_status(barcode, TEXT_EXTRACTION_STATUS_TYPE, ExtractionStatus.COMPLETED.value, metadata, session_id)
-
-
 
 
 def track_failure_collect(

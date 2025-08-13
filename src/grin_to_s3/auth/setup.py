@@ -32,7 +32,9 @@ def setup_credentials(secrets_file: str | None = None, credentials_file: str | N
             f"""
 ❌ Missing OAuth 2.0 client secrets file: {secrets_path}
 
-If you already have a client_secret.json file, """, end="")
+If you already have a client_secret.json file, """,
+            end="",
+        )
 
         print("save it in your home directory at ~/.config/grin-to-s3/client_secret.json")
 
@@ -136,9 +138,9 @@ If you don't have a client_secret.json file, follow these steps to create one:
 
         if is_docker_environment():
             print("Running in Docker container - using port forwarding flow")
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("Docker setup")
-            print("="*60)
+            print("=" * 60)
 
             # Get OAuth2 port from environment
             oauth_port = int(os.environ.get("GRIN_OAUTH_PORT", "58432"))
@@ -146,14 +148,11 @@ If you don't have a client_secret.json file, follow these steps to create one:
             print("1. Cut and paste the URL presented below into a browser window")
             print("2. When prompted, log in with your GRIN Google account")
             print("3. You should get a success message in the browser after login")
-            print("="*60)
+            print("=" * 60)
 
             # Generate and display the authorization URL
             flow.redirect_uri = f"http://localhost:{oauth_port}"
-            auth_url, _ = flow.authorization_url(
-                prompt="consent",
-                access_type="offline"
-            )
+            auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
 
             print("\nPlease visit this URL to authorize the GRIN pipeline:\n")
             print(f"{auth_url}\n")
@@ -180,13 +179,19 @@ If you don't have a client_secret.json file, follow these steps to create one:
                         self.send_response(200)
                         self.send_header("Content-type", "text/html")
                         self.end_headers()
-                        self.wfile.write(b"<html><body><h1>GRIN pipeline authorization was successful!</h1><p>You can close this browser tab and continue working with the tool from the command line.</p></body></html>")
+                        self.wfile.write(
+                            b"<html><body><h1>GRIN pipeline authorization was successful!</h1><p>You can close this browser tab and continue working with the tool from the command line.</p></body></html>"
+                        )
                     elif "error" in query_params:
                         server_error = query_params["error"][0]
                         self.send_response(400)
                         self.send_header("Content-type", "text/html")
                         self.end_headers()
-                        self.wfile.write(b"<html><body><h1>GRIN pipeline authorization failed!</h1><p>Error: " + server_error.encode() + b"</p></body></html>")
+                        self.wfile.write(
+                            b"<html><body><h1>GRIN pipeline authorization failed!</h1><p>Error: "
+                            + server_error.encode()
+                            + b"</p></body></html>"
+                        )
                     else:
                         self.send_response(400)
                         self.send_header("Content-type", "text/html")

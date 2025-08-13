@@ -20,7 +20,6 @@ DEFAULT_SYNC_DISK_SPACE_THRESHOLD = 0.9
 DEFAULT_SYNC_ENRICHMENT_WORKERS = 1
 
 
-
 class RunConfig:
     """Configuration for a specific collection run."""
 
@@ -141,7 +140,6 @@ class RunConfig:
     def sync_enrichment_workers(self) -> int:
         """Get the enrichment workers setting for sync operations."""
         return self.sync_config.get("enrichment_workers", DEFAULT_SYNC_ENRICHMENT_WORKERS)
-
 
     def get_storage_args(self) -> dict[str, str]:
         """Get storage arguments suitable for command line scripts."""
@@ -430,7 +428,9 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
 
                 if not credentials_file:
                     # If still no file found, skip credential loading but warn
-                    print("WARNING: R2 credentials file not found, file syncing will not work properly.", file=sys.stderr)
+                    print(
+                        "WARNING: R2 credentials file not found, file syncing will not work properly.", file=sys.stderr
+                    )
                 else:
                     # Load credentials and extract bucket information
                     creds = load_json_credentials(str(credentials_file))

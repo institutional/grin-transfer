@@ -58,7 +58,9 @@ def _parse_and_validate_barcodes(args, sync_stage) -> list[str] | None:
         sys.exit(1)
 
 
-def _apply_single_book_optimization(run_config: RunConfig, specific_barcodes: list[str] | None, sync_stage) -> RunConfig:
+def _apply_single_book_optimization(
+    run_config: RunConfig, specific_barcodes: list[str] | None, sync_stage
+) -> RunConfig:
     """Apply single-book optimization if only one barcode is specified."""
     if not (specific_barcodes and len(specific_barcodes) == 1):
         return run_config
@@ -81,6 +83,7 @@ def _apply_single_book_optimization(run_config: RunConfig, specific_barcodes: li
 
 def _setup_signal_handlers(pipeline, sync_stage) -> None:
     """Set up signal handlers for graceful shutdown."""
+
     def signal_handler(signum: int, frame: Any) -> None:
         if pipeline._shutdown_requested:
             # Second interrupt - hard exit
@@ -160,7 +163,6 @@ async def cmd_pipeline(args) -> None:
     ]
     explicit_storage_args = any(check[1] for check in storage_checks)
 
-
     # Apply run configuration defaults
     apply_run_config_to_args(args, db_path)
 
@@ -221,7 +223,6 @@ async def cmd_pipeline(args) -> None:
     else:
         print(f"Note: No run config found at {config_path}, building from args")
         storage_config = build_storage_config_dict(args)
-
 
     # Set up logging - use unified log file from run config
     run_config = find_run_config(args.db_path)
@@ -353,7 +354,7 @@ Examples:
         "--queue",
         choices=["converted", "previous", "changed", "all"],
         action="append",
-        help="Queue type to process. Multiple options allowed (e.g., --queue converted --queue previous). Processed in order specified. Required unless --barcodes is provided."
+        help="Queue type to process. Multiple options allowed (e.g., --queue converted --queue previous). Processed in order specified. Required unless --barcodes is provided.",
     )
 
     # Storage configuration
@@ -380,7 +381,9 @@ Examples:
     )
     pipeline_parser.add_argument("--status", help="Filter books by sync status (e.g., 'failed', 'pending')")
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
-    pipeline_parser.add_argument("--dry-run", action="store_true", help="Show what would be processed without downloading or uploading files")
+    pipeline_parser.add_argument(
+        "--dry-run", action="store_true", help="Show what would be processed without downloading or uploading files"
+    )
     pipeline_parser.add_argument(
         "--grin-library-directory", help="GRIN library directory name (auto-detected from run config if not specified)"
     )
@@ -410,16 +413,22 @@ Examples:
 
     # Download options
     pipeline_parser.add_argument(
-        "--download-timeout", type=int, default=DEFAULT_DOWNLOAD_TIMEOUT,
-        help=f"Timeout for book downloads in seconds (default: {DEFAULT_DOWNLOAD_TIMEOUT}, separate from HTML requests)"
+        "--download-timeout",
+        type=int,
+        default=DEFAULT_DOWNLOAD_TIMEOUT,
+        help=f"Timeout for book downloads in seconds (default: {DEFAULT_DOWNLOAD_TIMEOUT}, separate from HTML requests)",
     )
     pipeline_parser.add_argument(
-        "--download-retries", type=int, default=DEFAULT_DOWNLOAD_RETRIES,
-        help=f"Number of retry attempts for failed downloads (default: {DEFAULT_DOWNLOAD_RETRIES})"
+        "--download-retries",
+        type=int,
+        default=DEFAULT_DOWNLOAD_RETRIES,
+        help=f"Number of retry attempts for failed downloads (default: {DEFAULT_DOWNLOAD_RETRIES})",
     )
     pipeline_parser.add_argument(
-        "--max-sequential-failures", type=int, default=DEFAULT_MAX_SEQUENTIAL_FAILURES,
-        help=f"Exit pipeline after this many consecutive failures (default: {DEFAULT_MAX_SEQUENTIAL_FAILURES})"
+        "--max-sequential-failures",
+        type=int,
+        default=DEFAULT_MAX_SEQUENTIAL_FAILURES,
+        help=f"Exit pipeline after this many consecutive failures (default: {DEFAULT_MAX_SEQUENTIAL_FAILURES})",
     )
 
     # Staging cleanup
@@ -429,8 +438,9 @@ Examples:
 
     # Database backup options
     pipeline_parser.add_argument(
-        "--skip-database-backup", action="store_true",
-        help="Skip automatic database backup and upload (default: backup enabled)"
+        "--skip-database-backup",
+        action="store_true",
+        help="Skip automatic database backup and upload (default: backup enabled)",
     )
 
     # Logging
@@ -452,7 +462,9 @@ Examples:
     )
 
     status_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
-    status_parser.add_argument("--storage-type", choices=["local", "minio", "r2", "s3", "gcs"], help="Filter by storage type")
+    status_parser.add_argument(
+        "--storage-type", choices=["local", "minio", "r2", "s3", "gcs"], help="Filter by storage type"
+    )
 
     args = parser.parse_args()
 
@@ -464,10 +476,14 @@ Examples:
     if args.command == "pipeline":
         if hasattr(args, "queue") and hasattr(args, "barcodes"):
             if args.queue and args.barcodes:
-                print("Error: --queue and --barcodes are mutually exclusive. Use either --queue to process from queues or --barcodes to process specific books.")
+                print(
+                    "Error: --queue and --barcodes are mutually exclusive. Use either --queue to process from queues or --barcodes to process specific books."
+                )
                 sys.exit(1)
             elif not args.queue and not args.barcodes:
-                print("Error: Either --queue or --barcodes is required. Use --queue to process from queues or --barcodes to process specific books.")
+                print(
+                    "Error: Either --queue or --barcodes is required. Use --queue to process from queues or --barcodes to process specific books."
+                )
                 sys.exit(1)
 
     if args.command == "pipeline":

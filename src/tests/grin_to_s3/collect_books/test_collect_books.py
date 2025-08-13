@@ -72,11 +72,24 @@ class TestBookRecord:
 
         # Check that all expected MARC headers are present
         expected_marc_headers = [
-            "MARC Control Number", "MARC Date Type", "MARC Date 1", "MARC Date 2",
-            "MARC Language", "MARC LCCN", "MARC LC Call Number", "MARC ISBN",
-            "MARC OCLC Numbers", "MARC Title", "MARC Title Remainder",
-            "MARC Author Personal", "MARC Author Corporate", "MARC Author Meeting",
-            "MARC Subjects", "MARC Genres", "MARC General Note", "MARC Extraction Timestamp"
+            "MARC Control Number",
+            "MARC Date Type",
+            "MARC Date 1",
+            "MARC Date 2",
+            "MARC Language",
+            "MARC LCCN",
+            "MARC LC Call Number",
+            "MARC ISBN",
+            "MARC OCLC Numbers",
+            "MARC Title",
+            "MARC Title Remainder",
+            "MARC Author Personal",
+            "MARC Author Corporate",
+            "MARC Author Meeting",
+            "MARC Subjects",
+            "MARC Genres",
+            "MARC General Note",
+            "MARC Extraction Timestamp",
         ]
 
         for expected_header in expected_marc_headers:
@@ -90,7 +103,7 @@ class TestBookRecord:
             marc_control_number="123456789",
             marc_title="MARC Title Test",
             marc_subjects="Science, Technology",
-            marc_extraction_timestamp="2025-07-10T12:00:00Z"
+            marc_extraction_timestamp="2025-07-10T12:00:00Z",
         )
 
         headers = BookRecord.csv_headers()
@@ -114,11 +127,24 @@ class TestBookRecord:
         marc_fields = BookRecord.get_marc_fields()
 
         expected_fields = [
-            "marc_control_number", "marc_date_type", "marc_date_1", "marc_date_2",
-            "marc_language", "marc_lccn", "marc_lc_call_number", "marc_isbn",
-            "marc_oclc_numbers", "marc_title", "marc_title_remainder",
-            "marc_author_personal", "marc_author_corporate", "marc_author_meeting",
-            "marc_subjects", "marc_genres", "marc_general_note", "marc_extraction_timestamp"
+            "marc_control_number",
+            "marc_date_type",
+            "marc_date_1",
+            "marc_date_2",
+            "marc_language",
+            "marc_lccn",
+            "marc_lc_call_number",
+            "marc_isbn",
+            "marc_oclc_numbers",
+            "marc_title",
+            "marc_title_remainder",
+            "marc_author_personal",
+            "marc_author_corporate",
+            "marc_author_meeting",
+            "marc_subjects",
+            "marc_genres",
+            "marc_general_note",
+            "marc_extraction_timestamp",
         ]
 
         assert len(marc_fields) == 18, f"Expected 18 MARC fields, got {len(marc_fields)}"
@@ -156,7 +182,7 @@ class TestBookRecord:
             barcode="TEST2",
             marc_control_number="123",
             marc_title="Test Title",
-            marc_extraction_timestamp="2025-07-10T12:00:00Z"
+            marc_extraction_timestamp="2025-07-10T12:00:00Z",
         )
         assert record_with_data.marc_control_number == "123"
         assert record_with_data.marc_title == "Test Title"
@@ -340,7 +366,7 @@ class TestBookCollector:
             "scanned_date": "2024/01/01 10:00",
             "processed_date": "2024/01/02 11:00",
             "analyzed_date": "2024/01/03 12:00",
-            "google_books_link": "https://books.google.com/books?id=test"
+            "google_books_link": "https://books.google.com/books?id=test",
         }
 
         parsed = self.exporter.process_grin_row(grin_row)
@@ -354,10 +380,7 @@ class TestBookCollector:
 
     def test_process_grin_row_with_missing_fields(self):
         """Test GRINRow processing with missing fields."""
-        grin_row = {
-            "barcode": "TEST456",
-            "processed_date": "2024/01/02 11:00"
-        }
+        grin_row = {"barcode": "TEST456", "processed_date": "2024/01/02 11:00"}
 
         parsed = self.exporter.process_grin_row(grin_row)
 
@@ -396,7 +419,7 @@ class TestBookCollector:
             "converted_date": "2025/01/17",
             "downloaded_date": "2023/09/18",
             "processed_date": "2024/01/01",
-            "ocr_date": "2024/02/01"
+            "ocr_date": "2024/02/01",
         }
 
         parsed = self.exporter.process_grin_row(grin_row)
@@ -420,7 +443,7 @@ class TestBookCollector:
             "scanned_date": "2024/06/15 14:30",
             "analyzed_date": "2024/06/16 09:15",
             "converted_date": "2024/06/17 16:45",
-            "downloaded_date": "2024/06/18 11:20"
+            "downloaded_date": "2024/06/18 11:20",
         }
 
         parsed = self.exporter.process_grin_row(grin_row)
@@ -440,7 +463,7 @@ class TestBookCollector:
             "title": "Incomplete Book",
             "status": "AVAILABLE",
             "analyzed_date": "2024/05/01 10:00",
-            "downloaded_date": "2024/05/03 15:30"
+            "downloaded_date": "2024/05/03 15:30",
         }
 
         parsed = self.exporter.process_grin_row(grin_row)
@@ -456,11 +479,7 @@ class TestBookCollector:
     def test_process_grin_row_different_field_formats(self):
         """Test GRINRow processing with different field formats."""
         # Test title in named field vs column position
-        named_field_row = {
-            "barcode": "CONV001",
-            "title": "Converted Book Title",
-            "scanned_date": "2024/01/01 10:00"
-        }
+        named_field_row = {"barcode": "CONV001", "title": "Converted Book Title", "scanned_date": "2024/01/01 10:00"}
         named_parsed = self.exporter.process_grin_row(named_field_row)
 
         # Test title in different named field
@@ -468,7 +487,7 @@ class TestBookCollector:
             "barcode": "ALL001",
             "book_title": "All Books Title",  # Title with different name containing "title"
             "status": "AVAILABLE",
-            "scanned_date": "2024/01/01 10:00"
+            "scanned_date": "2024/01/01 10:00",
         }
         alt_parsed = self.exporter.process_grin_row(alt_title_row)
 
@@ -485,11 +504,7 @@ class TestBookCollector:
     def test_process_grin_row_edge_cases(self):
         """Test GRINRow processing edge cases."""
         # Minimal data
-        short_row = {
-            "barcode": "SHORT",
-            "title": "Title Only",
-            "status": "AVAILABLE"
-        }
+        short_row = {"barcode": "SHORT", "title": "Title Only", "status": "AVAILABLE"}
         parsed_short = self.exporter.process_grin_row(short_row)
 
         assert parsed_short["barcode"] == "SHORT"
@@ -499,11 +514,7 @@ class TestBookCollector:
         assert parsed_short["converted_date"] is None
 
         # Numeric title
-        numeric_row = {
-            "barcode": "NUM123",
-            "title": "12345 Main Street Guide",
-            "status": "AVAILABLE"
-        }
+        numeric_row = {"barcode": "NUM123", "title": "12345 Main Street Guide", "status": "AVAILABLE"}
         parsed_numeric = self.exporter.process_grin_row(numeric_row)
 
         assert parsed_numeric["barcode"] == "NUM123"
@@ -547,7 +558,6 @@ class TestBookCollector:
             assert await exporter2.sqlite_tracker.is_processed("TEST002")
             assert await exporter2.sqlite_tracker.is_failed("FAILED001")
 
-
     @pytest.mark.asyncio
     async def test_process_book(self):
         """Test individual book processing."""
@@ -556,7 +566,7 @@ class TestBookCollector:
             "title": "Process Book Title",
             "scanned_date": "2024/01/01 10:00",
             "processed_date": "2024/01/02 11:00",
-            "google_books_link": "https://books.google.com/books?id=test"
+            "google_books_link": "https://books.google.com/books?id=test",
         }
 
         record = await self.exporter.process_book(grin_row)
@@ -583,10 +593,7 @@ class TestBookCollector:
     @pytest.mark.asyncio
     async def test_process_book_already_processed(self):
         """Test skipping already processed book."""
-        grin_row = {
-            "barcode": "SKIP001",
-            "scanned_date": "2024/01/01 10:00"
-        }
+        grin_row = {"barcode": "SKIP001", "scanned_date": "2024/01/01 10:00"}
 
         # Mark as already processed in SQLite
         await self.exporter.sqlite_tracker.mark_processed("SKIP001")
@@ -716,7 +723,6 @@ class TestBookCollectionIntegration:
             assert collector.book_manager.bucket_full == "test-full"
             assert collector.book_manager.base_prefix == "test-prefix"
 
-
     def test_process_grin_row_title_with_special_chars(self):
         """Test GRINRow processing with special characters in title."""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -725,7 +731,7 @@ class TestBookCollectionIntegration:
                 "barcode": "TITLE001",
                 "title": "Converted Book Title With Special Chars & Symbols",
                 "scanned_date": "2024/01/01 10:00",
-                "processed_date": "2024/01/02 11:00"
+                "processed_date": "2024/01/02 11:00",
             }
 
             parsed = exporter.process_grin_row(grin_row)
@@ -743,7 +749,7 @@ class TestBookCollectionIntegration:
                 "title": "All Books Title: A Comprehensive Guide",
                 "status": "AVAILABLE",
                 "scanned_date": "2024/01/01 10:00",
-                "processed_date": "2024/01/02 11:00"
+                "processed_date": "2024/01/02 11:00",
             }
 
             parsed = exporter.process_grin_row(grin_row)
@@ -762,7 +768,7 @@ class TestBookCollectionIntegration:
             empty_row = {
                 "barcode": "EMPTY001",
                 "scanned_date": "2024/01/01 10:00",
-                "processed_date": "2024/01/02 11:00"
+                "processed_date": "2024/01/02 11:00",
             }
             parsed1 = exporter.process_grin_row(empty_row)
 
@@ -774,7 +780,7 @@ class TestBookCollectionIntegration:
                 "barcode": "EMPTY002",
                 "title": "",
                 "status": "AVAILABLE",
-                "scanned_date": "2024/01/01 10:00"
+                "scanned_date": "2024/01/01 10:00",
             }
             parsed2 = exporter.process_grin_row(explicit_empty_row)
 

@@ -35,7 +35,6 @@ async def test_fetch_resource():
         return False
 
 
-
 async def test_streaming():
     """Test streaming functionality."""
     print("Testing Streaming")

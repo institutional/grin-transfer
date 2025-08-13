@@ -26,10 +26,7 @@ class TestSyncStagingCleanup:
             await sync_pipeline.cleanup(sync_successful=True)
 
             # Verify staging directory was cleaned up
-            mock_rmtree.assert_called_once_with(
-                sync_pipeline.staging_manager.staging_path,
-                ignore_errors=True
-            )
+            mock_rmtree.assert_called_once_with(sync_pipeline.staging_manager.staging_path, ignore_errors=True)
 
     @pytest.mark.asyncio
     async def test_failed_sync_preserves_staging(self, sync_pipeline):
@@ -99,22 +96,14 @@ class TestSyncStagingCleanup:
                     mock_get_books.return_value = []  # No books to process
 
                     # Mock the progress tracker methods - include all required fields
-                    sync_pipeline.db_tracker.get_sync_stats = AsyncMock(return_value={
-                        "total_books": 0,
-                        "synced_books": 0,
-                        "failed_books": 0,
-                        "pending_books": 0
-                    })
+                    sync_pipeline.db_tracker.get_sync_stats = AsyncMock(
+                        return_value={"total_books": 0, "synced_books": 0, "failed_books": 0, "pending_books": 0}
+                    )
                     sync_pipeline.db_tracker.get_books_for_sync = AsyncMock(return_value=[])
 
                     # Mock get_sync_status to return the correct format
                     with patch.object(sync_pipeline, "get_sync_status") as mock_get_status:
-                        mock_get_status.return_value = {
-                            "total_converted": 0,
-                            "synced": 0,
-                            "failed": 0,
-                            "pending": 0
-                        }
+                        mock_get_status.return_value = {"total_converted": 0, "synced": 0, "failed": 0, "pending": 0}
 
                         await sync_pipeline.setup_sync_loop(queues=["converted"])
 

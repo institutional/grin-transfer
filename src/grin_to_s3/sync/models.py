@@ -40,8 +40,6 @@ class BookSyncResult(FileResult):
     total_time: float
 
 
-
-
 def create_sync_stats() -> SyncStats:
     """Create initialized sync statistics."""
     return SyncStats(

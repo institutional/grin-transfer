@@ -46,7 +46,13 @@ class TestETagSkipHandling:
             mock_should_skip.return_value = (False, "no_skip_reason")
 
             result, etag, file_size, status_updates = await check_and_handle_etag_skip(
-                "TEST123", mock_grin_client, "Harvard", "minio", mock_storage_config, mock_progress_tracker, mock_semaphore
+                "TEST123",
+                mock_grin_client,
+                "Harvard",
+                "minio",
+                mock_storage_config,
+                mock_progress_tracker,
+                mock_semaphore,
             )
 
             assert result is None  # No skip
@@ -66,7 +72,13 @@ class TestETagSkipHandling:
             mock_should_skip.return_value = (True, "etag_match")
 
             result, etag, file_size, status_updates = await check_and_handle_etag_skip(
-                "TEST123", mock_grin_client, "Harvard", "minio", mock_storage_config, mock_progress_tracker, mock_semaphore
+                "TEST123",
+                mock_grin_client,
+                "Harvard",
+                "minio",
+                mock_storage_config,
+                mock_progress_tracker,
+                mock_semaphore,
             )
 
             assert result is not None  # Skip result returned
@@ -81,7 +93,13 @@ class TestETagSkipHandling:
             mock_check_etag.return_value = (None, None, 404)
 
             result, etag, file_size, status_updates = await check_and_handle_etag_skip(
-                "TEST123", mock_grin_client, "Harvard", "minio", mock_storage_config, mock_progress_tracker, mock_semaphore
+                "TEST123",
+                mock_grin_client,
+                "Harvard",
+                "minio",
+                mock_storage_config,
+                mock_progress_tracker,
+                mock_semaphore,
             )
 
             # Should return skip result due to 404
@@ -121,7 +139,7 @@ class TestBookDownload:
             mock_http.get(
                 "https://books.google.com/libraries/Harvard/TEST123.tar.gz.gpg",
                 body=b"test archive content",  # This is 20 bytes
-                headers={"content-length": "20"}
+                headers={"content-length": "20"},
             )
 
             # Mock file writing
@@ -152,7 +170,7 @@ class TestBookDownload:
             request_info=aiohttp.RequestInfo(url="https://example.com", method="GET", headers={}),
             history=(),
             status=404,
-            message="Not Found"
+            message="Not Found",
         )
         mock_grin_client.auth.make_authenticated_request.side_effect = mock_404_error
 
@@ -161,7 +179,12 @@ class TestBookDownload:
 
         with pytest.raises(aiohttp.ClientResponseError) as exc_info:
             await download_book_to_filesystem(
-                "TEST123", mock_grin_client, "Harvard", "abc123", staging_manager=mock_staging_manager, download_retries=2
+                "TEST123",
+                mock_grin_client,
+                "Harvard",
+                "abc123",
+                staging_manager=mock_staging_manager,
+                download_retries=2,
             )
 
         # Verify that it's a 404 error
@@ -177,6 +200,7 @@ class TestBookDownload:
         """Test that non-404 HTTP errors are retried."""
         # Create a mock client
         from grin_to_s3.auth.grin_auth import GRINAuth
+
         mock_grin_client = MagicMock()
         mock_grin_client.auth = MagicMock(spec=GRINAuth)
 
@@ -186,11 +210,12 @@ class TestBookDownload:
 
         # Override the mock to simulate 500 HTTP error (should be retried)
         import aiohttp
+
         mock_500_error = aiohttp.ClientResponseError(
             request_info=aiohttp.RequestInfo(url="https://example.com", method="GET", headers={}),
             history=(),
             status=500,
-            message="Internal Server Error"
+            message="Internal Server Error",
         )
         mock_grin_client.auth.make_authenticated_request.side_effect = mock_500_error
 
@@ -199,7 +224,12 @@ class TestBookDownload:
 
         with pytest.raises(aiohttp.ClientResponseError) as exc_info:
             await download_book_to_filesystem(
-                "TEST123", mock_grin_client, "Harvard", "abc123", staging_manager=mock_staging_manager, download_retries=2
+                "TEST123",
+                mock_grin_client,
+                "Harvard",
+                "abc123",
+                staging_manager=mock_staging_manager,
+                download_retries=2,
             )
 
         # Verify that it's a 500 error
@@ -229,9 +259,7 @@ class TestBookUpload:
         assert result["skipped"] is True
 
     @pytest.mark.asyncio
-    async def test_upload_book_from_staging_success(
-        self, mock_storage_config, mock_staging_manager, temp_db
-    ):
+    async def test_upload_book_from_staging_success(self, mock_storage_config, mock_staging_manager, temp_db):
         """Test successful book upload from staging."""
         # Create real progress tracker with proper database
         progress_tracker = SQLiteProgressTracker(temp_db)
@@ -283,7 +311,7 @@ class TestLocalStorageSync:
                 "bucket_raw": "test-raw",
                 "bucket_meta": "test-meta",
                 "bucket_full": "test-full",
-                "prefix": ""
+                "prefix": "",
             }
 
             # Mock the HTTP call and GPG decryption
@@ -300,7 +328,7 @@ class TestLocalStorageSync:
                 mock_http.get(
                     "https://books.google.com/libraries/Harvard/TEST123.tar.gz.gpg",
                     body=b"test archive content",
-                    headers={"content-length": "20"}
+                    headers={"content-length": "20"},
                 )
 
                 # Mock file writing
@@ -343,9 +371,7 @@ class TestLocalStorageSync:
         storage_config = {}  # No base_path
 
         with pytest.raises(ValueError) as exc_info:
-            await download_book_to_local(
-            "TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker
-            )
+            await download_book_to_local("TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker)
         assert "Local storage requires" in str(exc_info.value)
 
     @pytest.mark.asyncio
@@ -377,7 +403,7 @@ class TestLocalStorageSync:
                 mock_http.get(
                     "https://books.google.com/libraries/Harvard/TEST123.tar.gz.gpg",
                     body=b"test archive content",
-                    headers={"content-length": "20"}
+                    headers={"content-length": "20"},
                 )
 
                 # Mock extraction functions to prevent actual extraction
@@ -426,12 +452,16 @@ class TestLocalStorageSync:
                     assert len(opened_paths) >= 1, "Should have opened at least one file"
                     for path in opened_paths:
                         assert path.startswith(temp_dir), f"Path {path} should be under base_path {temp_dir}"
-                        assert not path.startswith("/TEST123"), f"Path {path} should not start with /TEST123 (filesystem root)"
+                        assert not path.startswith("/TEST123"), (
+                            f"Path {path} should not start with /TEST123 (filesystem root)"
+                        )
 
                     # Verify the specific path structure (fixed for Issue #139)
                     encrypted_path = opened_paths[0]  # First opened file should be encrypted
                     expected_encrypted_path = f"{temp_dir}/raw/TEST123/TEST123.tar.gz.gpg"
-                    assert encrypted_path == expected_encrypted_path, f"Expected {expected_encrypted_path}, got {encrypted_path}"
+                    assert encrypted_path == expected_encrypted_path, (
+                        f"Expected {expected_encrypted_path}, got {encrypted_path}"
+                    )
 
 
 class TestOCRExtractionIntegration:
@@ -490,7 +520,6 @@ class TestOCRExtractionIntegration:
 
             # Verify temporary JSONL file was cleaned up
             assert not jsonl_file.exists(), "Temporary JSONL file should be cleaned up after successful upload"
-
 
     @pytest.mark.asyncio
     async def test_extract_and_upload_ocr_text_upload_failure(
@@ -765,6 +794,7 @@ class TestDiskSpaceHandling:
 
             # Track number of check_disk_space calls
             call_count = 0
+
             def mock_check_disk_space(*args, **kwargs):
                 nonlocal call_count
                 call_count += 1
@@ -789,6 +819,7 @@ class TestDiskSpaceHandling:
 
             # Track disk space check calls during download
             check_calls = 0
+
             def mock_check_disk_space(*args, **kwargs):
                 nonlocal check_calls
                 check_calls += 1
@@ -832,11 +863,7 @@ class TestDiskSpaceHandling:
 
                         # This should trigger the mid-download space check and retry
                         result = await download_book_to_filesystem(
-                            "TEST123",
-                            mock_grin_client,
-                            "Harvard",
-                            "etag123",
-                            staging_manager=staging_manager
+                            "TEST123", mock_grin_client, "Harvard", "etag123", staging_manager=staging_manager
                         )
 
                         # Should eventually succeed after retry

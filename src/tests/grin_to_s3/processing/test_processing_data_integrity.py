@@ -41,7 +41,6 @@ class TestProcessingClientDataIntegrity:
         client.grin_client = MockProcessingClient()
         return client
 
-
     async def assert_processing_error(self, processing_client, barcodes, response_body, expected_error_text):
         """Helper to test that processing raises expected errors."""
         # Set the mock response for this test
@@ -60,20 +59,21 @@ class TestProcessingClientDataIntegrity:
         result = await processing_client.request_processing_batch(barcodes)
         assert result == expected_result
 
-    @pytest.mark.parametrize("test_case,response_body,expected_error", [
-        ("malformed_header", "InvalidHeader\tWrongFormat\nTEST123\tSuccess", "Unexpected response header"),
-        ("extra_columns", "Barcode\tStatus\nTEST123\tSuccess\tExtraColumn", "Invalid result format"),
-        ("missing_columns", "Barcode\tStatus\nTEST123", "Invalid result format"),
-        ("empty_response", "", "got 1 lines, expected at least 2"),
-        ("header_only", "Barcode\tStatus", "Invalid response format"),
-        ("tabs_in_status", "Barcode\tStatus\nTEST123\tFailed: Too\tmany\ttabs", "Invalid result format"),
-    ])
+    @pytest.mark.parametrize(
+        "test_case,response_body,expected_error",
+        [
+            ("malformed_header", "InvalidHeader\tWrongFormat\nTEST123\tSuccess", "Unexpected response header"),
+            ("extra_columns", "Barcode\tStatus\nTEST123\tSuccess\tExtraColumn", "Invalid result format"),
+            ("missing_columns", "Barcode\tStatus\nTEST123", "Invalid result format"),
+            ("empty_response", "", "got 1 lines, expected at least 2"),
+            ("header_only", "Barcode\tStatus", "Invalid response format"),
+            ("tabs_in_status", "Barcode\tStatus\nTEST123\tFailed: Too\tmany\ttabs", "Invalid result format"),
+        ],
+    )
     @pytest.mark.asyncio
     async def test_tsv_parsing_errors(self, processing_client, test_case, response_body, expected_error):
         """Test various TSV parsing error scenarios."""
-        await self.assert_processing_error(
-            processing_client, ["TEST123"], response_body, expected_error
-        )
+        await self.assert_processing_error(processing_client, ["TEST123"], response_body, expected_error)
 
     @pytest.mark.asyncio
     async def test_batch_barcode_count_mismatch(self, processing_client):
@@ -83,8 +83,7 @@ class TestProcessingClientDataIntegrity:
         mock_response = "Barcode\tStatus\nTEST001\tSuccess\nTEST002\tSuccess"
 
         await self.assert_processing_result(
-            processing_client, barcodes, mock_response,
-            {"TEST001": "Success", "TEST002": "Success"}
+            processing_client, barcodes, mock_response, {"TEST001": "Success", "TEST002": "Success"}
         )
 
     @pytest.mark.asyncio
@@ -95,8 +94,7 @@ class TestProcessingClientDataIntegrity:
         mock_response = "Barcode\tStatus\nTEST999\tSuccess\nTEST888\tSuccess"
 
         await self.assert_processing_result(
-            processing_client, requested_barcodes, mock_response,
-            {"TEST999": "Success", "TEST888": "Success"}
+            processing_client, requested_barcodes, mock_response, {"TEST999": "Success", "TEST888": "Success"}
         )
 
     @pytest.mark.asyncio
@@ -107,37 +105,41 @@ class TestProcessingClientDataIntegrity:
         mock_response = "Barcode\tStatus\nTEST001\tSuccess\nTEST999\tFailed\nTEST003\tSuccess"
 
         await self.assert_processing_result(
-            processing_client, requested_barcodes, mock_response,
-            {"TEST001": "Success", "TEST999": "Failed", "TEST003": "Success"}
+            processing_client,
+            requested_barcodes,
+            mock_response,
+            {"TEST001": "Success", "TEST999": "Failed", "TEST003": "Success"},
         )
 
     @pytest.mark.asyncio
     async def test_tsv_parsing_with_empty_lines(self, processing_client):
         """Test handling of TSV with empty lines between data."""
         await self.assert_processing_result(
-            processing_client, ["TEST001", "TEST002"],
+            processing_client,
+            ["TEST001", "TEST002"],
             "Barcode\tStatus\nTEST001\tSuccess\n\n\nTEST002\tFailed\n\n",
-            {"TEST001": "Success", "TEST002": "Failed"}
+            {"TEST001": "Success", "TEST002": "Failed"},
         )
 
     @pytest.mark.asyncio
     async def test_tsv_parsing_strips_barcode_whitespace(self, processing_client):
         """Test that whitespace is properly stripped from barcodes."""
         await self.assert_processing_result(
-            processing_client, ["TEST001", "TEST002"],
+            processing_client,
+            ["TEST001", "TEST002"],
             "Barcode\tStatus\n  TEST001  \t  Success  \nTEST002\tFailed",
-            {"TEST001": "  Success  ", "TEST002": "Failed"}  # Status preserved, barcode stripped
+            {"TEST001": "  Success  ", "TEST002": "Failed"},  # Status preserved, barcode stripped
         )
 
     @pytest.mark.asyncio
     async def test_barcode_whitespace_edge_cases(self, processing_client):
         """Test edge cases for barcode whitespace handling."""
         await self.assert_processing_result(
-            processing_client, ["TEST001", "TEST002"],
+            processing_client,
+            ["TEST001", "TEST002"],
             "Barcode\tStatus\n TEST001 \tSuccess\n  TEST002  \tFailed",
-            {"TEST001": "Success", "TEST002": "Failed"}
+            {"TEST001": "Success", "TEST002": "Failed"},
         )
-
 
     @pytest.mark.asyncio
     async def test_batch_processing_empty_input(self, processing_client):
@@ -194,6 +196,7 @@ class TestProcessingClientDataIntegrity:
     @pytest.mark.asyncio
     async def test_converted_books_suffix_removal(self, processing_client):
         """Test that .tar.gz.gpg suffix is correctly removed from converted books."""
+
         # Override the mock to return converted books with suffixes
         class ConvertedMockClient(MockProcessingClient):
             async def fetch_resource(self, directory: str, resource: str):
@@ -205,6 +208,7 @@ class TestProcessingClientDataIntegrity:
 
         processing_client.grin_client = ConvertedMockClient()
         from grin_to_s3.processing import get_converted_books
+
         result = await get_converted_books(processing_client.grin_client, "test_dir")
 
         # Should remove suffix and include books with suffix only
@@ -214,6 +218,7 @@ class TestProcessingClientDataIntegrity:
     @pytest.mark.asyncio
     async def test_converted_books_malformed_filenames(self, processing_client):
         """Test handling of unexpected filename formats in converted books."""
+
         # Override the mock to return malformed filenames
         class MalformedMockClient(MockProcessingClient):
             async def fetch_resource(self, directory: str, resource: str):
@@ -225,6 +230,7 @@ class TestProcessingClientDataIntegrity:
 
         processing_client.grin_client = MalformedMockClient()
         from grin_to_s3.processing import get_converted_books
+
         result = await get_converted_books(processing_client.grin_client, "test_dir")
 
         # Current behavior includes empty string from .tar.gz.gpg -> ""
@@ -235,6 +241,7 @@ class TestProcessingClientDataIntegrity:
     @pytest.mark.asyncio
     async def test_network_error_handling_in_batch_request(self, processing_client):
         """Test error handling when network request fails."""
+
         # Override the mock to raise an exception
         class ErrorMockClient(MockProcessingClient):
             async def fetch_resource(self, directory: str, resource: str):
@@ -249,8 +256,8 @@ class TestProcessingClientDataIntegrity:
 
         assert "Batch request failed for 1 books: Network error" in str(exc_info.value)
 
-
         from grin_to_s3.processing import get_converted_books
+
         result = await get_converted_books(processing_client.grin_client, "test_dir")
         assert result == set()
 
@@ -291,10 +298,7 @@ class TestProcessingPipelineBarcodeFunctionality:
         mock_stage.add_error = Mock()
 
         pipeline = ProcessingPipeline(
-            db_path=str(db_path),
-            directory="test_dir",
-            process_summary_stage=mock_stage,
-            rate_limit_delay=0
+            db_path=str(db_path), directory="test_dir", process_summary_stage=mock_stage, rate_limit_delay=0
         )
 
         # Replace grin_client with mock to avoid authentication issues
@@ -307,18 +311,14 @@ class TestProcessingPipelineBarcodeFunctionality:
         """Test _get_candidate_barcodes returns explicit barcodes unchanged."""
         barcodes = ["EXPLICIT1", "EXPLICIT2", "EXPLICIT3"]
 
-        result = await processing_pipeline._get_candidate_barcodes(
-            limit=10, barcodes=barcodes, in_process_books=set()
-        )
+        result = await processing_pipeline._get_candidate_barcodes(limit=10, barcodes=barcodes, in_process_books=set())
 
         assert result == barcodes
 
     @pytest.mark.asyncio
     async def test_get_candidate_barcodes_database_query(self, processing_pipeline):
         """Test _get_candidate_barcodes uses database query when no barcodes provided."""
-        result = await processing_pipeline._get_candidate_barcodes(
-            limit=10, barcodes=None, in_process_books=set()
-        )
+        result = await processing_pipeline._get_candidate_barcodes(limit=10, barcodes=None, in_process_books=set())
 
         # Should return TEST001 and TEST005 (available books)
         # TEST002 is NOT_AVAILABLE_FOR_DOWNLOAD
@@ -344,9 +344,7 @@ class TestProcessingPipelineBarcodeFunctionality:
     @pytest.mark.asyncio
     async def test_get_candidate_barcodes_respects_limit(self, processing_pipeline):
         """Test _get_candidate_barcodes respects the limit parameter."""
-        result = await processing_pipeline._get_candidate_barcodes(
-            limit=1, barcodes=None, in_process_books=set()
-        )
+        result = await processing_pipeline._get_candidate_barcodes(limit=1, barcodes=None, in_process_books=set())
 
         # Should only return one book (TEST001)
         assert len(result) == 1
@@ -357,9 +355,7 @@ class TestProcessingPipelineBarcodeFunctionality:
         """Test _get_candidate_barcodes ignores limit when explicit barcodes provided."""
         barcodes = ["EXP1", "EXP2", "EXP3", "EXP4", "EXP5"]
 
-        result = await processing_pipeline._get_candidate_barcodes(
-            limit=2, barcodes=barcodes, in_process_books=set()
-        )
+        result = await processing_pipeline._get_candidate_barcodes(limit=2, barcodes=barcodes, in_process_books=set())
 
         # Should return all barcodes despite limit=2
         assert result == barcodes

@@ -21,10 +21,7 @@ class TestBookManagerFullText:
 
     def test_init_with_bucket_config(self):
         """Test BookManager initialization with bucket configuration."""
-        book_manager = create_book_manager_mock(
-            bucket_config=standard_bucket_config(),
-            base_prefix="test-prefix"
-        )
+        book_manager = create_book_manager_mock(bucket_config=standard_bucket_config(), base_prefix="test-prefix")
 
         assert book_manager.storage is not None
         assert book_manager.bucket_raw == "test-raw"
@@ -34,9 +31,7 @@ class TestBookManagerFullText:
 
     def test_init_minimal_config(self):
         """Test BookManager initialization with minimal configuration."""
-        book_manager = create_book_manager_mock(
-            bucket_config=standard_bucket_config()
-        )
+        book_manager = create_book_manager_mock(bucket_config=standard_bucket_config())
 
         assert book_manager.storage is not None
         assert book_manager.bucket_raw == "test-raw"
@@ -48,9 +43,7 @@ class TestBookManagerFullText:
         """Test _full_text_path method with base prefix."""
         mock_storage = MagicMock()
         book_manager = BookManager(
-            storage=mock_storage,
-            bucket_config=standard_bucket_config(),
-            base_prefix="test-prefix"
+            storage=mock_storage, bucket_config=standard_bucket_config(), base_prefix="test-prefix"
         )
 
         path = book_manager._full_text_path("12345", "test.jsonl")
@@ -59,10 +52,7 @@ class TestBookManagerFullText:
     def test_full_text_path_without_prefix(self):
         """Test _full_text_path method without base prefix."""
         mock_storage = MagicMock()
-        book_manager = BookManager(
-            storage=mock_storage,
-            bucket_config=standard_bucket_config()
-        )
+        book_manager = BookManager(storage=mock_storage, bucket_config=standard_bucket_config())
 
         path = book_manager._full_text_path("12345", "test.jsonl")
         assert path == "test-full/test.jsonl"
@@ -97,6 +87,7 @@ class TestBookManagerFullText:
         finally:
             # Clean up temp file
             import os
+
             os.unlink(jsonl_file_path)
 
     @pytest.mark.asyncio
@@ -138,6 +129,7 @@ class TestBookManagerFullText:
         finally:
             # Clean up temp file
             import os
+
             os.unlink(jsonl_file_path)
 
     @pytest.mark.asyncio
@@ -199,7 +191,9 @@ class TestStorageFactories:
 
         mock_load_creds.assert_called_once_with("/path/to/creds.json")
         mock_create_r2.assert_called_once_with(
-            endpoint_url="https://test-account.r2.cloudflarestorage.com", access_key="test-key", secret_key="test-secret"
+            endpoint_url="https://test-account.r2.cloudflarestorage.com",
+            access_key="test-key",
+            secret_key="test-secret",
         )
         assert result == mock_storage
 

@@ -82,7 +82,6 @@ class TestBucketCreation:
             bucket_names = [b["Name"] for b in buckets["Buckets"]]
             assert "test-bucket-raw" in bucket_names
 
-
     @pytest.mark.asyncio
     async def test_bucket_creation_r2(self):
         """Test bucket creation for Cloudflare R2."""
@@ -92,7 +91,9 @@ class TestBucketCreation:
         with patch.dict(os.environ, {"MOTO_S3_CUSTOM_ENDPOINTS": custom_endpoint}):
             with mock_aws():
                 # Mock R2 credentials loading to return test credentials
-                with patch("grin_to_s3.sync.utils.load_r2_credentials", return_value=("test_access_key", "test_secret_key")):
+                with patch(
+                    "grin_to_s3.sync.utils.load_r2_credentials", return_value=("test_access_key", "test_secret_key")
+                ):
                     # Don't create bucket beforehand - test should create it
                     result = await ensure_bucket_exists("r2", storage_config, "test-bucket-raw")
 
@@ -167,7 +168,9 @@ class TestBucketCreation:
                 mock_boto_client.return_value = mock_s3
 
                 # Mock access denied error (not 404)
-                access_error = ClientError(error_response={"Error": {"Code": "AccessDenied"}}, operation_name="HeadBucket")
+                access_error = ClientError(
+                    error_response={"Error": {"Code": "AccessDenied"}}, operation_name="HeadBucket"
+                )
                 mock_s3.head_bucket.side_effect = access_error
 
                 result = await ensure_bucket_exists("s3", storage_config, "test-bucket-raw")

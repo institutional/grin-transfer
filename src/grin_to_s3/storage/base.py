@@ -84,6 +84,7 @@ class Storage:
             # For GCS, ensure project ID is available and set environment variable
             if self.config.protocol == "gcs":
                 import os
+
                 project_id = options.get("project")
                 if not project_id:
                     raise ValueError("GCS filesystem requires project ID in storage configuration")
@@ -116,6 +117,7 @@ class Storage:
             path = path.lstrip("/")
             # Replace consecutive slashes with single slash
             import re
+
             path = re.sub(r"/+", "/", path)
         return path
 
@@ -284,8 +286,9 @@ class Storage:
             # Fall back to regular write
             await self.write_bytes(path, data)
 
-
-    async def _multipart_upload_from_file(self, s3_client, bucket: str, key: str, file_path: str, metadata: dict[str, str] | None = None) -> None:
+    async def _multipart_upload_from_file(
+        self, s3_client, bucket: str, key: str, file_path: str, metadata: dict[str, str] | None = None
+    ) -> None:
         """Upload large files using multipart upload directly from file for better performance."""
 
         import aiofiles

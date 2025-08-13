@@ -150,11 +150,19 @@ Examples:
         default="INFO",
         help="Logging level (default: INFO)",
     )
-    parser.add_argument("--log-dir", type=str, default=os.environ.get("GRIN_LOG_DIR", "logs"), help="Directory for log files (default: logs)")
+    parser.add_argument(
+        "--log-dir",
+        type=str,
+        default=os.environ.get("GRIN_LOG_DIR", "logs"),
+        help="Directory for log files (default: logs)",
+    )
 
     # Storage options
     parser.add_argument(
-        "--storage", choices=["local", "minio", "r2", "s3", "gcs"], required=True, help="Storage backend for run configuration"
+        "--storage",
+        choices=["local", "minio", "r2", "s3", "gcs"],
+        required=True,
+        help="Storage backend for run configuration",
     )
     parser.add_argument(
         "--bucket-raw",
@@ -395,6 +403,7 @@ Examples:
         # Auto-configure MinIO with standard bucket names (only used in Docker)
         if args.storage == "minio":
             from ..common import auto_configure_minio
+
             auto_configure_minio(final_storage_dict)
 
         # Determine storage protocol for operational logic
@@ -444,7 +453,6 @@ Examples:
                 sqlite_db_path=sqlite_db,  # Use generated SQLite path
             )
 
-
             # Build sync configuration from CLI arguments
             sync_config = {
                 "concurrent_downloads": args.sync_concurrent_downloads,
@@ -453,7 +461,7 @@ Examples:
                 "staging_dir": args.sync_staging_dir,
                 "disk_space_threshold": args.sync_disk_space_threshold,
                 "enrichment_workers": args.sync_enrichment_workers,
-                }
+            }
 
             # Write run configuration to run directory
             config_dict = config.to_dict()

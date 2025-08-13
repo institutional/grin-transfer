@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 type BarcodeSet = set[str]
 
 
-
 def extract_bucket_config(storage_type: str, config_dict: dict) -> BucketConfig:
     """
     Extract bucket configuration with appropriate defaults based on storage type.
@@ -50,6 +49,7 @@ def extract_bucket_config(storage_type: str, config_dict: dict) -> BucketConfig:
     if storage_type == "local":
         # For local storage, use standard directory names as defaults
         from grin_to_s3.storage.factories import LOCAL_STORAGE_DEFAULTS
+
         local_config: BucketConfig = {
             "bucket_raw": config_dict.get("bucket_raw", LOCAL_STORAGE_DEFAULTS["bucket_raw"]),
             "bucket_meta": config_dict.get("bucket_meta", LOCAL_STORAGE_DEFAULTS["bucket_meta"]),
@@ -64,6 +64,7 @@ def extract_bucket_config(storage_type: str, config_dict: dict) -> BucketConfig:
             "bucket_full": config_dict.get("bucket_full", ""),
         }
         return cloud_config
+
 
 # HTTP Client Configuration
 DEFAULT_TIMEOUT = 60
@@ -454,10 +455,6 @@ class BackupManager:
             logger.warning(f"Failed to cleanup old backups: {e}")
 
 
-
-
-
-
 def get_gpg_passphrase_file_path(secrets_dir: str | None = None) -> str | None:
     """
     Get path to GPG passphrase file in secrets directory.
@@ -492,9 +489,7 @@ def get_gpg_passphrase_file_path(secrets_dir: str | None = None) -> str | None:
     return None
 
 
-async def decrypt_gpg_file(
-    encrypted_file_path: str, decrypted_file_path: str, secrets_dir: str | None = None
-) -> None:
+async def decrypt_gpg_file(encrypted_file_path: str, decrypted_file_path: str, secrets_dir: str | None = None) -> None:
     """
     Decrypt GPG-encrypted file to another file using the system's gpg command.
 
@@ -556,9 +551,6 @@ async def decrypt_gpg_file(
     await loop.run_in_executor(None, _decrypt_file_with_gpg)
 
 
-
-
-
 def auto_configure_minio(storage_config: dict) -> None:
     """Auto-configure MinIO credentials for Docker container environment."""
     is_docker = is_docker_environment()
@@ -586,8 +578,6 @@ def auto_configure_minio(storage_config: dict) -> None:
     print(f"Auto-configured MinIO for {endpoint_type} at {storage_config['endpoint_url']}")
 
 
-
-
 def get_command_prefix() -> str:
     """Get the appropriate command prefix based on environment."""
     if is_docker_environment():
@@ -607,8 +597,6 @@ def print_oauth_setup_instructions() -> None:
     else:
         print("\nTo set up OAuth credentials:")
         print(f"{command_prefix} auth setup")
-
-
 
 
 async def check_minio_connectivity(storage_config: dict) -> None:

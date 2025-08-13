@@ -72,13 +72,9 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
 
         # Add status change with metadata using batched approach
         metadata = {"batch_id": "batch_001", "retry_count": 1}
-        status_updates = [collect_status(
-            barcode,
-            "processing_request",
-            "requested",
-            metadata=metadata,
-            session_id="session_123"
-        )]
+        status_updates = [
+            collect_status(barcode, "processing_request", "requested", metadata=metadata, session_id="session_123")
+        ]
         await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Verify the metadata was stored correctly
@@ -159,7 +155,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         status_updates = [
             collect_status(barcode, "processing_request", "requested"),
             collect_status(barcode, "sync", "pending"),
-            collect_status(barcode, "enrichment", "completed")
+            collect_status(barcode, "enrichment", "completed"),
         ]
         await batch_write_status_updates(str(self.db_path), status_updates)
 
@@ -273,7 +269,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         status_updates = [
             collect_status(barcode, "processing_request", "requested"),
             collect_status(barcode, "processing_request", "in_process"),
-            collect_status(barcode, "processing_request", "converted")
+            collect_status(barcode, "processing_request", "converted"),
         ]
         await batch_write_status_updates(str(self.db_path), status_updates)
 

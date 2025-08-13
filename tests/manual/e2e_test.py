@@ -31,10 +31,7 @@ import time
 from pathlib import Path
 
 # Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -48,7 +45,15 @@ class E2ETestRunner:
         self.temp_dir: Path | None = None
         self.original_dir = Path.cwd()
 
-    def _run_command(self, cmd: list[str], cwd: Path = None, check: bool = True, quiet: bool = False, timeout: int = 300, env: dict = None) -> subprocess.CompletedProcess:
+    def _run_command(
+        self,
+        cmd: list[str],
+        cwd: Path = None,
+        check: bool = True,
+        quiet: bool = False,
+        timeout: int = 300,
+        env: dict = None,
+    ) -> subprocess.CompletedProcess:
         """Run a command and log the output."""
         cmd_str = " ".join(cmd)
 
@@ -64,7 +69,7 @@ class E2ETestRunner:
                 check=check,
                 timeout=timeout,
                 stdin=subprocess.DEVNULL,  # Prevent hanging on input prompts
-                env=env
+                env=env,
             )
 
             # Only show output for non-quiet commands or if there are errors
@@ -117,7 +122,8 @@ class E2ETestRunner:
 
         # For Docker Compose commands, ignore container lifecycle noise
         if command == "docker" and any(
-            pattern in stderr for pattern in ["Network", "Container", "Creating", "Created", "Starting", "Started", "Waiting", "Healthy"]
+            pattern in stderr
+            for pattern in ["Network", "Container", "Creating", "Created", "Starting", "Started", "Waiting", "Healthy"]
         ):
             return True
 
@@ -132,16 +138,11 @@ class E2ETestRunner:
 
         # Clone the local repository (including uncommitted changes)
         repo_dir = self.temp_dir / "grin-to-s3"
-        self._run_command([
-            "git", "clone", str(self.original_dir), str(repo_dir)
-        ], quiet=True)
+        self._run_command(["git", "clone", str(self.original_dir), str(repo_dir)], quiet=True)
 
         # Get current branch from original directory
         current_branch_result = subprocess.run(
-            ["git", "branch", "--show-current"],
-            cwd=self.original_dir,
-            capture_output=True,
-            text=True
+            ["git", "branch", "--show-current"], cwd=self.original_dir, capture_output=True, text=True
         )
 
         if current_branch_result.returncode == 0:
@@ -149,9 +150,7 @@ class E2ETestRunner:
             if current_branch:
                 logger.info(f"Checking out branch: {current_branch}")
                 try:
-                    self._run_command([
-                        "git", "checkout", current_branch
-                    ], cwd=repo_dir)
+                    self._run_command(["git", "checkout", current_branch], cwd=repo_dir)
                 except subprocess.CalledProcessError:
                     logger.warning(f"Failed to checkout {current_branch}, staying on default branch")
 
@@ -164,25 +163,21 @@ class E2ETestRunner:
         # Create a virtual environment in the temp repo
         venv_dir = repo_dir / "venv"
         logger.info("Creating virtual environment...")
-        self._run_command([
-            sys.executable, "-m", "venv", str(venv_dir)
-        ], cwd=repo_dir, quiet=True)
+        self._run_command([sys.executable, "-m", "venv", str(venv_dir)], cwd=repo_dir, quiet=True)
 
         # Determine the python executable in the venv (Unix/macOS only)
         venv_python = venv_dir / "bin" / "python"
 
         # Install in development mode
         logger.info("Installing package dependencies...")
-        self._run_command([
-            str(venv_python), "-m", "pip", "install", "-e", "."
-        ], cwd=repo_dir, quiet=True)
+        self._run_command([str(venv_python), "-m", "pip", "install", "-e", "."], cwd=repo_dir, quiet=True)
 
         # Install test dependencies if they exist
         requirements_test = repo_dir / "requirements-test.txt"
         if requirements_test.exists():
-            self._run_command([
-                str(venv_python), "-m", "pip", "install", "-r", "requirements-test.txt"
-            ], cwd=repo_dir, quiet=True)
+            self._run_command(
+                [str(venv_python), "-m", "pip", "install", "-r", "requirements-test.txt"], cwd=repo_dir, quiet=True
+            )
 
         # Store the venv python path for later use
         self.venv_python = str(venv_python)
@@ -213,33 +208,66 @@ class E2ETestRunner:
 
         # Collect with local storage
         storage_base = str(repo_dir / "test-data")
-        self._run_command([
-            self.venv_python, "grin.py", "collect",
-            "--run-name", local_run_name,
-            "--limit", str(self.limit),
-            "--storage", "local",
-            "--storage-config", f"base_path={storage_base}",
-            "--bucket-raw", "raw",
-            "--bucket-meta", "meta",
-            "--bucket-full", "full",
-            "--library-directory", "Harvard"
-        ], cwd=repo_dir)
+        self._run_command(
+            [
+                self.venv_python,
+                "grin.py",
+                "collect",
+                "--run-name",
+                local_run_name,
+                "--limit",
+                str(self.limit),
+                "--storage",
+                "local",
+                "--storage-config",
+                f"base_path={storage_base}",
+                "--bucket-raw",
+                "raw",
+                "--bucket-meta",
+                "meta",
+                "--bucket-full",
+                "full",
+                "--library-directory",
+                "Harvard",
+            ],
+            cwd=repo_dir,
+        )
 
         # Sync with local storage - converted queue
-        self._run_command([
-            self.venv_python, "grin.py", "sync", "pipeline",
-            "--run-name", local_run_name,
-            "--queue", "converted",
-            "--limit", "1"
-        ], cwd=repo_dir, timeout=60)
+        self._run_command(
+            [
+                self.venv_python,
+                "grin.py",
+                "sync",
+                "pipeline",
+                "--run-name",
+                local_run_name,
+                "--queue",
+                "converted",
+                "--limit",
+                "1",
+            ],
+            cwd=repo_dir,
+            timeout=60,
+        )
 
         # Sync with local storage - previous queue (test PR5 functionality)
-        self._run_command([
-            self.venv_python, "grin.py", "sync", "pipeline",
-            "--run-name", local_run_name,
-            "--queue", "previous",
-            "--limit", "1"
-        ], cwd=repo_dir, timeout=60)
+        self._run_command(
+            [
+                self.venv_python,
+                "grin.py",
+                "sync",
+                "pipeline",
+                "--run-name",
+                local_run_name,
+                "--queue",
+                "previous",
+                "--limit",
+                "1",
+            ],
+            cwd=repo_dir,
+            timeout=60,
+        )
 
         # Verify that archives actually exist and are not zero-byte
         self._verify_local_archives(repo_dir, storage_base, local_run_name)
@@ -251,21 +279,40 @@ class E2ETestRunner:
             r2_run_name = f"{self.run_name}_r2"
 
             # Collect with R2 storage (let it use user's config)
-            self._run_command([
-                sys.executable, "grin.py", "collect",
-                "--run-name", r2_run_name,
-                "--limit", str(self.limit),
-                "--storage", "r2",
-                "--library-directory", "Harvard"
-            ], cwd=repo_dir)
+            self._run_command(
+                [
+                    sys.executable,
+                    "grin.py",
+                    "collect",
+                    "--run-name",
+                    r2_run_name,
+                    "--limit",
+                    str(self.limit),
+                    "--storage",
+                    "r2",
+                    "--library-directory",
+                    "Harvard",
+                ],
+                cwd=repo_dir,
+            )
 
             # Sync with R2 storage
-            self._run_command([
-                self.venv_python, "grin.py", "sync", "pipeline",
-                "--run-name", r2_run_name,
-                "--queue", "converted",
-                "--limit", "1"
-            ], cwd=repo_dir, timeout=60)
+            self._run_command(
+                [
+                    self.venv_python,
+                    "grin.py",
+                    "sync",
+                    "pipeline",
+                    "--run-name",
+                    r2_run_name,
+                    "--queue",
+                    "converted",
+                    "--limit",
+                    "1",
+                ],
+                cwd=repo_dir,
+                timeout=60,
+            )
         else:
             logger.warning("R2 credentials not found, skipping R2 storage test")
 
@@ -277,43 +324,35 @@ class E2ETestRunner:
 
         # Clean up any existing containers and networks
         logger.info("Cleaning up existing Docker containers...")
-        self._run_command([
-            "docker", "compose", "down", "--remove-orphans", "--volumes"
-        ], cwd=repo_dir, check=False, quiet=True)
+        self._run_command(
+            ["docker", "compose", "down", "--remove-orphans", "--volumes"], cwd=repo_dir, check=False, quiet=True
+        )
 
         # Also clean up any containers with grin-to-s3 names
         try:
             # Stop and remove any containers with grin-to-s3 in the name
-            containers_result = subprocess.run([
-                "docker", "ps", "-a", "--filter", "name=grin-to-s3", "-q"
-            ], capture_output=True, text=True)
+            containers_result = subprocess.run(
+                ["docker", "ps", "-a", "--filter", "name=grin-to-s3", "-q"], capture_output=True, text=True
+            )
 
             if containers_result.stdout.strip():
-                subprocess.run([
-                    "docker", "rm", "-f"
-                ] + containers_result.stdout.strip().split(), check=False)
+                subprocess.run(["docker", "rm", "-f"] + containers_result.stdout.strip().split(), check=False)
         except subprocess.CalledProcessError:
             pass
 
         # Remove any existing images to ensure fresh build
         try:
             # Check if image exists first to avoid noisy error messages
-            result = subprocess.run([
-                "docker", "images", "-q", "grin-to-s3:latest"
-            ], capture_output=True, text=True)
+            result = subprocess.run(["docker", "images", "-q", "grin-to-s3:latest"], capture_output=True, text=True)
 
             if result.stdout.strip():  # Image exists
-                self._run_command([
-                    "docker", "rmi", "grin-to-s3:latest"
-                ], check=False)
+                self._run_command(["docker", "rmi", "grin-to-s3:latest"], check=False)
         except subprocess.CalledProcessError:
             pass  # Expected if docker command fails
 
         # Build the image
         logger.info("Building Docker image (this may take a few minutes)...")
-        self._run_command([
-            "docker", "compose", "build", "--no-cache"
-        ], cwd=repo_dir, quiet=True)
+        self._run_command(["docker", "compose", "build", "--no-cache"], cwd=repo_dir, quiet=True)
 
         logger.info("Docker build completed successfully")
 
@@ -323,6 +362,7 @@ class E2ETestRunner:
 
         # Set unique Docker instance ID for this test run
         import os
+
         test_instance_id = f"e2e-{self.run_name}-{int(time.time())}"
         docker_env = os.environ.copy()
         docker_env["GRIN_INSTANCE_ID"] = test_instance_id
@@ -330,19 +370,17 @@ class E2ETestRunner:
 
         # Clean up any existing Docker containers first
         logger.info("Cleaning up existing Docker containers...")
-        self._run_command([
-            "docker", "compose", "down", "--remove-orphans", "--volumes"
-        ], cwd=repo_dir, check=False, quiet=True)
+        self._run_command(
+            ["docker", "compose", "down", "--remove-orphans", "--volumes"], cwd=repo_dir, check=False, quiet=True
+        )
 
         # Remove any leftover grin-to-s3 containers
         try:
-            result = subprocess.run([
-                "docker", "ps", "-aq", "--filter", "name=grin-to-s3"
-            ], capture_output=True, text=True)
+            result = subprocess.run(
+                ["docker", "ps", "-aq", "--filter", "name=grin-to-s3"], capture_output=True, text=True
+            )
             if result.stdout.strip():
-                subprocess.run([
-                    "docker", "rm", "-f"
-                ] + result.stdout.strip().split(), check=False)
+                subprocess.run(["docker", "rm", "-f"] + result.stdout.strip().split(), check=False)
         except subprocess.CalledProcessError:
             pass
 
@@ -377,28 +415,50 @@ class E2ETestRunner:
         docker_minio_run_name = f"{self.run_name}_docker_minio"
 
         # Collect with MinIO storage in Docker - use standard bucket names that get created
-        self._run_command([
-            "./grin-docker", "collect",
-            "--run-name", docker_minio_run_name,
-            "--limit", str(self.limit),
-            "--storage", "minio",
-            "--bucket-raw", "grin-raw",
-            "--bucket-meta", "grin-meta",
-            "--bucket-full", "grin-full",
-            "--library-directory", "Harvard"
-        ], cwd=repo_dir, env=docker_env)
+        self._run_command(
+            [
+                "./grin-docker",
+                "collect",
+                "--run-name",
+                docker_minio_run_name,
+                "--limit",
+                str(self.limit),
+                "--storage",
+                "minio",
+                "--bucket-raw",
+                "grin-raw",
+                "--bucket-meta",
+                "grin-meta",
+                "--bucket-full",
+                "grin-full",
+                "--library-directory",
+                "Harvard",
+            ],
+            cwd=repo_dir,
+            env=docker_env,
+        )
 
         # Wait a moment for MinIO to be fully ready for the next command
         logger.info("Waiting for MinIO to be ready for sync...")
         time.sleep(5)
 
         # Sync with MinIO storage in Docker
-        self._run_command([
-            "./grin-docker", "sync", "pipeline",
-            "--run-name", docker_minio_run_name,
-            "--queue", "converted",
-            "--limit", "1"
-        ], cwd=repo_dir, timeout=120, env=docker_env)
+        self._run_command(
+            [
+                "./grin-docker",
+                "sync",
+                "pipeline",
+                "--run-name",
+                docker_minio_run_name,
+                "--queue",
+                "converted",
+                "--limit",
+                "1",
+            ],
+            cwd=repo_dir,
+            timeout=120,
+            env=docker_env,
+        )
 
         # Configuration 2: R2 storage in Docker (if credentials available)
         logger.info("=== Testing Docker with R2 storage ===")
@@ -407,21 +467,40 @@ class E2ETestRunner:
             docker_r2_run_name = f"{self.run_name}_docker_r2"
 
             # Collect with R2 storage in Docker (let it use user's config)
-            self._run_command([
-                "./grin-docker", "collect",
-                "--run-name", docker_r2_run_name,
-                "--limit", str(self.limit),
-                "--storage", "r2",
-                "--library-directory", "Harvard"
-            ], cwd=repo_dir, env=docker_env)
+            self._run_command(
+                [
+                    "./grin-docker",
+                    "collect",
+                    "--run-name",
+                    docker_r2_run_name,
+                    "--limit",
+                    str(self.limit),
+                    "--storage",
+                    "r2",
+                    "--library-directory",
+                    "Harvard",
+                ],
+                cwd=repo_dir,
+                env=docker_env,
+            )
 
             # Sync with R2 storage in Docker (longer timeout for network operations)
-            self._run_command([
-                "./grin-docker", "sync", "pipeline",
-                "--run-name", docker_r2_run_name,
-                "--queue", "converted",
-                "--limit", "1"
-            ], cwd=repo_dir, timeout=180, env=docker_env)
+            self._run_command(
+                [
+                    "./grin-docker",
+                    "sync",
+                    "pipeline",
+                    "--run-name",
+                    docker_r2_run_name,
+                    "--queue",
+                    "converted",
+                    "--limit",
+                    "1",
+                ],
+                cwd=repo_dir,
+                timeout=180,
+                env=docker_env,
+            )
         else:
             logger.warning("R2 credentials not found, skipping Docker R2 storage test")
 
@@ -429,23 +508,23 @@ class E2ETestRunner:
 
         # Clean up Docker containers after testing
         logger.info("Cleaning up Docker containers...")
-        self._run_command([
-            "docker", "compose", "down", "--remove-orphans", "--volumes"
-        ], cwd=repo_dir, check=False, quiet=True, env=docker_env)
+        self._run_command(
+            ["docker", "compose", "down", "--remove-orphans", "--volumes"],
+            cwd=repo_dir,
+            check=False,
+            quiet=True,
+            env=docker_env,
+        )
 
         # Also clean up any leftover containers that might conflict
-        self._run_command([
-            "docker", "ps", "-aq", "--filter", "name=grin-to-s3"
-        ], check=False, quiet=True)
+        self._run_command(["docker", "ps", "-aq", "--filter", "name=grin-to-s3"], check=False, quiet=True)
 
         try:
-            result = subprocess.run([
-                "docker", "ps", "-aq", "--filter", "name=grin-to-s3"
-            ], capture_output=True, text=True)
+            result = subprocess.run(
+                ["docker", "ps", "-aq", "--filter", "name=grin-to-s3"], capture_output=True, text=True
+            )
             if result.stdout.strip():
-                subprocess.run([
-                    "docker", "rm", "-f"
-                ] + result.stdout.strip().split(), check=False)
+                subprocess.run(["docker", "rm", "-f"] + result.stdout.strip().split(), check=False)
         except subprocess.CalledProcessError:
             pass
 
@@ -516,41 +595,23 @@ class E2ETestRunner:
 
 def main():
     """Main entry point for E2E testing script."""
-    parser = argparse.ArgumentParser(
-        description="End-to-end testing script for grin-to-s3"
-    )
-    parser.add_argument(
-        "--run-name",
-        help="Run name for the test pipeline (default: auto-generated)"
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=20,
-        help="Limit number of books to process (default: 20)"
-    )
-    parser.add_argument(
-        "--no-cleanup",
-        action="store_true",
-        help="Don't clean up temporary directory after tests"
-    )
+    parser = argparse.ArgumentParser(description="End-to-end testing script for grin-to-s3")
+    parser.add_argument("--run-name", help="Run name for the test pipeline (default: auto-generated)")
+    parser.add_argument("--limit", type=int, default=20, help="Limit number of books to process (default: 20)")
+    parser.add_argument("--no-cleanup", action="store_true", help="Don't clean up temporary directory after tests")
 
     args = parser.parse_args()
 
     # Generate run name if not provided
     if not args.run_name:
         import os
+
         args.run_name = f"e2e_test_{os.getenv('USER', 'user')}_{int(time.time())}"
 
-    runner = E2ETestRunner(
-        run_name=args.run_name,
-        limit=args.limit,
-        cleanup=not args.no_cleanup
-    )
+    runner = E2ETestRunner(run_name=args.run_name, limit=args.limit, cleanup=not args.no_cleanup)
 
     runner.run_all_tests()
 
 
 if __name__ == "__main__":
     main()
-

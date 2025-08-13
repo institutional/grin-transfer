@@ -23,9 +23,9 @@ class TestLocalStorageBucketConfig:
                 "base_path": "/tmp/test_storage",
                 "bucket_raw": "raw",
                 "bucket_meta": "meta",
-                "bucket_full": "full"
+                "bucket_full": "full",
             },
-            "prefix": ""
+            "prefix": "",
         }
 
         with patch("grin_to_s3.collect_books.collector.create_storage_from_config") as mock_create_storage:
@@ -34,10 +34,7 @@ class TestLocalStorageBucketConfig:
 
             # This should not raise "Bucket name cannot be empty" error
             collector = BookCollector(
-                directory="Harvard",
-                process_summary_stage=Mock(),
-                storage_config=storage_config,
-                test_mode=True
+                directory="Harvard", process_summary_stage=Mock(), storage_config=storage_config, test_mode=True
             )
 
             # Verify that BookManager was created with correct bucket config
@@ -58,9 +55,9 @@ class TestLocalStorageBucketConfig:
                 "base_path": "/tmp/test_storage",
                 "bucket_raw": "raw",
                 "bucket_meta": "meta",
-                "bucket_full": "full"
+                "bucket_full": "full",
             },
-            "prefix": ""
+            "prefix": "",
         }
 
         # Simulate the current buggy extraction logic
@@ -86,9 +83,9 @@ class TestLocalStorageBucketConfig:
                 "base_path": "/tmp/test_storage",
                 "bucket_raw": "raw",
                 "bucket_meta": "meta",
-                "bucket_full": "full"
+                "bucket_full": "full",
             },
-            "prefix": ""
+            "prefix": "",
         }
 
         # This is the correct extraction logic (the fix)
@@ -114,9 +111,9 @@ class TestLocalStorageBucketConfig:
                 "base_path": "/tmp/grin_test",
                 "bucket_raw": "raw_archives",
                 "bucket_meta": "metadata_files",
-                "bucket_full": "fulltext_data"
+                "bucket_full": "fulltext_data",
             },
-            "prefix": "harvard_2024"
+            "prefix": "harvard_2024",
         }
 
         with patch("grin_to_s3.collect_books.collector.create_storage_from_config") as mock_create_storage:
@@ -125,10 +122,7 @@ class TestLocalStorageBucketConfig:
 
             # Should not raise any exceptions
             collector = BookCollector(
-                directory="Harvard",
-                process_summary_stage=Mock(),
-                storage_config=storage_config,
-                test_mode=True
+                directory="Harvard", process_summary_stage=Mock(), storage_config=storage_config, test_mode=True
             )
 
             # Verify bucket configuration was set correctly
