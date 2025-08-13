@@ -43,6 +43,7 @@ from .operations import (
     is_404_error,
     upload_book_from_staging,
 )
+from .teardown import process_skip_result_teardown
 from .utils import build_download_result, reset_bucket_cache
 
 # Progress reporting intervals
@@ -683,63 +684,12 @@ class SyncPipeline:
                 )
 
                 if skip_result:
-                    # Write sync status updates for books that don't need download
-                    if sync_status_updates and self.db_tracker:
-                        try:
-                            await batch_write_status_updates(str(self.db_tracker.db_path), sync_status_updates)
-                        except Exception as e:
-                            logger.warning(f"[{barcode}] Failed to write status updates: {e}")
-
-                    # Check the first status update to determine the result type
-                    status_value = sync_status_updates[0].status_value if sync_status_updates else "unknown"
-                    conversion_status = (
-                        sync_status_updates[0].metadata.get("conversion_status")
-                        if sync_status_updates and sync_status_updates[0].metadata
-                        else None
+                    # Use teardown function to process skip result without mutating state
+                    status_dict, updated_stats = await process_skip_result_teardown(
+                        barcode, sync_status_updates, str(self.db_tracker.db_path), self.stats
                     )
-
-                    if status_value == "completed" and conversion_status == "requested":
-                        self.stats["conversion_requested"] += 1
-                        return {
-                            "barcode": barcode,
-                            "download_success": False,
-                            "completed": True,
-                            "conversion_requested": True,
-                        }
-                    elif status_value == "completed" and conversion_status == "in_process":
-                        self.stats["conversion_requested"] += 1  # Count in_process as conversion_requested in stats
-                        return {
-                            "barcode": barcode,
-                            "download_success": False,
-                            "completed": True,
-                            "already_in_process": True,
-                        }
-                    elif status_value == "marked_unavailable":
-                        self.stats["marked_unavailable"] += 1
-                        return {"barcode": barcode, "download_success": False, "marked_unavailable": True}
-                    elif (
-                        status_value == "skipped"
-                        and sync_status_updates[0].metadata
-                        and sync_status_updates[0].metadata.get("skip_reason") == "conversion_limit_reached"
-                    ):
-                        self.stats["skipped_conversion_limit"] += 1
-                        self.stats["skipped"] += 1
-                        return {
-                            "barcode": barcode,
-                            "download_success": False,
-                            "skipped": True,
-                            "conversion_limit_reached": True,
-                        }
-                    else:
-                        # Default ETag match or other skip
-                        self.stats["skipped_etag_match"] += 1
-                        self.stats["skipped"] += 1
-                        return {
-                            "barcode": barcode,
-                            "download_success": False,
-                            "skipped": True,
-                            "skip_result": skip_result,
-                        }
+                    self.stats = updated_stats
+                    return status_dict
 
                 # We didn't skip, so do the download to either staging (if cloud storage) or local
                 if self.storage_protocol == "local":
