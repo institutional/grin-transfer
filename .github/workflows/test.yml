@@ -200,7 +200,12 @@ jobs:
             # Test book manager factory with proper bucket configuration
             config = {}
             auto_configure_minio(config)
-            book_manager = create_book_manager_with_full_text('minio', config)
+            storage_config_with_buckets = {
+                'type': 'minio',
+                'protocol': 's3',
+                'config': config
+            }
+            book_manager = create_book_manager_with_full_text(storage_config_with_buckets)
             
             # Verify bucket configuration was set
             assert book_manager.bucket_raw == 'grin-raw', f'Expected grin-raw, got {book_manager.bucket_raw}'
