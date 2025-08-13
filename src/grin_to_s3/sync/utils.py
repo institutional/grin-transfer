@@ -253,15 +253,19 @@ async def should_skip_download(
     # For S3-compatible storage, check metadata on decrypted file
     if storage_protocol == "s3":
         try:
+            # Create storage
+            from grin_to_s3.run_config import to_run_storage_config
             from grin_to_s3.storage import BookManager, create_storage_from_config
             from grin_to_s3.storage.book_manager import BucketConfig
 
-            # Create storage
-            storage = create_storage_from_config(storage_type, storage_config or {})
+            full_storage_config = to_run_storage_config(
+                storage_type=storage_type, protocol=storage_protocol, config=storage_config or {}
+            )
+            storage = create_storage_from_config(full_storage_config)
 
             # Get bucket and prefix information
             base_prefix = storage_config.get("prefix", "")
-            bucket_name = storage_config.get("bucket_raw") if storage_config else None
+            bucket_name = storage_config.get("bucket_raw")
 
             # For S3-compatible storage, bucket name must be included in path prefix
             if storage_protocol == "s3" and bucket_name:

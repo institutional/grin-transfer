@@ -210,11 +210,18 @@ class TestStorageFactories:
         mock_storage = MagicMock()
         mock_create_storage.return_value = mock_storage
 
-        config = {"bucket_raw": "raw-bucket", "bucket_meta": "meta-bucket", "bucket_full": "full-bucket"}
+        storage_config = {
+            "type": "s3",
+            "protocol": "s3",
+            "config": {"bucket_raw": "raw-bucket", "bucket_meta": "meta-bucket", "bucket_full": "full-bucket"},
+            "prefix": "",
+        }
 
-        book_manager = create_book_manager_with_full_text("s3", config, "test-prefix")
+        book_manager = create_book_manager_with_full_text(storage_config, "test-prefix")
 
-        mock_create_storage.assert_called_once_with("s3", config)
+        # Should be called with the storage config directly
+        expected_config = storage_config
+        mock_create_storage.assert_called_once_with(expected_config)
 
         assert isinstance(book_manager, BookManager)
         assert book_manager.storage == mock_storage

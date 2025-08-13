@@ -7,7 +7,10 @@ Provides convenient factory functions for common storage configurations.
 
 import json
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..run_config import RunStorageConfig
 
 from grin_to_s3.docker import process_local_storage_path
 
@@ -53,7 +56,9 @@ def s3_credentials_available() -> bool:
     """Check if S3 credentials are available via boto3's credential resolution."""
     try:
         import boto3
-
+    except ImportError:
+        return False
+    try:
         session = boto3.Session()
         credentials = session.get_credentials()
         return credentials is not None and credentials.access_key is not None
@@ -67,7 +72,6 @@ def load_r2_credentials() -> tuple[str, str] | None:
     Returns:
         Tuple of (access_key, secret_key) if successful, None if failed
     """
-    import logging
 
     logger = logging.getLogger(__name__)
     credentials_file = find_credential_file("r2_credentials.json")
@@ -110,15 +114,14 @@ def validate_required_keys(data: dict, required_keys: list, context: str = "conf
         raise ValueError(f"Missing required {context} keys: {missing_keys}")
 
 
-def create_storage_from_config(storage_type: str, config: dict) -> Storage:
+def create_storage_from_config(storage_config: "RunStorageConfig") -> Storage:
     """
-    Create storage instance based on type and configuration.
+    Create storage instance based on storage configuration.
 
     Centralized storage factory to eliminate duplication between modules.
 
     Args:
-        storage_type: Storage backend type (local, minio, r2, s3, gcs)
-        config: Configuration dictionary for the storage type
+        storage_config: Complete storage configuration dict
 
     Returns:
         Storage: Configured storage instance
@@ -126,6 +129,8 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
     Raises:
         ValueError: If storage type is unknown or configuration is invalid
     """
+    storage_type = storage_config["type"]
+    config = storage_config["config"]
     match storage_type:
         case "local":
             base_path = config.get("base_path")
@@ -170,7 +175,7 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
 
         case "s3":
             bucket = config.get("bucket") or config.get("bucket_raw")
-            if not bucket:
+            if not bucket or not isinstance(bucket, str):
                 raise ValueError("S3 storage requires bucket name")
 
             # AWS credentials from environment or ~/.aws/credentials
@@ -178,7 +183,7 @@ def create_storage_from_config(storage_type: str, config: dict) -> Storage:
 
         case "gcs":
             project = config.get("project")
-            if not project:
+            if not project or not isinstance(project, str):
                 raise ValueError("GCS storage requires project ID")
 
             # Use Application Default Credentials (ADC) - set up via: gcloud auth application-default login
@@ -284,13 +289,12 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
             raise ValueError(f"Storage type {storage_type} does not support bucket-based storage")
 
 
-def create_book_manager_with_full_text(storage_type: str, config: dict, base_prefix: str = "") -> BookManager:
+def create_book_manager_with_full_text(storage_config: "RunStorageConfig", base_prefix: str = "") -> BookManager:
     """
     Create BookManager instance with full-text bucket support.
 
     Args:
-        storage_type: Storage backend type (minio, r2, s3)
-        config: Configuration dictionary containing bucket names and credentials
+        storage_config: Complete storage configuration dict
         base_prefix: Optional prefix for storage paths
 
     Returns:
@@ -300,9 +304,10 @@ def create_book_manager_with_full_text(storage_type: str, config: dict, base_pre
         ValueError: If required buckets are not configured
     """
     # Create single storage instance
-    storage = create_storage_from_config(storage_type, config)
+    storage = create_storage_from_config(storage_config)
 
     # Extract bucket configuration
+    config = storage_config["config"]
     bucket_config: BucketConfig = {
         "bucket_raw": config["bucket_raw"],
         "bucket_meta": config["bucket_meta"],

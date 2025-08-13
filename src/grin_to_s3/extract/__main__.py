@@ -174,8 +174,7 @@ async def extract_single_archive(
 
 async def main() -> int:
     """Main entry point for text extraction CLI."""
-    parser = create_parser()
-    args = parser.parse_args()
+    args = create_parser().parse_args()
 
     # Validate arguments
     if args.output and args.output_dir:
@@ -241,9 +240,14 @@ async def main() -> int:
                 storage_config = credentials_config.copy()
                 storage_config.update(existing_storage_config.get("config", {}))
 
+                from ..run_config import to_run_storage_config
+                from ..storage import get_storage_protocol
                 from ..storage.factories import create_book_manager_with_full_text
 
-                book_manager = create_book_manager_with_full_text(storage_type, storage_config, storage_prefix)
+                full_storage_config = to_run_storage_config(
+                    storage_type, get_storage_protocol(storage_type), storage_config, storage_prefix
+                )
+                book_manager = create_book_manager_with_full_text(full_storage_config, storage_prefix)
             else:
                 raise FileNotFoundError(f"Run configuration not found: {config_path}")
             if args.verbose:

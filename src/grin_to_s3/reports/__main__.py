@@ -75,18 +75,17 @@ async def handle_view(args) -> int:
 
 async def main() -> int:
     """Main entry point for logs commands."""
-    parser = create_parser()
-    args = parser.parse_args()
+    args = create_parser().parse_args()
 
     if not args.subcommand:
-        parser.print_help()
+        create_parser().print_help()
         return 1
 
     if args.subcommand == "view":
         return await handle_view(args)
     else:
         print(f"Unknown subcommand: {args.subcommand}")
-        parser.print_help()
+        create_parser().print_help()
         return 1
 
 

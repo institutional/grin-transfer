@@ -7,7 +7,10 @@ Supports S3, Azure Blob, GCS, local filesystem, and more through fsspec.
 
 import asyncio
 import logging
+import os
+import re
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from typing import Any
 
 import fsspec
@@ -83,8 +86,6 @@ class Storage:
 
             # For GCS, ensure project ID is available and set environment variable
             if self.config.protocol == "gcs":
-                import os
-
                 project_id = options.get("project")
                 if not project_id:
                     raise ValueError("GCS filesystem requires project ID in storage configuration")
@@ -106,8 +107,6 @@ class Storage:
         if self.config.protocol == "file":
             # For local filesystem, ensure absolute path
             if not path.startswith("/"):
-                from pathlib import Path
-
                 base_path = self.config.options.get("base_path")
                 if not base_path:
                     raise ValueError("Local storage requires explicit base_path")
@@ -116,8 +115,6 @@ class Storage:
             # For cloud storage, ensure no leading slash and normalize consecutive slashes
             path = path.lstrip("/")
             # Replace consecutive slashes with single slash
-            import re
-
             path = re.sub(r"/+", "/", path)
         return path
 
@@ -190,8 +187,6 @@ class Storage:
 
         # Ensure parent directories exist for local filesystem
         if self.config.protocol == "file":
-            from pathlib import Path
-
             parent = Path(normalized_path).parent
             parent.mkdir(parents=True, exist_ok=True)
 
@@ -201,8 +196,6 @@ class Storage:
         """Stream upload file directly without loading into memory."""
         if self.config.protocol == "s3":
             try:
-                import os
-
                 import aioboto3
                 import aiofiles
 
@@ -290,7 +283,6 @@ class Storage:
         self, s3_client, bucket: str, key: str, file_path: str, metadata: dict[str, str] | None = None
     ) -> None:
         """Upload large files using multipart upload directly from file for better performance."""
-
         import aiofiles
 
         # Initiate multipart upload

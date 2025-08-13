@@ -85,17 +85,17 @@ class TestLocalStorageIntegration:
                     target_dir_printed = any("/valid/path" in call for call in print_calls)
                     assert target_dir_printed, "Target directory should be displayed in startup configuration"
 
-            # Test case 2: None storage config (edge case)
-            pipeline.storage_config = None
+            # Test case 2: Minimal storage config (no base_path)
+            pipeline.storage_config = {}
 
             with patch("grin_to_s3.processing.get_converted_books", return_value=set()):
                 with patch("builtins.print") as mock_print:
                     await pipeline.setup_sync_loop(queues=["converted"], limit=0)
 
-                    # Should handle None gracefully by showing "None"
+                    # Should handle missing base_path gracefully by showing "None"
                     print_calls = [str(call) for call in mock_print.call_args_list]
                     none_printed = any("None" in call for call in print_calls)
-                    assert none_printed, "Should display 'None' for missing storage config"
+                    assert none_printed, "Should display 'None' for missing base_path"
 
     @pytest.mark.asyncio
     async def test_staging_manager_none_handling(self, mock_process_stage, test_config_builder):

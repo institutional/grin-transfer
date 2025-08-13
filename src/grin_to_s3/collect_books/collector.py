@@ -112,7 +112,7 @@ class BookCollector:
         # Storage (optional)
         self.book_manager: BookManager | None = None
         if storage_config:
-            storage = create_storage_from_config(storage_config["type"], storage_config.get("config", {}))
+            storage = create_storage_from_config(storage_config)
             # Create bucket config for BookStorage constructor
             config_dict = storage_config.get("config", {})
             bucket_config: BucketConfig = extract_bucket_config(storage_config["type"], config_dict)

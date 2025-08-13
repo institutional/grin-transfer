@@ -8,6 +8,7 @@ import pytest
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.storage import BookManager, Storage, StorageConfig, create_local_storage, create_storage_from_config
 from grin_to_s3.sync.pipeline import SyncPipeline
+from tests.test_utils.storage_helpers import create_local_test_config
 
 
 class TestLocalStorageValidation:
@@ -17,21 +18,25 @@ class TestLocalStorageValidation:
         """Test that local storage requires explicit base_path."""
         # Test create_storage_from_config without base_path
         with pytest.raises(ValueError, match="Local storage requires explicit base_path"):
-            create_storage_from_config("local", {})
+            config = create_local_test_config("")
+            create_storage_from_config(config)
 
         # Test with empty base_path
         with pytest.raises(ValueError, match="Local storage requires explicit base_path"):
-            create_storage_from_config("local", {"base_path": ""})
+            config = create_local_test_config("")
+            create_storage_from_config(config)
 
         # Test with None base_path
         with pytest.raises(ValueError, match="Local storage requires explicit base_path"):
-            create_storage_from_config("local", {"base_path": None})
+            config = create_local_test_config(None)
+            create_storage_from_config(config)
 
     def test_local_storage_with_valid_base_path(self):
         """Test that local storage works with valid base_path."""
         with tempfile.TemporaryDirectory() as temp_dir:
             # Should not raise any errors
-            storage = create_storage_from_config("local", {"base_path": temp_dir})
+            config = create_local_test_config(temp_dir)
+            storage = create_storage_from_config(config)
             assert storage is not None
             assert storage.config.protocol == "file"
 
@@ -82,7 +87,8 @@ class TestLocalStorageDirectWrite:
         """Test that BookStorage generates correct paths for local storage."""
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            storage = create_storage_from_config("local", {"base_path": temp_dir})
+            config = create_local_test_config(temp_dir)
+            storage = create_storage_from_config(config)
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
             book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
 
@@ -99,7 +105,8 @@ class TestLocalStorageDirectWrite:
         """Test file operations work correctly with local storage."""
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            storage = create_storage_from_config("local", {"base_path": temp_dir})
+            config = create_local_test_config(temp_dir)
+            storage = create_storage_from_config(config)
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
             book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
 
@@ -191,7 +198,8 @@ class TestLocalStorageErrorHandling:
             readonly_dir.chmod(0o444)
 
             try:
-                storage = create_storage_from_config("local", {"base_path": str(readonly_dir)})
+                config = create_local_test_config(str(readonly_dir))
+                storage = create_storage_from_config(config)
                 bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
                 book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
 
