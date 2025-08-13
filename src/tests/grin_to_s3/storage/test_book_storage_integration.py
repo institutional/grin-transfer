@@ -289,7 +289,15 @@ class TestBookStorageIntegration:
             book_manager = create_book_manager_with_full_text(storage_type, config, "test-prefix")
 
             # Verify factory was called correctly (now uses single storage)
-            mock_create.assert_called_once_with(storage_type, config)
+            # With backward compatibility, it should be called with full storage config
+            from grin_to_s3.storage import get_storage_protocol
+            expected_config = {
+                "type": storage_type,
+                "protocol": get_storage_protocol(storage_type),
+                "config": config,
+                "prefix": ""
+            }
+            mock_create.assert_called_once_with(expected_config)
 
             # Verify BookStorage was configured correctly
             assert isinstance(book_manager, BookManager)

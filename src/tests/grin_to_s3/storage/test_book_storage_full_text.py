@@ -220,7 +220,14 @@ class TestStorageFactories:
 
         book_manager = create_book_manager_with_full_text("s3", config, "test-prefix")
 
-        mock_create_storage.assert_called_once_with("s3", config)
+        # With backward compatibility, it should be called with full storage config
+        expected_config = {
+            "type": "s3",
+            "protocol": "s3",
+            "config": config,
+            "prefix": ""
+        }
+        mock_create_storage.assert_called_once_with(expected_config)
 
         assert isinstance(book_manager, BookManager)
         assert book_manager.storage == mock_storage

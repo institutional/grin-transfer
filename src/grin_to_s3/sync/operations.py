@@ -174,7 +174,7 @@ def get_download_target_path(barcode: str, storage_protocol: str, storage_config
 
     elif storage_protocol == "local":
         # Validate base_path requirement for local storage
-        base_path = storage_config.get("base_path") if storage_config else None
+        base_path = storage_config.get("base_path")
         if not base_path:
             raise ValueError("Local storage requires base_path in configuration")
 

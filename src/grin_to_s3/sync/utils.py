@@ -259,7 +259,7 @@ async def should_skip_download(
 
             # Get bucket and prefix information
             base_prefix = storage_config.get("prefix", "")
-            bucket_name = storage_config.get("bucket_raw") if storage_config else None
+            bucket_name = storage_config.get("bucket_raw")
 
             # For S3-compatible storage, bucket name must be included in path prefix
             if storage_protocol == "s3" and bucket_name:

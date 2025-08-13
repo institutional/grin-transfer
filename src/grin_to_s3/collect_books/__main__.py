@@ -154,7 +154,7 @@ Examples:
 
     # Storage options
     parser.add_argument(
-        "--storage", choices=["local", "minio", "r2", "s3", "gcs"], required=True, help="Storage backend for run configuration"
+        "--storage", choices=["local", "minio", "r2", "s3", "gcs"], default="local", help="Storage backend for run configuration (default: local)"
     )
     parser.add_argument(
         "--bucket-raw",
@@ -236,27 +236,6 @@ Examples:
 
     args = parser.parse_args()
 
-    # Validate storage arguments
-    # For R2 and S3, bucket names are optional (can be in config files)
-    # For MinIO, bucket names are auto-configured from docker-compose
-    # For local, no buckets needed but base_path is required
-
-    # Validate local storage has base_path
-    if args.storage == "local":
-        # Check if base_path is provided in storage_config
-        has_base_path = False
-        if args.storage_config:
-            for item in args.storage_config:
-                if "=" in item and item.split("=", 1)[0] == "base_path":
-                    has_base_path = True
-                    break
-
-        if not has_base_path:
-            parser.error(
-                "Local storage requires explicit base_path. "
-                "Use: --storage local --storage-config base_path=/path/to/storage"
-            )
-
     # Handle config creation
     if args.create_config:
         from pathlib import Path
@@ -280,6 +259,23 @@ Examples:
 
     # Extract the actual identifier from run_name (remove "run_" prefix if present)
     run_identifier = run_name.removeprefix("run_") if run_name.startswith("run_") else run_name
+
+    # Set default base_path for local storage if not provided
+    if args.storage == "local":
+        # Check if base_path is provided in storage_config
+        has_base_path = False
+        if args.storage_config:
+            for item in args.storage_config:
+                if "=" in item and item.split("=", 1)[0] == "base_path":
+                    has_base_path = True
+                    break
+
+        if not has_base_path:
+            # Default to output/{run_name}/storage for local storage
+            default_base_path = f"output/{run_name}/storage"
+            if not args.storage_config:
+                args.storage_config = []
+            args.storage_config.append(f"base_path={default_base_path}")
 
     # Generate timestamp for output files (not resume files)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

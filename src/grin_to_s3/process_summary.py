@@ -437,22 +437,19 @@ async def create_book_manager_for_uploads(run_name: str):
         db_path = f"output/{run_name}/books.db"
         run_config = find_run_config(db_path)
 
-        if not run_config or not run_config.storage_config:
-            logger.warning(f"No storage configuration found for run {run_name}")
+        if not run_config:
+            logger.warning(f"No run configuration found for run {run_name}")
             return None
 
         # Create storage instance
         storage_type = run_config.storage_type
-        if not storage_type:
-            logger.warning(f"No storage type found in run configuration for {run_name}")
-            return None
 
-        # Extract the nested config for storage creation
-        nested_config = run_config.storage_config.get("config", {})
-        storage = create_storage_from_config(storage_type, nested_config)
+        # Use the full storage config for new API
+        storage = create_storage_from_config(run_config.storage_config)
 
         # Create bucket configuration with appropriate defaults
-        bucket_config_dict = extract_bucket_config(storage_type, nested_config)
+        nested_config = run_config.storage_config["config"]
+        bucket_config_dict = extract_bucket_config(storage_type, dict(nested_config))
         bucket_config: BucketConfig = {
             "bucket_raw": bucket_config_dict["bucket_raw"],
             "bucket_meta": bucket_config_dict["bucket_meta"],

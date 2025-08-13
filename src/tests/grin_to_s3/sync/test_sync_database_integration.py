@@ -21,6 +21,8 @@ def mock_run_config():
         config.sqlite_db_path = str(db_path)
         config.storage_type = "local"
         config.storage_config = {
+            "type": "local",
+            "protocol": "local",
             "config": {
                 "base_path": temp_dir,
                 "bucket_raw": "raw",

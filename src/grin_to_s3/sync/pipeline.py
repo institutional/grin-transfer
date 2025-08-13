@@ -187,9 +187,10 @@ class SyncPipeline:
 
         # Extract commonly used config values
         self.db_path = config.sqlite_db_path
-        self.storage_type = config.storage_type or "local"  # Default to local if None
+        self.full_storage_config = config.storage_config
+        self.storage_type = self.full_storage_config["type"]
         self.storage_protocol = get_storage_protocol(self.storage_type)
-        self.storage_config = config.storage_config.get("config", {}) if config.storage_config else {}
+        self.storage_config = self.full_storage_config["config"]
         self.library_directory = config.library_directory
         self.secrets_dir = config.secrets_dir
 
@@ -251,9 +252,9 @@ class SyncPipeline:
         self._enrichment_workers: list[asyncio.Task] = []
 
         # Initialize storage components once (now that tests provide complete configurations)
-        self.storage = create_storage_from_config(self.storage_type, self.storage_config or {})
-        self.base_prefix = self.storage_config.get("prefix", "") if self.storage_config else ""
-        self.bucket_config = extract_bucket_config(self.storage_type, self.storage_config or {})
+        self.storage = create_storage_from_config(self.full_storage_config)
+        self.base_prefix = self.full_storage_config.get("prefix", "")
+        self.bucket_config = extract_bucket_config(self.storage_type, self.storage_config)
 
         # Conversion request handling for previous queue
         self.current_queues: list[str] = []  # Track which queues are being processed
@@ -1004,7 +1005,7 @@ class SyncPipeline:
 
         # Display storage configuration details
         if self.storage_type == "local":
-            base_path = self.storage_config.get("base_path") if self.storage_config else None
+            base_path = self.storage_config.get("base_path")
             print(f"Storage: Local filesystem at {base_path or 'None'}")
         elif self.storage_type in ["s3", "r2", "minio"]:
             storage_names = {"s3": "AWS S3", "r2": "Cloudflare R2", "minio": "MinIO"}

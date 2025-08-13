@@ -8,7 +8,7 @@ Utilities for reading and using configuration written by collect_books runs.
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 from .storage.factories import find_credential_file, load_json_credentials
 
@@ -18,6 +18,26 @@ DEFAULT_SYNC_CONCURRENT_UPLOADS = 10
 DEFAULT_SYNC_BATCH_SIZE = 100
 DEFAULT_SYNC_DISK_SPACE_THRESHOLD = 0.9
 DEFAULT_SYNC_ENRICHMENT_WORKERS = 1
+
+
+class StorageConfigDict(TypedDict):
+    """Inner config dict for storage configuration."""
+    bucket_raw: NotRequired[str]
+    bucket_meta: NotRequired[str]
+    bucket_full: NotRequired[str]
+    base_path: NotRequired[str]  # For local storage
+    endpoint_url: NotRequired[str]  # For MinIO/R2
+    access_key: NotRequired[str]  # Only in memory, not saved
+    secret_key: NotRequired[str]  # Only in memory, not saved
+    credentials_file: NotRequired[str]
+
+
+class RunStorageConfig(TypedDict):
+    """Complete storage configuration."""
+    type: str  # Always present: "local", "s3", "r2", "minio", "gcs"
+    protocol: str  # Always present: derived from type
+    config: StorageConfigDict
+    prefix: NotRequired[str]  # Optional prefix for all storage operations
 
 
 
@@ -63,39 +83,45 @@ class RunConfig:
         return self.config_dict.get("secrets_dir")
 
     @property
-    def storage_config(self) -> dict[str, Any] | None:
+    def storage_config(self) -> RunStorageConfig:
         """Get the storage configuration."""
-        return self.config_dict.get("storage_config")
+        stored_config = self.config_dict.get("storage_config")
+        if not stored_config:
+            # Default to local storage if not specified or empty
+            return {
+                "type": "local",
+                "protocol": "local",
+                "config": {"base_path": f"{self.output_directory}/storage"}
+            }
+        # If stored_config exists but is missing required fields, add them
+        if "type" not in stored_config:
+            stored_config["type"] = "local"
+        if "protocol" not in stored_config:
+            from .storage.factories import get_storage_protocol
+            stored_config["protocol"] = get_storage_protocol(stored_config["type"])
+        if "config" not in stored_config:
+            stored_config["config"] = {}
+        return stored_config
 
     @property
-    def storage_type(self) -> str | None:
+    def storage_type(self) -> str:
         """Get the storage type."""
-        storage_config = self.storage_config
-        return storage_config.get("type") if storage_config else None
+        return self.storage_config["type"]
 
     @property
     def storage_bucket_raw(self) -> str | None:
         """Get the raw data storage bucket from storage config."""
-        storage_config = self.storage_config
-        if storage_config and "config" in storage_config:
-            return storage_config["config"].get("bucket_raw")
-        return None
+        return self.storage_config["config"].get("bucket_raw")
 
     @property
     def storage_bucket_meta(self) -> str | None:
         """Get the metadata storage bucket from storage config."""
-        storage_config = self.storage_config
-        if storage_config and "config" in storage_config:
-            return storage_config["config"].get("bucket_meta")
-        return None
+        return self.storage_config["config"].get("bucket_meta")
 
     @property
     def storage_bucket_full(self) -> str | None:
         """Get the full-text storage bucket from storage config."""
-        storage_config = self.storage_config
-        if storage_config and "config" in storage_config:
-            return storage_config["config"].get("bucket_full")
-        return None
+        return self.storage_config["config"].get("bucket_full")
 
     @property
     def limit(self) -> int | None:
@@ -148,32 +174,29 @@ class RunConfig:
         args: dict[str, str] = {}
         storage_config = self.storage_config
 
-        if not storage_config:
-            return args
+        args["storage"] = storage_config["type"]
 
-        args["storage"] = storage_config.get("type", "")
-
-        config = storage_config.get("config", {})
+        config = storage_config["config"]
         for key, value in config.items():
             if key == "bucket_raw":
-                args["bucket-raw"] = value
+                args["bucket-raw"] = str(value)
             elif key == "bucket_meta":
-                args["bucket-meta"] = value
+                args["bucket-meta"] = str(value)
             elif key == "bucket_full":
-                args["bucket-full"] = value
+                args["bucket-full"] = str(value)
             elif key == "base_path":
-                args["base-path"] = value
+                args["base-path"] = str(value)
             elif key == "prefix":
-                args["prefix"] = value
+                args["prefix"] = str(value)
             elif key == "endpoint_url":
-                args["endpoint-url"] = value
+                args["endpoint-url"] = str(value)
             # Skip access_key and secret_key - these should only be read from secrets directories
             elif key == "access_key":
                 pass  # Don't include secrets in args
             elif key == "secret_key":
                 pass  # Don't include secrets in args
             elif key == "credentials_file":
-                args["credentials-file"] = value
+                args["credentials-file"] = str(value)
 
         return args
 
@@ -304,18 +327,19 @@ def print_run_config_info(db_path: str) -> None:
         if config.secrets_dir:
             print(f"  Secrets Directory: {config.secrets_dir}")
 
-        if config.storage_config:
-            storage = config.storage_config
-            print(f"  Storage Type: {storage.get('type')}")
-            storage_config = storage.get("config", {})
-            if "bucket_raw" in storage_config:
-                print(f"  Raw Data Bucket: {storage_config['bucket_raw']}")
-            if "bucket_meta" in storage_config:
-                print(f"  Metadata Bucket: {storage_config['bucket_meta']}")
-            if "bucket_full" in storage_config:
-                print(f"  Full-text Bucket: {storage_config['bucket_full']}")
-            if "prefix" in storage_config:
-                print(f"  Storage Prefix: {storage_config['prefix']}")
+        storage = config.storage_config
+        print(f"  Storage Type: {storage['type']}")
+        storage_config = storage["config"]
+        if "bucket_raw" in storage_config:
+            print(f"  Raw Data Bucket: {storage_config['bucket_raw']}")
+        if "bucket_meta" in storage_config:
+            print(f"  Metadata Bucket: {storage_config['bucket_meta']}")
+        if "bucket_full" in storage_config:
+            print(f"  Full-text Bucket: {storage_config['bucket_full']}")
+        if "base_path" in storage_config:
+            print(f"  Base Path: {storage_config['base_path']}")
+        if storage.get("prefix"):
+            print(f"  Storage Prefix: {storage['prefix']}")
 
         if config.sync_config:
             print("  Sync Configuration:")
@@ -392,7 +416,7 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
         args: Arguments object containing bucket and storage config attributes
 
     Returns:
-        Dictionary with storage configuration
+        Dictionary with storage configuration (no prefix included)
     """
     storage_dict: dict[str, str] = {}
 
@@ -445,8 +469,8 @@ def build_storage_config_dict(args: Any) -> dict[str, str]:
                 # If we can't load credentials, that's ok - validation will catch missing buckets later
                 pass
 
-    # Add other optional arguments (excluding secrets)
-    for attr in ["prefix", "endpoint_url", "credentials_file"]:
+    # Add other optional arguments (excluding secrets and prefix)
+    for attr in ["endpoint_url", "credentials_file"]:
         value = getattr(args, attr, None)
         if value:
             storage_dict[attr] = value
