@@ -17,13 +17,12 @@ from grin_to_s3.common import (
     DEFAULT_DOWNLOAD_RETRIES,
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_MAX_SEQUENTIAL_FAILURES,
-    RateLimiter,
     SlidingWindowRateCalculator,
     extract_bucket_config,
     format_duration,
     pluralize,
 )
-from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT, GRIN_RATE_LIMIT_DELAY
+from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT
 from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.processing import get_converted_books, get_in_process_set

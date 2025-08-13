@@ -27,7 +27,6 @@ from grin_to_s3.run_config import (
     DEFAULT_SYNC_CONCURRENT_DOWNLOADS,
     DEFAULT_SYNC_CONCURRENT_UPLOADS,
     DEFAULT_SYNC_DISK_SPACE_THRESHOLD,
-    DEFAULT_SYNC_ENRICHMENT_WORKERS,
     build_storage_config_dict,
 )
 from grin_to_s3.storage import get_storage_protocol
@@ -235,12 +234,6 @@ Examples:
         default=DEFAULT_SYNC_DISK_SPACE_THRESHOLD,
         help=f"Disk usage threshold to pause downloads (0.0-1.0, default: {DEFAULT_SYNC_DISK_SPACE_THRESHOLD})",
     )
-    parser.add_argument(
-        "--sync-enrichment-workers",
-        type=int,
-        default=DEFAULT_SYNC_ENRICHMENT_WORKERS,
-        help=f"Number of enrichment workers for sync operations (default: {DEFAULT_SYNC_ENRICHMENT_WORKERS})",
-    )
 
     args = parser.parse_args()
 
@@ -330,7 +323,6 @@ Examples:
             "batch_size": args.sync_batch_size,
             "staging_dir": args.sync_staging_dir,
             "disk_space_threshold": args.sync_disk_space_threshold,
-            "enrichment_workers": args.sync_enrichment_workers,
         }
 
         # Create enhanced config dict with storage and runtime info
@@ -440,7 +432,6 @@ Examples:
                 "batch_size": args.sync_batch_size,
                 "staging_dir": args.sync_staging_dir,
                 "disk_space_threshold": args.sync_disk_space_threshold,
-                "enrichment_workers": args.sync_enrichment_workers,
             }
 
             # Write run configuration to run directory
