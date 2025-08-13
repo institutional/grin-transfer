@@ -161,8 +161,8 @@ Examples:
     parser.add_argument(
         "--storage",
         choices=["local", "minio", "r2", "s3", "gcs"],
-        default="local",
-        help="Storage backend for run configuration (default: local)",
+        required=True,
+        help="Storage backend for run configuration",
     )
     parser.add_argument(
         "--bucket-raw",
@@ -268,22 +268,6 @@ Examples:
     # Extract the actual identifier from run_name (remove "run_" prefix if present)
     run_identifier = run_name.removeprefix("run_") if run_name.startswith("run_") else run_name
 
-    # Set default base_path for local storage if not provided
-    if args.storage == "local":
-        # Check if base_path is provided in storage_config
-        has_base_path = False
-        if args.storage_config:
-            for item in args.storage_config:
-                if "=" in item and item.split("=", 1)[0] == "base_path":
-                    has_base_path = True
-                    break
-
-        if not has_base_path:
-            # Default to output/{run_name}/storage for local storage
-            default_base_path = f"output/{run_name}/storage"
-            if not args.storage_config:
-                args.storage_config = []
-            args.storage_config.append(f"base_path={default_base_path}")
 
     # Generate timestamp for output files (not resume files)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

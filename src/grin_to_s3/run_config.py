@@ -8,7 +8,7 @@ Utilities for reading and using configuration written by collect_books runs.
 import json
 import sys
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import Any, NotRequired, TypedDict, cast
 
 from .storage.factories import find_credential_file, load_json_credentials
 
@@ -33,13 +33,13 @@ class StorageConfigDict(TypedDict, total=False):
     credentials_file: str
 
 
-class RunStorageConfig(TypedDict, total=False):
+class RunStorageConfig(TypedDict):
     """Complete storage configuration."""
 
-    type: str  # Actually required but we handle validation separately
-    protocol: str  # Actually required
-    config: StorageConfigDict
-    prefix: str  # Optional prefix for all storage operations
+    type: str  # Required
+    protocol: str  # Required
+    config: StorageConfigDict  # Required
+    prefix: NotRequired[str]  # Optional prefix for all storage operations
 
 
 def to_storage_config_dict(source: dict[str, Any]) -> StorageConfigDict:
@@ -109,18 +109,16 @@ class RunConfig:
         """Get the storage configuration."""
         stored_config = self.config_dict.get("storage_config")
         if not stored_config:
-            # Default to local storage if not specified or empty
-            return {"type": "local", "protocol": "local", "config": {"base_path": f"{self.output_directory}/storage"}}
-        # If stored_config exists but is missing required fields, add them
-        if "type" not in stored_config:
-            stored_config["type"] = "local"
+            raise ValueError("Storage configuration is required but not found in run config")
+
+        # Fill in protocol if missing (only field we auto-derive)
         if "protocol" not in stored_config:
             from .storage.factories import get_storage_protocol
-
             stored_config["protocol"] = get_storage_protocol(stored_config["type"])
         if "config" not in stored_config:
             stored_config["config"] = {}
-        return stored_config
+
+        return stored_config  # Type checker will enforce RunStorageConfig structure
 
     @property
     def storage_type(self) -> str:
@@ -195,26 +193,26 @@ class RunConfig:
         args["storage"] = storage_config["type"]
 
         config = storage_config["config"]
-        for key, value in config.items():
-            if key == "bucket_raw":
-                args["bucket-raw"] = str(value)
-            elif key == "bucket_meta":
-                args["bucket-meta"] = str(value)
-            elif key == "bucket_full":
-                args["bucket-full"] = str(value)
-            elif key == "base_path":
-                args["base-path"] = str(value)
-            elif key == "prefix":
-                args["prefix"] = str(value)
-            elif key == "endpoint_url":
-                args["endpoint-url"] = str(value)
-            # Skip access_key and secret_key - these should only be read from secrets directories
-            elif key == "access_key":
-                pass  # Don't include secrets in args
-            elif key == "secret_key":
-                pass  # Don't include secrets in args
-            elif key == "credentials_file":
-                args["credentials-file"] = str(value)
+
+        # Access fields directly to leverage TypedDict typing
+        if "bucket_raw" in config:
+            args["bucket-raw"] = config["bucket_raw"]
+        if "bucket_meta" in config:
+            args["bucket-meta"] = config["bucket_meta"]
+        if "bucket_full" in config:
+            args["bucket-full"] = config["bucket_full"]
+        if "base_path" in config:
+            args["base-path"] = config["base_path"]
+        if "endpoint_url" in config:
+            args["endpoint-url"] = config["endpoint_url"]
+        if "credentials_file" in config:
+            args["credentials-file"] = config["credentials_file"]
+
+        # Handle prefix from the top-level storage config
+        if "prefix" in storage_config:
+            args["prefix"] = storage_config["prefix"]
+
+        # Skip access_key and secret_key - these should only be read from secrets directories
 
         return args
 
@@ -357,7 +355,7 @@ def print_run_config_info(db_path: str) -> None:
         if "base_path" in storage_config:
             print(f"  Base Path: {storage_config['base_path']}")
         if storage.get("prefix"):
-            print(f"  Storage Prefix: {storage['prefix']}")
+            print(f"  Storage Prefix: {storage.get('prefix')}")
 
         if config.sync_config:
             print("  Sync Configuration:")

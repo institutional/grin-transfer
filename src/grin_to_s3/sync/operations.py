@@ -1048,9 +1048,10 @@ async def download_book_to_local(
     # Create storage and BookManager instance for OCR extraction
     from grin_to_s3.run_config import to_run_storage_config
 
-    full_storage_config = to_run_storage_config(storage_type="local", protocol="local", config=storage_config or {})
+    # This function is specifically for local storage, but use the passed config
+    full_storage_config = to_run_storage_config(storage_type="local", protocol="local", config=storage_config)
     storage = create_storage_from_config(full_storage_config)
-    bucket_config_dict = extract_bucket_config("local", storage_config or {})
+    bucket_config_dict = extract_bucket_config("local", storage_config)
     bucket_config: BucketConfig = {
         "bucket_raw": bucket_config_dict["bucket_raw"],
         "bucket_meta": bucket_config_dict["bucket_meta"],
