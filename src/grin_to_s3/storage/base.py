@@ -30,7 +30,7 @@ class StorageNotFoundError(StorageError):
     pass
 
 
-class StorageConfig:
+class BackendConfig:
     """Configuration for different storage backends."""
 
     def __init__(self, protocol: str = "file", endpoint_url: str | None = None, **kwargs: Any) -> None:
@@ -39,29 +39,29 @@ class StorageConfig:
         self.options = kwargs
 
     @classmethod
-    def s3(cls, bucket: str, **kwargs: Any) -> "StorageConfig":
+    def s3(cls, bucket: str, **kwargs: Any) -> "BackendConfig":
         """Configure for AWS S3."""
         return cls(protocol="s3", **kwargs)
 
     @classmethod
-    def r2(cls, endpoint_url: str, access_key: str, secret_key: str, **kwargs: Any) -> "StorageConfig":
+    def r2(cls, endpoint_url: str, access_key: str, secret_key: str, **kwargs: Any) -> "BackendConfig":
         """Configure for Cloudflare R2 storage."""
         return cls(protocol="s3", endpoint_url=endpoint_url, key=access_key, secret=secret_key, **kwargs)
 
     @classmethod
-    def gcs(cls, project: str, **kwargs: Any) -> "StorageConfig":
+    def gcs(cls, project: str, **kwargs: Any) -> "BackendConfig":
         """Configure for Google Cloud Storage."""
         return cls(protocol="gcs", project=project, **kwargs)
 
     @classmethod
-    def local(cls, base_path: str) -> "StorageConfig":
+    def local(cls, base_path: str) -> "BackendConfig":
         """Configure for local filesystem (base_path required)."""
         if not base_path:
             raise ValueError("Local storage requires explicit base_path")
         return cls(protocol="file", base_path=base_path)
 
     @classmethod
-    def minio(cls, endpoint_url: str, access_key: str, secret_key: str) -> "StorageConfig":
+    def minio(cls, endpoint_url: str, access_key: str, secret_key: str) -> "BackendConfig":
         """Configure for MinIO or S3-compatible storage."""
         return cls(protocol="s3", endpoint_url=endpoint_url, key=access_key, secret=secret_key)
 
@@ -73,7 +73,7 @@ class Storage:
     Provides unified interface for cloud storage operations using fsspec.
     """
 
-    def __init__(self, config: StorageConfig):
+    def __init__(self, config: BackendConfig):
         self.config = config
         self._fs = None
 

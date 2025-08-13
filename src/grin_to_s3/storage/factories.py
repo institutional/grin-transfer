@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 from grin_to_s3.docker import process_local_storage_path
 
 from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR, find_credential_file
-from .base import Storage, StorageConfig
+from .base import BackendConfig, Storage
 from .book_manager import BookManager, BucketConfig
 
 logger = logging.getLogger(__name__)
@@ -195,19 +195,19 @@ def create_storage_from_config(storage_config: "RunStorageConfig") -> Storage:
 
 def create_s3_storage(bucket: str | None = None, **kwargs: Any) -> Storage:
     """Create AWS S3 storage instance."""
-    config = StorageConfig.s3(bucket=bucket or "", **kwargs)
+    config = BackendConfig.s3(bucket=bucket or "", **kwargs)
     return Storage(config)
 
 
 def create_r2_storage(endpoint_url: str, access_key: str, secret_key: str, **kwargs: Any) -> Storage:
     """Create Cloudflare R2 storage instance."""
-    config = StorageConfig.r2(endpoint_url, access_key, secret_key, **kwargs)
+    config = BackendConfig.r2(endpoint_url, access_key, secret_key, **kwargs)
     return Storage(config)
 
 
 def create_minio_storage(endpoint_url: str, access_key: str, secret_key: str, **kwargs: Any) -> Storage:
     """Create MinIO storage instance."""
-    config = StorageConfig.minio(endpoint_url, access_key, secret_key, **kwargs)
+    config = BackendConfig.minio(endpoint_url, access_key, secret_key, **kwargs)
     return Storage(config)
 
 
@@ -215,19 +215,19 @@ def create_local_storage(base_path: str, **kwargs: Any) -> Storage:
     """Create local filesystem storage instance."""
     if not base_path:
         raise ValueError("Local storage requires explicit base_path")
-    config = StorageConfig.local(base_path)
+    config = BackendConfig.local(base_path)
     return Storage(config)
 
 
 def create_gcs_storage(project: str, **kwargs: Any) -> Storage:
     """Create Google Cloud Storage instance."""
-    config = StorageConfig.gcs(project=project, **kwargs)
+    config = BackendConfig.gcs(project=project, **kwargs)
     return Storage(config)
 
 
 def create_azure_storage(account_name: str, **kwargs: Any) -> Storage:
     """Create Azure Blob Storage instance."""
-    config = StorageConfig(protocol="abfs", account_name=account_name, **kwargs)
+    config = BackendConfig(protocol="abfs", account_name=account_name, **kwargs)
     return Storage(config)
 
 

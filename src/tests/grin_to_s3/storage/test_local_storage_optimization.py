@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.storage import BookManager, Storage, StorageConfig, create_local_storage, create_storage_from_config
+from grin_to_s3.storage import BackendConfig, BookManager, Storage, create_local_storage, create_storage_from_config
 from grin_to_s3.sync.pipeline import SyncPipeline
 from tests.test_utils.storage_helpers import create_local_test_config
 
@@ -55,10 +55,10 @@ class TestLocalStorageValidation:
         """Test StorageConfig.local validation."""
         # Test with empty string
         with pytest.raises(ValueError, match="Local storage requires explicit base_path"):
-            StorageConfig.local("")
+            BackendConfig.local("")
 
         # Test with valid path
-        config = StorageConfig.local("/tmp/test")
+        config = BackendConfig.local("/tmp/test")
         assert config.protocol == "file"
         assert config.options["base_path"] == "/tmp/test"
 
@@ -66,7 +66,7 @@ class TestLocalStorageValidation:
     async def test_normalize_path_validation(self):
         """Test that _normalize_path validates base_path."""
         # Create storage with missing base_path in options
-        config = StorageConfig(protocol="file")
+        config = BackendConfig(protocol="file")
 
         storage = Storage(config)
 

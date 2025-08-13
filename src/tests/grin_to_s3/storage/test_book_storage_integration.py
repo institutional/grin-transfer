@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.storage.base import Storage, StorageConfig
+from grin_to_s3.storage.base import BackendConfig, Storage
 from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.factories import create_book_manager_with_full_text, create_storage_from_config
 from tests.test_utils.unified_mocks import mock_cloud_storage_backend
@@ -31,7 +31,7 @@ class TestBookStorageIntegration:
             full_dir.mkdir()
 
             # Create storage instances for raw and full buckets
-            raw_storage = Storage(StorageConfig.local(str(raw_dir)))
+            raw_storage = Storage(BackendConfig.local(str(raw_dir)))
 
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
             book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
@@ -85,7 +85,7 @@ class TestBookStorageIntegration:
             full_dir.mkdir()
 
             # Create storage instances
-            raw_storage = Storage(StorageConfig.local(str(raw_dir)))
+            raw_storage = Storage(BackendConfig.local(str(raw_dir)))
 
             base_prefix = "test-collection"
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
@@ -126,7 +126,7 @@ class TestBookStorageIntegration:
             full_dir = Path(temp_dir) / "full"
             full_dir.mkdir()
 
-            raw_storage = Storage(StorageConfig.local(temp_dir))
+            raw_storage = Storage(BackendConfig.local(temp_dir))
 
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
             book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
@@ -174,7 +174,7 @@ class TestBookStorageIntegration:
             full_dir = Path(temp_dir) / "full"
             full_dir.mkdir()
 
-            raw_storage = Storage(StorageConfig.local(temp_dir))
+            raw_storage = Storage(BackendConfig.local(temp_dir))
 
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
             book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
@@ -215,7 +215,7 @@ class TestBookStorageIntegration:
             full_dir.mkdir()
 
             # Create storage instances
-            raw_storage = Storage(StorageConfig.local(str(raw_dir)))
+            raw_storage = Storage(BackendConfig.local(str(raw_dir)))
 
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
             book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
@@ -325,7 +325,7 @@ class TestBookStorageIntegration:
             timestamped_dir = meta_dir / "timestamped"
             timestamped_dir.mkdir()
 
-            raw_storage = Storage(StorageConfig.local(temp_dir))
+            raw_storage = Storage(BackendConfig.local(temp_dir))
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
             book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
 
@@ -373,7 +373,7 @@ class TestBookStorageIntegration:
             timestamped_dir = meta_dir / "timestamped"
             timestamped_dir.mkdir()
 
-            raw_storage = Storage(StorageConfig.local(temp_dir))
+            raw_storage = Storage(BackendConfig.local(temp_dir))
             bucket_config = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
             book_manager = BookManager(storage=raw_storage, bucket_config=bucket_config)
 

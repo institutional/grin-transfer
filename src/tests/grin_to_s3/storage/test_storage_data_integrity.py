@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from grin_to_s3.storage.base import Storage, StorageConfig
+from grin_to_s3.storage.base import BackendConfig, Storage
 from grin_to_s3.storage.book_manager import BookManager, BucketConfig
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
@@ -23,7 +23,7 @@ class TestStoragePathIntegrity:
     def test_path_normalization_edge_cases(self):
         """Test path normalization with various edge case inputs."""
         # Test with local file storage (requires base_path)
-        local_config = StorageConfig(protocol="file", base_path="/tmp/test")
+        local_config = BackendConfig(protocol="file", base_path="/tmp/test")
         local_storage = Storage(local_config)
 
         # Test basic path normalization for local storage
@@ -31,7 +31,7 @@ class TestStoragePathIntegrity:
         assert local_storage._normalize_path("folder/test.txt").endswith("folder/test.txt")
 
         # Test with S3 storage (different normalization rules)
-        s3_config = StorageConfig(protocol="s3")
+        s3_config = BackendConfig(protocol="s3")
         s3_storage = Storage(s3_config)
 
         # Test S3 path normalization (strips leading slashes and normalizes consecutive slashes)
@@ -51,11 +51,11 @@ class TestStoragePathIntegrity:
     def test_path_normalization_with_different_protocols(self):
         """Test path normalization behavior with different storage protocols."""
         # Test file protocol
-        file_config = StorageConfig(protocol="file", base_path="/tmp/test")
+        file_config = BackendConfig(protocol="file", base_path="/tmp/test")
         file_storage = Storage(file_config)
 
         # Test S3 protocol
-        s3_config = StorageConfig(protocol="s3")
+        s3_config = BackendConfig(protocol="s3")
         s3_storage = Storage(s3_config)
 
         # Both should normalize paths consistently
@@ -69,7 +69,7 @@ class TestStoragePathIntegrity:
 
     def test_book_path_construction(self):
         """Test BookManager path construction."""
-        config = StorageConfig(protocol="file")
+        config = BackendConfig(protocol="file")
         storage = Storage(config)
         bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
 
@@ -102,7 +102,7 @@ class TestStoragePathIntegrity:
 
     def test_book_path_construction_edge_case_barcodes(self):
         """Test BookManager path construction with edge case barcode values."""
-        config = StorageConfig(protocol="file")
+        config = BackendConfig(protocol="file")
         storage = Storage(config)
         bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
         book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
@@ -129,7 +129,7 @@ class TestStoragePathIntegrity:
 
     def test_unicode_barcode_handling(self):
         """Test handling of Unicode characters in barcodes."""
-        config = StorageConfig(protocol="file")
+        config = BackendConfig(protocol="file")
         storage = Storage(config)
         bucket_config: BucketConfig = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
         book_manager = BookManager(storage, bucket_config=bucket_config, base_prefix="")
@@ -159,7 +159,7 @@ class TestStoragePathIntegrity:
 
     def test_bucket_name_handling(self):
         """Test bucket name handling for empty vs non-empty cases."""
-        config = StorageConfig(protocol="file")
+        config = BackendConfig(protocol="file")
         storage = Storage(config)
 
         # Test with non-empty bucket names
@@ -181,7 +181,7 @@ class TestStoragePathIntegrity:
     def test_storage_path_operations_with_empty_bucket(self):
         """Test that storage operations handle empty bucket names gracefully."""
         # Test S3 storage with empty bucket name in path
-        s3_config = StorageConfig(protocol="s3")
+        s3_config = BackendConfig(protocol="s3")
         s3_storage = Storage(s3_config)
 
         # Empty bucket name in path should be handled by storage layer
