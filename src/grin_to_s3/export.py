@@ -21,7 +21,6 @@ from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_p
 logger = logging.getLogger(__name__)
 
 
-
 async def export_csv(db_path: str, output_file: str) -> None:
     """Export books from database to CSV format.
 

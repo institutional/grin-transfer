@@ -78,10 +78,7 @@ async def test_upload_database_to_storage_latest():
 
         # Upload as latest
         result = await upload_database_to_storage(
-            str(db_path),
-            mock_book_manager,
-            staging_manager=None,
-            upload_type="latest"
+            str(db_path), mock_book_manager, staging_manager=None, upload_type="latest"
         )
 
         assert result["status"] == "completed"
@@ -108,10 +105,7 @@ async def test_upload_database_to_storage_timestamped():
 
         # Upload as timestamped backup
         result = await upload_database_to_storage(
-            str(db_path),
-            mock_book_manager,
-            staging_manager=None,
-            upload_type="timestamped"
+            str(db_path), mock_book_manager, staging_manager=None, upload_type="timestamped"
         )
 
         assert result["status"] == "completed"
@@ -146,10 +140,7 @@ async def test_upload_database_to_storage_with_staging():
 
         # Upload using staging
         result = await upload_database_to_storage(
-            str(db_path),
-            mock_book_manager,
-            staging_manager=mock_staging_manager,
-            upload_type="latest"
+            str(db_path), mock_book_manager, staging_manager=mock_staging_manager, upload_type="latest"
         )
 
         assert result["status"] == "completed"
@@ -171,10 +162,7 @@ async def test_upload_database_to_storage_missing_file():
     mock_book_manager = Mock()
 
     result = await upload_database_to_storage(
-        "/nonexistent/path.db",
-        mock_book_manager,
-        staging_manager=None,
-        upload_type="latest"
+        "/nonexistent/path.db", mock_book_manager, staging_manager=None, upload_type="latest"
     )
 
     assert result["status"] == "skipped"
@@ -199,10 +187,7 @@ async def test_upload_database_to_storage_upload_error():
 
         # Upload should fail
         result = await upload_database_to_storage(
-            str(db_path),
-            mock_book_manager,
-            staging_manager=None,
-            upload_type="latest"
+            str(db_path), mock_book_manager, staging_manager=None, upload_type="latest"
         )
 
         assert result["status"] == "failed"
@@ -261,12 +246,12 @@ async def test_backup_database_conditional_cleanup():
         pipeline.uses_block_storage = True
 
         # Mock the methods we'll call
-        with patch("grin_to_s3.sync.pipeline.create_local_database_backup") as mock_create, \
-             patch("grin_to_s3.sync.pipeline.upload_database_to_storage") as mock_upload:
-
+        with (
+            patch("grin_to_s3.sync.pipeline.create_local_database_backup") as mock_create,
+            patch("grin_to_s3.sync.pipeline.upload_database_to_storage") as mock_upload,
+        ):
             mock_create.return_value = {"status": "completed", "backup_filename": "test_backup.db"}
             mock_upload.return_value = {"status": "completed", "backup_filename": "test_backup.db.gz"}
-
 
             with patch.object(pipeline, "_cleanup_local_backup", new=AsyncMock()) as mock_cleanup:
                 # Call the actual backup method
@@ -288,9 +273,10 @@ async def test_backup_database_conditional_cleanup():
         pipeline.skip_database_backup = False
         pipeline.uses_block_storage = False
 
-        with patch("grin_to_s3.sync.pipeline.create_local_database_backup") as mock_create, \
-             patch("grin_to_s3.sync.pipeline.upload_database_to_storage") as mock_upload:
-
+        with (
+            patch("grin_to_s3.sync.pipeline.create_local_database_backup") as mock_create,
+            patch("grin_to_s3.sync.pipeline.upload_database_to_storage") as mock_upload,
+        ):
             mock_create.return_value = {"status": "completed", "backup_filename": "test_backup.db"}
             mock_upload.return_value = {"status": "completed", "backup_filename": "test_backup.db.gz"}
 

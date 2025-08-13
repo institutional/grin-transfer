@@ -183,7 +183,7 @@ class TestGetLatestStatusWithMetadata:
         # Test multiple entries - should get latest
         status_updates = [
             collect_status("TEST3", "sync", "started", metadata={"encrypted_etag": '"old"'}),
-            collect_status("TEST3", "sync", "completed", metadata={"encrypted_etag": '"new"'})
+            collect_status("TEST3", "sync", "completed", metadata={"encrypted_etag": '"new"'}),
         ]
         await batch_write_status_updates(tracker.db_path, status_updates)
         status, metadata = await tracker.get_latest_status_with_metadata("TEST3", "sync")

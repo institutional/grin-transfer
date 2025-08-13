@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 class PaginationState(TypedDict):
     """Type for pagination state dictionary."""
+
     current_page: int
     next_url: str | None
     page_size: int

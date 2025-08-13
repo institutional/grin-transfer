@@ -14,7 +14,6 @@ def is_docker_environment() -> bool:
     return os.path.exists("/.dockerenv") or os.environ.get("DOCKER_ENV") == "true"
 
 
-
 def translate_docker_data_path_for_local_storage(original_path: str) -> str:
     """Translate docker-data relative paths to container paths for local storage.
 
@@ -84,12 +83,12 @@ def validate_docker_local_storage_path(expanded_path: Path) -> None:
 
     # Only allow paths that are specifically mounted volumes (persist to host)
     mounted_prefixes = [
-        "/app/data/",         # Mounted to ./docker-data/data
-        "/app/output/",       # Mounted to ./docker-data/output
-        "/app/logs/",         # Mounted to ./docker-data/logs
-        "/app/staging/",      # Mounted to ./docker-data/staging
+        "/app/data/",  # Mounted to ./docker-data/data
+        "/app/output/",  # Mounted to ./docker-data/output
+        "/app/logs/",  # Mounted to ./docker-data/logs
+        "/app/staging/",  # Mounted to ./docker-data/staging
         "/app/docker-data/",  # Mounted to ./docker-data (full access)
-        "/app/custom/",       # Custom mount (see docker-compose.yml)
+        "/app/custom/",  # Custom mount (see docker-compose.yml)
     ]
 
     is_mounted = any(expanded_str.startswith(prefix) for prefix in mounted_prefixes)

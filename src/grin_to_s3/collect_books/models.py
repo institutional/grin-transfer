@@ -32,7 +32,9 @@ class BookRecord:
     # GRIN timestamps (from _all_books endpoint and enrichment TSV)
     scanned_date: str | None = field(default=None, metadata={"csv": "Scanned Date", "grin_tsv": "Scanned Date"})
     converted_date: str | None = field(default=None, metadata={"csv": "Converted Date", "grin_tsv": "Converted Date"})
-    downloaded_date: str | None = field(default=None, metadata={"csv": "Downloaded Date", "grin_tsv": "Downloaded Date"})
+    downloaded_date: str | None = field(
+        default=None, metadata={"csv": "Downloaded Date", "grin_tsv": "Downloaded Date"}
+    )
     processed_date: str | None = field(default=None, metadata={"csv": "Processed Date", "grin_tsv": "Processed Date"})
     analyzed_date: str | None = field(default=None, metadata={"csv": "Analyzed Date", "grin_tsv": "Analyzed Date"})
     ocr_date: str | None = field(default=None, metadata={"csv": "OCR Date", "grin_tsv": "OCR'd Date"})
@@ -410,7 +412,6 @@ class SQLiteProgressTracker:
 
         return known_barcodes
 
-
     async def get_processed_count(self) -> int:
         """Get total number of successfully processed barcodes."""
         return await self._execute_count_query("SELECT COUNT(*) FROM processed", ())
@@ -590,9 +591,7 @@ class SQLiteProgressTracker:
 
     async def get_enriched_book_count(self) -> int:
         """Get count of books with enrichment data."""
-        return await self._execute_count_query(
-            "SELECT COUNT(*) FROM books WHERE enrichment_timestamp IS NOT NULL", ()
-        )
+        return await self._execute_count_query("SELECT COUNT(*) FROM books WHERE enrichment_timestamp IS NOT NULL", ())
 
     @retry_database_operation
     async def update_sync_data(self, barcode: str, sync_data: dict) -> bool:
@@ -756,9 +755,7 @@ class SQLiteProgressTracker:
             params.append(storage_type)
 
         # Total books (potential candidates for download)
-        total_converted = await self._execute_count_query(
-            f"SELECT COUNT(*) FROM books b {where_clause}", tuple(params)
-        )
+        total_converted = await self._execute_count_query(f"SELECT COUNT(*) FROM books b {where_clause}", tuple(params))
 
         # Get latest sync status for each book using status history
         # Synced books (downloaded status)
@@ -773,7 +770,8 @@ class SQLiteProgressTracker:
                 FROM book_status_history h2
                 WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
             )
-            """, tuple(params)
+            """,
+            tuple(params),
         )
 
         # Failed sync books
@@ -788,7 +786,8 @@ class SQLiteProgressTracker:
                 FROM book_status_history h2
                 WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
             )
-            """, tuple(params)
+            """,
+            tuple(params),
         )
 
         # Currently syncing
@@ -803,7 +802,8 @@ class SQLiteProgressTracker:
                 FROM book_status_history h2
                 WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
             )
-            """, tuple(params)
+            """,
+            tuple(params),
         )
 
         # Pending/not started (books with no sync status history or latest status is pending)
@@ -815,7 +815,8 @@ class SQLiteProgressTracker:
                 FROM book_status_history
                 WHERE status_type = 'sync'
             )
-            """, tuple(params)
+            """,
+            tuple(params),
         )
 
         pending_with_history = await self._execute_count_query(
@@ -829,7 +830,8 @@ class SQLiteProgressTracker:
                 FROM book_status_history h2
                 WHERE h2.barcode = h.barcode AND h2.status_type = 'sync'
             )
-            """, tuple(params)
+            """,
+            tuple(params),
         )
 
         pending_count = no_sync_history + pending_with_history
@@ -878,7 +880,8 @@ class SQLiteProgressTracker:
                 FROM book_status_history h2
                 WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
             )
-            """, ()
+            """,
+            (),
         )
 
         # Failed enrichment books (latest status is failed)
@@ -893,7 +896,8 @@ class SQLiteProgressTracker:
                 FROM book_status_history h2
                 WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
             )
-            """, ()
+            """,
+            (),
         )
 
         # Currently being enriched (latest status is in_progress)
@@ -908,7 +912,8 @@ class SQLiteProgressTracker:
                 FROM book_status_history h2
                 WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
             )
-            """, ()
+            """,
+            (),
         )
 
         # Pending enrichment (latest status is pending)
@@ -923,7 +928,8 @@ class SQLiteProgressTracker:
                 FROM book_status_history h2
                 WHERE h2.barcode = h.barcode AND h2.status_type = 'enrichment'
             )
-            """, ()
+            """,
+            (),
         )
 
         # Books with no enrichment history
@@ -935,7 +941,8 @@ class SQLiteProgressTracker:
                 FROM book_status_history
                 WHERE status_type = 'enrichment'
             )
-            """, ()
+            """,
+            (),
         )
 
         return {
@@ -970,7 +977,7 @@ class SQLiteProgressTracker:
             AND status_value = 'completed'
             AND timestamp >= ?
             """,
-            (cutoff_iso,)
+            (cutoff_iso,),
         )
 
         # Calculate rate (enrichments per hour)
@@ -985,9 +992,7 @@ class SQLiteProgressTracker:
 
     async def get_converted_books_count(self) -> int:
         """Get count of books in converted state (ready for sync)."""
-        return await self._execute_count_query(
-            "SELECT COUNT(*) FROM books WHERE grin_state = 'converted'", ()
-        )
+        return await self._execute_count_query("SELECT COUNT(*) FROM books WHERE grin_state = 'converted'", ())
 
     async def get_latest_status(self, barcode: str, status_type: str) -> str | None:
         """Get the latest status value for a book and status type.
@@ -1006,7 +1011,7 @@ class SQLiteProgressTracker:
             ORDER BY timestamp DESC, id DESC
             LIMIT 1
             """,
-            (barcode, status_type)
+            (barcode, status_type),
         )
 
     async def get_latest_status_with_metadata(self, barcode: str, status_type: str) -> tuple[str | None, dict | None]:
@@ -1151,10 +1156,7 @@ class SQLiteProgressTracker:
         Returns:
             Set of barcodes with the specified GRIN state
         """
-        return await self._execute_barcode_query(
-            "SELECT barcode FROM books WHERE grin_state = ?",
-            (grin_state,)
-        )
+        return await self._execute_barcode_query("SELECT barcode FROM books WHERE grin_state = ?", (grin_state,))
 
     async def get_books_with_status(self, status_value: str, status_type: str = "sync") -> set[str]:
         """Get barcodes for books with specific status value.
@@ -1168,5 +1170,5 @@ class SQLiteProgressTracker:
         """
         return await self._execute_barcode_query(
             "SELECT DISTINCT barcode FROM book_status_history WHERE status_type = ? AND status_value = ?",
-            (status_type, status_value)
+            (status_type, status_value),
         )

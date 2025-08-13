@@ -201,7 +201,7 @@ class TestProcessingCaching(IsolatedAsyncioTestCase):
         tasks = [
             get_in_process_set(mock_client, library_dir),
             get_in_process_set(mock_client, library_dir),
-            get_in_process_set(mock_client, library_dir)
+            get_in_process_set(mock_client, library_dir),
         ]
 
         results = await asyncio.gather(*tasks)

@@ -246,7 +246,9 @@ class TestHybridETagApproach:
         await tracker.init_db()
 
         # Add some test metadata
-        status_updates = [collect_status("BOOK_WITH_ETAG", "sync", "completed", metadata={"encrypted_etag": '"stored_etag"'})]
+        status_updates = [
+            collect_status("BOOK_WITH_ETAG", "sync", "completed", metadata={"encrypted_etag": '"stored_etag"'})
+        ]
         await batch_write_status_updates(tracker.db_path, status_updates)
 
         storage_config = {"bucket_raw": "test-bucket"}
@@ -286,7 +288,9 @@ class TestHybridETagApproach:
         await tracker.init_db()
 
         # Add some test metadata
-        status_updates = [collect_status("BOOK_WITH_ETAG", "sync", "completed", metadata={"encrypted_etag": '"stored_etag"'})]
+        status_updates = [
+            collect_status("BOOK_WITH_ETAG", "sync", "completed", metadata={"encrypted_etag": '"stored_etag"'})
+        ]
         await batch_write_status_updates(tracker.db_path, status_updates)
 
         storage_config = {"base_path": "/tmp/test"}

@@ -45,7 +45,7 @@ dev = [
     "pytest-mock>=3.10.0",
     "pytest-xdist>=3.0.0",
     "mypy>=1.0.0",
-    "ruff>=0.1.0",
+    "ruff==0.11.13",
     "types-aiofiles>=23.0.0",
     "types-requests>=2.32.0",
     "types-PyYAML>=6.0.0",

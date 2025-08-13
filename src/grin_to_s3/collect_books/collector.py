@@ -43,8 +43,6 @@ from .progress import PaginationState, ProgressTracker
 logger = logging.getLogger(__name__)
 
 
-
-
 # PaginationState moved to progress.py
 
 
@@ -316,7 +314,6 @@ class BookCollector:
 
     # Progress file archiving moved to progress.py
 
-
     async def load_progress(self) -> dict:
         """Load progress from resume file."""
         return await self.progress_tracker.load_progress()
@@ -324,7 +321,6 @@ class BookCollector:
     async def save_progress(self):
         """Save current progress to resume file."""
         await self.progress_tracker.save_progress(self._calculate_performance_metrics)
-
 
     async def save_pagination_state(self, pagination_state: PaginationState):
         """Save pagination state for resume functionality."""
@@ -395,7 +391,6 @@ class BookCollector:
                 if book_count > 50000:
                     self.total_books_estimate = book_count + 100000
 
-
     async def get_converted_books(self) -> AsyncGenerator[tuple[str, set[str]], None]:
         """Stream books from GRIN's _converted list."""
         try:
@@ -452,7 +447,9 @@ class BookCollector:
             print(f"Phase 2 complete: {non_converted_count:,} non-converted books collected")
 
         total_books = converted_count + non_converted_count
-        print(f"Two-pass collection complete: {total_books:,} total books ({converted_count:,} converted + {non_converted_count:,} non-converted)")
+        print(
+            f"Two-pass collection complete: {total_books:,} total books ({converted_count:,} converted + {non_converted_count:,} non-converted)"
+        )
 
     def _looks_like_date(self, text: str) -> bool:
         """Check if text looks like a date string."""
@@ -486,11 +483,6 @@ class BookCollector:
         """Parse date field at index or return None if missing/empty."""
         field = self._get_field_or_none(fields, index)
         return self._parse_grin_date(field) if field else None
-
-
-
-
-
 
     def process_grin_row(self, row: GRINRow) -> dict:
         """Process a GRINRow dict from the client and map to BookRecord field names.
@@ -549,10 +541,7 @@ class BookCollector:
             elif "state" in key_lower or "status" in key_lower:
                 result["grin_state"] = str(value).strip()
 
-
-
         return result
-
 
     async def collect_books(self, output_file: str, limit: int | None = None) -> bool:
         """
@@ -591,7 +580,6 @@ class BookCollector:
         # Archive existing progress file before starting execution
         logger.debug("Backing up progress file...")
         await self.progress_tracker.archive_progress_file()
-
 
         # Set up async-friendly signal handling
         loop = asyncio.get_running_loop()
@@ -833,7 +821,9 @@ class BookCollector:
 
             # Warn if GRIN returned empty title
             if not record.title or record.title.strip() == "":
-                logger.warning(f"[{barcode}] GRIN returned empty title field; okay only if book is not available for download")
+                logger.warning(
+                    f"[{barcode}] GRIN returned empty title field; okay only if book is not available for download"
+                )
 
             # Save book record to SQLite database (blocking to ensure data integrity)
             # Note: Main network/processing work remains parallel; only DB writes are synchronous

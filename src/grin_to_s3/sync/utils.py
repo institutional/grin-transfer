@@ -27,8 +27,6 @@ logger = logging.getLogger(__name__)
 _bucket_checked_cache: set[str] = set()
 
 
-
-
 def reset_bucket_cache() -> None:
     """Reset the bucket existence cache (useful for testing)."""
     global _bucket_checked_cache
@@ -78,7 +76,9 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
             elif storage_type == "s3":
                 # For S3, check if credentials are available via boto3
                 if not s3_credentials_available():
-                    logger.error("Missing S3 credentials. Please ensure credentials are configured via environment variables or ~/.aws/credentials")
+                    logger.error(
+                        "Missing S3 credentials. Please ensure credentials are configured via environment variables or ~/.aws/credentials"
+                    )
                     return False
                 # Don't set access_key/secret_key - let boto3 handle credential loading
 
@@ -181,7 +181,9 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
         return False
 
 
-async def check_encrypted_etag(grin_client, library_directory: str, barcode: str, grin_semaphore: asyncio.Semaphore) -> tuple[str | None, int | None, int | None]:
+async def check_encrypted_etag(
+    grin_client, library_directory: str, barcode: str, grin_semaphore: asyncio.Semaphore
+) -> tuple[str | None, int | None, int | None]:
     """Make HEAD request to get encrypted file's ETag and file size before downloading.
 
     Args:
@@ -362,4 +364,3 @@ def build_download_result(
         result["conversion_limit_reached"] = conversion_limit_reached
 
     return result
-

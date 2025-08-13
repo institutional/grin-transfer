@@ -3,8 +3,6 @@
 Shared test fixtures for sync module testing.
 """
 
-
-
 import pytest
 
 from grin_to_s3.sync.models import create_sync_stats
@@ -66,8 +64,8 @@ async def sync_pipeline(mock_run_config, mock_process_stage):
     pipeline = SyncPipeline.from_run_config(
         config=mock_run_config,
         process_summary_stage=mock_process_stage,
-        skip_enrichment=True,     # Prevent background tasks in tests
-        skip_csv_export=True,     # Speed up tests
+        skip_enrichment=True,  # Prevent background tasks in tests
+        skip_csv_export=True,  # Speed up tests
         skip_database_backup=True,  # Speed up tests
         skip_staging_cleanup=True,  # Prevent side effects
     )
@@ -99,8 +97,8 @@ async def sync_pipeline_with_enrichment(mock_run_config, mock_process_stage):
     pipeline = SyncPipeline.from_run_config(
         config=mock_run_config,
         process_summary_stage=mock_process_stage,
-        skip_enrichment=False,    # Enable enrichment for this fixture
-        skip_csv_export=True,     # Speed up tests
+        skip_enrichment=False,  # Enable enrichment for this fixture
+        skip_csv_export=True,  # Speed up tests
         skip_database_backup=True,  # Speed up tests
         skip_staging_cleanup=True,  # Prevent side effects
     )

@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_BATCH_SIZE = 6_000  # Will be dynamically split up to optimize concurrency without exceeding URL limits
 
+
 class GRINEnrichmentPipeline:
     """Pipeline for enriching book records with detailed GRIN metadata."""
 
@@ -96,7 +97,6 @@ class GRINEnrichmentPipeline:
 
         logger.info("Cleanup completed")
 
-
     def _calculate_max_batch_size(self, barcodes: list[str]) -> int:
         """Calculate maximum batch size that fits in URL length limit."""
         if not barcodes:
@@ -141,8 +141,9 @@ class GRINEnrichmentPipeline:
 
         # Calculate optimal batch composition
         total_books = len(barcodes)
-        optimal_concurrent_batches = min(self.max_concurrent_requests,
-                                       (total_books + max_url_capacity - 1) // max_url_capacity)
+        optimal_concurrent_batches = min(
+            self.max_concurrent_requests, (total_books + max_url_capacity - 1) // max_url_capacity
+        )
 
         # Create batches that maximize both concurrency and per-request capacity
         batches = []
@@ -489,7 +490,6 @@ class GRINEnrichmentPipeline:
         if reset:
             logger.info("Reset mode: Will clear existing enrichment data")
 
-
         # Reset enrichment data if requested
         if reset:
             print("Resetting enrichment data...")
@@ -581,7 +581,11 @@ class GRINEnrichmentPipeline:
                     continue
 
                 batch_start = time.time()
-                leftover_info = f" (including {previous_leftovers_count} from previous batch)" if previous_leftovers_count > 0 else ""
+                leftover_info = (
+                    f" (including {previous_leftovers_count} from previous batch)"
+                    if previous_leftovers_count > 0
+                    else ""
+                )
                 carryover_info = f" (+{len(new_leftovers)} carried to next batch)" if new_leftovers else ""
                 logger.info(f"Processing batch of {len(processing_barcodes)} books{leftover_info}{carryover_info}...")
 
@@ -608,7 +612,9 @@ class GRINEnrichmentPipeline:
                     eta_seconds = books_remaining / rate
                     eta_text = f" (ETA: {format_duration(eta_seconds)})"
 
-                logger.info(f"  Batch completed: {enriched_in_batch}/{len(processing_barcodes)} enriched in {batch_elapsed:.1f}s")
+                logger.info(
+                    f"  Batch completed: {enriched_in_batch}/{len(processing_barcodes)} enriched in {batch_elapsed:.1f}s"
+                )
                 print(f"Progress: {processed_count:,}/{remaining_books:,} processed ({rate:.1f} books/sec){eta_text}")
                 progress_msg = f"  Overall progress: {processed_count:,}/{remaining_books:,} processed"
                 rate_msg = f" ({rate:.1f} books/sec){eta_text}"
@@ -672,7 +678,9 @@ class GRINEnrichmentPipeline:
             if total_enriched > 0:
                 run_name = Path(self.db_path).parent.name
                 print("\nNext steps:")
-                print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name} --queue converted")
+                print(
+                    f"  Download converted books: python grin.py sync pipeline --run-name {run_name} --queue converted"
+                )
 
 
 async def main() -> None:
@@ -704,7 +712,9 @@ Examples:
     enrich_parser.add_argument(
         "--rate-limit", type=float, default=0.2, help="Delay between requests (default: 0.2s for 5 QPS)"
     )
-    enrich_parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Database batch size for processing books")
+    enrich_parser.add_argument(
+        "--batch-size", type=int, default=DEFAULT_BATCH_SIZE, help="Database batch size for processing books"
+    )
     enrich_parser.add_argument(
         "--max-concurrent", type=int, default=5, help="Maximum concurrent GRIN requests (default: 5)"
     )
@@ -716,8 +726,9 @@ Examples:
         "--secrets-dir", help="Directory containing GRIN secrets files (auto-detected from run config if not specified)"
     )
     enrich_parser.add_argument(
-        "--library-directory", dest="grin_library_directory",
-        help="GRIN library directory name (auto-detected from run config if not specified)"
+        "--library-directory",
+        dest="grin_library_directory",
+        help="GRIN library directory name (auto-detected from run config if not specified)",
     )
     enrich_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
 

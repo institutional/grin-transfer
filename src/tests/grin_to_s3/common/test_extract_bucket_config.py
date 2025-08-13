@@ -17,11 +17,7 @@ class TestExtractBucketConfig:
 
     def test_extract_bucket_config_local_with_custom_names(self):
         """Test local storage with custom bucket names."""
-        config_dict = {
-            "bucket_raw": "custom-raw",
-            "bucket_meta": "custom-meta",
-            "bucket_full": "custom-full"
-        }
+        config_dict = {"bucket_raw": "custom-raw", "bucket_meta": "custom-meta", "bucket_full": "custom-full"}
         result = extract_bucket_config("local", config_dict)
 
         assert result["bucket_raw"] == "custom-raw"
@@ -33,7 +29,7 @@ class TestExtractBucketConfig:
         config_dict = {
             "bucket_raw": "custom-raw",
             # bucket_meta missing - should use default
-            "bucket_full": "custom-full"
+            "bucket_full": "custom-full",
         }
         result = extract_bucket_config("local", config_dict)
 
@@ -65,11 +61,7 @@ class TestExtractBucketConfig:
 
     def test_extract_bucket_config_cloud_storage_with_names(self):
         """Test cloud storage with provided bucket names."""
-        config_dict = {
-            "bucket_raw": "my-raw-bucket",
-            "bucket_meta": "my-meta-bucket",
-            "bucket_full": "my-full-bucket"
-        }
+        config_dict = {"bucket_raw": "my-raw-bucket", "bucket_meta": "my-meta-bucket", "bucket_full": "my-full-bucket"}
 
         # Test S3
         result = extract_bucket_config("s3", config_dict)

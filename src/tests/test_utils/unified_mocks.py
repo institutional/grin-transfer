@@ -24,145 +24,134 @@ from tests.utils import create_test_archive
 # Mock Creation Functions
 # =============================================================================
 
+
 def create_storage_mock(
-        storage_type: str = "local",
-        s3_compatible: bool | None = None,
-        should_fail: bool = False,
-        custom_config: dict[str, Any] | None = None
-    ) -> MagicMock:
-        """
-        Create a unified storage mock.
+    storage_type: str = "local",
+    s3_compatible: bool | None = None,
+    should_fail: bool = False,
+    custom_config: dict[str, Any] | None = None,
+) -> MagicMock:
+    """
+    Create a unified storage mock.
 
-        Args:
-            storage_type: Type of storage (local, s3, r2, minio)
-            s3_compatible: Override s3 compatibility detection
-            should_fail: Configure operations to fail
-            custom_config: Custom configuration for return values
+    Args:
+        storage_type: Type of storage (local, s3, r2, minio)
+        s3_compatible: Override s3 compatibility detection
+        should_fail: Configure operations to fail
+        custom_config: Custom configuration for return values
 
-        Returns:
-            Configured storage mock
-        """
-        mock_storage = MagicMock()
-        config = custom_config or {}
+    Returns:
+        Configured storage mock
+    """
+    mock_storage = MagicMock()
+    config = custom_config or {}
 
-        # Auto-detect s3 compatibility if not specified
-        if s3_compatible is None:
-            s3_compatible = storage_type in ("s3", "r2", "minio")
+    # Auto-detect s3 compatibility if not specified
+    if s3_compatible is None:
+        s3_compatible = storage_type in ("s3", "r2", "minio")
 
-        mock_storage.is_s3_compatible = MagicMock(return_value=s3_compatible)
+    mock_storage.is_s3_compatible = MagicMock(return_value=s3_compatible)
 
-        # Configure async methods
-        if should_fail:
-            mock_storage.write_file = AsyncMock(side_effect=Exception("Storage write failed"))
-            mock_storage.write_bytes = AsyncMock(side_effect=Exception("Storage write failed"))
-            mock_storage.write_text = AsyncMock(side_effect=Exception("Storage write failed"))
-            mock_storage.save_decrypted_archive_from_file = AsyncMock(
-                side_effect=Exception("Storage upload failed")
-            )
-            mock_storage.save_ocr_text_jsonl_from_file = AsyncMock(
-                side_effect=Exception("OCR upload failed")
-            )
-        else:
-            mock_storage.write_file = AsyncMock(return_value=None)
-            mock_storage.write_bytes = AsyncMock(return_value=None)
-            mock_storage.write_text = AsyncMock(return_value=None)
-            mock_storage.write_bytes_with_metadata = AsyncMock(
-                return_value=config.get("metadata_path", "test-path")
-            )
-            mock_storage.save_decrypted_archive_from_file = AsyncMock(
-                return_value=config.get("archive_path", "test-raw/TEST123/TEST123.tar.gz")
-            )
-            mock_storage.save_ocr_text_jsonl_from_file = AsyncMock(
-                return_value=config.get("ocr_path", "test-full/TEST123.jsonl")
-            )
+    # Configure async methods
+    if should_fail:
+        mock_storage.write_file = AsyncMock(side_effect=Exception("Storage write failed"))
+        mock_storage.write_bytes = AsyncMock(side_effect=Exception("Storage write failed"))
+        mock_storage.write_text = AsyncMock(side_effect=Exception("Storage write failed"))
+        mock_storage.save_decrypted_archive_from_file = AsyncMock(side_effect=Exception("Storage upload failed"))
+        mock_storage.save_ocr_text_jsonl_from_file = AsyncMock(side_effect=Exception("OCR upload failed"))
+    else:
+        mock_storage.write_file = AsyncMock(return_value=None)
+        mock_storage.write_bytes = AsyncMock(return_value=None)
+        mock_storage.write_text = AsyncMock(return_value=None)
+        mock_storage.write_bytes_with_metadata = AsyncMock(return_value=config.get("metadata_path", "test-path"))
+        mock_storage.save_decrypted_archive_from_file = AsyncMock(
+            return_value=config.get("archive_path", "test-raw/TEST123/TEST123.tar.gz")
+        )
+        mock_storage.save_ocr_text_jsonl_from_file = AsyncMock(
+            return_value=config.get("ocr_path", "test-full/TEST123.jsonl")
+        )
 
-        # Configure sync methods
-        mock_storage.read_bytes = AsyncMock(return_value=b"test data")
-        mock_storage.read_text = AsyncMock(return_value="test content")
-        mock_storage.exists = AsyncMock(return_value=True)
-        mock_storage.delete = AsyncMock(return_value=None)
+    # Configure sync methods
+    mock_storage.read_bytes = AsyncMock(return_value=b"test data")
+    mock_storage.read_text = AsyncMock(return_value="test content")
+    mock_storage.exists = AsyncMock(return_value=True)
+    mock_storage.delete = AsyncMock(return_value=None)
 
-        return mock_storage
+    return mock_storage
 
 
 def create_book_manager_mock(
-        storage: MagicMock | None = None,
-        bucket_config: dict[str, str] | None = None,
-        base_prefix: str = "",
-        should_fail: bool = False,
-        custom_config: dict[str, Any] | None = None
-    ) -> MagicMock:
-        """
-        Create a unified BookManager mock that properly wraps a Storage mock.
+    storage: MagicMock | None = None,
+    bucket_config: dict[str, str] | None = None,
+    base_prefix: str = "",
+    should_fail: bool = False,
+    custom_config: dict[str, Any] | None = None,
+) -> MagicMock:
+    """
+    Create a unified BookManager mock that properly wraps a Storage mock.
 
-        Args:
-            storage: Storage mock to wrap (if None, creates one automatically)
-            bucket_config: Bucket configuration dictionary
-            base_prefix: Base prefix for paths
-            should_fail: Configure operations to fail
-            custom_config: Custom configuration for return values
+    Args:
+        storage: Storage mock to wrap (if None, creates one automatically)
+        bucket_config: Bucket configuration dictionary
+        base_prefix: Base prefix for paths
+        should_fail: Configure operations to fail
+        custom_config: Custom configuration for return values
 
-        Returns:
-            Configured BookManager mock that wraps the storage mock
-        """
-        if bucket_config is None:
-            bucket_config = {
-                "bucket_raw": "test-raw",
-                "bucket_meta": "test-meta",
-                "bucket_full": "test-full"
-            }
+    Returns:
+        Configured BookManager mock that wraps the storage mock
+    """
+    if bucket_config is None:
+        bucket_config = {"bucket_raw": "test-raw", "bucket_meta": "test-meta", "bucket_full": "test-full"}
 
-        # Create or use provided storage mock
-        if storage is None:
-            storage = create_storage_mock(should_fail=should_fail, custom_config=custom_config)
+    # Create or use provided storage mock
+    if storage is None:
+        storage = create_storage_mock(should_fail=should_fail, custom_config=custom_config)
 
-        config = custom_config or {}
-        mock_book_manager = MagicMock()
+    config = custom_config or {}
+    mock_book_manager = MagicMock()
 
-        # Store the underlying storage mock (this is the key fix!)
-        mock_book_manager.storage = storage
+    # Store the underlying storage mock (this is the key fix!)
+    mock_book_manager.storage = storage
 
-        # Set bucket attributes
-        mock_book_manager.bucket_raw = bucket_config["bucket_raw"]
-        mock_book_manager.bucket_meta = bucket_config["bucket_meta"]
-        mock_book_manager.bucket_full = bucket_config["bucket_full"]
-        mock_book_manager.base_prefix = base_prefix
+    # Set bucket attributes
+    mock_book_manager.bucket_raw = bucket_config["bucket_raw"]
+    mock_book_manager.bucket_meta = bucket_config["bucket_meta"]
+    mock_book_manager.bucket_full = bucket_config["bucket_full"]
+    mock_book_manager.base_prefix = base_prefix
 
-        # Add path generation helper
-        def meta_path(filename: str) -> str:
-            if base_prefix:
-                return f"{bucket_config['bucket_meta']}/{base_prefix}/{filename}"
-            return f"{bucket_config['bucket_meta']}/{filename}"
+    # Add path generation helper
+    def meta_path(filename: str) -> str:
+        if base_prefix:
+            return f"{bucket_config['bucket_meta']}/{base_prefix}/{filename}"
+        return f"{bucket_config['bucket_meta']}/{filename}"
 
-        mock_book_manager._meta_path = meta_path
+    mock_book_manager._meta_path = meta_path
 
-        # BookManager methods delegate to the underlying storage
-        # This reflects the real BookManager architecture where it wraps a Storage object
-        mock_book_manager.save_decrypted_archive_from_file = storage.save_decrypted_archive_from_file
-        mock_book_manager.save_ocr_text_jsonl_from_file = storage.save_ocr_text_jsonl_from_file
+    # BookManager methods delegate to the underlying storage
+    # This reflects the real BookManager architecture where it wraps a Storage object
+    mock_book_manager.save_decrypted_archive_from_file = storage.save_decrypted_archive_from_file
+    mock_book_manager.save_ocr_text_jsonl_from_file = storage.save_ocr_text_jsonl_from_file
 
-        # BookManager-specific methods (not in Storage interface)
-        if should_fail:
-            mock_book_manager.upload_csv_file = AsyncMock(
-                side_effect=Exception("CSV upload failed")
+    # BookManager-specific methods (not in Storage interface)
+    if should_fail:
+        mock_book_manager.upload_csv_file = AsyncMock(side_effect=Exception("CSV upload failed"))
+        mock_book_manager.save_timestamp = AsyncMock(side_effect=Exception("Timestamp save failed"))
+    else:
+        mock_book_manager.upload_csv_file = AsyncMock(
+            return_value=config.get("csv_paths", ("latest.csv", "timestamped.csv"))
+        )
+        mock_book_manager.save_timestamp = AsyncMock(
+            return_value=config.get(
+                "timestamp_path", f"{bucket_config['bucket_raw']}/TEST123/TEST123.tar.gz.gpg.retrieval"
             )
-            mock_book_manager.save_timestamp = AsyncMock(
-                side_effect=Exception("Timestamp save failed")
-            )
-        else:
-            mock_book_manager.upload_csv_file = AsyncMock(
-                return_value=config.get("csv_paths", ("latest.csv", "timestamped.csv"))
-            )
-            mock_book_manager.save_timestamp = AsyncMock(
-                return_value=config.get("timestamp_path", f"{bucket_config['bucket_raw']}/TEST123/TEST123.tar.gz.gpg.retrieval")
-            )
-
-        mock_book_manager.archive_exists = AsyncMock(return_value=config.get("archive_exists", False))
-        mock_book_manager.save_text_jsonl = AsyncMock(
-            return_value=config.get("text_jsonl_path", f"{bucket_config['bucket_raw']}/TEST123/TEST123.jsonl")
         )
 
-        return mock_book_manager
+    mock_book_manager.archive_exists = AsyncMock(return_value=config.get("archive_exists", False))
+    mock_book_manager.save_text_jsonl = AsyncMock(
+        return_value=config.get("text_jsonl_path", f"{bucket_config['bucket_raw']}/TEST123/TEST123.jsonl")
+    )
+
+    return mock_book_manager
 
 
 def create_staging_manager_mock(staging_path: str = "/tmp/staging") -> MagicMock:
@@ -224,9 +213,7 @@ def create_progress_tracker_mock(db_path: str = "/tmp/test.db") -> MagicMock:
     # Configure async methods
     tracker.update_sync_data = AsyncMock()
     tracker.get_books_for_sync = AsyncMock(return_value=[])
-    tracker.get_sync_stats = AsyncMock(
-        return_value={"total_converted": 0, "synced": 0, "failed": 0, "pending": 0}
-    )
+    tracker.get_sync_stats = AsyncMock(return_value={"total_converted": 0, "synced": 0, "failed": 0, "pending": 0})
     tracker.update_book_marc_metadata = AsyncMock()
 
     return tracker
@@ -244,6 +231,7 @@ def create_fresh_tracker():
 # Parametrized Fixtures for Common Scenarios
 # =============================================================================
 
+
 @pytest.fixture(params=["local", "s3", "r2", "minio"])
 def storage_type(request):
     """Parametrized fixture for different storage types."""
@@ -253,44 +241,29 @@ def storage_type(request):
 @pytest.fixture
 def bucket_config():
     """Standard bucket configuration for tests."""
-    return {
-        "bucket_raw": "test-raw",
-        "bucket_meta": "test-meta",
-        "bucket_full": "test-full"
-    }
+    return {"bucket_raw": "test-raw", "bucket_meta": "test-meta", "bucket_full": "test-full"}
 
 
 @pytest.fixture
 def storage_config(storage_type):
     """Storage configuration based on storage type."""
     configs = {
-        "local": {
-            "base_path": "/tmp/test-storage"
-        },
-        "s3": {
-            "access_key": "test_access_key",
-            "secret_key": "test_secret_key",
-            "region": "us-east-1"
-        },
+        "local": {"base_path": "/tmp/test-storage"},
+        "s3": {"access_key": "test_access_key", "secret_key": "test_secret_key", "region": "us-east-1"},
         "r2": {
             "access_key": "test_access_key",
             "secret_key": "test_secret_key",
-            "endpoint_url": "https://testaccount.r2.cloudflarestorage.com"
+            "endpoint_url": "https://testaccount.r2.cloudflarestorage.com",
         },
-        "minio": {
-            "access_key": "minioadmin",
-            "secret_key": "minioadmin123",
-            "endpoint_url": "http://localhost:9000"
-        }
+        "minio": {"access_key": "minioadmin", "secret_key": "minioadmin123", "endpoint_url": "http://localhost:9000"},
     }
     return configs[storage_type]
-
-
 
 
 # =============================================================================
 # Context Managers for Complex Mocking Scenarios
 # =============================================================================
+
 
 @contextmanager
 def mock_upload_operations(
@@ -298,7 +271,7 @@ def mock_upload_operations(
     should_fail: bool = False,
     skip_ocr: bool = False,
     skip_marc: bool = False,
-    storage_config: dict[str, Any] | None = None
+    storage_config: dict[str, Any] | None = None,
 ):
     """
     Context manager for mocking upload_book_from_staging dependencies.
@@ -323,16 +296,14 @@ def mock_upload_operations(
     ):
         # Create storage mock first
         mock_storage = create_storage_mock(
-            storage_type=storage_type,
-            should_fail=should_fail,
-            custom_config=storage_config
+            storage_type=storage_type, should_fail=should_fail, custom_config=storage_config
         )
         mock_create_storage.return_value = mock_storage
 
         # Create book manager mock that properly wraps the storage mock
         mock_book_manager = create_book_manager_mock(
             storage=mock_storage,  # Pass the storage mock to be wrapped
-            should_fail=should_fail
+            should_fail=should_fail,
         )
         mock_book_manager_class.return_value = mock_book_manager
 
@@ -397,7 +368,6 @@ def mock_cloud_storage_backend(storage_type: str = "s3", bucket_names: list[str]
         bucket_names = ["test-raw", "test-meta", "test-full"]
 
     with mock_aws():
-
         # Create S3 client and buckets
         if storage_type == "r2":
             # R2 needs custom endpoint setup
@@ -428,8 +398,8 @@ def mock_cloud_storage_backend(storage_type: str = "s3", bucket_names: list[str]
                 "bucket_full": bucket_names[2] if len(bucket_names) > 2 else "test-full",
                 "access_key": "test_access_key",
                 "secret_key": "test_secret_key",
-                "region": "us-east-1"
-            }
+                "region": "us-east-1",
+            },
         }
 
         if storage_type == "r2":
@@ -459,6 +429,7 @@ def mock_minimal_upload():
 # Test Data Utilities
 # =============================================================================
 
+
 def create_progress_tracker_with_db_mock(db_path: str) -> MagicMock:
     """Create a progress tracker mock with actual database backing."""
     tracker = MagicMock()
@@ -466,9 +437,7 @@ def create_progress_tracker_with_db_mock(db_path: str) -> MagicMock:
     tracker.add_status_change = AsyncMock(return_value=True)
     tracker.update_sync_data = AsyncMock()
     tracker.get_books_for_sync = AsyncMock(return_value=[])
-    tracker.get_sync_stats = AsyncMock(
-        return_value={"total_converted": 0, "synced": 0, "failed": 0, "pending": 0}
-    )
+    tracker.get_sync_stats = AsyncMock(return_value={"total_converted": 0, "synced": 0, "failed": 0, "pending": 0})
     tracker.update_book_marc_metadata = AsyncMock()
     tracker.get_book_count = AsyncMock(return_value=0)
     tracker.get_enriched_book_count = AsyncMock(return_value=0)
@@ -478,8 +447,4 @@ def create_progress_tracker_with_db_mock(db_path: str) -> MagicMock:
 
 def standard_bucket_config() -> dict[str, str]:
     """Standard bucket configuration for tests."""
-    return {
-        "bucket_raw": "test-raw",
-        "bucket_meta": "test-meta",
-        "bucket_full": "test-full"
-    }
+    return {"bucket_raw": "test-raw", "bucket_meta": "test-meta", "bucket_full": "test-full"}

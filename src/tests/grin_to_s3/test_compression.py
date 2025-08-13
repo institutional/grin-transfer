@@ -19,8 +19,6 @@ def test_get_compressed_filename():
     assert get_compressed_filename("file.txt.backup") == "file.txt.backup.gz"
 
 
-
-
 @pytest.mark.asyncio
 async def test_compress_file_to_temp():
     """Test compression to temporary location."""
@@ -67,6 +65,7 @@ async def test_compress_file_to_temp_context_manager():
 
             # Verify content
             import gzip
+
             with gzip.open(temp_compressed, "rt") as f:
                 decompressed_content = f.read()
             assert decompressed_content == test_content
@@ -76,5 +75,3 @@ async def test_compress_file_to_temp_context_manager():
 
         # Source should still exist
         assert source_file.exists()
-
-

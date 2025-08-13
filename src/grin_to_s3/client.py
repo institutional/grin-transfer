@@ -245,8 +245,6 @@ class GRINClient:
             cell_texts.append(text)
         return cell_texts
 
-
-
     def _parse_books_from_html(self, html_content: str) -> list[GRINRow]:
         """Parse book data from GRIN HTML using CSS selectors to directly extract data."""
         try:

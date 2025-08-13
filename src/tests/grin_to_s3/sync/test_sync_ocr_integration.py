@@ -124,11 +124,15 @@ class TestSyncOCRPipelineIntegration:
             mock_book_manager_class.return_value = mock_book_manager
 
             # Execute upload with OCR extraction (using real OCR extraction, not mocked)
-            storage_config = {"base_path": "/tmp/storage"} if storage_type == "local" else {
-                "endpoint_url": f"https://test-{storage_type}.example.com",
-                "access_key_id": "test-key",
-                "secret_access_key": "test-secret",
-            }
+            storage_config = (
+                {"base_path": "/tmp/storage"}
+                if storage_type == "local"
+                else {
+                    "endpoint_url": f"https://test-{storage_type}.example.com",
+                    "access_key_id": "test-key",
+                    "secret_access_key": "test-secret",
+                }
+            )
 
             result = await upload_book_from_staging(
                 barcode,
@@ -159,7 +163,7 @@ class TestSyncOCRPipelineIntegration:
             assert upload_call_args is not None
 
             # The function signature is save_ocr_text_jsonl_from_file(barcode, jsonl_file_path, metadata=None)
-            uploaded_barcode = upload_call_args[0][0]    # First positional argument (barcode)
+            uploaded_barcode = upload_call_args[0][0]  # First positional argument (barcode)
             uploaded_file_path = upload_call_args[0][1]  # Second positional argument (jsonl file path)
 
             # Since this is an integration test that actually runs OCR extraction,
@@ -202,11 +206,15 @@ class TestSyncOCRPipelineIntegration:
             mock_book_manager_class.return_value = mock_book_manager
 
             # Execute upload with OCR extraction DISABLED
-            storage_config = {"base_path": "/tmp/storage"} if storage_type == "local" else {
-                "endpoint_url": f"https://test-{storage_type}.example.com",
-                "access_key_id": "test-key",
-                "secret_access_key": "test-secret",
-            }
+            storage_config = (
+                {"base_path": "/tmp/storage"}
+                if storage_type == "local"
+                else {
+                    "endpoint_url": f"https://test-{storage_type}.example.com",
+                    "access_key_id": "test-key",
+                    "secret_access_key": "test-secret",
+                }
+            )
 
             result = await upload_book_from_staging(
                 barcode,
@@ -311,8 +319,7 @@ class TestSyncOCRPipelineIntegration:
 
             # Verify upload failed
             assert result["status"] == "failed"
-            assert ("Storage upload failed" in result["error"] or
-                   "Decryption failed" in result["error"])
+            assert "Storage upload failed" in result["error"] or "Decryption failed" in result["error"]
 
             # Wait a bit to ensure any background tasks complete
             await asyncio.sleep(0.1)

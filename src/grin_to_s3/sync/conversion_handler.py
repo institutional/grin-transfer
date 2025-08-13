@@ -51,7 +51,11 @@ class ConversionRequestHandler:
             if result == "Success":
                 logger.info(f"[{barcode}] Conversion requested successfully")
                 return "requested"
-            elif "already in process" in result.lower() or "already available" in result.lower() or "already being converted" in result.lower():
+            elif (
+                "already in process" in result.lower()
+                or "already available" in result.lower()
+                or "already being converted" in result.lower()
+            ):
                 logger.info(f"[{barcode}] Already being processed: {result}")
                 return "in_process"
             else:
@@ -62,7 +66,11 @@ class ConversionRequestHandler:
 
         except ProcessingRequestError as e:
             error_msg = str(e).lower()
-            if "already being converted" in error_msg or "already in process" in error_msg or "already available" in error_msg:
+            if (
+                "already being converted" in error_msg
+                or "already in process" in error_msg
+                or "already available" in error_msg
+            ):
                 logger.info(f"[{barcode}] Already being processed: {e}")
                 return "in_process"
             else:
@@ -81,5 +89,3 @@ class ConversionRequestHandler:
         except Exception as e:
             logger.error(f"[{barcode}] Failed to mark as verified_unavailable in database: {e}")
             # Don't re-raise - database failures shouldn't prevent conversion logic from continuing
-
-

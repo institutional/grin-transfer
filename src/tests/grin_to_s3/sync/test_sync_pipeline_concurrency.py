@@ -11,7 +11,6 @@ from grin_to_s3.sync.pipeline import SyncPipeline
 class TestSyncPipelineConcurrency:
     """Test concurrency control in sync pipeline."""
 
-
     async def test_download_concurrency_limit_respected(self, sync_pipeline):
         """Test that download concurrency limit is respected."""
         download_started = []
@@ -55,7 +54,9 @@ class TestSyncPipelineConcurrency:
                     return_value={"total_converted": 5, "synced": 0, "failed": 0, "pending": 5}
                 )
                 # Mock batch_write_status_updates instead of add_status_change
-                with patch("grin_to_s3.database_utils.batch_write_status_updates", new_callable=AsyncMock) as mock_batch_write:
+                with patch(
+                    "grin_to_s3.database_utils.batch_write_status_updates", new_callable=AsyncMock
+                ) as mock_batch_write:
                     mock_batch_write.return_value = None
 
                     # Run sync with limit
@@ -107,7 +108,9 @@ class TestSyncPipelineConcurrency:
                     return_value={"total_converted": 2, "synced": 0, "failed": 0, "pending": 2}
                 )
                 # Mock batch_write_status_updates instead of add_status_change
-                with patch("grin_to_s3.database_utils.batch_write_status_updates", new_callable=AsyncMock) as mock_batch_write:
+                with patch(
+                    "grin_to_s3.database_utils.batch_write_status_updates", new_callable=AsyncMock
+                ) as mock_batch_write:
                     mock_batch_write.return_value = None
 
                     # Run sync
@@ -324,6 +327,7 @@ class TestDiskSpaceRaceConditionFix:
 
                 # Mock staging manager with space checking
                 space_calls = 0
+
                 async def mock_wait_for_disk_space():
                     nonlocal space_calls
                     space_calls += 1
@@ -335,6 +339,7 @@ class TestDiskSpaceRaceConditionFix:
                 # Mock semaphore acquisition to track when it happens
                 original_acquire = pipeline._download_semaphore.acquire
                 semaphore_calls = 0
+
                 async def mock_semaphore_acquire():
                     nonlocal semaphore_calls
                     semaphore_calls += 1
@@ -344,17 +349,20 @@ class TestDiskSpaceRaceConditionFix:
                 pipeline._download_semaphore.acquire = mock_semaphore_acquire
 
                 # Mock the actual operations to avoid network calls
-                with patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000, [])):
-                    with patch("grin_to_s3.sync.pipeline.download_book_to_filesystem", return_value=("book1", "/tmp/test", {})):
+                with patch(
+                    "grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000, [])
+                ):
+                    with patch(
+                        "grin_to_s3.sync.pipeline.download_book_to_filesystem", return_value=("book1", "/tmp/test", {})
+                    ):
+                        # Start multiple concurrent tasks
+                        tasks = []
+                        for i in range(3):
+                            task = asyncio.create_task(pipeline._download_book(f"book{i}"))
+                            tasks.append(task)
 
-                            # Start multiple concurrent tasks
-                            tasks = []
-                            for i in range(3):
-                                task = asyncio.create_task(pipeline._download_book(f"book{i}"))
-                                tasks.append(task)
-
-                            # Wait for all tasks to complete
-                            await asyncio.gather(*tasks, return_exceptions=True)
+                        # Wait for all tasks to complete
+                        await asyncio.gather(*tasks, return_exceptions=True)
 
         # Verify that disk space checks happened BEFORE semaphore acquisitions
         space_operations = [op for op in operation_order if op.startswith("space_check")]
@@ -369,8 +377,7 @@ class TestDiskSpaceRaceConditionFix:
 
         # Space check should happen before semaphore acquisition
         assert first_space_pos < first_semaphore_pos, (
-            f"Disk space check should happen before semaphore acquisition. "
-            f"Order: {operation_order}"
+            f"Disk space check should happen before semaphore acquisition. Order: {operation_order}"
         )
 
     @pytest.mark.asyncio
@@ -388,6 +395,7 @@ class TestDiskSpaceRaceConditionFix:
 
                 # Mock staging manager to block on disk space initially
                 wait_calls = 0
+
                 async def mock_wait_for_disk_space():
                     nonlocal wait_calls
                     wait_calls += 1
@@ -400,23 +408,28 @@ class TestDiskSpaceRaceConditionFix:
                 # Track when semaphore is acquired (actual download starts)
                 semaphore_acquired = []
                 original_acquire = pipeline._download_semaphore.acquire
+
                 async def track_semaphore_acquire():
                     semaphore_acquired.append(asyncio.get_event_loop().time())
                     return await original_acquire()
+
                 pipeline._download_semaphore.acquire = track_semaphore_acquire
 
                 # Mock the actual operations
-                with patch("grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000, [])):
-                    with patch("grin_to_s3.sync.pipeline.download_book_to_filesystem", return_value=("book1", "/tmp/test", {})):
+                with patch(
+                    "grin_to_s3.sync.pipeline.check_and_handle_etag_skip", return_value=(None, "etag123", 1000, [])
+                ):
+                    with patch(
+                        "grin_to_s3.sync.pipeline.download_book_to_filesystem", return_value=("book1", "/tmp/test", {})
+                    ):
+                        # Start multiple concurrent tasks
+                        tasks = []
+                        for i in range(3):
+                            task = asyncio.create_task(pipeline._download_book(f"book{i}"))
+                            tasks.append(task)
 
-                            # Start multiple concurrent tasks
-                            tasks = []
-                            for i in range(3):
-                                task = asyncio.create_task(pipeline._download_book(f"book{i}"))
-                                tasks.append(task)
-
-                            # Wait for all tasks
-                            await asyncio.gather(*tasks, return_exceptions=True)
+                        # Wait for all tasks
+                        await asyncio.gather(*tasks, return_exceptions=True)
 
         # Verify that downloads were delayed due to disk space blocking
         assert wait_calls >= 3, f"Expected at least 3 disk space checks, got {wait_calls}"
@@ -425,4 +438,6 @@ class TestDiskSpaceRaceConditionFix:
         # The semaphore acquisitions should have been spread out due to disk space blocking
         if len(semaphore_acquired) >= 2:
             time_diff = semaphore_acquired[1] - semaphore_acquired[0]
-            assert time_diff >= 0.05, f"Semaphore acquisitions too close together: {time_diff}s (expected delay due to disk space blocking)"
+            assert time_diff >= 0.05, (
+                f"Semaphore acquisitions too close together: {time_diff}s (expected delay due to disk space blocking)"
+            )

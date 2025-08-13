@@ -62,6 +62,7 @@ class TestBookStorageIntegration:
 
             # Verify JSONL content is correct (decompressed)
             import gzip
+
             with gzip.open(expected_path, "rt", encoding="utf-8") as f:
                 content = f.read()
 
@@ -110,6 +111,7 @@ class TestBookStorageIntegration:
 
             # Verify JSONL content (decompressed)
             import gzip
+
             with gzip.open(expected_path, "rt", encoding="utf-8") as f:
                 content = f.read()
 
@@ -155,6 +157,7 @@ class TestBookStorageIntegration:
 
             # Verify Unicode content is preserved (decompressed)
             import gzip
+
             with gzip.open(expected_path, "rt", encoding="utf-8") as f:
                 content = f.read()
 
@@ -196,6 +199,7 @@ class TestBookStorageIntegration:
 
             # Verify file is empty (decompressed)
             import gzip
+
             with gzip.open(expected_path, "rt", encoding="utf-8") as f:
                 content = f.read()
 
@@ -253,6 +257,7 @@ class TestBookStorageIntegration:
 
             # Verify contents are the same for both JSONL files (decompress the full one)
             import gzip
+
             with gzip.open(full_jsonl_path, "rt") as f:
                 full_content = f.read()
             with open(raw_jsonl_path) as f:
@@ -336,6 +341,7 @@ class TestBookStorageIntegration:
 
             # Verify content in both compressed files
             import gzip
+
             with gzip.open(latest_file, "rt", encoding="utf-8") as f:
                 latest_content = f.read()
             assert latest_content == csv_content
@@ -378,6 +384,7 @@ class TestBookStorageIntegration:
 
             # Verify compressed content
             import gzip
+
             with gzip.open(custom_file, "rt", encoding="utf-8") as f:
                 content = f.read()
             assert content == csv_content
@@ -403,7 +410,7 @@ class TestBookStorageIntegration:
                     bucket_config = {
                         "bucket_raw": storage_config["bucket_raw"],
                         "bucket_meta": storage_config["bucket_meta"],
-                        "bucket_full": storage_config["bucket_full"]
+                        "bucket_full": storage_config["bucket_full"],
                     }
                     book_manager = BookManager(storage=storage, bucket_config=bucket_config)
 

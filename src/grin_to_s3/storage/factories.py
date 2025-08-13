@@ -18,13 +18,9 @@ from .book_manager import BookManager, BucketConfig
 logger = logging.getLogger(__name__)
 
 
-
 # Default directory names for local storage
-LOCAL_STORAGE_DEFAULTS = {
-    "bucket_raw": "raw",
-    "bucket_meta": "meta",
-    "bucket_full": "full"
-}
+LOCAL_STORAGE_DEFAULTS = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+
 
 def get_storage_protocol(storage_type: str) -> str:
     """
@@ -57,12 +53,12 @@ def s3_credentials_available() -> bool:
     """Check if S3 credentials are available via boto3's credential resolution."""
     try:
         import boto3
+
         session = boto3.Session()
         credentials = session.get_credentials()
         return credentials is not None and credentials.access_key is not None
     except Exception:
         return False
-
 
 
 def load_r2_credentials() -> tuple[str, str] | None:
@@ -77,7 +73,9 @@ def load_r2_credentials() -> tuple[str, str] | None:
     credentials_file = find_credential_file("r2_credentials.json")
 
     if not credentials_file:
-        logger.error("Missing R2 credentials file. Please ensure credentials are properly configured in ~/.config/grin-to-s3/r2_credentials.json")
+        logger.error(
+            "Missing R2 credentials file. Please ensure credentials are properly configured in ~/.config/grin-to-s3/r2_credentials.json"
+        )
         return None
 
     try:

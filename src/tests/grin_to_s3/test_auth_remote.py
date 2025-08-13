@@ -44,7 +44,7 @@ class TestRemoteShellDetection:
         """Test detection of cloud environment without DISPLAY."""
         env_vars = {
             "AWS_EXECUTION_ENV": "AWS_ECS_FARGATE",
-            "DISPLAY": ""  # Explicitly empty
+            "DISPLAY": "",  # Explicitly empty
         }
         with patch.dict(os.environ, env_vars, clear=False):
             with patch("sys.platform", "linux"):
@@ -52,20 +52,14 @@ class TestRemoteShellDetection:
 
     def test_detect_gcp_without_display(self):
         """Test detection of Google Cloud Platform environment."""
-        env_vars = {
-            "GOOGLE_CLOUD_PROJECT": "my-project",
-            "DISPLAY": ""
-        }
+        env_vars = {"GOOGLE_CLOUD_PROJECT": "my-project", "DISPLAY": ""}
         with patch.dict(os.environ, env_vars, clear=False):
             with patch("sys.platform", "linux"):
                 assert detect_remote_shell() is True
 
     def test_detect_azure_without_display(self):
         """Test detection of Azure environment."""
-        env_vars = {
-            "AZURE_FUNCTIONS_ENVIRONMENT": "Production",
-            "DISPLAY": ""
-        }
+        env_vars = {"AZURE_FUNCTIONS_ENVIRONMENT": "Production", "DISPLAY": ""}
         with patch.dict(os.environ, env_vars, clear=False):
             with patch("sys.platform", "linux"):
                 assert detect_remote_shell() is True
@@ -81,7 +75,7 @@ class TestRemoteShellDetection:
             "DISPLAY": ":0",  # Local display
             "AWS_EXECUTION_ENV": None,
             "GOOGLE_CLOUD_PROJECT": None,
-            "AZURE_FUNCTIONS_ENVIRONMENT": None
+            "AZURE_FUNCTIONS_ENVIRONMENT": None,
         }
 
         # Use dict comprehension to only include non-None values
@@ -94,7 +88,7 @@ class TestRemoteShellDetection:
         """Test that Windows systems ignore DISPLAY environment variable."""
         env_vars = {
             "DISPLAY": "",  # No display
-            "AWS_EXECUTION_ENV": "AWS_ECS_FARGATE"  # Cloud indicator
+            "AWS_EXECUTION_ENV": "AWS_ECS_FARGATE",  # Cloud indicator
         }
         with patch.dict(os.environ, env_vars, clear=False):
             with patch("sys.platform", "win32"):
@@ -105,7 +99,7 @@ class TestRemoteShellDetection:
         """Test that Docker environments are not incorrectly detected as remote shells."""
         env_vars = {
             "DISPLAY": "",  # No display (common in Docker)
-            "DOCKER_ENV": "true"  # Docker environment indicator
+            "DOCKER_ENV": "true",  # Docker environment indicator
         }
         with patch.dict(os.environ, env_vars, clear=True):
             # Docker should not be detected as remote shell
@@ -144,10 +138,7 @@ class TestManualAuthorizationFlow:
 
         # Verify flow configuration
         assert mock_flow.redirect_uri == "urn:ietf:wg:oauth:2.0:oob"
-        mock_flow.authorization_url.assert_called_once_with(
-            prompt="consent",
-            access_type="offline"
-        )
+        mock_flow.authorization_url.assert_called_once_with(prompt="consent", access_type="offline")
         mock_flow.fetch_token.assert_called_once_with(code="test_auth_code")
         assert result == mock_credentials
 
@@ -194,13 +185,15 @@ class TestSetupCredentialsRemoteAuth:
     def test_setup_credentials_remote_detected(self):
         """Test setup_credentials with remote shell detected."""
         # Mock the environment detection to return True for remote
-        with patch("grin_to_s3.auth.detect_remote_shell", return_value=True), \
-             patch("grin_to_s3.auth.grin_auth.is_docker_environment", return_value=False), \
-             patch("builtins.print"):
-
+        with (
+            patch("grin_to_s3.auth.detect_remote_shell", return_value=True),
+            patch("grin_to_s3.auth.grin_auth.is_docker_environment", return_value=False),
+            patch("builtins.print"),
+        ):
             # Mock the core logic to return success
-            with patch("grin_to_s3.auth.grin_auth._do_credential_setup", return_value=(True, "Setup completed successfully")) as mock_core:
-
+            with patch(
+                "grin_to_s3.auth.grin_auth._do_credential_setup", return_value=(True, "Setup completed successfully")
+            ) as mock_core:
                 # Mock GRINAuth to provide paths
                 with patch("grin_to_s3.auth.grin_auth.GRINAuth") as mock_grin_auth:
                     mock_auth_instance = Mock()
@@ -223,13 +216,15 @@ class TestSetupCredentialsRemoteAuth:
     def test_setup_credentials_remote_flag_override(self):
         """Test setup_credentials with --remote-auth flag override."""
         # Mock environment detection to return False, but flag should override
-        with patch("grin_to_s3.auth.detect_remote_shell", return_value=False), \
-             patch("grin_to_s3.auth.grin_auth.is_docker_environment", return_value=False), \
-             patch("builtins.print"):
-
+        with (
+            patch("grin_to_s3.auth.detect_remote_shell", return_value=False),
+            patch("grin_to_s3.auth.grin_auth.is_docker_environment", return_value=False),
+            patch("builtins.print"),
+        ):
             # Mock the core logic to return success
-            with patch("grin_to_s3.auth.grin_auth._do_credential_setup", return_value=(True, "Setup completed successfully")) as mock_core:
-
+            with patch(
+                "grin_to_s3.auth.grin_auth._do_credential_setup", return_value=(True, "Setup completed successfully")
+            ) as mock_core:
                 # Mock GRINAuth to provide paths
                 with patch("grin_to_s3.auth.grin_auth.GRINAuth") as mock_grin_auth:
                     mock_auth_instance = Mock()
@@ -251,13 +246,15 @@ class TestSetupCredentialsRemoteAuth:
     def test_setup_credentials_local_flow_when_not_remote(self):
         """Test setup_credentials uses local flow when not remote/docker."""
         # Mock environment detection to return False for both remote and docker
-        with patch("grin_to_s3.auth.detect_remote_shell", return_value=False), \
-             patch("grin_to_s3.auth.grin_auth.is_docker_environment", return_value=False), \
-             patch("builtins.print"):
-
+        with (
+            patch("grin_to_s3.auth.detect_remote_shell", return_value=False),
+            patch("grin_to_s3.auth.grin_auth.is_docker_environment", return_value=False),
+            patch("builtins.print"),
+        ):
             # Mock the core logic to return success
-            with patch("grin_to_s3.auth.grin_auth._do_credential_setup", return_value=(True, "Setup completed successfully")) as mock_core:
-
+            with patch(
+                "grin_to_s3.auth.grin_auth._do_credential_setup", return_value=(True, "Setup completed successfully")
+            ) as mock_core:
                 # Mock GRINAuth to provide paths
                 with patch("grin_to_s3.auth.grin_auth.GRINAuth") as mock_grin_auth:
                     mock_auth_instance = Mock()

@@ -73,8 +73,14 @@ class TestValidateDockerLocalStoragePath:
         """Test validation of various valid /app paths."""
         with patch("pathlib.Path.write_text"):
             # Test all mounted prefixes
-            for path in ["/app/data/test", "/app/output/test", "/app/logs/test",
-                         "/app/staging/test", "/app/docker-data/test", "/app/custom/test"]:
+            for path in [
+                "/app/data/test",
+                "/app/output/test",
+                "/app/logs/test",
+                "/app/staging/test",
+                "/app/docker-data/test",
+                "/app/custom/test",
+            ]:
                 mock_mkdir.reset_mock()
                 validate_docker_local_storage_path(Path(path))
                 mock_mkdir.assert_called_with(parents=True, exist_ok=True)
@@ -161,6 +167,7 @@ class TestProcessLocalStoragePath:
         with tempfile.TemporaryDirectory() as temp_dir:
             # Change to temp directory
             import os
+
             original_cwd = os.getcwd()
             try:
                 os.chdir(temp_dir)

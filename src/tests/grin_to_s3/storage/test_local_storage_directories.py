@@ -41,8 +41,10 @@ class TestCreateLocalStorageDirectories:
                     with patch("pathlib.Path.unlink"):
                         # Mock the path processing to return a valid docker path
                         mock_path = Path("/app/docker-data/test")
-                        with patch("grin_to_s3.docker.validation.translate_docker_data_path_for_local_storage",
-                                 return_value="/app/docker-data/test"):
+                        with patch(
+                            "grin_to_s3.docker.validation.translate_docker_data_path_for_local_storage",
+                            return_value="/app/docker-data/test",
+                        ):
                             with patch("pathlib.Path.resolve", return_value=mock_path):
                                 with patch("pathlib.Path.expanduser", return_value=mock_path):
                                     storage_config = {"base_path": "docker-data/test"}
@@ -66,7 +68,9 @@ class TestCreateLocalStorageDirectories:
     async def test_create_directories_docker_invalid_path(self):
         """Test error when Docker path is invalid."""
         with patch("grin_to_s3.docker.validation.is_docker_environment", return_value=True):
-            with patch("grin_to_s3.docker.validation.process_local_storage_path", side_effect=ValueError("Invalid Docker path")):
+            with patch(
+                "grin_to_s3.docker.validation.process_local_storage_path", side_effect=ValueError("Invalid Docker path")
+            ):
                 storage_config = {"base_path": "/invalid/path"}
 
                 with pytest.raises(ValueError) as exc_info:

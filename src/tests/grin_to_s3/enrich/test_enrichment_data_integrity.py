@@ -47,12 +47,11 @@ class TestEnrichmentDataIntegrity:
             process_summary_stage=mock_stage,
             rate_limit_delay=0,
             batch_size=10,
-            max_concurrent_requests=1
+            max_concurrent_requests=1,
         )
         # Replace grin_client with mock to avoid authentication issues
         pipeline.grin_client = MockEnrichmentClient()
         return pipeline
-
 
     async def assert_enrichment_result(self, enrichment_pipeline, barcodes, tsv_response, expected_result_check):
         """Helper to test enrichment results with a custom assertion function."""
@@ -140,9 +139,7 @@ class TestEnrichmentDataIntegrity:
             # Empty barcode row should be ignored
             assert "" not in result
 
-        await self.assert_enrichment_result(
-            enrichment_pipeline, ["TEST001", "TEST002"], tsv_response, check_result
-        )
+        await self.assert_enrichment_result(enrichment_pipeline, ["TEST001", "TEST002"], tsv_response, check_result)
 
     @pytest.mark.asyncio
     async def test_tsv_parsing_duplicate_barcodes_in_response(self, enrichment_pipeline):
@@ -164,9 +161,7 @@ class TestEnrichmentDataIntegrity:
             # Should have data from the second (last) occurrence
             assert test_data is not None
 
-        await self.assert_enrichment_result(
-            enrichment_pipeline, barcodes, mock_response, check_result
-        )
+        await self.assert_enrichment_result(enrichment_pipeline, barcodes, mock_response, check_result)
 
     @pytest.mark.asyncio
     async def test_tsv_parsing_unexpected_barcodes_in_response(self, enrichment_pipeline):
@@ -191,9 +186,7 @@ class TestEnrichmentDataIntegrity:
             # This test documents current behavior - may want to change this in production
             # to filter out unexpected barcodes
 
-        await self.assert_enrichment_result(
-            enrichment_pipeline, requested_barcodes, mock_response, check_result
-        )
+        await self.assert_enrichment_result(enrichment_pipeline, requested_barcodes, mock_response, check_result)
 
     @pytest.mark.asyncio
     async def test_tsv_parsing_missing_requested_barcodes(self, enrichment_pipeline):
@@ -201,11 +194,7 @@ class TestEnrichmentDataIntegrity:
         requested_barcodes = ["TEST001", "TEST002", "TEST003"]
 
         # TSV missing TEST002
-        mock_response = (
-            "Barcode\tState\tViewability\n"
-            "TEST001\tACCEPTED\tFULL_VIEW\n"
-            "TEST003\tACCEPTED\tFULL_VIEW\n"
-        )
+        mock_response = "Barcode\tState\tViewability\nTEST001\tACCEPTED\tFULL_VIEW\nTEST003\tACCEPTED\tFULL_VIEW\n"
 
         def check_result(result):
             # Should include all requested barcodes, missing ones as None
@@ -218,9 +207,7 @@ class TestEnrichmentDataIntegrity:
             assert result["TEST002"] is None  # Missing from response
             assert result["TEST003"] is not None
 
-        await self.assert_enrichment_result(
-            enrichment_pipeline, requested_barcodes, mock_response, check_result
-        )
+        await self.assert_enrichment_result(enrichment_pipeline, requested_barcodes, mock_response, check_result)
 
     @pytest.mark.asyncio
     async def test_field_mapping_corruption_detection(self, enrichment_pipeline):
@@ -246,9 +233,7 @@ class TestEnrichmentDataIntegrity:
             assert test_data.get("grin_conditions") == "GOOD"
             assert test_data.get("grin_scannable") == "true"
 
-        await self.assert_enrichment_result(
-            enrichment_pipeline, barcodes, mock_response, check_result
-        )
+        await self.assert_enrichment_result(enrichment_pipeline, barcodes, mock_response, check_result)
 
     @pytest.mark.asyncio
     async def test_batch_splitting_maintains_data_integrity(self, enrichment_pipeline):
@@ -294,18 +279,14 @@ class TestEnrichmentDataIntegrity:
 
         # Test batch 1
         batch1_response = (
-            "Barcode\tState\tViewability\n"
-            "BATCH1_001\tACCEPTED\tFULL_VIEW\n"
-            "BATCH1_002\tREJECTED\tNO_VIEW\n"
+            "Barcode\tState\tViewability\nBATCH1_001\tACCEPTED\tFULL_VIEW\nBATCH1_002\tREJECTED\tNO_VIEW\n"
         )
         enrichment_pipeline.grin_client.set_enrichment_response(batch1_response)
         result1 = await enrichment_pipeline.fetch_grin_metadata_batch(batch1)
 
         # Test batch 2
         batch2_response = (
-            "Barcode\tState\tViewability\n"
-            "BATCH2_001\tPENDING\tMETADATA_VIEW\n"
-            "BATCH2_002\tACCEPTED\tFULL_VIEW\n"
+            "Barcode\tState\tViewability\nBATCH2_001\tPENDING\tMETADATA_VIEW\nBATCH2_002\tACCEPTED\tFULL_VIEW\n"
         )
         enrichment_pipeline.grin_client.set_enrichment_response(batch2_response)
         result2 = await enrichment_pipeline.fetch_grin_metadata_batch(batch2)
@@ -346,8 +327,7 @@ class TestEnrichmentDataIntegrity:
 
         # TSV with special characters that could break parsing
         mock_response = (
-            "Barcode\tState\tViewability\tConditions\n"
-            "TEST001\tACCEPTED\tFULL_VIEW\tContains\ttabs\tand\tnewlines\n"
+            "Barcode\tState\tViewability\tConditions\nTEST001\tACCEPTED\tFULL_VIEW\tContains\ttabs\tand\tnewlines\n"
         )
 
         def check_result(result):
@@ -356,9 +336,7 @@ class TestEnrichmentDataIntegrity:
             assert "TEST001" in result
             # This test documents current behavior - may need fixing in production
 
-        await self.assert_enrichment_result(
-            enrichment_pipeline, barcodes, mock_response, check_result
-        )
+        await self.assert_enrichment_result(enrichment_pipeline, barcodes, mock_response, check_result)
 
     @pytest.mark.asyncio
     async def test_insufficient_tsv_data_handling(self, enrichment_pipeline):
@@ -386,11 +364,7 @@ class TestEnrichmentDataIntegrity:
         barcodes = ["TEST001", "TEST002"]
 
         # Mock successful GRIN response
-        mock_response = (
-            "Barcode\tState\tViewability\n"
-            "TEST001\tACCEPTED\tFULL_VIEW\n"
-            "TEST002\tACCEPTED\tFULL_VIEW\n"
-        )
+        mock_response = "Barcode\tState\tViewability\nTEST001\tACCEPTED\tFULL_VIEW\nTEST002\tACCEPTED\tFULL_VIEW\n"
 
         # Mock SQLiteProgressTracker with one successful, one failed update
         mock_tracker = AsyncMock()
