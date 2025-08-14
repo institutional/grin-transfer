@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 # Common type aliases
+type Barcode = str
 type BarcodeSet = set[str]
 
 

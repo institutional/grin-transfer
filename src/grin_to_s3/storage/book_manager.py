@@ -177,41 +177,34 @@ class BookManager:
 
     async def get_decrypted_archive_metadata(self, barcode: str) -> dict[str, str]:
         """Get metadata from decrypted archive file."""
-        if not self.storage.is_s3_compatible():
-            # Only supported for S3-compatible storage
-            return {}
+        filename = f"{barcode}.tar.gz"
+        path = self._raw_archive_path(barcode, filename)
 
-        try:
-            filename = f"{barcode}.tar.gz"
-            path = self._raw_archive_path(barcode, filename)
+        # Get object metadata using aioboto3 directly
+        import aioboto3
 
-            # Get object metadata using aioboto3 directly
-            import aioboto3
+        # Use the credentials from the storage config
+        session_kwargs = {
+            "aws_access_key_id": self.storage.config.options.get("key"),
+            "aws_secret_access_key": self.storage.config.options.get("secret"),
+        }
 
-            # Use the credentials from the storage config
-            session_kwargs = {
-                "aws_access_key_id": self.storage.config.options.get("key"),
-                "aws_secret_access_key": self.storage.config.options.get("secret"),
-            }
+        # Add endpoint URL if present
+        if self.storage.config.endpoint_url:
+            session_kwargs["endpoint_url"] = self.storage.config.endpoint_url
 
-            # Add endpoint URL if present
-            if self.storage.config.endpoint_url:
-                session_kwargs["endpoint_url"] = self.storage.config.endpoint_url
-
-            session = aioboto3.Session()
-            s3_client: S3Client
-            async with session.client("s3", **session_kwargs) as s3_client:
-                # Parse bucket and key from path
-                normalized_path = self.storage._normalize_path(path)
-                path_parts = normalized_path.split("/", 1)
-                if len(path_parts) == 2:
-                    bucket, key = path_parts
-                    response = await s3_client.head_object(Bucket=bucket, Key=key)
-                    return response.get("Metadata", {})
-                else:
-                    return {}
-        except Exception:
-            return {}
+        session = aioboto3.Session()
+        s3_client: S3Client
+        async with session.client("s3", **session_kwargs) as s3_client:
+            # Parse bucket and key from path
+            normalized_path = self.storage._normalize_path(path)
+            path_parts = normalized_path.split("/", 1)
+            if len(path_parts) == 2:
+                bucket, key = path_parts
+                response = await s3_client.head_object(Bucket=bucket, Key=key)
+                return response.get("Metadata", {})
+            else:
+                return {}
 
     async def archive_matches_encrypted_etag(self, barcode: str, encrypted_etag: str) -> bool:
         """Check if existing decrypted archive was created from the same encrypted file using stored metadata."""

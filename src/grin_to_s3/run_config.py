@@ -111,6 +111,7 @@ class RunConfig:
         # Fill in protocol if missing (only field we auto-derive)
         if "protocol" not in stored_config:
             from .storage.factories import get_storage_protocol
+
             stored_config["protocol"] = get_storage_protocol(stored_config["type"])
         if "config" not in stored_config:
             stored_config["config"] = {}
@@ -176,7 +177,6 @@ class RunConfig:
     def sync_disk_space_threshold(self) -> float:
         """Get the disk space threshold setting for sync operations."""
         return self.sync_config.get("disk_space_threshold", DEFAULT_SYNC_DISK_SPACE_THRESHOLD)
-
 
     def get_storage_args(self) -> dict[str, str]:
         """Get storage arguments suitable for command line scripts."""

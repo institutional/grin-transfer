@@ -43,7 +43,7 @@ from .operations import (
     upload_book_from_staging,
 )
 from .teardown import process_skip_result_teardown
-from .utils import build_download_result, reset_bucket_cache
+from .utils import build_download_result, check_grin_etag, etag_matches, reset_bucket_cache
 
 # Progress reporting intervals
 INITIAL_PROGRESS_INTERVAL = 60  # 1 minute for first few reports
@@ -223,14 +223,12 @@ class SyncPipeline:
         # Simple gate to prevent race conditions in task creation
         self._task_creation_lock = asyncio.Lock()
 
-
         # Statistics
         self.stats = create_sync_stats()
         self._processed_count = 0  # Track total processed (downloaded) books
         self._completed_count = 0  # Track fully synced books (upload completed/failed)
         self._has_started_work = False  # Track if any work has begun
         self._sequential_failures = 0  # Track consecutive failures for exit logic
-
 
         # Initialize storage components once (now that tests provide complete configurations)
         self.storage = create_storage_from_config(self.config.storage_config)
@@ -240,7 +238,9 @@ class SyncPipeline:
         self.current_queues: list[str] = []  # Track which queues are being processed
         self.conversion_handler: ConversionRequestHandler | None = None  # Lazy initialization
         self.conversion_request_limit = DEFAULT_CONVERSION_REQUEST_LIMIT
-        self.book_manager = BookManager(self.storage, storage_config=self.config.storage_config, base_prefix=self.base_prefix)
+        self.book_manager = BookManager(
+            self.storage, storage_config=self.config.storage_config, base_prefix=self.base_prefix
+        )
 
     @property
     def uses_block_storage(self) -> bool:
@@ -250,7 +250,7 @@ class SyncPipeline:
     @property
     def uses_local_storage(self) -> bool:
         """Check if the pipeline uses local storage."""
-        return self.config.storage_config["protocol"]  == "local"
+        return self.config.storage_config["protocol"] == "local"
 
     def _handle_failure(self, barcode: str, error_msg: str) -> bool:
         """
@@ -302,7 +302,6 @@ class SyncPipeline:
 
         self._shutdown_requested = True
         logger.info("Shutting down sync pipeline...")
-
 
         # Final staging cleanup (only if sync was successful and not skipped)
         if self.uses_block_storage:
@@ -462,14 +461,10 @@ class SyncPipeline:
         """Get current sync status and statistics."""
         stats = await self.db_tracker.get_sync_stats(self.config.storage_config["protocol"])
 
-
         return {
             **stats,
             "session_stats": self.stats,
         }
-
-
-
 
     async def _export_csv_if_enabled(self) -> CSVExportResult:
         """Export CSV if enabled."""
@@ -593,7 +588,6 @@ class SyncPipeline:
         elif db_result and db_result["status"] == "failed":
             print(f"  Database backup failed: {db_result.get('error', 'unknown error')}")
 
-
     async def _print_final_stats_and_outputs(self, total_elapsed: float, books_processed: int) -> None:
         """Print comprehensive final statistics and output locations."""
         run_name = Path(self.db_path).parent.name
@@ -633,10 +627,10 @@ class SyncPipeline:
             print(f"  Full-text: {base_path}/full/")
             print(f"  CSV export: {base_path}/meta/books_latest.csv.gz")
         else:
-            print(f"  Raw data bucket: {self.config.storage_config['config'].get("bucket_raw")}")
-            print(f"  Metadata bucket: {self.config.storage_config['config'].get("bucket_meta")}")
-            print(f"  Full-text bucket: {self.config.storage_config['config'].get("bucket_full")}")
-            print(f"  CSV export: {self.config.storage_config['config'].get("bucket_meta")}/books_latest.csv.gz")
+            print(f"  Raw data bucket: {self.config.storage_config['config'].get('bucket_raw')}")
+            print(f"  Metadata bucket: {self.config.storage_config['config'].get('bucket_meta')}")
+            print(f"  Full-text bucket: {self.config.storage_config['config'].get('bucket_full')}")
+            print(f"  CSV export: {self.config.storage_config['config'].get('bucket_meta')}/books_latest.csv.gz")
 
     async def _cancel_progress_reporter(self) -> None:
         """Cancel the background progress reporter with timeout."""
@@ -650,9 +644,6 @@ class SyncPipeline:
 
     async def _download_book(self, barcode: str) -> dict[str, Any]:
         """Download a book"""
-        if self.staging_manager:
-            await self.staging_manager.wait_for_disk_space()
-            logger.debug(f"[{barcode}] Disk space check passed, proceeding with download")
 
         async with self._download_semaphore:
             self._active_download_count += 1
@@ -811,11 +802,11 @@ class SyncPipeline:
             else:
                 print(f"Storage: {storage_name}")
 
-            print(f"  Raw bucket: {self.config.storage_config["config"].get('bucket_raw', 'unknown')}")
-            print(f"  Meta bucket: {self.config.storage_config["config"].get('bucket_meta', 'unknown')}")
-            print(f"  Full bucket: {self.config.storage_config["config"].get('bucket_full', 'unknown')}")
+            print(f"  Raw bucket: {self.config.storage_config['config'].get('bucket_raw', 'unknown')}")
+            print(f"  Meta bucket: {self.config.storage_config['config'].get('bucket_meta', 'unknown')}")
+            print(f"  Full bucket: {self.config.storage_config['config'].get('bucket_full', 'unknown')}")
         else:
-            print(f"Storage: {self.config.storage_config["type"]}")
+            print(f"Storage: {self.config.storage_config['type']}")
 
         print(f"Concurrent downloads: {self.concurrent_downloads}")
         print(f"Batch size: {self.batch_size}")
@@ -876,7 +867,6 @@ class SyncPipeline:
                 f"Database sync status: {total_converted:,} total, {already_synced:,} synced, "
                 f"{failed_count:,} failed, {pending_count:,} pending"
             )
-
 
             # Determine books to sync
             if specific_barcodes:
@@ -1086,7 +1076,55 @@ class SyncPipeline:
                 while len(active_downloads) < self.concurrent_downloads:
                     try:
                         barcode = next(book_iter)
-                        if specific_barcodes is None or barcode in specific_barcodes:
+
+                        if self.staging_manager:
+                            await self.staging_manager.wait_for_disk_space()
+                            logger.debug(f"[{barcode}] Disk space check passed, proceeding with download")
+
+                        if specific_barcodes and barcode not in specific_barcodes:
+                            logger.debug(f"Skipping barcode {barcode}; not in specified set")
+                            continue
+
+                        # Now try a HEAD request for the etag and availability
+                        head_result = await check_grin_etag(
+                            self.grin_client, self.library_directory, barcode, self._download_semaphore
+                        )
+                        print(head_result)
+
+                        should_download_archive = False
+
+                        # Options from this point:
+                        # HEAD was 200 + etag present: revalidate etag
+                        # HEAD was 404: don't attempt download
+                        # HEAD was 404: maybe request processing
+
+                        if head_result["success"] and head_result["etag"]:
+                            etag_match = await etag_matches(
+                                barcode, head_result["etag"], self.config.storage_config, self.db_tracker
+                            )
+                            if etag_match["matched"]:
+                                logger.info(
+                                    f"[{barcode}] Skipping download due to matching ETag; already have the latest version of this archive"
+                                )
+                            else:
+                                should_download_archive = True
+
+                                if etag_match["reason"] == "etag_mismatch":
+                                    logger.debug(f"[{barcode}] ETag did not match; will revalidate")
+                                elif etag_match["reason"] == "no_etag":
+                                    raise Exception(
+                                        f"[{barcode}] No etag was present on GRIN result; this is unexpected"
+                                    )
+
+                        elif not head_result["success"] and head_result["http_status_code"] == 404:
+                            logger.info(
+                                f"[{barcode}] Was not found at downloadable GRIN endpoint; will not attempt to download"
+                            )
+                            # don't download
+                            # maybe request processing
+                            continue
+
+                        if should_download_archive:
                             task = asyncio.create_task(self._download_book(barcode))
                             active_downloads[barcode] = task
                             logger.debug(
@@ -1194,7 +1232,7 @@ class SyncPipeline:
             return
 
         print(f"Total books that would be processed: {books_to_process:,}")
-        print(f"Storage type: {self.config.storage_config["type"]}")
+        print(f"Storage type: {self.config.storage_config['type']}")
         print(f"Concurrent downloads: {self.concurrent_downloads}")
         print(f"Concurrent uploads: {self.concurrent_uploads}")
         print(f"Batch size: {self.batch_size}")
@@ -1241,7 +1279,9 @@ class SyncPipeline:
         print("\nDRY-RUN COMPLETE: No actual processing performed")
         print(f"{'=' * 60}")
 
-        logger.info(f"DRY-RUN: Would process {books_to_process} books with storage type {self.config.storage_config["type"]}")
+        logger.info(
+            f"DRY-RUN: Would process {books_to_process} books with storage type {self.config.storage_config['type']}"
+        )
 
     async def _handle_404_with_conversion(self, barcode: str) -> dict[str, Any] | None:
         """Handle 404 error with possible conversion request for previous queue.

@@ -26,7 +26,7 @@ from .status import (
     validate_database_file,
 )
 from .utils import (
-    check_encrypted_etag,
+    check_grin_etag,
     ensure_bucket_exists,
     reset_bucket_cache,
     should_skip_download,
@@ -53,7 +53,7 @@ __all__ = [
     "show_sync_status",
     "validate_database_file",
     # Utility functions
-    "check_encrypted_etag",
+    "check_grin_etag",
     "ensure_bucket_exists",
     "reset_bucket_cache",
     "should_skip_download",

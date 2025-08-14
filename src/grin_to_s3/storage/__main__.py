@@ -67,7 +67,9 @@ def get_bucket_stats(storage, bucket: str, prefix: str = "") -> tuple[int, int]:
     return len(files), total_size
 
 
-def delete_bucket_contents(storage, bucket: str, prefix: str = "", files_to_delete: list[tuple[str, int]] | None = None) -> tuple[int, int]:
+def delete_bucket_contents(
+    storage, bucket: str, prefix: str = "", files_to_delete: list[tuple[str, int]] | None = None
+) -> tuple[int, int]:
     """Delete all contents from bucket with prefix."""
     import boto3
 

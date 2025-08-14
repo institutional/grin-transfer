@@ -16,9 +16,11 @@ import aiohttp
 import boto3
 from botocore.exceptions import ClientError
 
-from grin_to_s3.common import create_http_session
+from grin_to_s3.client import GRINClient
+from grin_to_s3.common import Barcode, create_http_session
 from grin_to_s3.run_config import StorageConfig
 from grin_to_s3.storage.book_manager import BookManager
+from grin_to_s3.sync.models import ETagMatchResult, HeadRequestResult
 
 from ..database import connect_async
 from ..storage.factories import (
@@ -188,9 +190,9 @@ async def ensure_bucket_exists(storage_type: str, storage_config: dict[str, Any]
         return False
 
 
-async def check_encrypted_etag(
-    grin_client, library_directory: str, barcode: str, grin_semaphore: asyncio.Semaphore
-) -> tuple[str | None, int | None, int | None]:
+async def check_grin_etag(
+    grin_client: GRINClient, library_directory: str, barcode: str, grin_semaphore: asyncio.Semaphore
+) -> HeadRequestResult:
     """Make HEAD request to get encrypted file's ETag and file size before downloading.
 
     Args:
@@ -202,15 +204,26 @@ async def check_encrypted_etag(
     Returns:
         tuple: (etag, file_size, status_code) where status_code is 200 on success or HTTP status on error
     """
-    try:
-        grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
-        logger.debug(f"[{barcode}] Checking encrypted ETag via HEAD request to {grin_url}")
+    result: HeadRequestResult = {
+        "barcode": barcode,
+        "completed": False,
+        "etag": None,
+        "file_size_bytes": None,
+        "http_status_code": 500,
+        "success": False,
+    }
+    grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
+    logger.debug(f"[{barcode}] Checking encrypted ETag via HEAD request to {grin_url}")
 
+    try:
         # Use semaphore to respect GRIN 5 QPS limit (shared with downloads)
         async with grin_semaphore:
             async with create_http_session() as session:
                 # Make HEAD request to get headers without downloading content
                 head_response = await grin_client.auth.make_authenticated_request(session, grin_url, method="HEAD")
+
+                result["http_status_code"] = head_response.status
+                result["completed"] = True
 
                 # Look for ETag and Content-Length headers
                 etag = head_response.headers.get("ETag", "").strip('"')
@@ -218,17 +231,52 @@ async def check_encrypted_etag(
 
                 file_size = int(content_length) if content_length else None
 
-                if etag:
-                    logger.debug(f"[{barcode}] Encrypted ETag: {etag}, size: {file_size or 'unknown'}")
-                    return etag, file_size, 200
-                else:
-                    logger.debug(f"[{barcode}] No ETag found in Google response")
-                    return None, file_size, 200
+                result["etag"] = etag
+
+                result["file_size_bytes"] = file_size
+
+                # Have etag and file size and a 20x result is success
+                if etag and file_size:
+                    result["success"] = True
 
     except aiohttp.ClientResponseError as e:
         # Return HTTP status code for HTTP errors (404, 500, etc.)
         logger.info(f"[{barcode}] HEAD request returned HTTP {e.status}")
-        return None, None, e.status
+        result["http_status_code"] = e.status
+        result["completed"] = True
+
+    return result
+
+
+async def etag_matches(barcode: Barcode, etag: str, storage_config: StorageConfig, db) -> ETagMatchResult:
+    storage = create_storage_from_config(storage_config)
+    if storage_config["protocol"] == "s3":
+        book_manager = BookManager(storage, storage_config=storage_config)
+        # Check if decrypted archive exists and matches encrypted ETag
+        try:
+            metadata = await book_manager.get_decrypted_archive_metadata(barcode)
+            stored_encrypted_etag = metadata.get("encrypted-etag", "")
+            matches = stored_encrypted_etag.strip('"') == etag.strip('"')
+            if matches:
+                return {
+                    "matched": True,
+                    "reason": "etag_match",
+                }
+            else:
+                return {"matched": False, "reason": "etag_mismatch"}
+        except ClientError as e:
+            if e.response and e.response.get("Error", {}).get("Code") == "404":
+                return {"matched": False, "reason": "no_archive"}
+            raise e
+
+    else:
+        # local
+        pass
+
+    return {
+        "matched": False,
+        "reason": "no_archive",
+    }
 
 
 async def should_skip_download(
@@ -260,7 +308,6 @@ async def should_skip_download(
     # (this allows us to safely skip downloading files even from different runs)
     if storage_protocol == "s3":
         try:
-
             storage = create_storage_from_config(storage_config)
 
             # Get bucket and prefix information
@@ -280,7 +327,7 @@ async def should_skip_download(
             # Check if decrypted archive exists and matches encrypted ETag
             if await book_manager.decrypted_archive_exists(barcode):
                 if await book_manager.archive_matches_encrypted_etag(barcode, encrypted_etag):
-                    logger.info(f"[{barcode}] File unchanged (ETag match in storage metadata), skipping download")
+                    logger.info(f"[{barcode}] File unchanged (ETag matched storage metadata), skipping download")
                     return True, "storage_etag_match"
                 else:
                     logger.debug(f"[{barcode}] Decrypted archive exists but ETag differs, will download")

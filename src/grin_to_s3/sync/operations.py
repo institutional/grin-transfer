@@ -37,7 +37,7 @@ from grin_to_s3.storage.factories import LOCAL_STORAGE_DEFAULTS
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
 from .models import BookSyncResult, create_book_sync_result
-from .utils import check_encrypted_etag, should_skip_download
+from .utils import check_grin_etag, should_skip_download
 
 logger = logging.getLogger(__name__)
 
@@ -176,7 +176,7 @@ def get_download_target_path(
 
         return encrypted_path, decrypted_path
 
-    elif storage_config["protocol"]  == "local":
+    elif storage_config["protocol"] == "local":
         # Validate base_path requirement for local storage
         base_path = storage_config["config"].get("base_path")
         if not base_path:
@@ -201,12 +201,16 @@ def get_download_target_path(
         return encrypted_path, decrypted_path
 
     else:
-        raise ValueError(f"Unsupported storage protocol: {storage_config["protocol"] }")
+        raise ValueError(f"Unsupported storage protocol: {storage_config['protocol']}")
 
 
 def is_404_error(exception: Exception) -> bool:
     """Check if an exception is a 404 (Not Found) error."""
     return isinstance(exception, aiohttp.ClientResponseError) and exception.status == 404
+
+
+async def etag_skip_logic():
+    pass
 
 
 async def check_and_handle_etag_skip(
@@ -241,7 +245,7 @@ async def check_and_handle_etag_skip(
         - sync_status_updates: List of status updates to be written by caller
     """
     # Check encrypted ETag first
-    encrypted_etag, encrypted_file_size, status_code = await check_encrypted_etag(
+    encrypted_etag, encrypted_file_size, status_code = await check_grin_etag(
         grin_client, library_directory, barcode, grin_semaphore
     )
 
@@ -266,7 +270,7 @@ async def check_and_handle_etag_skip(
                             "completed",
                             metadata={
                                 "etag_checked_at": datetime.now(UTC).isoformat(),
-                                "storage_type": storage_config["type"] ,
+                                "storage_type": storage_config["type"],
                                 "conversion_status": conversion_status,
                                 "http_status": 404,
                             },
@@ -288,7 +292,7 @@ async def check_and_handle_etag_skip(
                             "skipped",
                             metadata={
                                 "etag_checked_at": datetime.now(UTC).isoformat(),
-                                "storage_type": storage_config["type"] ,
+                                "storage_type": storage_config["type"],
                                 "skipped": True,
                                 "skip_reason": "conversion_limit_reached",
                                 "http_status": 404,
@@ -311,7 +315,7 @@ async def check_and_handle_etag_skip(
                             "marked_unavailable",
                             metadata={
                                 "etag_checked_at": datetime.now(UTC).isoformat(),
-                                "storage_type": storage_config["type"] ,
+                                "storage_type": storage_config["type"],
                                 "conversion_status": conversion_status,
                                 "http_status": 404,
                             },
@@ -341,7 +345,7 @@ async def check_and_handle_etag_skip(
                 "skipped",
                 metadata={
                     "etag_checked_at": datetime.now(UTC).isoformat(),
-                    "storage_type": storage_config["type"] ,
+                    "storage_type": storage_config["type"],
                     "skipped": True,
                     "skip_reason": "archive_not_found_404",
                     "http_status": 404,
@@ -357,9 +361,7 @@ async def check_and_handle_etag_skip(
         )
 
     # Check if we should skip download based on ETag match
-    should_skip, skip_reason = await should_skip_download(
-        barcode, encrypted_etag, storage_config, db_tracker, force
-    )
+    should_skip, skip_reason = await should_skip_download(barcode, encrypted_etag, storage_config, db_tracker, force)
     if should_skip:
         logger.info(f"[{barcode}] Skipping download - {skip_reason}")
 
@@ -412,9 +414,7 @@ async def download_book_to_filesystem(
         logger.info(f"[{barcode}] Starting download from {grin_url}")
 
         # Get staging file path using consolidated function
-        encrypted_path, _ = get_download_target_path(
-            barcode, storage_config, staging_manager
-        )
+        encrypted_path, _ = get_download_target_path(barcode, storage_config, staging_manager)
 
         async with create_http_session(timeout=download_timeout) as session:
             response = await client.auth.make_authenticated_request(session, grin_url)

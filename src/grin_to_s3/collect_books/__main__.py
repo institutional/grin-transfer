@@ -261,7 +261,6 @@ Examples:
     # Extract the actual identifier from run_name (remove "run_" prefix if present)
     run_identifier = run_name.removeprefix("run_") if run_name.startswith("run_") else run_name
 
-
     # Generate timestamp for output files (not resume files)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 

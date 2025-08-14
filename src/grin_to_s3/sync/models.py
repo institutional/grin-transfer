@@ -5,7 +5,54 @@ Sync Models and Data Validation
 Data models, validation functions, and type definitions for sync operations.
 """
 
-from typing import TypedDict
+from pathlib import Path
+from typing import Literal, TypedDict
+
+from grin_to_s3.common import Barcode
+
+
+class FileTransferResult(TypedDict):
+    barcode: Barcode
+    completed: bool
+    success: bool
+    http_status_code: int
+
+
+class HeadRequestResult(FileTransferResult):
+    etag: str | None
+    file_size_bytes: int | None
+
+
+class DownloadRequestResult(FileTransferResult):
+    pass
+
+
+class ETagMatchResult(TypedDict):
+    """Whether an Etag matched stored etag metadata, and why the determination was made"""
+
+    matched: bool
+    reason: Literal["etag_match", "etag_mismatch", "no_archive", "no_etag"]
+
+
+class DownloadResult(FileTransferResult):
+    download_success: bool
+    conversion_requested: bool
+    already_in_process: bool
+    marked_unavailable: bool
+    conversion_limit_reached: bool
+    encrypted_etag: str
+    etag_matched: bool
+    skipped: bool
+
+
+class CompletedDownload(FileTransferResult):
+    downloaded_file_path: Path
+    encrypted_etag: str
+    file_size_bytes: int
+
+
+class UploadResult(FileTransferResult):
+    pass
 
 
 class FileResult(TypedDict):

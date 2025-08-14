@@ -288,8 +288,6 @@ def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str)
             raise ValueError(f"Storage type {storage_type} does not support bucket-based storage")
 
 
-
-
 async def create_local_storage_directories(storage_config: dict) -> None:
     """Create all required directories for local storage.
 
