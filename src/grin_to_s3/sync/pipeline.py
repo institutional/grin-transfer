@@ -181,10 +181,6 @@ class SyncPipeline:
 
         # Extract commonly used config values
         self.db_path = config.sqlite_db_path
-        self.full_storage_config = config.storage_config
-        self.storage_type = self.full_storage_config["type"]
-        self.storage_protocol = get_storage_protocol(self.storage_type)
-        self.storage_config = self.full_storage_config["config"]
         self.library_directory = config.library_directory
         self.secrets_dir = config.secrets_dir
 
@@ -207,7 +203,7 @@ class SyncPipeline:
         self.grin_client = GRINClient(secrets_dir=self.secrets_dir)
 
         # Initialize staging directory manager only for non-local storage
-        if self.storage_protocol != "local":
+        if self.config.storage_config["protocol"] != "local":
             self.staging_manager: StagingDirectoryManager | None = StagingDirectoryManager(
                 staging_path=self.staging_dir, capacity_threshold=self.disk_space_threshold
             )
@@ -238,25 +234,24 @@ class SyncPipeline:
 
 
         # Initialize storage components once (now that tests provide complete configurations)
-        self.storage = create_storage_from_config(self.full_storage_config)
-        self.base_prefix = self.full_storage_config.get("prefix", "")
-        self.bucket_config = extract_bucket_config(self.storage_type, self.storage_config)
+        self.storage = create_storage_from_config(self.config.storage_config)
+        self.base_prefix = self.config.storage_config.get("prefix", "")
 
         # Conversion request handling for previous queue
         self.current_queues: list[str] = []  # Track which queues are being processed
         self.conversion_handler: ConversionRequestHandler | None = None  # Lazy initialization
         self.conversion_request_limit = DEFAULT_CONVERSION_REQUEST_LIMIT
-        self.book_manager = BookManager(self.storage, storage_config=self.full_storage_config, base_prefix=self.base_prefix)
+        self.book_manager = BookManager(self.storage, storage_config=self.config.storage_config, base_prefix=self.base_prefix)
 
     @property
     def uses_block_storage(self) -> bool:
         """Check if the pipeline uses block storage."""
-        return self.staging_manager is not None and self.storage_protocol != "local"
+        return self.config.storage_config["protocol"] != "local"
 
     @property
     def uses_local_storage(self) -> bool:
         """Check if the pipeline uses local storage."""
-        return self.storage_protocol == "local"
+        return self.config.storage_config["protocol"]  == "local"
 
     def _handle_failure(self, barcode: str, error_msg: str) -> bool:
         """
@@ -466,7 +461,7 @@ class SyncPipeline:
 
     async def get_sync_status(self) -> dict:
         """Get current sync status and statistics."""
-        stats = await self.db_tracker.get_sync_stats(self.storage_protocol)
+        stats = await self.db_tracker.get_sync_stats(self.config.storage_config["protocol"])
 
 
         return {
@@ -487,7 +482,7 @@ class SyncPipeline:
             # Export CSV
             logger.info("Exporting CSV after sync completion")
 
-            if self.storage_protocol == "local":
+            if self.uses_local_storage:
                 # For local storage, write directly to final location
                 result = await export_csv_local(self.book_manager, self.db_path)
             else:
@@ -632,17 +627,17 @@ class SyncPipeline:
         # Print storage locations
         print("\nOutput locations:")
 
-        if self.storage_protocol == "local":
-            base_path = self.storage_config.get("base_path", "")
+        if self.uses_local_storage:
+            base_path = self.config.storage_config.get("base_path", "")
             print(f"  Raw data: {base_path}/raw/")
             print(f"  Metadata: {base_path}/meta/")
             print(f"  Full-text: {base_path}/full/")
             print(f"  CSV export: {base_path}/meta/books_latest.csv.gz")
         else:
-            print(f"  Raw data bucket: {self.storage_config.get('bucket_raw', 'unknown')}")
-            print(f"  Metadata bucket: {self.storage_config.get('bucket_meta', 'unknown')}")
-            print(f"  Full-text bucket: {self.storage_config.get('bucket_full', 'unknown')}")
-            print(f"  CSV export: {self.storage_config.get('bucket_meta', 'unknown')}/books_latest.csv.gz")
+            print(f"  Raw data bucket: {self.config.storage_config.get('bucket_raw', 'unknown')}")
+            print(f"  Metadata bucket: {self.config.storage_config.get('bucket_meta', 'unknown')}")
+            print(f"  Full-text bucket: {self.config.storage_config.get('bucket_full', 'unknown')}")
+            print(f"  CSV export: {self.config.storage_config.get('bucket_meta', 'unknown')}/books_latest.csv.gz")
 
     async def _cancel_progress_reporter(self) -> None:
         """Cancel the background progress reporter with timeout."""
@@ -674,8 +669,7 @@ class SyncPipeline:
                     barcode,
                     self.grin_client,
                     self.library_directory,
-                    self.storage_type,
-                    self.storage_config,
+                    self.config.storage_config,
                     self.db_tracker,
                     self._download_semaphore,
                     self.force,
@@ -692,12 +686,12 @@ class SyncPipeline:
                     return status_dict
 
                 # We didn't skip, so do the download to either staging (if cloud storage) or local
-                if self.storage_protocol == "local":
+                if self.uses_local_storage:
                     _, staging_file_path, metadata = await download_book_to_local(
                         barcode,
                         self.grin_client,
                         self.library_directory,
-                        self.storage_config,
+                        self.config.storage_config,
                         self.db_tracker,
                         None,  # No ETag for initial call
                         self.secrets_dir,
@@ -713,6 +707,7 @@ class SyncPipeline:
                         self.grin_client,
                         self.library_directory,
                         encrypted_etag,
+                        self.config.storage_config,
                         self.staging_manager,
                         self.secrets_dir,
                         self.download_timeout,
@@ -755,8 +750,7 @@ class SyncPipeline:
                 upload_result = await upload_book_from_staging(
                     barcode,
                     download_result["staging_file_path"],
-                    self.storage_type,
-                    self.storage_config,
+                    self.config.storage_config,
                     self.staging_manager,
                     self.db_tracker,
                     download_result.get("encrypted_etag"),
@@ -805,24 +799,24 @@ class SyncPipeline:
         print(f"Database: {self.db_path}")
 
         # Display storage configuration details
-        if self.storage_type == "local":
-            base_path = self.storage_config.get("base_path")
+        if self.uses_local_storage:
+            base_path = self.config.storage_config["config"].get("base_path")
             print(f"Storage: Local filesystem at {base_path or 'None'}")
-        elif self.storage_type in ["s3", "r2", "minio"]:
+        elif self.config.storage_config["type"] in ["s3", "r2", "minio"]:
             storage_names = {"s3": "AWS S3", "r2": "Cloudflare R2", "minio": "MinIO"}
-            storage_name = storage_names[self.storage_type]
+            storage_name = storage_names.get(self.config.storage_config["type"])
 
-            if self.storage_type == "minio":
-                endpoint = self.storage_config.get("endpoint_url", "unknown endpoint")
+            if self.config.storage_config["type"] == "minio":
+                endpoint = self.config.storage_config["config"].get("endpoint_url", "unknown endpoint")
                 print(f"Storage: {storage_name} at {endpoint}")
             else:
                 print(f"Storage: {storage_name}")
 
-            print(f"  Raw bucket: {self.storage_config.get('bucket_raw', 'unknown')}")
-            print(f"  Meta bucket: {self.storage_config.get('bucket_meta', 'unknown')}")
-            print(f"  Full bucket: {self.storage_config.get('bucket_full', 'unknown')}")
+            print(f"  Raw bucket: {self.config.storage_config["config"].get('bucket_raw', 'unknown')}")
+            print(f"  Meta bucket: {self.config.storage_config["config"].get('bucket_meta', 'unknown')}")
+            print(f"  Full bucket: {self.config.storage_config["config"].get('bucket_full', 'unknown')}")
         else:
-            print(f"Storage: {self.storage_type}")
+            print(f"Storage: {self.config.storage_config["type"]}")
 
         print(f"Concurrent downloads: {self.concurrent_downloads}")
         print(f"Batch size: {self.batch_size}")
@@ -832,7 +826,6 @@ class SyncPipeline:
 
         logger.info("Starting sync pipeline")
         logger.info(f"Database: {self.db_path}")
-        logger.info(f"Storage type: {self.storage_type}")
         logger.info(f"Concurrent downloads: {self.concurrent_downloads}")
 
         # Reset bucket cache at start of sync
@@ -893,7 +886,7 @@ class SyncPipeline:
             else:
                 # Standard mode: filter available books by those that need syncing
                 available_to_sync = await self.db_tracker.get_books_for_sync(
-                    storage_type=self.storage_protocol,
+                    storage_type=self.config.storage_config["protocol"],
                     converted_barcodes=all_available_books,
                 )
 
@@ -913,7 +906,7 @@ class SyncPipeline:
 
                 # Report on pending books
                 pending_books = await self.db_tracker.get_books_for_sync(
-                    storage_type=self.storage_protocol,
+                    storage_type=self.config.storage_config["protocol"],
                     limit=999999,
                     converted_barcodes=None,  # Get all requested books regardless of conversion
                 )
@@ -937,7 +930,7 @@ class SyncPipeline:
             print(f"Starting sync of {books_to_process:,} books...")
             print(f"{self.concurrent_downloads} concurrent downloads")
 
-            if self.storage_protocol != "local":
+            if self.uses_local_storage:
                 print(f"{self.concurrent_uploads} uploads")
 
             print(
@@ -971,7 +964,7 @@ class SyncPipeline:
         """Process download completion result and return (should_exit, updated_processed_count)."""
         if result.get("download_success"):
             # For local storage, successful downloads should be treated as completed
-            if self.storage_protocol == "local":
+            if self.uses_local_storage:
                 self._completed_count += 1
                 self.stats["synced"] += 1
                 self._handle_success(barcode)
@@ -1126,7 +1119,7 @@ class SyncPipeline:
                                 f"[{barcode}] Download completed (success: {result.get('download_success', False)})"
                             )
 
-                            if result.get("download_success") and self.storage_protocol != "local":
+                            if result.get("download_success") and self.uses_block_storage:
                                 upload_task = asyncio.create_task(self._upload_book_from_staging(barcode, result))
                                 active_uploads[barcode] = upload_task
                                 self._pending_upload_count = len(active_uploads)
@@ -1202,7 +1195,7 @@ class SyncPipeline:
             return
 
         print(f"Total books that would be processed: {books_to_process:,}")
-        print(f"Storage type: {self.storage_type}")
+        print(f"Storage type: {self.config.storage_config["type"]}")
         print(f"Concurrent downloads: {self.concurrent_downloads}")
         print(f"Concurrent uploads: {self.concurrent_uploads}")
         print(f"Batch size: {self.batch_size}")
@@ -1249,7 +1242,7 @@ class SyncPipeline:
         print("\nDRY-RUN COMPLETE: No actual processing performed")
         print(f"{'=' * 60}")
 
-        logger.info(f"DRY-RUN: Would process {books_to_process} books with storage type {self.storage_type}")
+        logger.info(f"DRY-RUN: Would process {books_to_process} books with storage type {self.config.storage_config["type"]}")
 
     async def _handle_404_with_conversion(self, barcode: str) -> dict[str, Any] | None:
         """Handle 404 error with possible conversion request for previous queue.
