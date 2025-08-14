@@ -44,7 +44,7 @@ class BackendConfig:
     @classmethod
     def s3(cls, bucket: str, **kwargs: Any) -> "BackendConfig":
         """Configure for AWS S3."""
-        return cls(protocol="s3", **kwargs)
+        return cls(protocol="s3", bucket=bucket, **kwargs)
 
     @classmethod
     def r2(cls, endpoint_url: str, access_key: str, secret_key: str, **kwargs: Any) -> "BackendConfig":
