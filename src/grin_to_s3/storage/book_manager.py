@@ -10,7 +10,6 @@ import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict
 
 import aiofiles
 
@@ -20,14 +19,6 @@ from ..compression import compress_file_to_temp, get_compressed_filename
 from .base import Storage
 
 logger = logging.getLogger(__name__)
-
-
-class BucketConfig(TypedDict):
-    """Type-safe bucket configuration."""
-
-    bucket_raw: str
-    bucket_meta: str
-    bucket_full: str
 
 
 class BookManager:
