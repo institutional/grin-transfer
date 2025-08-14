@@ -19,8 +19,6 @@ import aiofiles
 import aiohttp
 
 from grin_to_s3.docker import is_docker_environment
-from grin_to_s3.run_config import StorageConfigDict
-from grin_to_s3.storage.book_manager import BucketConfig
 
 from .auth.grin_auth import find_credential_file
 
@@ -29,42 +27,6 @@ logger = logging.getLogger(__name__)
 
 # Common type aliases
 type BarcodeSet = set[str]
-
-
-def extract_bucket_config(storage_type: str, config_dict: StorageConfigDict) -> BucketConfig:
-    """
-    Extract bucket configuration with appropriate defaults based on storage type.
-
-    Args:
-        storage_type: Type of storage ("local", "s3", "r2", etc.)
-        config_dict: Configuration dictionary containing bucket names
-
-    Returns:
-        BucketConfig with bucket_raw, bucket_meta, bucket_full keys
-
-    Note:
-        This function expects bucket names to already be populated in config_dict.
-        For r2 storage, bucket names should be loaded from credentials file by
-        build_storage_config_dict() before calling this function.
-    """
-    if storage_type == "local":
-        # For local storage, use standard directory names as defaults
-        from grin_to_s3.storage.factories import LOCAL_STORAGE_DEFAULTS
-
-        local_config: BucketConfig = {
-            "bucket_raw": config_dict.get("bucket_raw", LOCAL_STORAGE_DEFAULTS["bucket_raw"]),
-            "bucket_meta": config_dict.get("bucket_meta", LOCAL_STORAGE_DEFAULTS["bucket_meta"]),
-            "bucket_full": config_dict.get("bucket_full", LOCAL_STORAGE_DEFAULTS["bucket_full"]),
-        }
-        return local_config
-    else:
-        # For cloud storage, extract bucket names (should already be populated)
-        cloud_config: BucketConfig = {
-            "bucket_raw": config_dict.get("bucket_raw", ""),
-            "bucket_meta": config_dict.get("bucket_meta", ""),
-            "bucket_full": config_dict.get("bucket_full", ""),
-        }
-        return cloud_config
 
 
 # HTTP Client Configuration

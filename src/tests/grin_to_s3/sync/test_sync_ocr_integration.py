@@ -29,6 +29,7 @@ from tests.test_utils.unified_mocks import (
     create_staging_manager_mock,
     create_storage_mock,
     mock_upload_operations,
+    standard_storage_config,
 )
 from tests.utils import create_test_archive
 
@@ -124,7 +125,7 @@ class TestSyncOCRPipelineIntegration:
             mock_book_manager_class.return_value = mock_book_manager
 
             # Execute upload with OCR extraction (using real OCR extraction, not mocked)
-            storage_config = (
+            storage_config_dict = (
                 {"base_path": "/tmp/storage"}
                 if storage_type == "local"
                 else {
@@ -133,12 +134,13 @@ class TestSyncOCRPipelineIntegration:
                     "secret_access_key": "test-secret",
                 }
             )
+            full_storage_config = standard_storage_config(storage_type)
+            full_storage_config["config"].update(storage_config_dict)
 
             result = await upload_book_from_staging(
                 barcode,
                 str(decrypted_file) + ".gpg",  # Simulate encrypted filename
-                storage_type,
-                storage_config,
+                full_storage_config,
                 mock_staging_manager,
                 temp_db_tracker,
                 "encrypted_etag_123",
@@ -206,7 +208,7 @@ class TestSyncOCRPipelineIntegration:
             mock_book_manager_class.return_value = mock_book_manager
 
             # Execute upload with OCR extraction DISABLED
-            storage_config = (
+            storage_config_dict = (
                 {"base_path": "/tmp/storage"}
                 if storage_type == "local"
                 else {
@@ -215,12 +217,13 @@ class TestSyncOCRPipelineIntegration:
                     "secret_access_key": "test-secret",
                 }
             )
+            full_storage_config = standard_storage_config(storage_type)
+            full_storage_config["config"].update(storage_config_dict)
 
             result = await upload_book_from_staging(
                 barcode,
                 str(decrypted_file) + ".gpg",
-                storage_type,
-                storage_config,
+                full_storage_config,
                 mock_staging_manager,
                 temp_db_tracker,
                 "encrypted_etag_123",
@@ -265,11 +268,12 @@ class TestSyncOCRPipelineIntegration:
             mocks.book_manager.save_ocr_text_jsonl_from_file = AsyncMock()
 
             # Execute upload - OCR should fail but sync should succeed
+            storage_config = standard_storage_config("local")
+            storage_config["config"]["base_path"] = "/tmp/storage"
             result = await upload_book_from_staging(
                 barcode,
                 str(decrypted_file) + ".gpg",
-                "local",
-                {"base_path": "/tmp/storage"},
+                storage_config,
                 mock_staging_manager,
                 temp_db_tracker,
                 "encrypted_etag_123",
@@ -305,11 +309,12 @@ class TestSyncOCRPipelineIntegration:
             pass  # Storage failure is already configured
 
             # Execute upload - should fail
+            storage_config = standard_storage_config("local")
+            storage_config["config"]["base_path"] = "/tmp/storage"
             result = await upload_book_from_staging(
                 barcode,
                 str(decrypted_file) + ".gpg",
-                "local",
-                {"base_path": "/tmp/storage"},
+                storage_config,
                 mock_staging_manager,
                 temp_db_tracker,
                 "encrypted_etag_123",
@@ -347,20 +352,21 @@ class TestSyncOCRPipelineIntegration:
         with mock_upload_operations(skip_ocr=skip_ocr, skip_marc=skip_marc) as mocks:
             # Configure storage config based on storage type
             if storage_type == "local":
-                storage_config = {"base_path": "/tmp/storage"}
+                storage_config_dict = {"base_path": "/tmp/storage"}
             else:
-                storage_config = {
+                storage_config_dict = {
                     "endpoint_url": f"https://test-{storage_type}.example.com",
                     "access_key_id": "test-key",
                     "secret_access_key": "test-secret",
                 }
+            full_storage_config = standard_storage_config(storage_type)
+            full_storage_config["config"].update(storage_config_dict)
 
             # Execute upload with the specified extraction and storage configuration
             result = await upload_book_from_staging(
                 barcode,
                 str(decrypted_file) + ".gpg",  # Simulate encrypted filename
-                storage_type,
-                storage_config,
+                full_storage_config,
                 mock_staging_manager,
                 temp_db_tracker,
                 "encrypted_etag_123",

@@ -49,7 +49,6 @@ class TestETagSkipHandling:
                 "TEST123",
                 mock_grin_client,
                 "Harvard",
-                "minio",
                 mock_storage_config,
                 mock_progress_tracker,
                 mock_semaphore,
@@ -75,7 +74,6 @@ class TestETagSkipHandling:
                 "TEST123",
                 mock_grin_client,
                 "Harvard",
-                "minio",
                 mock_storage_config,
                 mock_progress_tracker,
                 mock_semaphore,
@@ -96,7 +94,6 @@ class TestETagSkipHandling:
                 "TEST123",
                 mock_grin_client,
                 "Harvard",
-                "minio",
                 mock_storage_config,
                 mock_progress_tracker,
                 mock_semaphore,
@@ -147,8 +144,18 @@ class TestBookDownload:
             mock_aiofiles.return_value.__aenter__.return_value = mock_file
             mock_aiofiles.return_value.__aexit__.return_value = None
 
+            # Create staging storage config
+            staging_storage_config = {
+                "type": "staging",
+                "protocol": "staging",
+                "config": {
+                    "bucket_raw": "test-raw",
+                    "bucket_meta": "test-meta",
+                    "bucket_full": "test-full"
+                }
+            }
             barcode, staging_file_path, metadata = await download_book_to_filesystem(
-                "TEST123", mock_grin_client, "Harvard", "abc123", staging_manager=mock_staging_manager
+                "TEST123", mock_grin_client, "Harvard", "abc123", staging_storage_config, staging_manager=mock_staging_manager
             )
 
             assert barcode == "TEST123"
@@ -177,12 +184,23 @@ class TestBookDownload:
         # Track how many times the request was attempted
         call_count_before = len(mock_grin_client.auth.make_authenticated_request.call_args_list)
 
+        # Create staging storage config
+        staging_storage_config = {
+            "type": "staging",
+            "protocol": "staging",
+            "config": {
+                "bucket_raw": "test-raw",
+                "bucket_meta": "test-meta",
+                "bucket_full": "test-full"
+            }
+        }
         with pytest.raises(aiohttp.ClientResponseError) as exc_info:
             await download_book_to_filesystem(
                 "TEST123",
                 mock_grin_client,
                 "Harvard",
                 "abc123",
+                staging_storage_config,
                 staging_manager=mock_staging_manager,
                 download_retries=2,
             )
@@ -222,12 +240,23 @@ class TestBookDownload:
         # Track how many times the request was attempted
         call_count_before = len(mock_grin_client.auth.make_authenticated_request.call_args_list)
 
+        # Create staging storage config
+        staging_storage_config = {
+            "type": "staging",
+            "protocol": "staging",
+            "config": {
+                "bucket_raw": "test-raw",
+                "bucket_meta": "test-meta",
+                "bucket_full": "test-full"
+            }
+        }
         with pytest.raises(aiohttp.ClientResponseError) as exc_info:
             await download_book_to_filesystem(
                 "TEST123",
                 mock_grin_client,
                 "Harvard",
                 "abc123",
+                staging_storage_config,
                 staging_manager=mock_staging_manager,
                 download_retries=2,
             )
@@ -251,7 +280,7 @@ class TestBookUpload:
         """Test upload handling skip download scenario."""
         with mock_minimal_upload():
             result = await upload_book_from_staging(
-                "TEST123", "SKIP_DOWNLOAD", "minio", mock_storage_config, mock_staging_manager, mock_progress_tracker
+                "TEST123", "SKIP_DOWNLOAD", mock_storage_config, mock_staging_manager, mock_progress_tracker
             )
 
         assert result["barcode"] == "TEST123"
@@ -271,7 +300,6 @@ class TestBookUpload:
             result = await upload_book_from_staging(
                 "TEST123",
                 "/staging/TEST123.tar.gz.gpg",
-                "minio",
                 mock_storage_config,
                 mock_staging_manager,
                 progress_tracker,
@@ -307,11 +335,15 @@ class TestLocalStorageSync:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_config = {
-                "base_path": temp_dir,
-                "bucket_raw": "test-raw",
-                "bucket_meta": "test-meta",
-                "bucket_full": "test-full",
-                "prefix": "",
+                "type": "local",
+                "protocol": "local",
+                "config": {
+                    "base_path": temp_dir,
+                    "bucket_raw": "test-raw",
+                    "bucket_meta": "test-meta",
+                    "bucket_full": "test-full",
+                    "prefix": "",
+                }
             }
 
             # Mock the HTTP call and GPG decryption
@@ -368,7 +400,11 @@ class TestLocalStorageSync:
     @pytest.mark.asyncio
     async def test_sync_book_to_local_storage_missing_base_path(self, mock_grin_client, mock_progress_tracker):
         """Test local storage sync with missing base_path."""
-        storage_config = {}  # No base_path
+        storage_config = {
+            "type": "local",
+            "protocol": "local",
+            "config": {}  # No base_path
+        }
 
         with pytest.raises(ValueError) as exc_info:
             await download_book_to_local("TEST123", mock_grin_client, "Harvard", storage_config, mock_progress_tracker)
@@ -387,7 +423,11 @@ class TestLocalStorageSync:
 
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_config = {
-                "base_path": temp_dir,
+                "type": "local",
+                "protocol": "local",
+                "config": {
+                    "base_path": temp_dir,
+                }
             }
 
             # Mock the HTTP call and GPG decryption
@@ -599,7 +639,6 @@ class TestOCRExtractionIntegration:
             result = await upload_book_from_staging(
                 "TEST123",
                 "/staging/TEST123.tar.gz.gpg",
-                storage_type,
                 mock_storage_config,
                 mock_staging_manager,
                 mock_progress_tracker,
@@ -631,7 +670,6 @@ class TestOCRExtractionIntegration:
             result = await upload_book_from_staging(
                 "TEST123",
                 "/staging/TEST123.tar.gz.gpg",
-                "minio",
                 mock_storage_config,
                 mock_staging_manager,
                 progress_tracker,
@@ -677,7 +715,6 @@ class TestOCRExtractionIntegration:
             result = await upload_book_from_staging(
                 "TEST123",
                 "/staging/TEST123.tar.gz.gpg",
-                "minio",
                 mock_storage_config,
                 mock_staging_manager,
                 mock_progress_tracker,
@@ -753,7 +790,6 @@ class TestBookStorageIntegrationInSync:
                 result = await upload_book_from_staging(
                     "TEST123",
                     str(encrypted_file),
-                    storage_type,
                     storage_config,
                     mock_staging_manager,
                     mock_progress_tracker,
@@ -862,8 +898,18 @@ class TestDiskSpaceHandling:
                         mock_grin_client.auth.make_authenticated_request.return_value = mock_response
 
                         # This should trigger the mid-download space check and retry
+                        # Create staging storage config
+                        staging_storage_config = {
+                            "type": "staging",
+                            "protocol": "staging",
+                            "config": {
+                                "bucket_raw": "test-raw",
+                                "bucket_meta": "test-meta",
+                                "bucket_full": "test-full"
+                            }
+                        }
                         result = await download_book_to_filesystem(
-                            "TEST123", mock_grin_client, "Harvard", "etag123", staging_manager=staging_manager
+                            "TEST123", mock_grin_client, "Harvard", "etag123", staging_storage_config, staging_manager=staging_manager
                         )
 
                         # Should eventually succeed after retry

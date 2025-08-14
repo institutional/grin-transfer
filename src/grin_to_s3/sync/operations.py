@@ -31,8 +31,8 @@ from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.text_extraction import extract_ocr_pages
 from grin_to_s3.extract.tracking import ExtractionStatus, StatusUpdate, collect_status
 from grin_to_s3.metadata.marc_extraction import extract_marc_metadata
-from grin_to_s3.run_config import StorageConfigDict, to_run_storage_config
-from grin_to_s3.storage import BookManager, create_storage_from_config, get_storage_protocol
+from grin_to_s3.run_config import StorageConfig
+from grin_to_s3.storage import BookManager, create_storage_from_config
 from grin_to_s3.storage.factories import LOCAL_STORAGE_DEFAULTS
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
@@ -150,8 +150,7 @@ def _convert_marc_keys_to_db_fields(marc_data: dict[str, str | None]) -> dict[st
 
 def get_download_target_path(
     barcode: str,
-    storage_protocol: str,
-    storage_config: dict[str, Any],
+    storage_config: StorageConfig,
     staging_manager: StagingDirectoryManager | None = None,
 ) -> tuple[Path, Path]:
     """Get download target paths based on storage protocol.
@@ -165,7 +164,7 @@ def get_download_target_path(
     Returns:
         tuple: (encrypted_path, decrypted_path)
     """
-    if storage_protocol == "staging":
+    if storage_config["protocol"] == "staging":
         if staging_manager is None:
             raise ValueError("staging_manager is required for staging protocol")
 
@@ -177,9 +176,9 @@ def get_download_target_path(
 
         return encrypted_path, decrypted_path
 
-    elif storage_protocol == "local":
+    elif storage_config["protocol"]  == "local":
         # Validate base_path requirement for local storage
-        base_path = storage_config.get("base_path")
+        base_path = storage_config["config"].get("base_path")
         if not base_path:
             raise ValueError("Local storage requires base_path in configuration")
 
@@ -202,7 +201,7 @@ def get_download_target_path(
         return encrypted_path, decrypted_path
 
     else:
-        raise ValueError(f"Unsupported storage protocol: {storage_protocol}")
+        raise ValueError(f"Unsupported storage protocol: {storage_config["protocol"] }")
 
 
 def is_404_error(exception: Exception) -> bool:
@@ -210,76 +209,11 @@ def is_404_error(exception: Exception) -> bool:
     return isinstance(exception, aiohttp.ClientResponseError) and exception.status == 404
 
 
-async def check_archive_availability_with_etag(
-    barcode: str, grin_client: GRINClient, library_directory: str, grin_semaphore: asyncio.Semaphore
-) -> dict[str, Any]:
-    """Check archive availability and ETag for processing previously downloaded books.
-
-    Makes a HEAD request to determine if an archive exists and returns detailed
-    information about availability, ETag, and whether conversion might be needed.
-
-    Args:
-        barcode: Book barcode
-        grin_client: GRIN client instance
-        library_directory: Library directory name
-        grin_semaphore: Semaphore to control GRIN API concurrency (shares 5 QPS limit)
-
-    Returns:
-        dict with keys:
-        - available: bool (True if archive exists)
-        - etag: str | None (ETag if available)
-        - file_size: int | None (File size if available)
-        - http_status: int | None (HTTP status code)
-        - needs_conversion: bool (True if 404, indicating conversion may be needed)
-    """
-    try:
-        # Use existing HEAD checking function
-        etag, file_size, status_code = await check_encrypted_etag(
-            grin_client, library_directory, barcode, grin_semaphore
-        )
-
-        if status_code == 200:
-            # Archive is available
-            return {
-                "available": True,
-                "etag": etag,
-                "file_size": file_size,
-                "http_status": status_code,
-                "needs_conversion": False,
-            }
-        elif status_code == 404:
-            # Archive not found
-            logger.debug(f"[{barcode}] Archive not available (404), may need conversion")
-            return {
-                "available": False,
-                "etag": None,
-                "file_size": None,
-                "http_status": status_code,
-                "needs_conversion": True,
-            }
-        else:
-            # Other HTTP error
-            logger.warning(f"[{barcode}] Archive check returned HTTP {status_code}")
-            return {
-                "available": False,
-                "etag": None,
-                "file_size": None,
-                "http_status": status_code,
-                "needs_conversion": False,  # Don't attempt conversion on other errors
-            }
-
-    except Exception as e:
-        # Network/other errors that should be retried upstream
-        logger.warning(f"[{barcode}] Archive availability check failed: {e}")
-        raise  # Let upstream handle retries
-
-
 async def check_and_handle_etag_skip(
     barcode: str,
     grin_client: GRINClient,
     library_directory: str,
-    storage_type: str,
-    storage_config: StorageConfigDict,
+    storage_config: StorageConfig,
     db_tracker,
     grin_semaphore: asyncio.Semaphore,
     force: bool = False,
@@ -292,7 +226,6 @@ async def check_and_handle_etag_skip(
         barcode: Book barcode
         grin_client: GRIN client instance
         library_directory: Library directory name
-        storage_type: Storage type
         storage_config: Storage configuration
         db_tracker: Database tracker instance
         grin_semaphore: Semaphore to control GRIN API concurrency (shares 5 QPS limit)
@@ -333,7 +266,7 @@ async def check_and_handle_etag_skip(
                             "completed",
                             metadata={
                                 "etag_checked_at": datetime.now(UTC).isoformat(),
-                                "storage_type": storage_type,
+                                "storage_type": storage_config["type"] ,
                                 "conversion_status": conversion_status,
                                 "http_status": 404,
                             },
@@ -355,7 +288,7 @@ async def check_and_handle_etag_skip(
                             "skipped",
                             metadata={
                                 "etag_checked_at": datetime.now(UTC).isoformat(),
-                                "storage_type": storage_type,
+                                "storage_type": storage_config["type"] ,
                                 "skipped": True,
                                 "skip_reason": "conversion_limit_reached",
                                 "http_status": 404,
@@ -378,7 +311,7 @@ async def check_and_handle_etag_skip(
                             "marked_unavailable",
                             metadata={
                                 "etag_checked_at": datetime.now(UTC).isoformat(),
-                                "storage_type": storage_type,
+                                "storage_type": storage_config["type"] ,
                                 "conversion_status": conversion_status,
                                 "http_status": 404,
                             },
@@ -408,7 +341,7 @@ async def check_and_handle_etag_skip(
                 "skipped",
                 metadata={
                     "etag_checked_at": datetime.now(UTC).isoformat(),
-                    "storage_type": storage_type,
+                    "storage_type": storage_config["type"] ,
                     "skipped": True,
                     "skip_reason": "archive_not_found_404",
                     "http_status": 404,
@@ -425,7 +358,7 @@ async def check_and_handle_etag_skip(
 
     # Check if we should skip download based on ETag match
     should_skip, skip_reason = await should_skip_download(
-        barcode, encrypted_etag, storage_type, storage_config, db_tracker, force
+        barcode, encrypted_etag, storage_config, db_tracker, force
     )
     if should_skip:
         logger.info(f"[{barcode}] Skipping download - {skip_reason}")
@@ -439,7 +372,7 @@ async def check_and_handle_etag_skip(
                 metadata={
                     "encrypted_etag": encrypted_etag,
                     "etag_checked_at": datetime.now(UTC).isoformat(),
-                    "storage_type": storage_type,
+                    "storage_type": storage_config["type"],
                     "skipped": True,
                     "skip_reason": skip_reason,
                 },
@@ -461,6 +394,7 @@ async def download_book_to_filesystem(
     grin_client: GRINClient,
     library_directory: str,
     encrypted_etag: str | None,
+    storage_config: StorageConfig,
     staging_manager: StagingDirectoryManager | None = None,
     secrets_dir: str | None = None,
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
@@ -479,7 +413,7 @@ async def download_book_to_filesystem(
 
         # Get staging file path using consolidated function
         encrypted_path, _ = get_download_target_path(
-            barcode, "staging" if staging_manager else "local", {}, staging_manager
+            barcode, storage_config, staging_manager
         )
 
         async with create_http_session(timeout=download_timeout) as session:
@@ -507,6 +441,7 @@ async def download_book_to_filesystem(
                                     grin_client,
                                     library_directory,
                                     encrypted_etag,
+                                    storage_config,
                                     staging_manager,
                                     secrets_dir,
                                     download_timeout,
@@ -808,8 +743,7 @@ async def extract_and_update_marc_metadata(
 async def upload_book_from_staging(
     barcode: str,
     staging_file_path: str,
-    storage_type: str,
-    storage_config: StorageConfigDict,
+    storage_config: StorageConfig,
     staging_manager,
     db_tracker,
     encrypted_etag: str | None = None,
@@ -848,17 +782,15 @@ async def upload_book_from_staging(
             }
 
         # Create storage
-        full_storage_config = to_run_storage_config(
-            storage_type=storage_type, protocol=get_storage_protocol(storage_type), config=storage_config or {}
-        )
-        storage = create_storage_from_config(full_storage_config)
+
+        storage = create_storage_from_config(storage_config)
 
         # Get prefix information
         base_prefix = storage_config.get("prefix", "")
 
         # BookStorage handles bucket names as directory paths for all storage types
 
-        book_manager = BookManager(storage, storage_config=full_storage_config, base_prefix=base_prefix)
+        book_manager = BookManager(storage, storage_config=storage_config, base_prefix=base_prefix)
 
         # Get staging file paths
         encrypted_file = Path(staging_file_path)
@@ -913,7 +845,7 @@ async def upload_book_from_staging(
         metadata = {
             "encrypted_etag": encrypted_etag,
             "etag_stored_at": datetime.now(UTC).isoformat(),
-            "storage_type": storage_type,
+            "storage_type": storage_config["type"],
             "decrypted_success": True,
         }
         sync_completion_status_updates = [
@@ -923,7 +855,7 @@ async def upload_book_from_staging(
 
         # Update book record with sync data including encrypted ETag
         sync_data: dict[str, Any] = {
-            "storage_type": storage_type,
+            "storage_type": storage_config["type"],
             "storage_path": decrypted_result,
             "is_decrypted": True,
             "sync_timestamp": datetime.now(UTC).isoformat(),
@@ -1008,7 +940,7 @@ async def download_book_to_local(
     barcode: str,
     grin_client: GRINClient,
     library_directory: str,
-    storage_config: StorageConfigDict,
+    storage_config: StorageConfig,
     db_tracker,
     encrypted_etag: str | None = None,
     secrets_dir: str | None = None,
@@ -1036,13 +968,12 @@ async def download_book_to_local(
         dict: Sync result
     """
     # Get download target paths using consolidated function
-    final_encrypted_path, final_decrypted_path = get_download_target_path(barcode, "local", storage_config)
+    final_encrypted_path, final_decrypted_path = get_download_target_path(barcode, storage_config)
 
     # Create storage and BookManager instance for OCR extraction
     # This function is specifically for local storage, but use the passed config
-    full_storage_config = to_run_storage_config(storage_type="local", protocol="local", config=storage_config)
-    storage = create_storage_from_config(full_storage_config)
-    book_manager = BookManager(storage, storage_config=full_storage_config)
+    storage = create_storage_from_config(storage_config)
+    book_manager = BookManager(storage, storage_config=storage_config)
 
     # Download directly to final location with retry logic
     retry_decorator = create_download_retry_decorator(download_retries)

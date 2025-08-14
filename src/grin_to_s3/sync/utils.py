@@ -17,9 +17,16 @@ import boto3
 from botocore.exceptions import ClientError
 
 from grin_to_s3.common import create_http_session
+from grin_to_s3.run_config import StorageConfig
+from grin_to_s3.storage.book_manager import BookManager
 
 from ..database import connect_async
-from ..storage.factories import get_storage_protocol, load_r2_credentials, s3_credentials_available
+from ..storage.factories import (
+    create_storage_from_config,
+    get_storage_protocol,
+    load_r2_credentials,
+    s3_credentials_available,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +232,7 @@ async def check_encrypted_etag(
 
 
 async def should_skip_download(
-    barcode: str, encrypted_etag: str | None, storage_type: str, storage_config: dict, db_tracker, force: bool = False
+    barcode: str, encrypted_etag: str | None, storage_config: StorageConfig, db_tracker, force: bool = False
 ) -> tuple[bool, str | None]:
     """Check if stored ETag matches encrypted file's ETag to skip downloads.
 
@@ -247,33 +254,28 @@ async def should_skip_download(
     if force or not encrypted_etag:
         return False, "force_flag" if force else "no_etag"
 
-    # Determine storage protocol for logic decisions
-    storage_protocol = get_storage_protocol(storage_type)
+    storage_protocol = storage_config["protocol"]
 
-    # For S3-compatible storage, check metadata on decrypted file
+    # For S3-compatible storage, check metadata on decrypted file in storage
+    # (this allows us to safely skip downloading files even from different runs)
     if storage_protocol == "s3":
         try:
-            # Create storage
-            from grin_to_s3.run_config import to_run_storage_config
-            from grin_to_s3.storage import BookManager, create_storage_from_config
 
-            full_storage_config = to_run_storage_config(
-                storage_type=storage_type, protocol=storage_protocol, config=storage_config or {}
-            )
-            storage = create_storage_from_config(full_storage_config)
+            storage = create_storage_from_config(storage_config)
 
             # Get bucket and prefix information
             base_prefix = storage_config.get("prefix", "")
             bucket_name = storage_config.get("bucket_raw")
 
             # For S3-compatible storage, bucket name must be included in path prefix
+            # FIXME this is confusing and possibly unnecessary
             if storage_protocol == "s3" and bucket_name:
                 if base_prefix:
                     base_prefix = f"{bucket_name}/{base_prefix}"
                 else:
                     base_prefix = bucket_name
 
-            book_manager = BookManager(storage, storage_config=full_storage_config, base_prefix=base_prefix)
+            book_manager = BookManager(storage, storage_config=storage_config, base_prefix=base_prefix)
 
             # Check if decrypted archive exists and matches encrypted ETag
             if await book_manager.decrypted_archive_exists(barcode):

@@ -102,7 +102,7 @@ class TestETagOperations:
         """Test that force flag prevents skipping."""
 
         mock_tracker = AsyncMock()
-        should_skip, reason = await should_skip_download("TEST123", "abc123", "local", {}, mock_tracker, force=True)
+        should_skip, reason = await should_skip_download("TEST123", "abc123", mock_storage_config, mock_tracker, force=True)
         assert should_skip is False
         assert reason == "force_flag"
 
@@ -111,7 +111,7 @@ class TestETagOperations:
         """Test that missing ETag prevents skipping."""
 
         mock_tracker = AsyncMock()
-        should_skip, reason = await should_skip_download("TEST123", None, "local", {}, mock_tracker, force=False)
+        should_skip, reason = await should_skip_download("TEST123", None, mock_storage_config, mock_tracker, force=False)
         assert should_skip is False
         assert reason == "no_etag"
 
@@ -125,7 +125,7 @@ class TestETagOperations:
         with patch("grin_to_s3.sync.utils.connect_async") as mock_connect:
             mock_connect.side_effect = Exception("Database error")
             should_skip, reason = await should_skip_download(
-                "TEST123", "abc123", "local", {}, mock_tracker, force=False
+                "TEST123", "abc123", mock_storage_config, mock_tracker, force=False
             )
             assert should_skip is False
             assert "error" in reason
@@ -186,23 +186,19 @@ class TestBookManagerInitializationInUtils:
     @pytest.mark.asyncio
     async def test_should_skip_download_book_manager_initialization(self):
         """Test that should_skip_download correctly initializes BookManager."""
+        from tests.test_utils.unified_mocks import standard_storage_config
 
         with tempfile.TemporaryDirectory() as temp_dir:
             # Create proper storage config with bucket information
-            storage_config = {
-                "bucket_raw": "test-raw",
-                "bucket_meta": "test-meta",
-                "bucket_full": "test-full",
-                "prefix": "",
-                "config": {"base_path": temp_dir},
-            }
+            storage_config = standard_storage_config("s3")
 
             # Mock database tracker
             mock_db_tracker = MagicMock()
+            mock_db_tracker.db_path = f"{temp_dir}/test.db"
 
             with (
-                patch("grin_to_s3.storage.create_storage_from_config") as mock_create_storage,
-                patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
+                patch("grin_to_s3.sync.utils.create_storage_from_config") as mock_create_storage,
+                patch("grin_to_s3.sync.utils.BookManager") as mock_book_manager_class,
             ):
                 # Mock storage creation
                 mock_storage = MagicMock()
@@ -217,7 +213,6 @@ class TestBookManagerInitializationInUtils:
                 should_skip, reason = await should_skip_download(
                     "TEST123",
                     "test_etag",
-                    "minio",  # S3-compatible storage to trigger the problematic code path
                     storage_config,
                     mock_db_tracker,
                     force=False,

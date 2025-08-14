@@ -15,6 +15,7 @@ from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.sync.operations import check_and_handle_etag_skip
 from grin_to_s3.sync.utils import should_skip_download
+from tests.test_utils.unified_mocks import standard_storage_config
 
 
 @pytest.fixture
@@ -36,33 +37,33 @@ class TestDatabaseETagTracking:
         tracker = await self.make_tracker()
 
         # No metadata - should download
-        should_skip, reason = await should_skip_download("TEST1", '"abc"', "local", {}, tracker, False)
+        should_skip, reason = await should_skip_download("TEST1", '"abc"', standard_storage_config(), tracker, False)
         assert not should_skip and reason == "no_metadata"
 
         # Metadata without ETag - should download
         status_updates = [collect_status("TEST2", "sync", "completed", metadata={"storage_type": "local"})]
         await batch_write_status_updates(tracker.db_path, status_updates)
-        should_skip, reason = await should_skip_download("TEST2", '"abc"', "local", {}, tracker, False)
+        should_skip, reason = await should_skip_download("TEST2", '"abc"', standard_storage_config(), tracker, False)
         assert not should_skip and reason == "no_stored_etag"
 
         # Matching ETag - should skip
         status_updates = [collect_status("TEST3", "sync", "completed", metadata={"encrypted_etag": '"abc"'})]
         await batch_write_status_updates(tracker.db_path, status_updates)
-        should_skip, reason = await should_skip_download("TEST3", '"abc"', "local", {}, tracker, False)
+        should_skip, reason = await should_skip_download("TEST3", '"abc"', standard_storage_config(), tracker, False)
         assert should_skip and reason == "database_etag_match"
 
         # Different ETag - should download
         status_updates = [collect_status("TEST4", "sync", "completed", metadata={"encrypted_etag": '"xyz"'})]
         await batch_write_status_updates(tracker.db_path, status_updates)
-        should_skip, reason = await should_skip_download("TEST4", '"abc"', "local", {}, tracker, False)
+        should_skip, reason = await should_skip_download("TEST4", '"abc"', standard_storage_config(), tracker, False)
         assert not should_skip and reason == "database_etag_mismatch"
 
         # Force flag - should download even with matching ETag
-        should_skip, reason = await should_skip_download("TEST3", '"abc"', "local", {}, tracker, True)
+        should_skip, reason = await should_skip_download("TEST3", '"abc"', standard_storage_config(), tracker, True)
         assert not should_skip and reason == "force_flag"
 
         # No Google ETag - should download
-        should_skip, reason = await should_skip_download("TEST3", None, "local", {}, tracker, False)
+        should_skip, reason = await should_skip_download("TEST3", None, standard_storage_config(), tracker, False)
         assert not should_skip and reason == "no_etag"
 
         await tracker.close()
@@ -83,7 +84,7 @@ class TestDatabaseETagTracking:
             barcode = f"TEST{i:03d}"
             status_updates = [collect_status(barcode, "sync", "completed", metadata={"encrypted_etag": db_etag})]
             await batch_write_status_updates(tracker.db_path, status_updates)
-            should_skip, _ = await should_skip_download(barcode, encrypted_etag, "local", {}, tracker, False)
+            should_skip, _ = await should_skip_download(barcode, encrypted_etag, standard_storage_config(), tracker, False)
             assert should_skip == expected
 
         await tracker.close()
@@ -115,7 +116,7 @@ class TestETagSkipHandling:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
             skip_result, etag, size, status_updates = await check_and_handle_etag_skip(
-                "TEST1", mock_grin_client, "Harvard", "local", {}, tracker, mock_semaphore, False
+                "TEST1", mock_grin_client, "Harvard", standard_storage_config(), tracker, mock_semaphore, False
             )
 
             assert skip_result is not None and skip_result["skipped"]
@@ -142,7 +143,7 @@ class TestETagSkipHandling:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
             skip_result, etag, size, status_updates = await check_and_handle_etag_skip(
-                "TEST2", mock_grin_client2, "Harvard", "local", {}, tracker, mock_semaphore, False
+                "TEST2", mock_grin_client2, "Harvard", standard_storage_config(), tracker, mock_semaphore, False
             )
 
             assert skip_result is None
