@@ -48,9 +48,12 @@ def list_bucket_files(storage, bucket: str, prefix: str = "") -> list[tuple[str,
         for page in paginator.paginate(**list_kwargs):  # type: ignore
             contents = page.get("Contents", [])
             for obj in contents:
-                files.append((obj["Key"], obj["Size"]))
+                key = obj.get("Key")
+                size = obj.get("Size")
+                if key is not None and size is not None:
+                    files.append((key, size))
     except ClientError as e:
-        if e.response["Error"]["Code"] == "NoSuchBucket":
+        if e.response.get("Error", {}).get("Code") == "NoSuchBucket":
             return []
         raise
 
@@ -64,7 +67,7 @@ def get_bucket_stats(storage, bucket: str, prefix: str = "") -> tuple[int, int]:
     return len(files), total_size
 
 
-def delete_bucket_contents(storage, bucket: str, prefix: str = "", files_to_delete: list = None) -> tuple[int, int]:
+def delete_bucket_contents(storage, bucket: str, prefix: str = "", files_to_delete: list[tuple[str, int]] | None = None) -> tuple[int, int]:
     """Delete all contents from bucket with prefix."""
     import boto3
 
@@ -89,7 +92,9 @@ def delete_bucket_contents(storage, bucket: str, prefix: str = "", files_to_dele
         for page in paginator.paginate(**list_kwargs):  # type: ignore
             contents = page.get("Contents", [])
             for obj in contents:
-                objects_to_delete.append(obj["Key"])
+                key = obj.get("Key")
+                if key is not None:
+                    objects_to_delete.append(key)
 
     if not objects_to_delete:
         return 0, 0

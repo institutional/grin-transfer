@@ -12,7 +12,7 @@ from typing import Any
 from .marc_extraction import extract_marc_metadata
 
 
-async def test_marc_extraction(tarballs: list[str], output_file: str = None) -> list[dict[str, Any]]:
+async def test_marc_extraction(tarballs: list[str], output_file: str) -> list[dict[str, Any]]:
     """Test MARC extraction on a list of tarball files."""
     results = []
 

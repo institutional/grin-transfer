@@ -11,7 +11,10 @@ import os
 import re
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from types_aiobotocore_s3.client import S3Client
 
 import fsspec
 
@@ -41,7 +44,7 @@ class BackendConfig:
     @classmethod
     def s3(cls, bucket: str, **kwargs: Any) -> "BackendConfig":
         """Configure for AWS S3."""
-        return cls(protocol="s3", **kwargs)
+        return cls(protocol="s3", bucket=bucket, **kwargs)
 
     @classmethod
     def r2(cls, endpoint_url: str, access_key: str, secret_key: str, **kwargs: Any) -> "BackendConfig":
@@ -167,6 +170,7 @@ class Storage:
                     session_kwargs["endpoint_url"] = self.config.endpoint_url
 
                 session = aioboto3.Session()
+                s3_client: S3Client
                 async with session.client("s3", **session_kwargs) as s3_client:
                     # Parse bucket and key from path
                     path_parts = normalized_path.split("/", 1)
@@ -212,6 +216,7 @@ class Storage:
                     session_kwargs["endpoint_url"] = self.config.endpoint_url
 
                 session = aioboto3.Session()
+                s3_client: S3Client
                 async with session.client("s3", **session_kwargs) as s3_client:
                     # Parse bucket and key from path
                     path_parts = normalized_path.split("/", 1)
@@ -230,9 +235,9 @@ class Storage:
                         # Single-part upload for files ≤100MB - much faster, single API call
                         async with aiofiles.open(file_path, "rb") as f:
                             file_data = await f.read()
-                            put_kwargs = {"Bucket": bucket, "Key": key, "Body": file_data}
+                            put_kwargs: dict[str, Any] = {"Bucket": bucket, "Key": key, "Body": file_data}
                             if metadata:
-                                put_kwargs["Metadata"] = metadata  # type: ignore[assignment]
+                                put_kwargs["Metadata"] = metadata
                             await s3_client.put_object(**put_kwargs)
                     return
             except Exception as e:
@@ -268,6 +273,7 @@ class Storage:
                 session_kwargs["endpoint_url"] = self.config.endpoint_url
 
             session = aioboto3.Session()
+            s3_client: S3Client
             async with session.client("s3", **session_kwargs) as s3_client:
                 # Parse bucket and key from path
                 path_parts = normalized_path.split("/", 1)
