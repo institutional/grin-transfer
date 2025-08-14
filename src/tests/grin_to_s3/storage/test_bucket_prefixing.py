@@ -91,11 +91,12 @@ class TestBucketPrefixingBehavior:
 
                     # Call the function
                     with mock_minimal_upload():
+                        storage_config = standard_storage_config("local", config["bucket_raw"], "test-meta", config["bucket_full"])
+                        storage_config["config"].update(config)  # Add base_path and other local config
                         await upload_book_from_staging(
                             barcode="TEST123",
                             staging_file_path=str(staging_file),
-                            storage_type="local",
-                            storage_config=config,
+                            storage_config=storage_config,
                             staging_manager=None,
                             db_tracker=None,
                             encrypted_etag="test-etag",
@@ -134,11 +135,12 @@ class TestBucketPrefixingBehavior:
 
                 # Call the function
                 with mock_minimal_upload():
+                    storage_config = standard_storage_config("s3", config["bucket_raw"], "test-meta", config["bucket_full"])
+                    storage_config["prefix"] = config["prefix"]
                     await upload_book_from_staging(
                         barcode="TEST123",
                         staging_file_path=str(staging_file),
-                        storage_type="s3",
-                        storage_config=config,
+                        storage_config=storage_config,
                         staging_manager=None,
                         db_tracker=None,
                         encrypted_etag="test-etag",
@@ -179,11 +181,11 @@ class TestBucketPrefixingBehavior:
 
                     # Call the function
                     with mock_minimal_upload():
+                        storage_config = standard_storage_config(storage_type, config["bucket_raw"], "test-meta", "test-full")
                         await upload_book_from_staging(
                             barcode="TEST123",
                             staging_file_path=str(staging_file),
-                            storage_type=storage_type,
-                            storage_config=config,
+                            storage_config=storage_config,
                             staging_manager=None,
                             db_tracker=None,
                             encrypted_etag="test-etag",

@@ -31,8 +31,8 @@ from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.text_extraction import extract_ocr_pages
 from grin_to_s3.extract.tracking import ExtractionStatus, StatusUpdate, collect_status
 from grin_to_s3.metadata.marc_extraction import extract_marc_metadata
-from grin_to_s3.run_config import StorageConfig, StorageConfigDict, to_run_storage_config
-from grin_to_s3.storage import BookManager, create_storage_from_config, get_storage_protocol
+from grin_to_s3.run_config import StorageConfig
+from grin_to_s3.storage import BookManager, create_storage_from_config
 from grin_to_s3.storage.factories import LOCAL_STORAGE_DEFAULTS
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
@@ -178,7 +178,7 @@ def get_download_target_path(
 
     elif storage_config["protocol"]  == "local":
         # Validate base_path requirement for local storage
-        base_path = storage_config.get("base_path")
+        base_path = storage_config["config"].get("base_path")
         if not base_path:
             raise ValueError("Local storage requires base_path in configuration")
 

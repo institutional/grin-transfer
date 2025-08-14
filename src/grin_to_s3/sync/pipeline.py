@@ -18,7 +18,6 @@ from grin_to_s3.common import (
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_MAX_SEQUENTIAL_FAILURES,
     SlidingWindowRateCalculator,
-    extract_bucket_config,
     format_duration,
     pluralize,
 )
@@ -27,7 +26,7 @@ from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.processing import get_converted_books, get_in_process_set
 from grin_to_s3.run_config import RunConfig
-from grin_to_s3.storage import create_storage_from_config, get_storage_protocol
+from grin_to_s3.storage import create_storage_from_config
 from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.staging import StagingDirectoryManager
 from grin_to_s3.sync.utils import logger

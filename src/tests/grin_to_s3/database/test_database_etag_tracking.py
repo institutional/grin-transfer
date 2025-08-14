@@ -116,7 +116,7 @@ class TestETagSkipHandling:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
             skip_result, etag, size, status_updates = await check_and_handle_etag_skip(
-                "TEST1", mock_grin_client, "Harvard", "local", standard_storage_config(), tracker, mock_semaphore, False
+                "TEST1", mock_grin_client, "Harvard", standard_storage_config(), tracker, mock_semaphore, False
             )
 
             assert skip_result is not None and skip_result["skipped"]
@@ -143,7 +143,7 @@ class TestETagSkipHandling:
             mock_session.return_value.__aenter__.return_value = MagicMock()
 
             skip_result, etag, size, status_updates = await check_and_handle_etag_skip(
-                "TEST2", mock_grin_client2, "Harvard", "local", standard_storage_config(), tracker, mock_semaphore, False
+                "TEST2", mock_grin_client2, "Harvard", standard_storage_config(), tracker, mock_semaphore, False
             )
 
             assert skip_result is None
