@@ -172,7 +172,6 @@ class TestSyncPipelineConcurrency:
             )
 
 
-
 class TestDiskSpaceRaceConditionFix:
     """Test the disk space race condition fix."""
 
@@ -212,7 +211,7 @@ class TestDiskSpaceRaceConditionFix:
                     operation_order.append(f"space_check_{space_calls}")
                     await asyncio.sleep(0.01)  # Simulate brief wait
 
-                pipeline.staging_manager.wait_for_disk_space = mock_wait_for_disk_space
+                pipeline.filesystem_manager.wait_for_disk_space = mock_wait_for_disk_space
 
                 # Mock semaphore acquisition to track when it happens
                 original_acquire = pipeline._download_semaphore.acquire
@@ -281,7 +280,7 @@ class TestDiskSpaceRaceConditionFix:
                         await asyncio.sleep(0.1)  # Simulate waiting for space
                     # Third call and beyond proceed immediately
 
-                pipeline.staging_manager.wait_for_disk_space = mock_wait_for_disk_space
+                pipeline.filesystem_manager.wait_for_disk_space = mock_wait_for_disk_space
 
                 # Track when semaphore is acquired (actual download starts)
                 semaphore_acquired = []

@@ -2,6 +2,7 @@
 
 import logging
 import xml.etree.ElementTree as ET
+from datetime import UTC, datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,7 @@ NAMESPACES = {
 }
 
 
-def extract_marc_metadata(extracted_dir_path: str | Path) -> dict[str, str | None]:
+def extract_marc_metadata(extracted_dir_path: Path) -> dict[str, str | None]:
     """
     Extract MARC metadata from METS XML in extracted archive directory.
 
@@ -249,3 +250,43 @@ def _extract_language_from_008(field_008: str) -> str | None:
         lang = field_008[35:38]
         return lang if lang and lang != "   " else None
     return None
+
+
+def convert_marc_keys_to_db_fields(marc_data: dict[str, str | None]) -> dict[str, str | None]:
+    """
+    Convert MARC extraction keys to database field names.
+
+    The MARC extraction function returns keys like 'control_number', 'title', etc.
+    But the database expects keys like 'marc_control_number', 'marc_title', etc.
+    """
+    # Mapping from MARC extraction keys to database field names
+    key_mapping = {
+        "control_number": "marc_control_number",
+        "date_type": "marc_date_type",
+        "date1": "marc_date_1",
+        "date2": "marc_date_2",
+        "language": "marc_language",
+        "loc_control_number": "marc_lccn",
+        "loc_call_number": "marc_lc_call_number",
+        "isbn": "marc_isbn",
+        "oclc": "marc_oclc_numbers",
+        "title": "marc_title",
+        "title_remainder": "marc_title_remainder",
+        "author100": "marc_author_personal",
+        "author110": "marc_author_corporate",
+        "author111": "marc_author_meeting",
+        "subject": "marc_subjects",
+        "genre": "marc_genres",
+        "note": "marc_general_note",
+    }
+
+    # Convert keys and add extraction timestamp
+    db_data = {}
+    for marc_key, db_key in key_mapping.items():
+        if marc_key in marc_data:
+            db_data[db_key] = marc_data[marc_key]
+
+    # Add extraction timestamp
+    db_data["marc_extraction_timestamp"] = datetime.now(UTC).isoformat()
+
+    return db_data

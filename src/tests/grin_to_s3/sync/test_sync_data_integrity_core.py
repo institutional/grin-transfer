@@ -8,7 +8,7 @@ real Google Books MARC data from archive 32044010748390.
 
 import json
 
-from grin_to_s3.sync.operations import _convert_marc_keys_to_db_fields
+from grin_to_s3.metadata.marc_extraction import convert_marc_keys_to_db_fields
 
 
 class TestMARCFieldMappingIntegrity:
@@ -18,7 +18,7 @@ class TestMARCFieldMappingIntegrity:
         """Test that MARC field mapping covers all expected database fields."""
         # Get the mapping from MARC extraction keys to database fields
         # Use the actual MARC extraction field names from the real implementation
-        marc_keys_to_db = _convert_marc_keys_to_db_fields(
+        marc_keys_to_db = convert_marc_keys_to_db_fields(
             {
                 "control_number": "001234",
                 "date_type": "s",
@@ -105,7 +105,7 @@ class TestMARCFieldMappingIntegrity:
 
                 # Test field mapping preserves data type
                 marc_data = {field: value}
-                db_fields = _convert_marc_keys_to_db_fields(marc_data)
+                db_fields = convert_marc_keys_to_db_fields(marc_data)
 
                 # Find the corresponding database field name
                 db_field_name = None
@@ -144,7 +144,7 @@ class TestMARCFieldMappingIntegrity:
 
         for test_case in unicode_test_cases:
             # Test that Unicode survives MARC field mapping
-            db_fields = _convert_marc_keys_to_db_fields(test_case)
+            db_fields = convert_marc_keys_to_db_fields(test_case)
 
             for original_field, original_value in test_case.items():
                 # Find the corresponding database field name
@@ -188,7 +188,7 @@ class TestMARCFieldMappingIntegrity:
 
             try:
                 # Test field mapping handles length gracefully
-                db_fields = _convert_marc_keys_to_db_fields(test_case)
+                db_fields = convert_marc_keys_to_db_fields(test_case)
 
                 # All mapped fields should be valid strings or None
                 for _field_name, field_value in db_fields.items():

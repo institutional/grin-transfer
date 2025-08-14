@@ -227,7 +227,7 @@ class TestExportAndUploadCSV:
             staging_manager = StagingDirectoryManager(staging_dir)
 
             # Verify staging directory was created by manager
-            assert staging_manager.staging_path.exists()
+            assert staging_manager.path.exists()
 
             with patch("grin_to_s3.sync.csv_export.SQLiteProgressTracker") as mock_tracker_cls:
                 mock_tracker = AsyncMock()

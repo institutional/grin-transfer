@@ -116,7 +116,7 @@ class TestLocalStorageIntegration:
             )
 
             # Verify staging_manager is None for local storage
-            assert pipeline.staging_manager is None, "Local storage should not have staging manager"
+            assert pipeline.filesystem_manager is None, "Local storage should not have staging manager"
 
             # Verify staging directory doesn't exist (since it's not created for local storage)
             staging_dir = pipeline.staging_dir

@@ -48,8 +48,8 @@ class TestBlockStorageSyncIntegration:
             # Mock minimal dependencies but keep rate calculator real
             pipeline.db_tracker.get_books_for_sync = AsyncMock(return_value=["TEST123"])
             pipeline.grin_client = MagicMock()
-            pipeline.staging_manager = MagicMock()
-            pipeline.staging_manager.wait_for_disk_space = AsyncMock()
+            pipeline.filesystem_manager = MagicMock()
+            pipeline.filesystem_manager.wait_for_disk_space = AsyncMock()
 
             # Mock the pipeline processing methods but use real rate calculator
             with (
@@ -120,8 +120,8 @@ class TestBlockStorageSyncIntegration:
             )
 
             # Verify correct staging manager setup
-            assert cloud_pipeline.staging_manager is not None
-            assert local_pipeline.staging_manager is None
+            assert cloud_pipeline.filesystem_manager is not None
+            assert local_pipeline.filesystem_manager is None
 
     @pytest.mark.asyncio
     async def test_concurrent_semaphore_limits(self, mock_process_stage, test_config_builder):
@@ -212,8 +212,8 @@ class TestBlockStorageSyncIntegration:
             # Mock dependencies
             pipeline.db_tracker.get_books_for_sync = AsyncMock(return_value=["TEST1", "TEST2"])
             pipeline.grin_client = MagicMock()
-            pipeline.staging_manager = MagicMock()
-            pipeline.staging_manager.wait_for_disk_space = AsyncMock()
+            pipeline.filesystem_manager = MagicMock()
+            pipeline.filesystem_manager.wait_for_disk_space = AsyncMock()
 
             # Mock mixed success/failure scenario
             results = [

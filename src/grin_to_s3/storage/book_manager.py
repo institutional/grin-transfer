@@ -206,23 +206,6 @@ class BookManager:
             else:
                 return {}
 
-    async def archive_matches_encrypted_etag(self, barcode: str, encrypted_etag: str) -> bool:
-        """Check if existing decrypted archive was created from the same encrypted file using stored metadata."""
-        if not self.storage.is_s3_compatible():
-            # Only supported for S3-compatible storage
-            return False
-
-        try:
-            metadata = await self.get_decrypted_archive_metadata(barcode)
-            stored_encrypted_etag = metadata.get("encrypted-etag", "")
-
-            # Compare stored encrypted ETag with current encrypted ETag
-            match = stored_encrypted_etag.strip('"') == encrypted_etag.strip('"')
-            return match
-        except Exception:
-            # If anything fails, assume no match
-            return False
-
     async def get_archive(self, barcode: str) -> bytes:
         """Get decrypted archive data."""
         filename = f"{barcode}.tar.gz"

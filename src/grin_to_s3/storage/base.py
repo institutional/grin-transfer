@@ -197,51 +197,37 @@ class Storage:
         await loop.run_in_executor(None, fs.pipe, normalized_path, data)
 
     async def write_file(self, path: str, file_path: str, metadata: dict[str, str] | None = None) -> None:
-        """Stream upload file directly without loading into memory."""
+        """Stream file from filesystem to bucket."""
         if self.config.protocol == "s3":
-            try:
-                import aioboto3
-                import aiofiles
+            import aioboto3
+            import aiofiles
 
-                normalized_path = self._normalize_path(path)
+            normalized_path = self._normalize_path(path)
 
-                # Use the credentials from the storage config
-                session_kwargs = {
-                    "aws_access_key_id": self.config.options.get("key"),
-                    "aws_secret_access_key": self.config.options.get("secret"),
-                }
+            # Use the credentials from the storage config
+            session_kwargs = {
+                "aws_access_key_id": self.config.options.get("key"),
+                "aws_secret_access_key": self.config.options.get("secret"),
+            }
 
-                # Add endpoint URL if present
-                if self.config.endpoint_url:
-                    session_kwargs["endpoint_url"] = self.config.endpoint_url
+            # Add endpoint URL if present
+            if self.config.endpoint_url:
+                session_kwargs["endpoint_url"] = self.config.endpoint_url
 
-                session = aioboto3.Session()
-                s3_client: S3Client
-                async with session.client("s3", **session_kwargs) as s3_client:
-                    # Parse bucket and key from path
-                    path_parts = normalized_path.split("/", 1)
-                    if len(path_parts) != 2:
-                        raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
+            session = aioboto3.Session()
+            s3_client: S3Client
+            async with session.client("s3", **session_kwargs) as s3_client:
+                # Parse bucket and key from path
+                path_parts = normalized_path.split("/", 1)
+                if len(path_parts) != 2:
+                    raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
 
-                    bucket, key = path_parts
+                bucket, key = path_parts
+                logger.debug(f"Calling bucket upload with {bucket}/{key} from {file_path} with metadata {metadata}")
+                await self._multipart_upload_from_file(s3_client, bucket, key, file_path, metadata)
 
-                    # Get file size for multipart decision
-                    file_size = os.path.getsize(file_path)
+                return
 
-                    if file_size > 100 * 1024 * 1024:
-                        # Use multipart upload for files >100MB
-                        await self._multipart_upload_from_file(s3_client, bucket, key, file_path, metadata)
-                    else:
-                        # Single-part upload for files ≤100MB - much faster, single API call
-                        async with aiofiles.open(file_path, "rb") as f:
-                            file_data = await f.read()
-                            put_kwargs: dict[str, Any] = {"Bucket": bucket, "Key": key, "Body": file_data}
-                            if metadata:
-                                put_kwargs["Metadata"] = metadata
-                            await s3_client.put_object(**put_kwargs)
-                    return
-            except Exception as e:
-                raise RuntimeError(f"Failed to stream upload file: {e}") from e
         else:
             # For non-S3 storage, read file and use write_bytes
             import aiofiles

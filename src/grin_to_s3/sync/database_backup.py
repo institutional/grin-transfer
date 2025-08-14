@@ -95,9 +95,7 @@ async def create_local_database_backup(db_path: str, backup_dir: str | None = No
     return result
 
 
-async def upload_database_to_storage(
-    db_path: str, book_manager, staging_manager: StagingDirectoryManager | None = None, upload_type: str = "latest"
-) -> DatabaseBackupResult:
+async def upload_database_to_storage(db_path: str, book_manager, upload_type: str = "latest") -> DatabaseBackupResult:
     """Upload database file to metadata bucket with compression.
 
     Args:

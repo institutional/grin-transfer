@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+"""
+Task Manager for Sync Pipeline
+
+Simplified task management system for handling download, decrypt, upload,
+and post-processing tasks with dependency management.
+"""
+
+import asyncio
+import logging
+from collections import defaultdict
+from collections.abc import Callable, Coroutine
+from typing import TYPE_CHECKING, Any, cast
+
+from grin_to_s3.common import Barcode
+
+if TYPE_CHECKING:
+    from grin_to_s3.sync.pipeline import SyncPipeline
+
+from .db_updates import update_database_for_task
+from .tasks.task_types import (
+    CheckTaskFunc,
+    CleanupTaskFunc,
+    DecryptTaskFunc,
+    DownloadResult,
+    DownloadTaskFunc,
+    ExportCsvTaskFunc,
+    ExtractMarcTaskFunc,
+    ExtractOcrTaskFunc,
+    TaskAction,
+    TaskResult,
+    TaskType,
+    UnpackTaskFunc,
+    UploadTaskFunc,
+)
+
+logger = logging.getLogger(__name__)
+
+
+class TaskManager:
+    """
+    Manages concurrent task execution with semaphores.
+    """
+
+    def __init__(self, limits: dict[TaskType, int] | None = None):
+        """
+        Initialize with concurrency limits per task type.
+
+        Args:
+            limits: Max concurrent tasks per type
+        """
+        self.limits = limits or {
+            TaskType.CHECK: 10,  # Checks are fast
+            TaskType.DOWNLOAD: 5,
+            TaskType.DECRYPT: 3,
+            TaskType.UNPACK: 3,
+            TaskType.UPLOAD: 10,
+            TaskType.EXTRACT_MARC: 5,
+            TaskType.EXTRACT_OCR: 5,
+            TaskType.CLEANUP: 2,
+        }
+
+        # Create semaphores for each task type
+        self.semaphores = {task_type: asyncio.Semaphore(limit) for task_type, limit in self.limits.items()}
+
+        # Track active tasks
+        self.active_tasks: dict[str, set[TaskType]] = defaultdict(set)
+
+        # Simple stats
+        self.stats = defaultdict(lambda: {"started": 0, "completed": 0, "skipped": 0, "failed": 0})
+
+    async def run_task(
+        self, task_type: TaskType, barcode: str,
+        task_func: Callable[[], Coroutine[Any, Any, TaskResult]],
+        pipeline: "SyncPipeline"
+    ) -> TaskResult:
+        """
+        Run a task with semaphore management and database updates.
+
+        Args:
+            task_type: Type of task
+            barcode: Book barcode
+            task_func: Async function that returns TaskResult
+            pipeline: Pipeline instance for database updates
+
+        Returns:
+            TaskResult from the task
+        """
+        async with self.semaphores[task_type]:
+            self.active_tasks[barcode].add(task_type)
+            self.stats[task_type]["started"] += 1
+
+            result = None
+            try:
+                result = await task_func()
+
+                # Update stats based on action
+                match result.action:
+                    case TaskAction.COMPLETED:
+                        self.stats[task_type]["completed"] += 1
+                    case TaskAction.SKIPPED:
+                        self.stats[task_type]["skipped"] += 1
+                    case TaskAction.FAILED:
+                        self.stats[task_type]["failed"] += 1
+
+                return result
+
+            except Exception as e:
+                self.stats[task_type]["failed"] += 1
+                error_msg = f"{type(e).__name__}: {e}"
+                logger.error(f"[{barcode}] Task {task_type.name} failed: {error_msg}", exc_info=True)
+                result = TaskResult(barcode=barcode, task_type=task_type, action=TaskAction.FAILED, error=error_msg)
+                return result
+            finally:
+                # Database update ALWAYS happens, even on exception
+                if result:
+                    await update_database_for_task(result, pipeline)
+
+                self.active_tasks[barcode].discard(task_type)
+                if not self.active_tasks[barcode]:
+                    del self.active_tasks[barcode]
+
+    def get_active_count(self, task_type: TaskType | None = None) -> int:
+        """Get count of active tasks."""
+        if task_type is None:
+            return sum(len(tasks) for tasks in self.active_tasks.values())
+        return sum(1 for tasks in self.active_tasks.values() if task_type in tasks)
+
+    def get_statistics(self) -> dict[str, Any]:
+        """Get current task statistics."""
+        return {
+            "by_type": dict(self.stats),
+            "active_total": self.get_active_count(),
+            "active_by_type": {task_type: self.get_active_count(task_type) for task_type in TaskType},
+        }
+
+
+async def process_book_pipeline(
+    manager: TaskManager, barcode: Barcode, pipeline: "SyncPipeline", task_funcs: dict[TaskType, Callable]
+) -> dict[TaskType, TaskResult]:
+    """
+    Process a single book through the entire pipeline.
+
+    Args:
+        manager: Task manager for concurrency control
+        barcode: Book barcode to process
+        task_funcs: Dict mapping task types to their implementation functions
+
+    Returns:
+        Dict of all task results for this book
+    """
+    results = {}
+
+    # Start with check (if provided)
+    if TaskType.CHECK in task_funcs:
+        check_func = cast(CheckTaskFunc, task_funcs[TaskType.CHECK])
+        check_result = await manager.run_task(
+            TaskType.CHECK,
+            barcode,
+            lambda: check_func(barcode, pipeline),
+            pipeline,
+        )
+        results[TaskType.CHECK] = check_result
+
+        if not check_result.should_continue_pipeline:
+            return results
+
+    # Download
+    if TaskType.DOWNLOAD in task_funcs:
+        download_func = cast(DownloadTaskFunc, task_funcs[TaskType.DOWNLOAD])
+        download_result: DownloadResult = await manager.run_task(
+            TaskType.DOWNLOAD, barcode, lambda: download_func(barcode, pipeline), pipeline
+        )
+        results[TaskType.DOWNLOAD] = download_result
+        logger.info(f"[{barcode}] Download task completed with success={download_result.success}")
+
+        if not download_result.should_continue_pipeline:
+            return results
+    else:
+        # No download task, can't continue
+        return results
+
+    # Decrypt
+    download_data = download_result.data
+    assert download_data is not None
+    decrypt_func = cast(DecryptTaskFunc, task_funcs[TaskType.DECRYPT])
+    decrypt_result = await manager.run_task(
+        TaskType.DECRYPT, barcode, lambda: decrypt_func(barcode, download_data, pipeline), pipeline
+    )
+    results[TaskType.DECRYPT] = decrypt_result
+
+    if not decrypt_result.should_continue_pipeline:
+        return results
+
+    decrypt_data = decrypt_result.data
+    assert decrypt_data is not None
+
+    # Start upload independently (runs in parallel with everything else)
+    upload_func = cast(UploadTaskFunc, task_funcs[TaskType.UPLOAD])
+
+    upload_task = asyncio.create_task(
+        manager.run_task(TaskType.UPLOAD, barcode, lambda: upload_func(barcode, download_data, decrypt_data, pipeline), pipeline)
+    )
+
+    # Handle unpack and extractions if needed
+    unpack_result = None
+    if TaskType.UNPACK in task_funcs and (TaskType.EXTRACT_MARC in task_funcs or TaskType.EXTRACT_OCR in task_funcs):
+        # Await unpack directly (doesn't wait for upload)
+        unpack_func = cast(UnpackTaskFunc, task_funcs[TaskType.UNPACK])
+
+        unpack_result = await manager.run_task(
+            TaskType.UNPACK, barcode, lambda: unpack_func(barcode, decrypt_data, pipeline), pipeline
+        )
+        results[TaskType.UNPACK] = unpack_result
+
+    # Run extractions if unpack succeeded
+    if unpack_result and unpack_result.should_continue_pipeline:
+        extraction_tasks = []
+
+        unpack_data = unpack_result.data
+        assert unpack_data is not None
+
+        # MARC extraction
+        if TaskType.EXTRACT_MARC in task_funcs:
+            marc_func = cast(ExtractMarcTaskFunc, task_funcs[TaskType.EXTRACT_MARC])
+
+            extraction_tasks.append(
+                manager.run_task(
+                    TaskType.EXTRACT_MARC,
+                    barcode,
+                    lambda: marc_func(barcode, unpack_data, pipeline),
+                    pipeline,
+                )
+            )
+
+        # OCR extraction
+        if TaskType.EXTRACT_OCR in task_funcs:
+            ocr_func = cast(ExtractOcrTaskFunc, task_funcs[TaskType.EXTRACT_OCR])
+
+            extraction_tasks.append(
+                manager.run_task(TaskType.EXTRACT_OCR, barcode, lambda: ocr_func(barcode, unpack_data, pipeline), pipeline)
+            )
+
+        # CSV export
+        if TaskType.EXPORT_CSV in task_funcs:
+            csv_func = cast(ExportCsvTaskFunc, task_funcs[TaskType.EXPORT_CSV])
+
+            extraction_tasks.append(manager.run_task(TaskType.EXPORT_CSV, barcode, lambda: csv_func(barcode, pipeline), pipeline))
+
+        # Wait for extractions
+        if extraction_tasks:
+            extraction_results = await asyncio.gather(*extraction_tasks, return_exceptions=True)
+            for result in extraction_results:
+                if isinstance(result, TaskResult):
+                    results[result.task_type] = result
+
+    # Collect upload result before cleanup
+    upload_result = await upload_task
+    results[TaskType.UPLOAD] = upload_result
+
+    # Cleanup runs last, after everything else is done
+    if TaskType.CLEANUP in task_funcs:
+        cleanup_func = cast(CleanupTaskFunc, task_funcs[TaskType.CLEANUP])
+        cleanup_result = await manager.run_task(
+            TaskType.CLEANUP, barcode, lambda: cleanup_func(barcode, pipeline, results), pipeline
+        )
+        results[TaskType.CLEANUP] = cleanup_result
+
+    return results
+
+
+async def process_books_batch(
+    barcodes: list[str],
+    pipeline: "SyncPipeline",
+    task_funcs: dict[TaskType, Callable],
+    max_concurrent: int = 5,
+    limits: dict[TaskType, int] | None = None,
+) -> dict[str, dict[TaskType, TaskResult]]:
+    """
+    Process multiple books with controlled concurrency.
+
+    Args:
+        barcodes: List of book barcodes to process
+        task_funcs: Dict mapping task types to their implementation functions
+        max_concurrent: Max books processing at once
+        limits: Concurrency limits per task type
+
+    Returns:
+        Dict mapping barcode to its task results
+    """
+    manager = TaskManager(limits)
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def process_with_limit(barcode: str):
+        async with semaphore:
+            return barcode, await process_book_pipeline(manager, barcode, pipeline, task_funcs)
+
+    # Process all books
+    results = await asyncio.gather(*[process_with_limit(barcode) for barcode in barcodes], return_exceptions=True)
+
+    # Convert to dict
+    book_results = {}
+    for result in results:
+        if isinstance(result, tuple):
+            barcode, task_results = result
+            book_results[barcode] = task_results
+        elif isinstance(result, Exception):
+            logger.error(f"Book processing failed: {result}")
+
+    # Log final stats
+    logger.info(f"Processed {len(book_results)}/{len(barcodes)} books")
+    for task_type in TaskType:
+        stats = manager.stats[task_type]
+        if stats["started"] > 0:
+            logger.info(
+                f"{task_type.name}: "
+                f"started={stats['started']}, "
+                f"completed={stats['completed']}, "
+                f"skipped={stats['skipped']}, "
+                f"failed={stats['failed']}"
+            )
+
+    return book_results
+
+
+# Factory function for creating configured task manager
+def create_sync_task_manager(
+    concurrent_downloads: int = 5, concurrent_uploads: int = 10, concurrent_extractions: int = 5
+) -> TaskManager:
+    """
+    Create a task manager with sync-specific configuration.
+
+    Args:
+        concurrent_downloads: Max concurrent downloads
+        concurrent_uploads: Max concurrent uploads
+        concurrent_extractions: Max concurrent extraction tasks
+
+    Returns:
+        Configured TaskManager instance
+    """
+    limits = {
+        TaskType.CHECK: concurrent_downloads * 2,  # Checks are fast
+        TaskType.DOWNLOAD: concurrent_downloads,
+        TaskType.DECRYPT: min(concurrent_downloads, 3),  # Decryption is CPU intensive
+        TaskType.UNPACK: min(concurrent_downloads, 3),  # Unpacking is I/O intensive
+        TaskType.UPLOAD: concurrent_uploads,
+        TaskType.EXTRACT_MARC: concurrent_extractions,
+        TaskType.EXTRACT_OCR: concurrent_extractions,
+        TaskType.CLEANUP: 2,  # Cleanup should be limited
+    }
+
+    return TaskManager(limits)

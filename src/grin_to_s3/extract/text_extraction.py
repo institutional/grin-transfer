@@ -109,7 +109,7 @@ async def extract_ocr_pages(
         output_path_obj = Path(output_file)
         output_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-        page_count = _extract_ocr_to_jsonl_file(extracted_dir_path, output_path_obj)
+        page_count = extract_ocr_to_jsonl_file(extracted_dir_path, output_path_obj)
 
         # Track completion
         extraction_time_ms = int((time.time() - start_time) * 1000)
@@ -261,7 +261,7 @@ def _page_content_generator(archive_path: str) -> Iterator[tuple[int, str]]:
             expected_page = page_num + 1
 
 
-def _filesystem_page_generator(extracted_dir_path: str):
+def filesystem_page_generator(extracted_dir: Path):
     """
     Generator that yields (page_number, content) tuples from filesystem.
 
@@ -271,13 +271,12 @@ def _filesystem_page_generator(extracted_dir_path: str):
         TextExtractionError: If no .txt files found
         InvalidPageFormatError: If no valid page files found
     """
-    extracted_dir = Path(extracted_dir_path)
 
     # Find all .txt files and sort by page number
     txt_files = list(extracted_dir.glob("**/*.txt"))
 
     if not txt_files:
-        raise TextExtractionError(f"No .txt files found in {extracted_dir_path}")
+        raise TextExtractionError(f"No .txt files found in {extracted_dir}")
 
     page_files = []
 
@@ -289,7 +288,7 @@ def _filesystem_page_generator(extracted_dir_path: str):
             logger.warning(f"Skipping file with invalid page format: {txt_file.name}")
 
     if not page_files:
-        raise InvalidPageFormatError(f"No valid page files found in {extracted_dir_path}")
+        raise InvalidPageFormatError(f"No valid page files found in {extracted_dir}")
 
     # Sort by page number
     page_files.sort(key=lambda x: x[0])
@@ -307,7 +306,6 @@ def _filesystem_page_generator(extracted_dir_path: str):
             with open(txt_file, encoding="utf-8", errors="replace") as page_file:
                 content = page_file.read()
             yield (page_num, content)
-            logger.debug(f"Processed page {page_num}: {len(content):,} characters")
         except Exception as e:
             logger.warning(f"Error reading {txt_file.name}: {e}")
             yield (page_num, "")
@@ -315,7 +313,7 @@ def _filesystem_page_generator(extracted_dir_path: str):
         expected_page = page_num + 1
 
 
-def _extract_ocr_to_jsonl_file(extracted_dir_path: str, output_path: Path) -> int:
+def extract_ocr_to_jsonl_file(extracted_dir_path: Path, output_path: Path) -> int:
     """
     Extract OCR text to JSONL file using streaming from filesystem to minimize memory usage.
 
@@ -327,11 +325,13 @@ def _extract_ocr_to_jsonl_file(extracted_dir_path: str, output_path: Path) -> in
 
     Returns:
         Number of pages processed
+
+    FIXME DEPRECATED
     """
     with open(output_path, "w", encoding="utf-8") as f:
         page_count = 0
 
-        for page_num, content in _filesystem_page_generator(extracted_dir_path):
+        for page_num, content in filesystem_page_generator(extracted_dir_path):
             # Write the JSON-encoded content as a single line
             f.write(json.dumps(content, ensure_ascii=False) + "\n")
             page_count += 1

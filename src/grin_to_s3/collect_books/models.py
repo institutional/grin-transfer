@@ -267,10 +267,7 @@ class BoundedSet:
 
 class SQLiteProgressTracker:
     """
-    SQLite-based progress tracker that avoids memory leaks from large barcode sets.
-
-    Stores processed and failed barcodes in a SQLite database with O(log n) lookups.
-    Maintains minimal memory footprint regardless of dataset size.
+    SQLite-based progress tracker.
     """
 
     def __init__(self, db_path: str = "output/default/books.db", cache_size: int = 10000):

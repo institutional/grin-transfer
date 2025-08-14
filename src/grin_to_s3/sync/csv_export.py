@@ -74,11 +74,11 @@ async def export_and_upload_csv(
 
     temp_csv_path = None
     try:
-        logger.debug(f"Using staging directory: {staging_manager.staging_path}")
+        logger.debug(f"Using staging directory: {staging_manager.path}")
 
         # Create CSV file in staging directory with proper name
         csv_filename = custom_filename or "books_export.csv"
-        csv_path = staging_manager.staging_path / csv_filename
+        csv_path = staging_manager.path / csv_filename
         temp_csv_path = str(csv_path)
         logger.debug(f"Creating CSV file: {temp_csv_path}")
 

@@ -6,10 +6,10 @@ Main pipeline orchestration for syncing books from GRIN to storage.
 """
 
 import asyncio
-import shutil
+import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
@@ -22,33 +22,54 @@ from grin_to_s3.common import (
     pluralize,
 )
 from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT
-from grin_to_s3.database_utils import batch_write_status_updates
-from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.processing import get_converted_books, get_in_process_set
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config
 from grin_to_s3.storage.book_manager import BookManager
-from grin_to_s3.storage.staging import StagingDirectoryManager
-from grin_to_s3.sync.utils import logger
+from grin_to_s3.storage.staging import LocalDirectoryManager, StagingDirectoryManager
+from grin_to_s3.sync.task_manager import (
+    process_books_batch,
+)
+from grin_to_s3.sync.tasks import (
+    check,
+    cleanup,
+    decrypt,
+    download,
+    export_csv,
+    extract_marc,
+    extract_ocr,
+    unpack,
+    upload,
+)
+from grin_to_s3.sync.tasks.task_types import TaskType
 
 from .conversion_handler import ConversionRequestHandler
-from .csv_export import CSVExportResult, export_and_upload_csv, export_csv_local
-from .database_backup import create_local_database_backup, upload_database_to_storage
-from .models import create_sync_stats
-from .operations import (
-    check_and_handle_etag_skip,
-    download_book_to_filesystem,
-    download_book_to_local,
-    is_404_error,
-    upload_book_from_staging,
-)
-from .teardown import process_skip_result_teardown
-from .utils import build_download_result, check_grin_etag, etag_matches, reset_bucket_cache
+from .preflight import run_preflight_operations
+from .teardown import run_teardown_operations
+from .utils import reset_bucket_cache
 
 # Progress reporting intervals
 INITIAL_PROGRESS_INTERVAL = 60  # 1 minute for first few reports
 REGULAR_PROGRESS_INTERVAL = 600  # 10 minutes for subsequent reports
 MAX_INITIAL_REPORTS = 3  # Number of initial reports before switching to regular interval
+
+
+logger = logging.getLogger(__name__)
+
+
+class SyncStats(TypedDict):
+    """Statistics for sync operations."""
+
+    processed: int
+    synced: int  # Actually downloaded and uploaded to storage
+    failed: int
+    skipped: int
+    skipped_etag_match: int
+    skipped_conversion_limit: int
+    conversion_requested: int
+    marked_unavailable: int
+    uploaded: int
+    total_bytes: int
 
 
 async def get_books_from_queue(grin_client, library_directory: str, queue_name: str, db_tracker) -> set[str]:
@@ -189,6 +210,8 @@ class SyncPipeline:
         self.batch_size = config.sync_batch_size
         self.disk_space_threshold = config.sync_disk_space_threshold
 
+        self.filesystem_manager: LocalDirectoryManager | StagingDirectoryManager
+
         # Configure staging directory
         if config.sync_staging_dir is None:
             # Default to run directory + staging
@@ -203,11 +226,13 @@ class SyncPipeline:
 
         # Initialize staging directory manager only for non-local storage
         if self.config.storage_config["protocol"] != "local":
-            self.staging_manager: StagingDirectoryManager | None = StagingDirectoryManager(
+            self.filesystem_manager = StagingDirectoryManager(
                 staging_path=self.staging_dir, capacity_threshold=self.disk_space_threshold
             )
         else:
-            self.staging_manager = None  # Not needed for local storage
+            self.filesystem_manager = LocalDirectoryManager(
+                staging_path=config.storage_config["config"]["base_path"],  # pyright: ignore[reportTypedDictNotRequiredAccess]
+            )
 
         # Concurrency control
         self._download_semaphore = asyncio.Semaphore(self.concurrent_downloads)
@@ -219,12 +244,25 @@ class SyncPipeline:
         self._active_download_count = 0
         self._active_upload_count = 0
         self._pending_upload_count = 0  # Track pending uploads in queue
+        self._active_postprocessing_count = 0
 
         # Simple gate to prevent race conditions in task creation
         self._task_creation_lock = asyncio.Lock()
 
         # Statistics
-        self.stats = create_sync_stats()
+        self.stats = SyncStats(
+            processed=0,
+            synced=0,
+            failed=0,
+            skipped=0,
+            skipped_etag_match=0,
+            skipped_conversion_limit=0,
+            conversion_requested=0,
+            marked_unavailable=0,
+            uploaded=0,
+            total_bytes=0,
+        )
+        self.start_time = time.time()
         self._processed_count = 0  # Track total processed (downloaded) books
         self._completed_count = 0  # Track fully synced books (upload completed/failed)
         self._has_started_work = False  # Track if any work has begun
@@ -280,47 +318,6 @@ class SyncPipeline:
             return True
 
         return False
-
-    def _handle_success(self, barcode: str) -> None:
-        """
-        Handle a successful operation and reset sequential failure counter.
-
-        Args:
-            barcode: The barcode that succeeded
-        """
-        self._sequential_failures = 0  # Reset on any success
-        logger.info(f"[{barcode}] ✅ Success (failure counter reset)")
-
-    async def cleanup(self, sync_successful: bool = False) -> None:
-        """Clean up resources and close connections safely.
-
-        Args:
-            sync_successful: Whether the sync completed successfully
-        """
-        if self._shutdown_requested:
-            return
-
-        self._shutdown_requested = True
-        logger.info("Shutting down sync pipeline...")
-
-        # Final staging cleanup (only if sync was successful and not skipped)
-        if self.uses_block_storage:
-            if sync_successful and not self.skip_staging_cleanup:
-                try:
-                    logger.info("Performing final staging directory cleanup...")
-                    shutil.rmtree(self.staging_manager.staging_path, ignore_errors=True)  # type: ignore[union-attr]
-                    logger.info("Staging directory cleaned up")
-                except Exception as e:
-                    logger.warning(f"Error during final staging cleanup: {e}")
-
-        try:
-            if hasattr(self.db_tracker, "close"):
-                await self.db_tracker.close()
-                logger.debug("Closed database connection")
-        except Exception as e:
-            logger.warning(f"Error closing database connection: {e}")
-
-        logger.info("Cleanup completed")
 
     async def _background_progress_reporter(
         self,
@@ -448,15 +445,6 @@ class SyncPipeline:
             f"{status_details} [{interval_desc}]"
         )
 
-    async def _mark_book_as_converted(self, barcode: str) -> None:
-        """Mark a book as converted in our database after successful download."""
-        try:
-            # Use batched status change
-            status_updates = [collect_status(barcode, "processing_request", "converted")]
-            await batch_write_status_updates(str(self.db_tracker.db_path), status_updates)
-        except Exception as e:
-            logger.warning(f"[{barcode}] Failed to mark as converted: {e}")
-
     async def get_sync_status(self) -> dict:
         """Get current sync status and statistics."""
         stats = await self.db_tracker.get_sync_stats(self.config.storage_config["protocol"])
@@ -465,128 +453,6 @@ class SyncPipeline:
             **stats,
             "session_stats": self.stats,
         }
-
-    async def _export_csv_if_enabled(self) -> CSVExportResult:
-        """Export CSV if enabled."""
-        if self.skip_csv_export:
-            logger.debug("CSV export skipped due to --skip-csv-export flag")
-            return {"status": "skipped", "file_size": 0, "num_rows": 0, "export_time": 0.0}
-
-        try:
-            # Export CSV
-            logger.info("Exporting CSV after sync completion")
-
-            if self.uses_local_storage:
-                # For local storage, write directly to final location
-                result = await export_csv_local(self.book_manager, self.db_path)
-            else:
-                result = await export_and_upload_csv(
-                    db_path=self.db_path,
-                    staging_manager=self.staging_manager,  # type: ignore[arg-type]
-                    book_manager=self.book_manager,
-                    skip_export=False,
-                )
-
-            if result["status"] == "completed":
-                logger.info(
-                    f"CSV export completed successfully in {result['export_time']:.1f}s: "
-                    f"{result['num_rows']} rows, {result['file_size']} bytes"
-                )
-            else:
-                logger.error(f"CSV export failed: {result.get('status', 'unknown error')}")
-
-            return result
-
-        except Exception as e:
-            logger.error(f"CSV export failed with exception: {e}", exc_info=True)
-            return {"status": "failed", "file_size": 0, "num_rows": 0, "export_time": 0.0}
-
-    async def _backup_database_at_start(self) -> None:
-        """Create and upload database backup at start of sync process."""
-        if self.skip_database_backup:
-            logger.debug("Database backup skipped due to --skip-database-backup flag")
-            return
-
-        try:
-            # Create local backup first
-            logger.info("Creating database backup before sync...")
-            local_backup_result = await create_local_database_backup(self.db_path)
-
-            if local_backup_result["status"] == "completed":
-                logger.info(f"Local backup created: {local_backup_result['backup_filename']}")
-
-                # Upload timestamped backup
-                upload_result = await upload_database_to_storage(
-                    self.db_path,
-                    self.book_manager,
-                    self.staging_manager if hasattr(self, "staging_manager") else None,
-                    upload_type="timestamped",
-                )
-
-                if upload_result["status"] == "completed":
-                    logger.info(f"Database backup uploaded: {upload_result['backup_filename']}")
-
-                    # Clean up local backup after successful upload if using block storage
-                    if self.uses_block_storage and local_backup_result["backup_filename"] is not None:
-                        await self._cleanup_local_backup(local_backup_result["backup_filename"])
-                else:
-                    logger.warning(f"Database backup upload failed: {upload_result['status']}")
-
-            else:
-                logger.warning(f"Local database backup failed: {local_backup_result['status']}")
-
-        except Exception as e:
-            logger.error(f"Database backup process failed: {e}", exc_info=True)
-
-    async def _cleanup_local_backup(self, backup_filename: str) -> None:
-        """Remove local database backup file after successful upload to block storage."""
-        try:
-            backup_file = Path(self.db_path).parent / "backups" / backup_filename
-            backup_file.unlink(missing_ok=True)
-        except Exception as e:
-            logger.error(f"Failed to cleanup local backup {backup_filename}: {e}", exc_info=True)
-
-    async def _upload_latest_database(self):
-        """Upload current database state as 'latest' version."""
-        if self.skip_database_backup:
-            logger.debug("Database upload skipped due to --skip-database-backup flag")
-            return {"status": "skipped", "file_size": 0, "backup_time": 0.0, "backup_filename": None}
-
-        try:
-            logger.info("Uploading current database as latest version...")
-
-            # Upload latest database
-            upload_result = await upload_database_to_storage(
-                self.db_path,
-                self.book_manager,
-                self.staging_manager if hasattr(self, "staging_manager") else None,
-                upload_type="latest",
-            )
-
-            if upload_result["status"] == "completed":
-                logger.info(f"Latest database uploaded: {upload_result['backup_filename']}")
-                return upload_result
-            else:
-                logger.warning(f"Latest database upload failed: {upload_result['status']}")
-                return upload_result
-
-        except Exception as e:
-            logger.error(f"Latest database upload failed: {e}", exc_info=True)
-            return {"status": "failed", "file_size": 0, "backup_time": 0.0, "backup_filename": None}
-
-    async def _export_csv_and_upload_database_result(self) -> None:
-        """Export CSV if enabled and upload database, print results to console."""
-        csv_result = await self._export_csv_if_enabled()
-        if csv_result["status"] == "completed":
-            print(f"  CSV exported: {csv_result['num_rows']:,} rows ({csv_result['file_size']:,} bytes)")
-        elif csv_result["status"] == "failed":
-            print(f"  CSV export failed: {csv_result.get('error', 'unknown error')}")
-
-        db_result = await self._upload_latest_database()
-        if db_result and db_result["status"] == "completed":
-            print(f"  Database backed up: {db_result['backup_filename']} ({db_result['file_size']:,} bytes)")
-        elif db_result and db_result["status"] == "failed":
-            print(f"  Database backup failed: {db_result.get('error', 'unknown error')}")
 
     async def _print_final_stats_and_outputs(self, total_elapsed: float, books_processed: int) -> None:
         """Print comprehensive final statistics and output locations."""
@@ -612,8 +478,22 @@ class SyncPipeline:
             avg_rate = self.stats["synced"] / total_elapsed
             print(f"  Average rate: {avg_rate:.1f} books/second")
 
-        # Export CSV and database
-        await self._export_csv_and_upload_database_result()
+        # Run teardown operations (database upload, staging cleanup)
+        teardown_results = await run_teardown_operations(self)
+
+        # Add teardown results to final report
+        for operation, result in teardown_results.items():
+            if result.action.value == "completed" and result.data:
+                if operation == "final_database_upload":
+                    data = result.data
+                    print(f"  Database backed up: {data.get('backup_filename')} ({data.get('file_size', 0):,} bytes)")
+                elif operation == "staging_cleanup":
+                    data = result.data
+                    print(f"  Staging cleanup completed: {data.get('staging_path')}")
+            elif result.action.value == "failed":
+                print(f"  {operation.replace('_', ' ').title()} failed: {result.error}")
+            elif result.action.value == "skipped":
+                logger.debug(f"{operation.replace('_', ' ').title()} skipped")
         # Point to process summary file
         process_summary_path = f"output/{run_name}/process_summary.json"
         print(f"  Process summary: {process_summary_path}")
@@ -641,129 +521,6 @@ class SyncPipeline:
                 await asyncio.wait_for(self._progress_reporter_task, timeout=2.0)
             except (TimeoutError, asyncio.CancelledError):
                 pass
-
-    async def _download_book(self, barcode: str) -> dict[str, Any]:
-        """Download a book"""
-
-        async with self._download_semaphore:
-            self._active_download_count += 1
-            self._has_started_work = True
-            try:
-                logger.debug(
-                    f"[{barcode}] Download task started "
-                    f"(active: {self._active_download_count}/{self.concurrent_downloads})"
-                )
-
-                # Check ETag and handle skip scenario
-                skip_result, encrypted_etag, _, sync_status_updates = await check_and_handle_etag_skip(
-                    barcode,
-                    self.grin_client,
-                    self.library_directory,
-                    self.config.storage_config,
-                    self.db_tracker,
-                    self._download_semaphore,
-                    self.force,
-                    self.current_queues,
-                    self.conversion_handler,
-                )
-
-                if skip_result:
-                    # Use teardown function to process skip result without mutating state
-                    status_dict, updated_stats = await process_skip_result_teardown(
-                        barcode, sync_status_updates, str(self.db_tracker.db_path), self.stats
-                    )
-                    self.stats = updated_stats
-                    return status_dict
-
-                # We didn't skip, so do the download to either staging (if cloud storage) or local
-                if self.uses_local_storage:
-                    _, staging_file_path, metadata = await download_book_to_local(
-                        barcode,
-                        self.grin_client,
-                        self.library_directory,
-                        self.config.storage_config,
-                        self.db_tracker,
-                        None,  # No ETag for initial call
-                        self.secrets_dir,
-                        self.skip_extract_ocr,
-                        self.skip_extract_marc,
-                        self.download_timeout,
-                        self.download_retries,
-                    )
-
-                else:
-                    _, staging_file_path, metadata = await download_book_to_filesystem(
-                        barcode,
-                        self.grin_client,
-                        self.library_directory,
-                        encrypted_etag,
-                        self.config.storage_config,
-                        self.staging_manager,
-                        self.secrets_dir,
-                        self.download_timeout,
-                        self.download_retries,
-                    )
-
-                return {
-                    "barcode": barcode,
-                    "download_success": True,
-                    "staging_file_path": staging_file_path,
-                    "encrypted_etag": encrypted_etag,
-                    "metadata": metadata,
-                }
-
-            except Exception as e:
-                # Check if this is a 404 error
-                is_404 = is_404_error(e)
-
-                if is_404:
-                    logger.info(f"[{barcode}] Archive not found (404)")
-                else:
-                    logger.error(f"[{barcode}] Download failed: {e}", exc_info=True)
-                return build_download_result(barcode, success=False, error=str(e), is_404=is_404)
-            finally:
-                self._active_download_count -= 1
-                logger.info(
-                    f"[{barcode}] Download task completed "
-                    f"(active: {self._active_download_count}/{self.concurrent_downloads})"
-                )
-
-    async def _upload_book_from_staging(self, barcode: str, download_result: dict[str, Any]) -> dict[str, Any]:
-        """Upload a book from staging directory to storage."""
-        async with self._upload_semaphore:
-            self._active_upload_count += 1
-            try:
-                logger.debug(
-                    f"[{barcode}] Upload task started (active: {self._active_upload_count}/{self.concurrent_uploads})"
-                )
-
-                upload_result = await upload_book_from_staging(
-                    barcode,
-                    download_result["staging_file_path"],
-                    self.config.storage_config,
-                    self.staging_manager,
-                    self.db_tracker,
-                    download_result.get("encrypted_etag"),
-                    self.secrets_dir,
-                    self.skip_extract_ocr,
-                    self.skip_extract_marc,
-                    self.skip_staging_cleanup,
-                )
-
-                return {
-                    "barcode": barcode,
-                    "upload_success": upload_result.get("status") == "completed",
-                    "result": upload_result,
-                }
-
-            except Exception as e:
-                logger.error(f"[{barcode}] Upload failed: {e}", exc_info=True)
-                return {"barcode": barcode, "upload_success": False, "error": str(e)}
-            finally:
-                self._active_upload_count -= 1
-                logger.debug(
-                    f"[{barcode}] Upload task completed (active: {self._active_upload_count}/{self.concurrent_uploads})"
-                )
 
     async def setup_sync_loop(
         self, queues: list[str] | None = None, limit: int | None = None, specific_barcodes: list[str] | None = None
@@ -821,9 +578,15 @@ class SyncPipeline:
         # Reset bucket cache at start of sync
         reset_bucket_cache()
 
-        # Create and upload database backup before starting sync (skip in dry-run)
-        if not self.dry_run:
-            await self._backup_database_at_start()
+        # Run preflight operations (including database backup)
+        preflight_results = await run_preflight_operations(self)
+        for operation, result in preflight_results.items():
+            if result.action.value == "failed":
+                logger.error(f"Preflight operation {operation} failed: {result.error}")
+            elif result.action.value == "completed":
+                logger.info(f"Preflight operation {operation} completed successfully")
+            elif result.action.value == "skipped":
+                logger.info(f"Preflight operation {operation} skipped")
 
         sync_successful = False
         try:
@@ -927,9 +690,43 @@ class SyncPipeline:
                 f"(more frequent initially)"
             )
             print("---")
+            rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
-            await self._run_sync(available_to_sync, books_to_process, specific_barcodes)
-            sync_successful = True
+            # Start background progress reporter
+            self._progress_reporter_task = asyncio.create_task(
+                self._background_progress_reporter(time.time(), books_to_process, rate_calculator)
+            )
+
+            # Define task functions
+            task_funcs = {
+                TaskType.CHECK: check.main,
+                TaskType.DOWNLOAD: download.main,
+                TaskType.DECRYPT: decrypt.main,
+                TaskType.UPLOAD: upload.main,
+                TaskType.UNPACK: unpack.main,
+                TaskType.EXTRACT_MARC: extract_marc.main,
+                TaskType.EXTRACT_OCR: extract_ocr.main,
+                TaskType.EXPORT_CSV: export_csv.main,
+                TaskType.CLEANUP: cleanup.main,
+            }
+
+            # Process all books with batch processing
+            results = await process_books_batch(
+                available_to_sync,
+                self,
+                task_funcs,
+                limits={
+                    TaskType.CHECK: 5,
+                    TaskType.DOWNLOAD: 2,
+                    TaskType.DECRYPT: 2,
+                    TaskType.UPLOAD: 3,
+                    TaskType.UNPACK: 2,
+                    TaskType.EXTRACT_MARC: 2,
+                    TaskType.EXTRACT_OCR: 2,
+                    TaskType.EXPORT_CSV: 2,
+                    TaskType.CLEANUP: 1,
+                },
+            )
 
         except KeyboardInterrupt:
             print("\nOperation cancelled by user")
@@ -937,7 +734,7 @@ class SyncPipeline:
             print(f"Pipeline failed: {e}")
             logger.error(f"Pipeline failed: {e}", exc_info=True)
         finally:
-            await self.cleanup(sync_successful)
+            pass
 
     def _should_exit_for_failure_limit(self) -> bool:
         """Check if pipeline should exit due to sequential failure limit."""
@@ -946,276 +743,6 @@ class SyncPipeline:
     def _should_exit_for_shutdown(self) -> bool:
         """Check if pipeline should exit due to shutdown request."""
         return self._shutdown_requested
-
-    async def _process_download_result(
-        self, barcode: str, result: dict[str, Any], processed_count: int, rate_calculator
-    ) -> tuple[bool, int]:
-        """Process download completion result and return (should_exit, updated_processed_count)."""
-        if result.get("download_success"):
-            # For local storage, successful downloads should be treated as completed
-            if self.uses_local_storage:
-                self._completed_count += 1
-                self.stats["synced"] += 1
-                self._handle_success(barcode)
-                self.process_summary_stage.increment_items(successful=1)
-            # For cloud storage, downloads get uploaded separately
-            processed_count += 1
-            self._processed_count = processed_count
-            rate_calculator.add_batch(time.time(), processed_count)
-            self.process_summary_stage.increment_items(processed=1)
-            return False, processed_count
-
-        if result.get("completed"):
-            self._completed_count += 1
-            self._handle_success(barcode)
-
-            if result.get("conversion_requested"):
-                logger.info(f"[{barcode}] Conversion requested successfully")
-                print(f"✅ [{barcode}] Conversion requested")
-            elif result.get("already_in_process"):
-                logger.info(f"[{barcode}] Already being processed")
-                print(f"✅ [{barcode}] Already in process")
-            elif result.get("marked_unavailable"):
-                logger.info(f"[{barcode}] Marked as unavailable")
-                print(f"✅ [{barcode}] Marked unavailable")
-
-            self.process_summary_stage.increment_items(successful=1)
-        elif result.get("skipped"):
-            self._completed_count += 1
-            self._handle_success(barcode)
-
-            if result.get("conversion_limit_reached"):
-                logger.warning(f"[{barcode}] Conversion limit reached")
-                print(f"⚠️  [{barcode}] Conversion limit reached")
-            else:
-                logger.info(f"[{barcode}] Skipped (ETag match)")
-
-            self.process_summary_stage.increment_items(successful=1)
-        else:
-            self._completed_count += 1
-
-            if result.get("is_404"):
-                self.stats["failed"] += 1
-
-                if result.get("conversion_requested"):
-                    logger.info(f"[{barcode}] Archive not found, conversion requested")
-                    print(f"✓ [{barcode}] Archive not found, conversion requested")
-                elif result.get("conversion_limit_reached"):
-                    logger.error(f"[{barcode}] Failed: Archive not found, conversion request limit reached")
-                    print(f"❌ [{barcode}] Failed: Archive not found, conversion request limit reached")
-                else:
-                    logger.error(f"[{barcode}] Failed: Archive not found (404)")
-                    print(f"❌ [{barcode}] Failed: Archive not found (404)")
-            else:
-                error_detail = result.get("error", "Unknown error")
-                should_exit = self._handle_failure(barcode, f"Download failed: {error_detail}")
-                if should_exit:
-                    return True, processed_count
-
-            self.process_summary_stage.increment_items(failed=1)
-
-        processed_count += 1
-        self._processed_count = processed_count
-        rate_calculator.add_batch(time.time(), processed_count)
-        self.process_summary_stage.increment_items(processed=1)
-
-        return False, processed_count
-
-    async def _process_upload_result(
-        self, barcode: str, result: dict[str, Any], processed_count: int, rate_calculator
-    ) -> tuple[bool, int]:
-        """Process upload completion result and return should_exit."""
-        self._completed_count += 1
-        logger.info(f"[{barcode}] Upload completed (success: {result.get('upload_success', False)})")
-
-        if result.get("upload_success"):
-            self.stats["synced"] += 1
-            self._handle_success(barcode)
-            self.process_summary_stage.increment_items(successful=1)
-        else:
-            error_detail = result.get("error", "Unknown error")
-            should_exit = self._handle_failure(barcode, f"Upload failed: {error_detail}")
-            if should_exit:
-                return True, processed_count
-            self.process_summary_stage.increment_items(failed=1)
-
-        processed_count += 1
-        self._processed_count = processed_count
-        rate_calculator.add_batch(time.time(), processed_count)
-        self.process_summary_stage.increment_items(processed=1)
-
-        return False, processed_count
-
-    async def _run_sync(
-        self, available_to_sync: list[str], books_to_process: int, specific_barcodes: list[str] | None = None
-    ) -> None:
-        """Run sync pipeline"""
-        start_time = time.time()
-        processed_count = 0
-        active_downloads: dict[str, asyncio.Task] = {}
-        active_uploads: dict[str, asyncio.Task] = {}
-
-        # Initialize sliding window rate calculator
-        rate_calculator = SlidingWindowRateCalculator(window_size=20)
-
-        # Start background progress reporter
-        self._progress_reporter_task = asyncio.create_task(
-            self._background_progress_reporter(start_time, books_to_process, rate_calculator)
-        )
-
-        try:
-            # Create iterator for books
-            book_iter = iter(available_to_sync[:books_to_process])
-
-            # Process downloads and uploads
-            while len(active_downloads) < self.concurrent_downloads or active_downloads or active_uploads:
-                if self._should_exit_for_shutdown():
-                    break
-
-                # Refill download queue if under limit and more books available
-                while len(active_downloads) < self.concurrent_downloads:
-                    try:
-                        barcode = next(book_iter)
-
-                        if self.staging_manager:
-                            await self.staging_manager.wait_for_disk_space()
-                            logger.debug(f"[{barcode}] Disk space check passed, proceeding with download")
-
-                        if specific_barcodes and barcode not in specific_barcodes:
-                            logger.debug(f"Skipping barcode {barcode}; not in specified set")
-                            continue
-
-                        # Now try a HEAD request for the etag and availability
-                        head_result = await check_grin_etag(
-                            self.grin_client, self.library_directory, barcode, self._download_semaphore
-                        )
-                        print(head_result)
-
-                        should_download_archive = False
-
-                        # Options from this point:
-                        # HEAD was 200 + etag present: revalidate etag
-                        # HEAD was 404: don't attempt download
-                        # HEAD was 404: maybe request processing
-
-                        if head_result["success"] and head_result["etag"]:
-                            etag_match = await etag_matches(
-                                barcode, head_result["etag"], self.config.storage_config, self.db_tracker
-                            )
-                            if etag_match["matched"]:
-                                logger.info(
-                                    f"[{barcode}] Skipping download due to matching ETag; already have the latest version of this archive"
-                                )
-                            else:
-                                should_download_archive = True
-
-                                if etag_match["reason"] == "etag_mismatch":
-                                    logger.debug(f"[{barcode}] ETag did not match; will revalidate")
-                                elif etag_match["reason"] == "no_etag":
-                                    raise Exception(
-                                        f"[{barcode}] No etag was present on GRIN result; this is unexpected"
-                                    )
-
-                        elif not head_result["success"] and head_result["http_status_code"] == 404:
-                            logger.info(
-                                f"[{barcode}] Was not found at downloadable GRIN endpoint; will not attempt to download"
-                            )
-                            # don't download
-                            # maybe request processing
-                            continue
-
-                        if should_download_archive:
-                            task = asyncio.create_task(self._download_book(barcode))
-                            active_downloads[barcode] = task
-                            logger.debug(
-                                f"Created new download task for {barcode} "
-                                f"(queue: {len(active_downloads)}/{self.concurrent_downloads})"
-                            )
-                    except StopIteration:
-                        break
-
-                all_tasks = list(active_downloads.values()) + list(active_uploads.values())
-                if not all_tasks:
-                    break
-
-                done, _ = await asyncio.wait(all_tasks, return_when=asyncio.FIRST_COMPLETED)
-
-                for completed_task in done:
-                    try:
-                        result = await completed_task
-                        if not result or not result.get("barcode"):
-                            logger.warning("Upload/download task completed with no result")
-                            continue
-
-                        barcode = result.get("barcode")
-
-                        # Handle download completion
-                        if barcode in active_downloads and active_downloads[barcode] == completed_task:
-                            del active_downloads[barcode]
-                            logger.debug(
-                                f"[{barcode}] Download completed (success: {result.get('download_success', False)})"
-                            )
-
-                            if result.get("download_success") and self.uses_block_storage:
-                                upload_task = asyncio.create_task(self._upload_book_from_staging(barcode, result))
-                                active_uploads[barcode] = upload_task
-                                self._pending_upload_count = len(active_uploads)
-                                logger.debug(f"[{barcode}] Started upload task")
-                            else:
-                                should_exit, processed_count = await self._process_download_result(
-                                    barcode, result, processed_count, rate_calculator
-                                )
-                                if should_exit:
-                                    return
-
-                        # Handle upload completion
-                        elif barcode in active_uploads and active_uploads[barcode] == completed_task:
-                            del active_uploads[barcode]
-                            self._pending_upload_count = len(active_uploads)
-
-                            should_exit, processed_count = await self._process_upload_result(
-                                barcode, result, processed_count, rate_calculator
-                            )
-                            if should_exit:
-                                return
-
-                    except Exception as e:
-                        logger.error(f"Error processing completed task: {e}", exc_info=True)
-                        should_exit = self._handle_failure("unknown", f"Task processing exception: {e}")
-                        if should_exit:
-                            return
-
-                        self.process_summary_stage.increment_items(failed=1)
-                        self.process_summary_stage.add_error(type(e).__name__, str(e))
-
-            # Main loop completed - stop the background progress reporter
-            self._shutdown_requested = True
-
-        finally:
-            # Ensure shutdown is requested
-            self._shutdown_requested = True
-
-            # Cancel progress reporter
-            await self._cancel_progress_reporter()
-
-            # Cancel remaining tasks
-            for task in active_downloads.values():
-                if not task.done():
-                    task.cancel()
-            for task in active_uploads.values():
-                if not task.done():
-                    task.cancel()
-
-            # Wait for cancellations
-            all_tasks = list(active_downloads.values()) + list(active_uploads.values())
-            if all_tasks:
-                await asyncio.gather(*all_tasks, return_exceptions=True)
-
-            # Final statistics and outputs
-            total_elapsed = time.time() - start_time
-            await self._print_final_stats_and_outputs(total_elapsed, books_to_process)
-
-            logger.info("Sync completed")
 
     async def _show_dry_run_preview(
         self, available_to_sync: list[str], limit: int | None, specific_barcodes: list[str] | None
@@ -1282,49 +809,3 @@ class SyncPipeline:
         logger.info(
             f"DRY-RUN: Would process {books_to_process} books with storage type {self.config.storage_config['type']}"
         )
-
-    async def _handle_404_with_conversion(self, barcode: str) -> dict[str, Any] | None:
-        """Handle 404 error with possible conversion request for previous queue.
-
-        Args:
-            barcode: Book barcode that returned 404
-
-        Returns:
-            Result dict if conversion was attempted, None if no conversion needed
-        """
-        # Only attempt conversion for previous queue
-        if "previous" not in self.current_queues or self.conversion_handler is None:
-            return None
-
-        try:
-            logger.info(f"[{barcode}] Archive not found (404), requesting conversion for previous queue")
-            conversion_status = await self.conversion_handler.handle_missing_archive(
-                barcode, self.conversion_request_limit
-            )
-
-            if conversion_status == "requested":
-                logger.info(f"[{barcode}] Conversion requested successfully")
-                return build_download_result(
-                    barcode,
-                    success=False,
-                    error="Archive not found, conversion requested",
-                    is_404=True,
-                    conversion_requested=True,
-                )
-            elif conversion_status == "limit_reached":
-                logger.warning(f"[{barcode}] Conversion request limit reached")
-                return build_download_result(
-                    barcode,
-                    success=False,
-                    error="Archive not found, conversion request limit reached",
-                    is_404=True,
-                    conversion_limit_reached=True,
-                )
-            else:
-                # unavailable or in_process
-                logger.warning(f"[{barcode}] Conversion not possible: {conversion_status}")
-                return None
-
-        except Exception as conversion_error:
-            logger.error(f"[{barcode}] Conversion request failed: {conversion_error}")
-            return None
