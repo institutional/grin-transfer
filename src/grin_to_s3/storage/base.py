@@ -235,9 +235,9 @@ class Storage:
                         # Single-part upload for files ≤100MB - much faster, single API call
                         async with aiofiles.open(file_path, "rb") as f:
                             file_data = await f.read()
-                            put_kwargs = {"Bucket": bucket, "Key": key, "Body": file_data}
+                            put_kwargs: dict[str, Any] = {"Bucket": bucket, "Key": key, "Body": file_data}
                             if metadata:
-                                put_kwargs["Metadata"] = metadata  # type: ignore[assignment]
+                                put_kwargs["Metadata"] = metadata
                             await s3_client.put_object(**put_kwargs)
                     return
             except Exception as e:
