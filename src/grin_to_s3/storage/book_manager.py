@@ -10,6 +10,7 @@ import logging
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import aiofiles
 
@@ -17,6 +18,9 @@ from grin_to_s3.run_config import StorageConfig
 
 from ..compression import compress_file_to_temp, get_compressed_filename
 from .base import Storage
+
+if TYPE_CHECKING:
+    from types_aiobotocore_s3.client import S3Client
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +199,7 @@ class BookManager:
                 session_kwargs["endpoint_url"] = self.storage.config.endpoint_url
 
             session = aioboto3.Session()
+            s3_client: S3Client
             async with session.client("s3", **session_kwargs) as s3_client:
                 # Parse bucket and key from path
                 normalized_path = self.storage._normalize_path(path)

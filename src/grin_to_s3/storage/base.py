@@ -11,7 +11,10 @@ import os
 import re
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from types_aiobotocore_s3.client import S3Client
 
 import fsspec
 
@@ -167,6 +170,7 @@ class Storage:
                     session_kwargs["endpoint_url"] = self.config.endpoint_url
 
                 session = aioboto3.Session()
+                s3_client: S3Client
                 async with session.client("s3", **session_kwargs) as s3_client:
                     # Parse bucket and key from path
                     path_parts = normalized_path.split("/", 1)
@@ -212,6 +216,7 @@ class Storage:
                     session_kwargs["endpoint_url"] = self.config.endpoint_url
 
                 session = aioboto3.Session()
+                s3_client: S3Client
                 async with session.client("s3", **session_kwargs) as s3_client:
                     # Parse bucket and key from path
                     path_parts = normalized_path.split("/", 1)
@@ -268,6 +273,7 @@ class Storage:
                 session_kwargs["endpoint_url"] = self.config.endpoint_url
 
             session = aioboto3.Session()
+            s3_client: S3Client
             async with session.client("s3", **session_kwargs) as s3_client:
                 # Parse bucket and key from path
                 path_parts = normalized_path.split("/", 1)
