@@ -10,7 +10,7 @@ import pytest
 from grin_to_s3.database_utils import batch_write_status_updates
 from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.sync.utils import should_skip_download
-from tests.test_utils.unified_mocks import create_fresh_tracker
+from tests.test_utils.unified_mocks import create_fresh_tracker, standard_storage_config
 
 
 class TestStorageMetadataETagTracking:
@@ -22,15 +22,11 @@ class TestStorageMetadataETagTracking:
         tracker = create_fresh_tracker()
         await tracker.init_db()
 
-        storage_config = {
-            "bucket_raw": "test-bucket",
-            "access_key": "test-key",
-            "secret_key": "test-secret",
-        }
+        storage_config = standard_storage_config("s3")
 
         with (
-            patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
+            patch("grin_to_s3.sync.utils.create_storage_from_config") as mock_storage_factory,
+            patch("grin_to_s3.sync.utils.BookManager") as mock_book_manager_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
@@ -44,7 +40,7 @@ class TestStorageMetadataETagTracking:
 
             # Test S3 storage with fresh database - should skip based on storage metadata
             should_skip, reason = await should_skip_download(
-                "TEST123", '"etag123"', "s3", storage_config, tracker, False
+                "TEST123", '"etag123"', storage_config, tracker, False
             )
 
             assert should_skip is True
@@ -62,15 +58,11 @@ class TestStorageMetadataETagTracking:
         tracker = create_fresh_tracker()
         await tracker.init_db()
 
-        storage_config = {
-            "bucket_raw": "test-bucket",
-            "access_key": "test-key",
-            "secret_key": "test-secret",
-        }
+        storage_config = standard_storage_config("s3")
 
         with (
-            patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
+            patch("grin_to_s3.sync.utils.create_storage_from_config") as mock_storage_factory,
+            patch("grin_to_s3.sync.utils.BookManager") as mock_book_manager_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
@@ -84,7 +76,7 @@ class TestStorageMetadataETagTracking:
 
             # Test S3 storage with fresh database - should not skip due to ETag mismatch
             should_skip, reason = await should_skip_download(
-                "TEST123", '"new_etag"', "s3", storage_config, tracker, False
+                "TEST123", '"new_etag"', storage_config, tracker, False
             )
 
             assert should_skip is False
@@ -98,15 +90,11 @@ class TestStorageMetadataETagTracking:
         tracker = create_fresh_tracker()
         await tracker.init_db()
 
-        storage_config = {
-            "bucket_raw": "test-bucket",
-            "access_key": "test-key",
-            "secret_key": "test-secret",
-        }
+        storage_config = standard_storage_config("s3")
 
         with (
-            patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
+            patch("grin_to_s3.sync.utils.create_storage_from_config") as mock_storage_factory,
+            patch("grin_to_s3.sync.utils.BookManager") as mock_book_manager_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
@@ -119,7 +107,7 @@ class TestStorageMetadataETagTracking:
 
             # Test S3 storage with fresh database - should not skip since no archive exists
             should_skip, reason = await should_skip_download(
-                "TEST123", '"etag123"', "s3", storage_config, tracker, False
+                "TEST123", '"etag123"', storage_config, tracker, False
             )
 
             assert should_skip is False
@@ -137,15 +125,11 @@ class TestStorageMetadataETagTracking:
         tracker = create_fresh_tracker()
         await tracker.init_db()
 
-        storage_config = {
-            "bucket_raw": "test-bucket",
-            "access_key": "test-key",
-            "secret_key": "test-secret",
-        }
+        storage_config = standard_storage_config("s3")
 
         with (
-            patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
+            patch("grin_to_s3.sync.utils.create_storage_from_config") as mock_storage_factory,
+            patch("grin_to_s3.sync.utils.BookManager") as mock_book_manager_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
@@ -158,7 +142,7 @@ class TestStorageMetadataETagTracking:
 
             # Test S3 storage with storage error - should fall back to database check
             should_skip, reason = await should_skip_download(
-                "TEST123", '"etag123"', "s3", storage_config, tracker, False
+                "TEST123", '"etag123"', storage_config, tracker, False
             )
 
             # With fresh database, should not skip since no metadata is in DB
@@ -174,11 +158,11 @@ class TestStorageMetadataETagTracking:
         await tracker.init_db()
 
         # Test with S3 protocol (covers AWS S3, MinIO, R2 which all use 's3' protocol)
-        storage_config = {"bucket_raw": "test-bucket"}
+        storage_config = standard_storage_config("s3")
 
         with (
-            patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
+            patch("grin_to_s3.sync.utils.create_storage_from_config") as mock_storage_factory,
+            patch("grin_to_s3.sync.utils.BookManager") as mock_book_manager_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
@@ -192,7 +176,7 @@ class TestStorageMetadataETagTracking:
 
             # Test S3 protocol uses metadata approach
             should_skip, reason = await should_skip_download(
-                "TEST123", '"etag123"', "s3", storage_config, tracker, False
+                "TEST123", '"etag123"', storage_config, tracker, False
             )
 
             assert should_skip is True
@@ -223,11 +207,11 @@ class TestStorageMetadataETagTracking:
         tracker = create_fresh_tracker()
         await tracker.init_db()
 
-        storage_config = {"base_path": "/tmp/test"}
+        storage_config = standard_storage_config()
 
         # Test local storage with fresh database - should not skip since no metadata in DB
         should_skip, reason = await should_skip_download(
-            "TEST123", '"etag123"', "local", storage_config, tracker, False
+            "TEST123", '"etag123"', storage_config, tracker, False
         )
 
         assert should_skip is False
@@ -251,11 +235,11 @@ class TestHybridETagApproach:
         ]
         await batch_write_status_updates(tracker.db_path, status_updates)
 
-        storage_config = {"bucket_raw": "test-bucket"}
+        storage_config = standard_storage_config("s3")
 
         with (
-            patch("grin_to_s3.storage.create_storage_from_config") as mock_storage_factory,
-            patch("grin_to_s3.storage.BookManager") as mock_book_manager_class,
+            patch("grin_to_s3.sync.utils.create_storage_from_config") as mock_storage_factory,
+            patch("grin_to_s3.sync.utils.BookManager") as mock_book_manager_class,
         ):
             # Mock storage and book storage
             mock_storage = MagicMock()
@@ -269,7 +253,7 @@ class TestHybridETagApproach:
 
             # Test that S3 uses storage metadata, not database
             should_skip, reason = await should_skip_download(
-                "BOOK_WITH_ETAG", '"current_etag"', "s3", storage_config, tracker, False
+                "BOOK_WITH_ETAG", '"current_etag"', storage_config, tracker, False
             )
 
             assert should_skip is True
@@ -293,11 +277,11 @@ class TestHybridETagApproach:
         ]
         await batch_write_status_updates(tracker.db_path, status_updates)
 
-        storage_config = {"base_path": "/tmp/test"}
+        storage_config = standard_storage_config()
 
         # Test that local storage uses database metadata for matching ETag
         should_skip, reason = await should_skip_download(
-            "BOOK_WITH_ETAG", '"stored_etag"', "local", storage_config, tracker, False
+            "BOOK_WITH_ETAG", '"stored_etag"', storage_config, tracker, False
         )
 
         assert should_skip is True

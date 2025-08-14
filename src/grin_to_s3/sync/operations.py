@@ -210,70 +210,6 @@ def is_404_error(exception: Exception) -> bool:
     return isinstance(exception, aiohttp.ClientResponseError) and exception.status == 404
 
 
-async def check_archive_availability_with_etag(
-    barcode: str, grin_client: GRINClient, library_directory: str, grin_semaphore: asyncio.Semaphore
-) -> dict[str, Any]:
-    """Check archive availability and ETag for processing previously downloaded books.
-
-    Makes a HEAD request to determine if an archive exists and returns detailed
-    information about availability, ETag, and whether conversion might be needed.
-
-    Args:
-        barcode: Book barcode
-        grin_client: GRIN client instance
-        library_directory: Library directory name
-        grin_semaphore: Semaphore to control GRIN API concurrency (shares 5 QPS limit)
-
-    Returns:
-        dict with keys:
-        - available: bool (True if archive exists)
-        - etag: str | None (ETag if available)
-        - file_size: int | None (File size if available)
-        - http_status: int | None (HTTP status code)
-        - needs_conversion: bool (True if 404, indicating conversion may be needed)
-    """
-    try:
-        # Use existing HEAD checking function
-        etag, file_size, status_code = await check_encrypted_etag(
-            grin_client, library_directory, barcode, grin_semaphore
-        )
-
-        if status_code == 200:
-            # Archive is available
-            return {
-                "available": True,
-                "etag": etag,
-                "file_size": file_size,
-                "http_status": status_code,
-                "needs_conversion": False,
-            }
-        elif status_code == 404:
-            # Archive not found
-            logger.debug(f"[{barcode}] Archive not available (404), may need conversion")
-            return {
-                "available": False,
-                "etag": None,
-                "file_size": None,
-                "http_status": status_code,
-                "needs_conversion": True,
-            }
-        else:
-            # Other HTTP error
-            logger.warning(f"[{barcode}] Archive check returned HTTP {status_code}")
-            return {
-                "available": False,
-                "etag": None,
-                "file_size": None,
-                "http_status": status_code,
-                "needs_conversion": False,  # Don't attempt conversion on other errors
-            }
-
-    except Exception as e:
-        # Network/other errors that should be retried upstream
-        logger.warning(f"[{barcode}] Archive availability check failed: {e}")
-        raise  # Let upstream handle retries
-
-
 async def check_and_handle_etag_skip(
     barcode: str,
     grin_client: GRINClient,
@@ -425,7 +361,7 @@ async def check_and_handle_etag_skip(
 
     # Check if we should skip download based on ETag match
     should_skip, skip_reason = await should_skip_download(
-        barcode, encrypted_etag, storage_type, storage_config, db_tracker, force
+        barcode, encrypted_etag, storage_config, db_tracker, force
     )
     if should_skip:
         logger.info(f"[{barcode}] Skipping download - {skip_reason}")

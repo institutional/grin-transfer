@@ -176,12 +176,8 @@ def temp_db():
 @pytest.fixture
 def mock_storage_config():
     """Fixture providing a standard mock storage configuration."""
-    return {
-        "bucket_raw": "test-raw",
-        "bucket_full": "test-full",
-        "bucket_meta": "test-meta",
-        "base_path": "/tmp/storage",
-    }
+    from tests.test_utils.unified_mocks import standard_storage_config
+    return standard_storage_config()
 
 
 @pytest.fixture
