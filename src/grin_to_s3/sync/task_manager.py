@@ -2,7 +2,7 @@
 """
 Task Manager for Sync Pipeline
 
-Simplified task management system for handling download, decrypt, upload,
+Task management system for handling download, decrypt, upload,
 and post-processing tasks with dependency management.
 """
 
@@ -13,11 +13,13 @@ from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any, cast
 
 from grin_to_s3.common import Barcode
+from grin_to_s3.database_utils import batch_write_status_updates
+from grin_to_s3.extract.tracking import collect_status
 
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
 
-from .db_updates import update_database_for_task
+from .db_updates import get_updates_for_task
 from .tasks.task_types import (
     CheckTaskFunc,
     CleanupTaskFunc,
@@ -67,12 +69,17 @@ class TaskManager:
         self.active_tasks: dict[str, set[TaskType]] = defaultdict(set)
 
         # Simple stats
-        self.stats = defaultdict(lambda: {"started": 0, "completed": 0, "skipped": 0, "failed": 0})
+        self.stats: dict[TaskType, dict[str, int]] = defaultdict(
+            lambda: {"started": 0, "completed": 0, "skipped": 0, "failed": 0}
+        )
 
     async def run_task(
-        self, task_type: TaskType, barcode: str,
+        self,
+        task_type: TaskType,
+        barcode: str,
         task_func: Callable[[], Coroutine[Any, Any, TaskResult]],
-        pipeline: "SyncPipeline"
+        pipeline: "SyncPipeline",
+        previous_results: dict[TaskType, TaskResult],
     ) -> TaskResult:
         """
         Run a task with semaphore management and database updates.
@@ -82,6 +89,7 @@ class TaskManager:
             barcode: Book barcode
             task_func: Async function that returns TaskResult
             pipeline: Pipeline instance for database updates
+            previous_results: Results from previous tasks in the pipeline
 
         Returns:
             TaskResult from the task
@@ -90,7 +98,7 @@ class TaskManager:
             self.active_tasks[barcode].add(task_type)
             self.stats[task_type]["started"] += 1
 
-            result = None
+            result: TaskResult
             try:
                 result = await task_func()
 
@@ -103,24 +111,36 @@ class TaskManager:
                     case TaskAction.FAILED:
                         self.stats[task_type]["failed"] += 1
 
-                return result
-
             except Exception as e:
                 self.stats[task_type]["failed"] += 1
                 error_msg = f"{type(e).__name__}: {e}"
                 logger.error(f"[{barcode}] Task {task_type.name} failed: {error_msg}", exc_info=True)
                 result = TaskResult(barcode=barcode, task_type=task_type, action=TaskAction.FAILED, error=error_msg)
-                return result
             finally:
-                # Database update ALWAYS happens, even on exception
-                if result:
-                    await update_database_for_task(result, pipeline)
+                # ALWAYS accumulate updates (success or failure)
+                updates = await get_updates_for_task(result, previous_results)
+
+                # Initialize record updates for this barcode if needed
+                if barcode not in pipeline.book_record_updates:
+                    pipeline.book_record_updates[barcode] = {"status_history": [], "books_fields": {}}
+
+                # Accumulate status history record
+                if updates.get("status"):
+                    status_type, status_value, metadata = updates["status"]
+                    status_record = collect_status(barcode, status_type, status_value, metadata)
+                    pipeline.book_record_updates[barcode]["status_history"].append(status_record)
+
+                # Accumulate books table field updates
+                if updates.get("books"):
+                    pipeline.book_record_updates[barcode]["books_fields"].update(updates["books"])
 
                 self.active_tasks[barcode].discard(task_type)
                 if not self.active_tasks[barcode]:
                     del self.active_tasks[barcode]
 
-    def get_active_count(self, task_type: TaskType | None = None) -> int:
+            return result
+
+    def get_active_task_count(self, task_type: TaskType | None = None) -> int:
         """Get count of active tasks."""
         if task_type is None:
             return sum(len(tasks) for tasks in self.active_tasks.values())
@@ -130,9 +150,27 @@ class TaskManager:
         """Get current task statistics."""
         return {
             "by_type": dict(self.stats),
-            "active_total": self.get_active_count(),
-            "active_by_type": {task_type: self.get_active_count(task_type) for task_type in TaskType},
+            "active_total": self.get_active_task_count(),
+            "active_by_type": {task_type: self.get_active_task_count(task_type) for task_type in TaskType},
         }
+
+
+async def commit_book_record_updates(pipeline: "SyncPipeline", barcode: str):
+    """Commit all accumulated database record updates for a book."""
+    record_updates = pipeline.book_record_updates.get(barcode)
+    if not record_updates:
+        return
+
+    # Write all status history records (batch_write_status_updates handles its own transaction)
+    if record_updates["status_history"]:
+        await batch_write_status_updates(str(pipeline.db_tracker.db_path), record_updates["status_history"])
+
+    # Update books table fields (update_sync_data handles its own transaction)
+    if record_updates["books_fields"]:
+        await pipeline.db_tracker.update_sync_data(barcode, record_updates["books_fields"])
+
+    # Clean up after commit
+    del pipeline.book_record_updates[barcode]
 
 
 async def process_book_pipeline(
@@ -149,122 +187,165 @@ async def process_book_pipeline(
     Returns:
         Dict of all task results for this book
     """
-    results = {}
+    results: dict[TaskType, TaskResult] = {}
 
-    # Start with check (if provided)
-    if TaskType.CHECK in task_funcs:
-        check_func = cast(CheckTaskFunc, task_funcs[TaskType.CHECK])
-        check_result = await manager.run_task(
-            TaskType.CHECK,
+    try:
+        # Start with check (if provided)
+        if TaskType.CHECK in task_funcs:
+            check_func = cast(CheckTaskFunc, task_funcs[TaskType.CHECK])
+            check_result = await manager.run_task(
+                TaskType.CHECK,
+                barcode,
+                lambda: check_func(barcode, pipeline),
+                pipeline,
+                results,  # Pass accumulated results
+            )
+            results[TaskType.CHECK] = check_result
+
+            if not check_result.should_continue_pipeline:
+                return results
+
+        # Download
+        if TaskType.DOWNLOAD in task_funcs:
+            download_func = cast(DownloadTaskFunc, task_funcs[TaskType.DOWNLOAD])
+            download_result: DownloadResult = await manager.run_task(
+                TaskType.DOWNLOAD,
+                barcode,
+                lambda: download_func(barcode, pipeline),
+                pipeline,
+                results,  # Pass accumulated results
+            )
+            results[TaskType.DOWNLOAD] = download_result
+            logger.info(f"[{barcode}] Download task completed with success={download_result.success}")
+
+            if not download_result.should_continue_pipeline:
+                return results
+        else:
+            # No download task, can't continue
+            return results
+        # Decrypt
+        download_data = download_result.data
+        assert download_data is not None
+        decrypt_func = cast(DecryptTaskFunc, task_funcs[TaskType.DECRYPT])
+        decrypt_result = await manager.run_task(
+            TaskType.DECRYPT,
             barcode,
-            lambda: check_func(barcode, pipeline),
+            lambda: decrypt_func(barcode, download_data, pipeline),
             pipeline,
+            results,  # Pass accumulated results
         )
-        results[TaskType.CHECK] = check_result
+        results[TaskType.DECRYPT] = decrypt_result
 
-        if not check_result.should_continue_pipeline:
+        if not decrypt_result.should_continue_pipeline:
             return results
 
-    # Download
-    if TaskType.DOWNLOAD in task_funcs:
-        download_func = cast(DownloadTaskFunc, task_funcs[TaskType.DOWNLOAD])
-        download_result: DownloadResult = await manager.run_task(
-            TaskType.DOWNLOAD, barcode, lambda: download_func(barcode, pipeline), pipeline
+        decrypt_data = decrypt_result.data
+        assert decrypt_data is not None
+
+        # Start upload independently (runs in parallel with everything else)
+        upload_func = cast(UploadTaskFunc, task_funcs[TaskType.UPLOAD])
+
+        upload_task = asyncio.create_task(
+            manager.run_task(
+                TaskType.UPLOAD,
+                barcode,
+                lambda: upload_func(barcode, download_data, decrypt_data, pipeline),
+                pipeline,
+                results,  # Pass accumulated results
+            )
         )
-        results[TaskType.DOWNLOAD] = download_result
-        logger.info(f"[{barcode}] Download task completed with success={download_result.success}")
+        # Handle unpack and extractions if needed
+        unpack_result = None
+        if TaskType.UNPACK in task_funcs and (
+            TaskType.EXTRACT_MARC in task_funcs or TaskType.EXTRACT_OCR in task_funcs
+        ):
+            # Await unpack directly (doesn't wait for upload)
+            unpack_func = cast(UnpackTaskFunc, task_funcs[TaskType.UNPACK])
 
-        if not download_result.should_continue_pipeline:
-            return results
-    else:
-        # No download task, can't continue
-        return results
+            unpack_result = await manager.run_task(
+                TaskType.UNPACK,
+                barcode,
+                lambda: unpack_func(barcode, decrypt_data, pipeline),
+                pipeline,
+                results,  # Pass accumulated results
+            )
+            results[TaskType.UNPACK] = unpack_result
 
-    # Decrypt
-    download_data = download_result.data
-    assert download_data is not None
-    decrypt_func = cast(DecryptTaskFunc, task_funcs[TaskType.DECRYPT])
-    decrypt_result = await manager.run_task(
-        TaskType.DECRYPT, barcode, lambda: decrypt_func(barcode, download_data, pipeline), pipeline
-    )
-    results[TaskType.DECRYPT] = decrypt_result
+        # Run extractions if unpack succeeded
+        if unpack_result and unpack_result.should_continue_pipeline:
+            extraction_tasks = []
 
-    if not decrypt_result.should_continue_pipeline:
-        return results
+            unpack_data = unpack_result.data
+            assert unpack_data is not None
 
-    decrypt_data = decrypt_result.data
-    assert decrypt_data is not None
+            # MARC extraction
+            if TaskType.EXTRACT_MARC in task_funcs:
+                marc_func = cast(ExtractMarcTaskFunc, task_funcs[TaskType.EXTRACT_MARC])
 
-    # Start upload independently (runs in parallel with everything else)
-    upload_func = cast(UploadTaskFunc, task_funcs[TaskType.UPLOAD])
-
-    upload_task = asyncio.create_task(
-        manager.run_task(TaskType.UPLOAD, barcode, lambda: upload_func(barcode, download_data, decrypt_data, pipeline), pipeline)
-    )
-
-    # Handle unpack and extractions if needed
-    unpack_result = None
-    if TaskType.UNPACK in task_funcs and (TaskType.EXTRACT_MARC in task_funcs or TaskType.EXTRACT_OCR in task_funcs):
-        # Await unpack directly (doesn't wait for upload)
-        unpack_func = cast(UnpackTaskFunc, task_funcs[TaskType.UNPACK])
-
-        unpack_result = await manager.run_task(
-            TaskType.UNPACK, barcode, lambda: unpack_func(barcode, decrypt_data, pipeline), pipeline
-        )
-        results[TaskType.UNPACK] = unpack_result
-
-    # Run extractions if unpack succeeded
-    if unpack_result and unpack_result.should_continue_pipeline:
-        extraction_tasks = []
-
-        unpack_data = unpack_result.data
-        assert unpack_data is not None
-
-        # MARC extraction
-        if TaskType.EXTRACT_MARC in task_funcs:
-            marc_func = cast(ExtractMarcTaskFunc, task_funcs[TaskType.EXTRACT_MARC])
-
-            extraction_tasks.append(
-                manager.run_task(
-                    TaskType.EXTRACT_MARC,
-                    barcode,
-                    lambda: marc_func(barcode, unpack_data, pipeline),
-                    pipeline,
+                extraction_tasks.append(
+                    manager.run_task(
+                        TaskType.EXTRACT_MARC,
+                        barcode,
+                        lambda: marc_func(barcode, unpack_data, pipeline),
+                        pipeline,
+                        results,  # Pass accumulated results
+                    )
                 )
+
+            # OCR extraction
+            if TaskType.EXTRACT_OCR in task_funcs:
+                ocr_func = cast(ExtractOcrTaskFunc, task_funcs[TaskType.EXTRACT_OCR])
+
+                extraction_tasks.append(
+                    manager.run_task(
+                        TaskType.EXTRACT_OCR,
+                        barcode,
+                        lambda: ocr_func(barcode, unpack_data, pipeline),
+                        pipeline,
+                        results,  # Pass accumulated results
+                    )
+                )
+
+            # CSV export
+            if TaskType.EXPORT_CSV in task_funcs:
+                csv_func = cast(ExportCsvTaskFunc, task_funcs[TaskType.EXPORT_CSV])
+
+                extraction_tasks.append(
+                    manager.run_task(
+                        TaskType.EXPORT_CSV,
+                        barcode,
+                        lambda: csv_func(barcode, pipeline),
+                        pipeline,
+                        results,  # Pass accumulated results
+                    )
+                )
+
+            # Wait for extractions
+            if extraction_tasks:
+                extraction_results = await asyncio.gather(*extraction_tasks, return_exceptions=True)
+                for result in extraction_results:
+                    if isinstance(result, TaskResult):
+                        results[result.task_type] = result
+
+        # Collect upload result before cleanup
+        upload_result = await upload_task
+        results[TaskType.UPLOAD] = upload_result
+
+        # Cleanup runs last, after everything else is done
+        if TaskType.CLEANUP in task_funcs:
+            cleanup_func = cast(CleanupTaskFunc, task_funcs[TaskType.CLEANUP])
+            cleanup_result = await manager.run_task(
+                TaskType.CLEANUP,
+                barcode,
+                lambda: cleanup_func(barcode, pipeline, results),
+                pipeline,
+                results,  # Pass accumulated results
             )
+            results[TaskType.CLEANUP] = cleanup_result
 
-        # OCR extraction
-        if TaskType.EXTRACT_OCR in task_funcs:
-            ocr_func = cast(ExtractOcrTaskFunc, task_funcs[TaskType.EXTRACT_OCR])
-
-            extraction_tasks.append(
-                manager.run_task(TaskType.EXTRACT_OCR, barcode, lambda: ocr_func(barcode, unpack_data, pipeline), pipeline)
-            )
-
-        # CSV export
-        if TaskType.EXPORT_CSV in task_funcs:
-            csv_func = cast(ExportCsvTaskFunc, task_funcs[TaskType.EXPORT_CSV])
-
-            extraction_tasks.append(manager.run_task(TaskType.EXPORT_CSV, barcode, lambda: csv_func(barcode, pipeline), pipeline))
-
-        # Wait for extractions
-        if extraction_tasks:
-            extraction_results = await asyncio.gather(*extraction_tasks, return_exceptions=True)
-            for result in extraction_results:
-                if isinstance(result, TaskResult):
-                    results[result.task_type] = result
-
-    # Collect upload result before cleanup
-    upload_result = await upload_task
-    results[TaskType.UPLOAD] = upload_result
-
-    # Cleanup runs last, after everything else is done
-    if TaskType.CLEANUP in task_funcs:
-        cleanup_func = cast(CleanupTaskFunc, task_funcs[TaskType.CLEANUP])
-        cleanup_result = await manager.run_task(
-            TaskType.CLEANUP, barcode, lambda: cleanup_func(barcode, pipeline, results), pipeline
-        )
-        results[TaskType.CLEANUP] = cleanup_result
+    finally:
+        # ALWAYS commit accumulated updates (success or failure)
+        await commit_book_record_updates(pipeline, barcode)
 
     return results
 
@@ -346,7 +427,7 @@ def create_sync_task_manager(
         TaskType.UPLOAD: concurrent_uploads,
         TaskType.EXTRACT_MARC: concurrent_extractions,
         TaskType.EXTRACT_OCR: concurrent_extractions,
-        TaskType.CLEANUP: 2,  # Cleanup should be limited
+        TaskType.CLEANUP: 2,
     }
 
     return TaskManager(limits)

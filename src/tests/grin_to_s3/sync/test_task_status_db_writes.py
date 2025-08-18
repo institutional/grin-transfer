@@ -11,7 +11,7 @@ import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.database import connect_async
-from grin_to_s3.sync.db_updates import UPDATE_HANDLERS, download_failed, on, update_database_for_task, upload_completed
+from grin_to_s3.sync.db_updates import UPDATE_HANDLERS, download_failed, get_updates_for_task, on, upload_completed
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
 
 
@@ -92,10 +92,9 @@ class TestHandlerBehavior:
 class TestDatabaseUpdateOrchestration:
     """Test the main update_database_for_task orchestration."""
 
-    @patch("grin_to_s3.sync.db_updates.batch_write_status_updates")
     @pytest.mark.asyncio
-    async def test_update_database_basic_flow(self, mock_batch_write, mock_pipeline):
-        """update_database_for_task should write status updates and sync_data for completed tasks."""
+    async def test_get_updates_basic_flow(self):
+        """get_updates_for_task should return correct update data structure for completed tasks."""
         result = TaskResult(
             barcode="TEST123",
             task_type=TaskType.UPLOAD,
@@ -103,31 +102,34 @@ class TestDatabaseUpdateOrchestration:
             data={"upload_path": "/bucket/TEST123.tar.gz"},
         )
 
-        await update_database_for_task(result, mock_pipeline)
+        # Mock previous results with download containing etag
+        previous_results = {
+            TaskType.DOWNLOAD: TaskResult(
+                barcode="TEST123",
+                task_type=TaskType.DOWNLOAD,
+                action=TaskAction.COMPLETED,
+                data={"etag": "abc123"}
+            )
+        }
 
-        # Verify status update was written
-        mock_batch_write.assert_called_once()
-        call_args = mock_batch_write.call_args[0]
-        db_path = call_args[0]
-        status_updates = call_args[1]
+        updates = await get_updates_for_task(result, previous_results)
 
-        assert db_path == str(mock_pipeline.db_tracker.db_path)
-        assert len(status_updates) == 1
-        assert status_updates[0].barcode == "TEST123"
-        assert status_updates[0].status_type == "sync"
-        assert status_updates[0].status_value == "uploaded"
+        # Verify correct structure is returned
+        assert "status" in updates
+        assert "books" in updates
 
-        # Verify sync_data was updated
-        mock_pipeline.db_tracker.update_sync_data.assert_called_once_with(
-            "TEST123",
-            {
-                "storage_type": "s3",
-                "storage_path": "/bucket/TEST123.tar.gz",
-                "is_decrypted": True,
-                "sync_timestamp": mock_pipeline.db_tracker.update_sync_data.call_args[0][1]["sync_timestamp"],
-                "encrypted_etag": "stored_etag_value",
-            },
-        )
+        # Verify status tuple
+        status_type, status_value, metadata = updates["status"]
+        assert status_type == "sync"
+        assert status_value == "uploaded"
+        assert metadata == {"path": "/bucket/TEST123.tar.gz"}
+
+        # Verify books update contains etag from download
+        books_updates = updates["books"]
+        assert books_updates["storage_path"] == "/bucket/TEST123.tar.gz"
+        assert books_updates["is_decrypted"] is True
+        assert books_updates["encrypted_etag"] == "abc123"  # From download result
+        assert "sync_timestamp" in books_updates
 
     @patch("grin_to_s3.sync.db_updates.batch_write_status_updates")
     @pytest.mark.asyncio

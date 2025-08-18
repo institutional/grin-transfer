@@ -9,7 +9,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
@@ -239,6 +239,9 @@ class SyncPipeline:
         self._upload_semaphore = asyncio.Semaphore(self.concurrent_uploads)
         self._shutdown_requested = False
         self._fatal_error: str | None = None  # Store fatal errors that should stop the pipeline
+
+        # Database update accumulator for atomic commits
+        self.book_record_updates: dict[str, dict[str, Any]] = {}
 
         # Track actual active task counts for accurate reporting
         self._active_download_count = 0

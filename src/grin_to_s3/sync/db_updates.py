@@ -2,11 +2,10 @@
 """Database update handlers for sync pipeline tasks."""
 
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from grin_to_s3.database_utils import batch_write_status_updates
-from grin_to_s3.extract.tracking import collect_status
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
 
 logger = logging.getLogger(__name__)
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 UPDATE_HANDLERS: dict[tuple[TaskType, TaskAction], list] = {}
 
 
-def on(task_type: TaskType, action: TaskAction, status_type: str = "sync", status_value: str = None):
+def on(task_type: TaskType, action: TaskAction, status_type: str = "sync", status_value: str | None = None) -> Callable[[Callable], Callable]:
     """Decorator to register database update handlers.
 
     Args:
@@ -63,136 +62,136 @@ def _log_status_update(
 
 # Pure functional handlers - only return data, no side effects, no logging
 @on(TaskType.CHECK, TaskAction.SKIPPED)
-async def check_skipped(result: TaskResult, pipeline_data: dict[str, Any]):
-    return {"metadata": {"reason": result.reason} if result.reason else None}
+async def check_skipped(result: TaskResult, previous_results: dict[TaskType, TaskResult]) -> dict[str, Any]:
+    return {"status": ("sync", "skipped", {"reason": result.reason} if result.reason else None), "books": {}}
 
 
 @on(TaskType.CHECK, TaskAction.COMPLETED, status_value="checked")
-async def check_completed(result: TaskResult, pipeline_data: dict[str, Any]):
+async def check_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
     etag = result.data.get("etag") if result.data else None
-    return {"metadata": {"etag": etag} if etag else None, "etag_to_store": etag}
+    return {"status": ("sync", "checked", {"etag": etag} if etag else None), "books": {}}
 
 
 @on(TaskType.DOWNLOAD, TaskAction.COMPLETED, status_value="downloading")
-async def download_completed(result: TaskResult, pipeline_data: dict[str, Any]):
-    return {"metadata": None}
+async def download_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    etag = result.data.get("etag") if result.data else None
+    return {
+        "status": ("sync", "downloading", {"etag": etag} if etag else None),
+        "books": {"encrypted_etag": etag} if etag else {},
+    }
 
 
 @on(TaskType.DOWNLOAD, TaskAction.FAILED, status_value="download_failed")
-async def download_failed(result: TaskResult, pipeline_data: dict[str, Any]):
-    return {"metadata": {"error": result.error} if result.error else None}
+async def download_failed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    return {"status": ("sync", "download_failed", {"error": result.error} if result.error else None), "books": {}}
 
 
 @on(TaskType.DECRYPT, TaskAction.COMPLETED, status_value="decrypted")
-async def decrypt_completed(result: TaskResult, pipeline_data: dict[str, Any]):
-    return {"metadata": None}
+async def decrypt_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    return {"status": ("sync", "decrypted", None), "books": {}}
 
 
 @on(TaskType.DECRYPT, TaskAction.FAILED, status_value="decrypt_failed")
-async def decrypt_failed(result: TaskResult, pipeline_data: dict[str, Any]):
-    return {"metadata": {"error": result.error} if result.error else None}
+async def decrypt_failed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    return {"status": ("sync", "decrypt_failed", {"error": result.error} if result.error else None), "books": {}}
 
 
 @on(TaskType.UNPACK, TaskAction.COMPLETED, status_value="unpacked")
-async def unpack_completed(result: TaskResult, pipeline_data: dict[str, Any]):
-    return {"metadata": None}
+async def unpack_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    return {"status": ("sync", "unpacked", None), "books": {}}
 
 
 @on(TaskType.UNPACK, TaskAction.FAILED, status_value="unpack_failed")
-async def unpack_failed(result: TaskResult, pipeline_data: dict[str, Any]):
-    return {"metadata": {"error": result.error} if result.error else None}
+async def unpack_failed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    return {"status": ("sync", "unpack_failed", {"error": result.error} if result.error else None), "books": {}}
 
 
 @on(TaskType.UPLOAD, TaskAction.COMPLETED, status_value="uploaded")
-async def upload_completed(result: TaskResult, pipeline_data: dict[str, Any]):
+async def upload_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
     path = str(result.data.get("upload_path")) if result.data else None
 
-    # Build sync_data for books table update
-    sync_data = None
-    if result.data:
-        sync_data = {
-            "storage_type": pipeline_data.get("storage_protocol"),
-            "storage_path": path,
-            "is_decrypted": True,
-            "sync_timestamp": datetime.now(UTC).isoformat(),
-        }
-        # Include stored etag if available
-        stored_etag = pipeline_data.get("etags", {}).get(result.barcode)
-        if stored_etag:
-            sync_data["encrypted_etag"] = stored_etag
+    # Get etag from download result in chain
+    download_result = previous_results.get(TaskType.DOWNLOAD)
+    etag = download_result.data.get("etag") if download_result and download_result.data else None
 
-    return {"metadata": {"path": path} if path else None, "sync_data": sync_data}
+    books_updates = {
+        "storage_path": path,
+        "is_decrypted": True,
+        "sync_timestamp": datetime.now(UTC).isoformat(),
+    }
+    if etag:
+        books_updates["encrypted_etag"] = etag
+
+    return {"status": ("sync", "uploaded", {"path": path} if path else None), "books": books_updates}
 
 
 @on(TaskType.UPLOAD, TaskAction.FAILED, status_value="upload_failed")
-async def upload_failed(result: TaskResult, pipeline_data: dict[str, Any]):
-    return {"metadata": {"error": result.error} if result.error else None}
+async def upload_failed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    # Still preserve etag from download even on upload failure
+    download_result = previous_results.get(TaskType.DOWNLOAD)
+    etag = download_result.data.get("etag") if download_result and download_result.data else None
+
+    return {
+        "status": ("sync", "upload_failed", {"error": result.error} if result.error else None),
+        "books": {"encrypted_etag": etag} if etag else {},
+    }
 
 
 @on(TaskType.EXTRACT_OCR, TaskAction.COMPLETED, "text_extraction", "completed")
-async def extract_ocr_completed(result: TaskResult, pipeline_data: dict[str, Any]):
+async def extract_ocr_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    metadata = None
     if result.data:
-        return {
-            "metadata": {
-                "page_count": result.data.get("page_count"),
-                "extraction_time_ms": result.data.get("extraction_time_ms"),
-            }
+        metadata = {
+            "page_count": result.data.get("page_count"),
+            "extraction_time_ms": result.data.get("extraction_time_ms"),
         }
-    return {"metadata": None}
+    return {"status": ("text_extraction", "completed", metadata), "books": {}}
 
 
 @on(TaskType.EXTRACT_OCR, TaskAction.FAILED, "text_extraction", "failed")
-async def extract_ocr_failed(result: TaskResult, pipeline_data: dict[str, Any]):
-    return {"metadata": {"error": result.error} if result.error else None}
+async def extract_ocr_failed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    return {"status": ("text_extraction", "failed", {"error": result.error} if result.error else None), "books": {}}
 
 
 @on(TaskType.EXTRACT_MARC, TaskAction.COMPLETED, "marc_extraction", "completed")
-async def extract_marc_completed(result: TaskResult, pipeline_data: dict[str, Any]):
+async def extract_marc_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    metadata = None
     if result.data:
-        return {"metadata": {"field_count": result.data.get("field_count")}}
-    return {"metadata": None}
+        metadata = {"field_count": result.data.get("field_count")}
+    return {"status": ("marc_extraction", "completed", metadata), "books": {}}
 
 
 @on(TaskType.EXTRACT_MARC, TaskAction.FAILED, "marc_extraction", "failed")
-async def extract_marc_failed(result: TaskResult, pipeline_data: dict[str, Any]):
-    return {"metadata": {"error": result.error} if result.error else None}
+async def extract_marc_failed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    return {"status": ("marc_extraction", "failed", {"error": result.error} if result.error else None), "books": {}}
 
 
 @on(TaskType.EXPORT_CSV, TaskAction.COMPLETED, "export", "csv_updated")
-async def export_csv_completed(result: TaskResult, pipeline_data: dict[str, Any]):
-    return {"metadata": None}
+async def export_csv_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    return {"status": ("export", "csv_updated", None), "books": {}}
 
 
 @on(TaskType.CLEANUP, TaskAction.COMPLETED, status_value="completed")
-async def cleanup_completed(result: TaskResult, pipeline_data: dict[str, Any]):
-    return {"metadata": None}
+async def cleanup_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    return {"status": ("sync", "completed", None), "books": {}}
 
 
-async def update_database_for_task(result: TaskResult, pipeline):
-    """Update database using registered handlers."""
+async def get_updates_for_task(result: TaskResult, previous_results: dict[TaskType, TaskResult]) -> dict[str, Any]:
+    """Get database updates from registered handlers."""
     handlers = UPDATE_HANDLERS.get((result.task_type, result.action), [])
 
-    # Prepare read-only pipeline data for handlers
-    pipeline_data = {
-        "storage_protocol": pipeline.config.storage_config["protocol"],
-        "etags": getattr(pipeline, "current_etags", {}),
-    }
+    if not handlers:
+        return {"status": None, "books": {}}
 
-    all_updates = []
-    for handler_func, status_type, status_value in handlers:
-        # Call handler to get data
-        handler_result = await handler_func(result, pipeline_data)
+    # Use first handler (should only be one per task/action combo)
+    handler_func, status_type, status_value = handlers[0]
 
-        # Create status update
-        metadata = handler_result.get("metadata")
-        all_updates.append(collect_status(result.barcode, status_type, status_value, metadata))
+    # Call handler to get standardized updates
+    updates = await handler_func(result, previous_results)
 
-        # Generate log from the data
-        _log_status_update(result.barcode, result.task_type, result.action, status_type, status_value, metadata)
+    # Log the status update
+    if updates.get("status"):
+        status_type_val, status_value_val, metadata = updates["status"]
+        _log_status_update(result.barcode, result.task_type, result.action, status_type_val, status_value_val, metadata)
 
-        if "sync_data" in handler_result and handler_result["sync_data"]:
-            await pipeline.db_tracker.update_sync_data(result.barcode, handler_result["sync_data"])
-            logger.debug(f"[{result.barcode}] Updated sync_data in books table")
-
-    if all_updates:
-        await batch_write_status_updates(str(pipeline.db_tracker.db_path), all_updates)
+    return updates
