@@ -5,14 +5,20 @@ Shared test fixtures for sync module testing.
 
 import pytest
 
-from grin_to_s3.sync.models import create_sync_stats
 from grin_to_s3.sync.pipeline import SyncPipeline
 
 
 @pytest.fixture
 def sync_stats():
     """Create sync statistics for testing."""
-    return create_sync_stats()
+    return {
+        "processed": 0,
+        "synced": 0,
+        "failed": 0,
+        "skipped": 0,
+        "uploaded": 0,
+        "total_bytes": 0,
+    }
 
 
 @pytest.fixture

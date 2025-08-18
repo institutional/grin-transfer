@@ -4,8 +4,7 @@ from typing import TYPE_CHECKING
 from grin_to_s3.common import (
     Barcode,
 )
-from grin_to_s3.metadata.marc_extraction import extract_marc_metadata
-from grin_to_s3.metadata.marc_extraction import convert_marc_keys_to_db_fields
+from grin_to_s3.metadata.marc_extraction import convert_marc_keys_to_db_fields, extract_marc_metadata
 from grin_to_s3.sync.tasks.task_types import ExtractMarcData, ExtractMarcResult, TaskAction, TaskType, UnpackData
 
 if TYPE_CHECKING:

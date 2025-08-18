@@ -9,7 +9,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TypedDict
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker

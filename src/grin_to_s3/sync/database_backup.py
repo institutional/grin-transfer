@@ -14,7 +14,6 @@ from typing import TypedDict
 
 from grin_to_s3.common import BackupManager
 from grin_to_s3.compression import compress_file_to_temp, get_compressed_filename
-from grin_to_s3.storage.staging import StagingDirectoryManager
 
 logger = logging.getLogger(__name__)
 

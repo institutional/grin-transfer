@@ -64,8 +64,6 @@ Examples:
   python grin.py sync status --run-name harvard_2024
 
 
-  # Extract OCR text from decrypted archives
-  python grin.py extract /path/to/book.tar.gz --output book.json
 
   # Enrich with detailed metadata
   python grin.py enrich --run-name harvard_2024

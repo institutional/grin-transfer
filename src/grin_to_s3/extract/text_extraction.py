@@ -10,16 +10,8 @@ import json
 import logging
 import re
 import tarfile
-import time
 from collections.abc import Iterator
 from pathlib import Path
-
-from ..database_utils import batch_write_status_updates
-from .tracking import (
-    track_completion_collect,
-    track_failure_collect,
-    track_start_collect,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -48,94 +40,6 @@ class InvalidPageFormatError(TextExtractionError):
 
     pass
 
-
-async def extract_ocr_pages(
-    extracted_dir_path: str,
-    db_path: str,
-    session_id: str,
-    output_file: str,
-) -> int:
-    """
-    Extract OCR page texts from extracted archive directory to JSONL file.
-
-    Processes sequential page files (00000001.txt, 00000002.txt, etc.) from
-    Google Books archives, sorts by page number, and handles missing pages
-    by inserting empty strings at correct indices.
-
-    Args:
-        extracted_dir_path: Path to extracted archive directory (not .tar.gz file)
-        db_path: Path to SQLite database for tracking extraction status
-        session_id: Session ID for grouping related operations
-        output_file: Path to write pages as JSONL file
-        keep_extracted: Whether to keep extracted files after processing (default False).
-
-    Returns:
-        Number of pages written to JSONL file
-        Missing pages are represented as empty strings
-
-    Raises:
-        TextExtractionError: When extraction fails
-        CorruptedArchiveError: When archive cannot be opened
-        InvalidPageFormatError: When page files have invalid format
-    """
-    extracted_dir_obj = Path(extracted_dir_path)
-
-    # Set up tracking variables for database operations
-    barcode = extracted_dir_obj.name.replace("_extracted", "")
-
-    # Collect status updates for batching
-    status_updates = []
-
-    # Track extraction start
-    status_updates.append(track_start_collect(barcode, session_id))
-    start_time = time.time()
-
-    if not extracted_dir_obj.exists():
-        error = TextExtractionError(f"Extracted directory not found: {extracted_dir_path}")
-        status_updates.append(track_failure_collect(barcode, error, session_id))
-        await batch_write_status_updates(db_path, status_updates)
-        raise error
-
-    if not extracted_dir_obj.is_dir():
-        error = TextExtractionError(f"Expected directory, got file: {extracted_dir_path}")
-        status_updates.append(track_failure_collect(barcode, error, session_id))
-        await batch_write_status_updates(db_path, status_updates)
-        raise error
-
-    logger.debug(f"Starting OCR text extraction from {extracted_dir_path} (filesystem access)")
-
-    try:
-        # Write to JSONL file using streaming to avoid loading all pages into memory
-        output_path_obj = Path(output_file)
-        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
-
-        page_count = extract_ocr_to_jsonl_file(extracted_dir_path, output_path_obj)
-
-        # Track completion
-        extraction_time_ms = int((time.time() - start_time) * 1000)
-        file_size = Path(output_file).stat().st_size
-        status_updates.append(
-            track_completion_collect(
-                barcode,
-                page_count,
-                extraction_time_ms,
-                session_id,
-                file_size,
-                str(output_file),
-            )
-        )
-
-        # Write all status updates
-        await batch_write_status_updates(db_path, status_updates)
-
-        return page_count
-
-    except Exception as e:
-        status_updates.append(track_failure_collect(barcode, e, session_id))
-        await batch_write_status_updates(db_path, status_updates)
-        if isinstance(e, TextExtractionError):
-            raise
-        raise TextExtractionError(f"Unexpected error during extraction: {e}") from e
 
 
 def _validate_and_finalize_extraction(
