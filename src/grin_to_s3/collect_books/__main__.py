@@ -505,8 +505,6 @@ Examples:
             run_summary.end_stage("collect")
             await save_process_summary(run_summary, book_manager)
 
-        return 0
-
     except Exception as e:
         if isinstance(e, KeyboardInterrupt):
             print("\n🚫 Collection interrupted by user")

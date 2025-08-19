@@ -185,32 +185,6 @@ class GRINAuth:
         creds_dir = os.environ.get("GRIN_CREDENTIALS_DIR", str(DEFAULT_CREDENTIALS_DIR))
         return Path(creds_dir) / "credentials.json"
 
-        # Search locations in order of preference
-        search_paths = []
-
-        # If secrets_dir is provided, check there first
-        if secrets_dir:
-            search_paths.append(Path(secrets_dir) / "credentials.json")
-            search_paths.append(Path(secrets_dir) / "token.json")
-
-        # Check user's home directory (following XDG Base Directory specification)
-        home = Path.home()
-        search_paths.extend(
-            [
-                # XDG config directory (Linux/Unix standard)
-                home / ".config" / "grin-to-s3" / "credentials.json",
-                home / ".config" / "grin-to-s3" / "token.json",
-            ]
-        )
-
-        for path in search_paths:
-            if path.exists():
-                return path
-
-        # Default to XDG config directory
-        default_path = home / ".config" / "grin-to-s3" / "credentials.json"
-        return default_path
-
     def _load_credentials(self) -> Credentials | None:
         """Load existing credentials from JSON file."""
         if not self.credentials_file.exists():
