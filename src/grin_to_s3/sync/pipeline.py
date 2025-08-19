@@ -44,6 +44,7 @@ from grin_to_s3.sync.tasks import (
 )
 from grin_to_s3.sync.tasks.task_types import TaskType
 
+from .barcode_filtering import create_filtering_summary, filter_barcodes_pipeline
 from .conversion_handler import ConversionRequestHandler
 from .preflight import run_preflight_operations
 from .progress_reporter import SyncProgressReporter
@@ -450,62 +451,62 @@ class SyncPipeline:
                 logger.info(f"Preflight operation {operation} skipped")
 
         try:
-            # Process queues to get available books (unless specific barcodes are provided)
-            all_available_books: set[str] = set()
-
-            if specific_barcodes:
-                # When specific barcodes are provided, skip queue processing
-                print(
-                    f"Processing specific barcodes: {', '.join(specific_barcodes[:5])}{'...' if len(specific_barcodes) > 5 else ''}"
-                )
-                all_available_books.update(specific_barcodes)
-            elif queues:
-                # Queue-based processing
+            # Collect books from queues if not using specific barcodes
+            queue_books = None
+            if not specific_barcodes and queues:
                 print(f"Processing queues: {', '.join(queues)}")
-
+                queue_books = set()
                 for queue_name in queues:
                     print(f"Fetching books from '{queue_name}' queue...")
-                    queue_books = await get_books_from_queue(
+                    books = await get_books_from_queue(
                         self.grin_client, self.library_directory, queue_name, self.db_tracker
                     )
-
-                    if len(queue_books) == 0:
+                    if len(books) == 0:
                         print(f"  Warning: '{queue_name}' queue reports no books available")
                     else:
-                        print(f"  '{queue_name}' queue: {len(queue_books):,} books available")
+                        print(f"  '{queue_name}' queue: {len(books):,} books available")
+                    queue_books.update(books)
 
-                    all_available_books.update(queue_books)
-            else:
-                # This should not happen due to validation, but handle it gracefully
-                raise ValueError("Either queues or specific_barcodes must be provided")
-
-            # Get initial status for reporting
-            initial_status = await self.get_sync_status()
-            total_converted = initial_status["total_converted"]
-            already_synced = initial_status["synced"]
-            failed_count = initial_status["failed"]
-            pending_count = initial_status["pending"]
-
-            print(
-                f"Database sync status: {total_converted:,} total, {already_synced:,} synced, "
-                f"{failed_count:,} failed, {pending_count:,} pending"
-            )
-
-            # Determine books to sync
+            # Get already synced books from database
             if specific_barcodes:
-                # When specific barcodes are provided, use them directly without database filtering
-                available_to_sync = specific_barcodes
+                books_already_synced = set()  # Skip DB check for specific barcodes
             else:
-                # Standard mode: filter available books by those that need syncing
-                available_to_sync = await self.db_tracker.get_books_for_sync(
-                    storage_type=self.config.storage_config["protocol"],
-                    converted_barcodes=all_available_books,
+                # Get books that are already synced
+                books_already_synced = await self.db_tracker.get_synced_books(
+                    storage_type=self.config.storage_config["protocol"]
                 )
 
-            print(f"Found {len(available_to_sync):,} books that need syncing")
+            # Run the filtering pipeline
+            filtering_result = filter_barcodes_pipeline(
+                specific_barcodes=specific_barcodes,
+                queue_books=queue_books,
+                books_already_synced=books_already_synced,
+                limit=limit
+            )
+
+            # Print the filtering summary
+            for line in create_filtering_summary(filtering_result):
+                print(line)
+
+            # Get database sync status for additional context
+            initial_status = await self.get_sync_status()
+            print(
+                f"\nDatabase sync status: {initial_status['total_converted']:,} total, "
+                f"{initial_status['synced']:,} synced, "
+                f"{initial_status['failed']:,} failed, "
+                f"{initial_status['pending']:,} pending"
+            )
+
+            # Handle case where no books to process
+            if not filtering_result.books_after_limit:
+                if len(filtering_result.source_books) == 0:
+                    print("No books available from any queue")
+                else:
+                    print("No books found that need syncing (all may already be synced)")
+                return
 
             # Set up progress tracking and task management
-            books_to_process = min(limit or len(available_to_sync), len(available_to_sync))
+            books_to_process_count = len(filtering_result.books_after_limit)
 
             # Define task functions and limits
             task_funcs = {
@@ -534,32 +535,11 @@ class SyncPipeline:
 
             # Handle dry-run mode
             if self.dry_run:
-                await self._show_dry_run_preview(available_to_sync, limit, specific_barcodes)
+                await self._show_dry_run_preview(filtering_result.books_after_limit, limit, specific_barcodes)
                 return
 
-            if not available_to_sync:
-                if len(all_available_books) == 0:
-                    print("No books available from any queue")
-                else:
-                    print("No books found that need syncing (all may already be synced)")
-
-                # Report on pending books
-                pending_books = await self.db_tracker.get_books_for_sync(
-                    storage_type=self.config.storage_config["protocol"],
-                    limit=999999,
-                    converted_barcodes=None,  # Get all requested books regardless of conversion
-                )
-
-                if pending_books:
-                    print("Status summary:")
-                    print(f"  - {len(pending_books):,} books requested for processing but not yet converted")
-                    print(f"  - {len(all_available_books):,} books available from queues")
-                    print("  - 0 books ready to sync (no overlap between requested and available)")
-                    print(
-                        f"\nTip: Use 'python grin.py process monitor --run-name "
-                        f"{Path(self.db_path).parent.name}' to check processing progress"
-                    )
-
+            # Handle case where no books to process (already handled above, but keep for safety)
+            if not filtering_result.books_after_limit:
                 return  # No books to process is considered successful
 
             # Create progress reporter with task manager integration
@@ -567,10 +547,10 @@ class SyncPipeline:
             rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
             progress_reporter = SyncProgressReporter(
-                task_manager, books_to_process, self.concurrent_downloads, self.concurrent_uploads
+                task_manager, books_to_process_count, self.concurrent_downloads, self.concurrent_uploads
             )
 
-            print(f"Starting sync of {books_to_process:,} books...")
+            print(f"Starting sync of {books_to_process_count:,} books...")
             print(f"{self.concurrent_downloads} concurrent downloads")
 
             if self.uses_local_storage:
@@ -582,9 +562,9 @@ class SyncPipeline:
             # Start background progress reporter
             progress_reporter_task = asyncio.create_task(progress_reporter.run(time.time(), rate_calculator))
 
-            # Process all books with batch processing using the same task manager
+            # Process the filtered books using the task manager
             await process_books_batch(
-                available_to_sync,
+                filtering_result.books_after_limit,
                 self,
                 task_funcs,
                 max_concurrent=5,

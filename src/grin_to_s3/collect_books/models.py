@@ -1169,3 +1169,14 @@ class SQLiteProgressTracker:
             "SELECT DISTINCT barcode FROM book_status_history WHERE status_type = ? AND status_value = ?",
             (status_type, status_value),
         )
+
+    async def get_synced_books(self, storage_type: str) -> set[str]:
+        """Get set of barcodes that are already synced to the specified storage."""
+        return await self._execute_barcode_query(
+            """
+            SELECT DISTINCT barcode 
+            FROM book_sync_status 
+            WHERE storage_type = ? AND sync_status = 'synced'
+            """,
+            (storage_type,)
+        )

@@ -28,9 +28,9 @@ async def test_main_successful_unpack(mock_pipeline):
         mock_tar = MagicMock()
         mock_tarfile.return_value.__enter__.return_value = mock_tar
 
-        # Set expected path based on temp directory structure  
+        # Set expected path based on temp directory structure
         extracted_path = Path(temp_dir) / "TEST123"
-        
+
         # Clear side_effect first, then set return_value (side_effect takes precedence)
         mock_pipeline.filesystem_manager.get_extracted_directory_path.side_effect = None
         mock_pipeline.filesystem_manager.get_extracted_directory_path.return_value = extracted_path
@@ -39,7 +39,7 @@ async def test_main_successful_unpack(mock_pipeline):
 
         assert result.action == TaskAction.COMPLETED
         assert result.data
-        
+
         # The returned path should match what the filesystem manager returned
         returned_path = result.data["unpacked_path"]
         assert returned_path == extracted_path
