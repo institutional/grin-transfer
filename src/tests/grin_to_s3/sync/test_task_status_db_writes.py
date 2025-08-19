@@ -12,6 +12,7 @@ import pytest
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.database import connect_async
 from grin_to_s3.sync.db_updates import UPDATE_HANDLERS, download_failed, get_updates_for_task, on, upload_completed
+from grin_to_s3.sync.task_manager import TaskManager, commit_book_record_updates
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
 
 
@@ -25,6 +26,8 @@ def mock_pipeline():
     pipeline.db_tracker = MagicMock()
     pipeline.db_tracker.db_path = "/tmp/test.db"
     pipeline.db_tracker.update_sync_data = AsyncMock()
+    # Add book_record_updates for accumulating database changes
+    pipeline.book_record_updates = {}
     return pipeline
 
 
@@ -57,36 +60,56 @@ class TestHandlerBehavior:
 
     @pytest.mark.asyncio
     async def test_handler_returns_data(self):
-        """upload_completed handler should return metadata and sync_data structures."""
+        """upload_completed handler should return status and books structures."""
         result = TaskResult(
             barcode="TEST123",
             task_type=TaskType.UPLOAD,
             action=TaskAction.COMPLETED,
             data={"upload_path": "/bucket/TEST123.tar.gz"},
         )
-        pipeline_data = {"storage_protocol": "s3", "etags": {"TEST123": "abc123"}}
+        previous_results = {
+            TaskType.DOWNLOAD: TaskResult(
+                barcode="TEST123",
+                task_type=TaskType.DOWNLOAD,
+                action=TaskAction.COMPLETED,
+                data={"etag": "abc123"}
+            )
+        }
 
-        handler_result = await upload_completed(result, pipeline_data)
+        handler_result = await upload_completed(result, previous_results)
 
-        # Should return both metadata and sync_data
-        assert "metadata" in handler_result
-        assert "sync_data" in handler_result
-        assert handler_result["metadata"]["path"] == "/bucket/TEST123.tar.gz"
-        assert handler_result["sync_data"]["storage_type"] == "s3"
-        assert handler_result["sync_data"]["is_decrypted"] is True
+        # Should return both status and books
+        assert "status" in handler_result
+        assert "books" in handler_result
+
+        # Verify status tuple structure (type, value, metadata)
+        status_type, status_value, metadata = handler_result["status"]
+        assert status_type == "sync"
+        assert status_value == "uploaded"
+        assert metadata["path"] == "/bucket/TEST123.tar.gz"
+
+        # Verify books data
+        assert handler_result["books"]["storage_path"] == "/bucket/TEST123.tar.gz"
+        assert handler_result["books"]["is_decrypted"] is True
+        assert handler_result["books"]["encrypted_etag"] == "abc123"
 
     @pytest.mark.asyncio
     async def test_handler_with_error(self):
-        """download_failed handler should include error message in metadata."""
+        """download_failed handler should include error message in status metadata."""
         result = TaskResult(
             barcode="TEST123", task_type=TaskType.DOWNLOAD, action=TaskAction.FAILED, error="Connection timeout"
         )
-        pipeline_data = {}
+        previous_results = {}
 
-        handler_result = await download_failed(result, pipeline_data)
+        handler_result = await download_failed(result, previous_results)
 
-        assert handler_result["metadata"] is not None
-        assert handler_result["metadata"]["error"] == "Connection timeout"
+        # Should return status with error in metadata
+        assert "status" in handler_result
+        status_type, status_value, metadata = handler_result["status"]
+        assert status_type == "sync"
+        assert status_value == "download_failed"
+        assert metadata is not None
+        assert metadata["error"] == "Connection timeout"
 
 
 class TestDatabaseUpdateOrchestration:
@@ -131,54 +154,69 @@ class TestDatabaseUpdateOrchestration:
         assert books_updates["encrypted_etag"] == "abc123"  # From download result
         assert "sync_timestamp" in books_updates
 
-    @patch("grin_to_s3.sync.db_updates.batch_write_status_updates")
+    @patch("grin_to_s3.sync.task_manager.batch_write_status_updates")
     @pytest.mark.asyncio
     async def test_multiple_handlers_for_same_task(self, mock_batch_write, mock_pipeline):
-        """update_database_for_task should execute all registered handlers for a task/action."""
+        """TaskManager.run_task should handle multiple handlers for the same task/action."""
         # Register a second handler for the same task/action
         test_key = (TaskType.UPLOAD, TaskAction.COMPLETED)
         original_handlers = UPDATE_HANDLERS.get(test_key, [])
 
         @on(TaskType.UPLOAD, TaskAction.COMPLETED, "custom_status", "custom_uploaded")
-        async def custom_upload_handler(result, pipeline_data):
-            return {"metadata": {"custom_field": "custom_value"}}
+        async def custom_upload_handler(result, previous_results):
+            return {"status": ("custom_status", "custom_uploaded", {"custom_field": "custom_value"}), "books": {}}
 
         try:
-            result = TaskResult(
-                barcode="TEST123",
-                task_type=TaskType.UPLOAD,
-                action=TaskAction.COMPLETED,
-                data={"upload_path": "/bucket/TEST123.tar.gz"},
-            )
+            # Create TaskManager and simulate upload result
+            task_manager = TaskManager({TaskType.UPLOAD: 1})
 
-            await update_database_for_task(result, mock_pipeline)
+            async def mock_upload_task():
+                return TaskResult(
+                    barcode="TEST123",
+                    task_type=TaskType.UPLOAD,
+                    action=TaskAction.COMPLETED,
+                    data={"upload_path": "/bucket/TEST123.tar.gz", "storage_type": "s3"},
+                )
 
-            # Should have called batch_write with multiple status updates
+            previous_results = {}
+            await task_manager.run_task(TaskType.UPLOAD, "TEST123", mock_upload_task, mock_pipeline, previous_results)
+
+            # Commit accumulated updates
+            await commit_book_record_updates(mock_pipeline, "TEST123")
+
+            # Should have called batch_write with only one status update (first handler wins)
             mock_batch_write.assert_called_once()
             status_updates = mock_batch_write.call_args[0][1]
-            assert len(status_updates) == 2  # Original + custom handler
+            assert len(status_updates) == 1  # Only first handler is used
 
-            # Find the custom status update
-            custom_update = next(u for u in status_updates if u.status_type == "custom_status")
-            assert custom_update.status_value == "custom_uploaded"
-            assert custom_update.metadata["custom_field"] == "custom_value"
+            # Should use original handler since it was registered first
+            status_update = status_updates[0]
+            assert status_update.status_type == "sync"  # Original handler
+            assert status_update.status_value == "uploaded"
 
         finally:
             # Clean up the test handler
             UPDATE_HANDLERS[test_key] = original_handlers
 
-    @patch("grin_to_s3.sync.db_updates.batch_write_status_updates")
+    @patch("grin_to_s3.sync.task_manager.batch_write_status_updates")
     @pytest.mark.asyncio
     async def test_failed_task_handling(self, mock_batch_write, mock_pipeline):
-        """update_database_for_task should capture error messages in status updates for failed tasks."""
-        result = TaskResult(
-            barcode="TEST123",
-            task_type=TaskType.DOWNLOAD,
-            action=TaskAction.FAILED,
-            error="Network timeout after 3 retries",
-        )
+        """TaskManager.run_task should capture error messages in status updates for failed tasks."""
+        task_manager = TaskManager({TaskType.DOWNLOAD: 1})
 
-        await update_database_for_task(result, mock_pipeline)
+        async def mock_failed_download():
+            return TaskResult(
+                barcode="TEST123",
+                task_type=TaskType.DOWNLOAD,
+                action=TaskAction.FAILED,
+                error="Network timeout after 3 retries",
+            )
+
+        previous_results = {}
+        await task_manager.run_task(TaskType.DOWNLOAD, "TEST123", mock_failed_download, mock_pipeline, previous_results)
+
+        # Commit accumulated updates
+        await commit_book_record_updates(mock_pipeline, "TEST123")
 
         # Verify error was captured in status update
         mock_batch_write.assert_called_once()
@@ -217,6 +255,11 @@ async def real_db_pipeline():
         pipeline.config.storage_config = {"protocol": "s3"}
         pipeline.current_etags = {"TEST123": "real_etag_value"}
         pipeline.db_tracker = db_tracker
+        # Add book_record_updates for accumulating database changes
+        pipeline.book_record_updates = {}
+
+        # Add storage protocol info for handlers
+        pipeline.storage_protocol = "s3"
 
         yield pipeline
 
@@ -227,14 +270,28 @@ class TestRealDatabaseIntegration:
     @pytest.mark.asyncio
     async def test_status_updates_written_to_database(self, real_db_pipeline):
         """Status updates should be written to book_status_history table."""
-        result = TaskResult(
-            barcode="TEST123",
-            task_type=TaskType.UPLOAD,
-            action=TaskAction.COMPLETED,
-            data={"upload_path": "/bucket/TEST123.tar.gz"},
-        )
+        task_manager = TaskManager({TaskType.UPLOAD: 1})
 
-        await update_database_for_task(result, real_db_pipeline)
+        async def mock_upload_task():
+            return TaskResult(
+                barcode="TEST123",
+                task_type=TaskType.UPLOAD,
+                action=TaskAction.COMPLETED,
+                data={"upload_path": "/bucket/TEST123.tar.gz", "storage_type": "s3"},
+            )
+
+        previous_results = {
+            TaskType.DOWNLOAD: TaskResult(
+                barcode="TEST123",
+                task_type=TaskType.DOWNLOAD,
+                action=TaskAction.COMPLETED,
+                data={"etag": "download_etag_value"}
+            )
+        }
+        await task_manager.run_task(TaskType.UPLOAD, "TEST123", mock_upload_task, real_db_pipeline, previous_results)
+
+        # Commit accumulated updates to the real database
+        await commit_book_record_updates(real_db_pipeline, "TEST123")
 
         # Verify status was written to database
         async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
@@ -256,14 +313,28 @@ class TestRealDatabaseIntegration:
     @pytest.mark.asyncio
     async def test_sync_data_updated_in_books_table(self, real_db_pipeline):
         """Sync data should be updated in the books table."""
-        result = TaskResult(
-            barcode="TEST123",
-            task_type=TaskType.UPLOAD,
-            action=TaskAction.COMPLETED,
-            data={"upload_path": "/bucket/TEST123.tar.gz"},
-        )
+        task_manager = TaskManager({TaskType.UPLOAD: 1})
 
-        await update_database_for_task(result, real_db_pipeline)
+        async def mock_upload_task():
+            return TaskResult(
+                barcode="TEST123",
+                task_type=TaskType.UPLOAD,
+                action=TaskAction.COMPLETED,
+                data={"upload_path": "/bucket/TEST123.tar.gz", "storage_type": "s3"},
+            )
+
+        previous_results = {
+            TaskType.DOWNLOAD: TaskResult(
+                barcode="TEST123",
+                task_type=TaskType.DOWNLOAD,
+                action=TaskAction.COMPLETED,
+                data={"etag": "real_etag_value"}
+            )
+        }
+        await task_manager.run_task(TaskType.UPLOAD, "TEST123", mock_upload_task, real_db_pipeline, previous_results)
+
+        # Commit accumulated updates to the real database
+        await commit_book_record_updates(real_db_pipeline, "TEST123")
 
         # Verify sync data was updated in books table
         async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
@@ -282,14 +353,21 @@ class TestRealDatabaseIntegration:
     @pytest.mark.asyncio
     async def test_failed_task_error_captured_in_database(self, real_db_pipeline):
         """Failed task errors should be captured in status history."""
-        result = TaskResult(
-            barcode="TEST123",
-            task_type=TaskType.DOWNLOAD,
-            action=TaskAction.FAILED,
-            error="Connection refused after 3 retries",
-        )
+        task_manager = TaskManager({TaskType.DOWNLOAD: 1})
 
-        await update_database_for_task(result, real_db_pipeline)
+        async def mock_failed_download():
+            return TaskResult(
+                barcode="TEST123",
+                task_type=TaskType.DOWNLOAD,
+                action=TaskAction.FAILED,
+                error="Connection refused after 3 retries",
+            )
+
+        previous_results = {}
+        await task_manager.run_task(TaskType.DOWNLOAD, "TEST123", mock_failed_download, real_db_pipeline, previous_results)
+
+        # Commit accumulated updates to the real database
+        await commit_book_record_updates(real_db_pipeline, "TEST123")
 
         # Verify error was captured in database
         async with connect_async(real_db_pipeline.db_tracker.db_path) as db:

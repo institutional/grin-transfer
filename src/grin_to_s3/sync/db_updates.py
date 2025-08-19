@@ -114,6 +114,9 @@ async def upload_completed(result: TaskResult, previous_results: dict[TaskType, 
     download_result = previous_results.get(TaskType.DOWNLOAD)
     etag = download_result.data.get("etag") if download_result and download_result.data else None
 
+    # Get storage type from upload result data (set by upload task)
+    storage_type = result.data.get("storage_type") if result.data else None
+
     books_updates = {
         "storage_path": path,
         "is_decrypted": True,
@@ -121,6 +124,8 @@ async def upload_completed(result: TaskResult, previous_results: dict[TaskType, 
     }
     if etag:
         books_updates["encrypted_etag"] = etag
+    if storage_type:
+        books_updates["storage_type"] = storage_type
 
     return {"status": ("sync", "uploaded", {"path": path} if path else None), "books": books_updates}
 
