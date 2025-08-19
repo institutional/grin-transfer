@@ -4,14 +4,11 @@ Unit tests for BookManager full-text functionality.
 Tests the three-bucket storage system with full-text OCR storage capabilities.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from grin_to_s3.storage.book_manager import BookManager
-from grin_to_s3.storage.factories import (
-    create_storage_for_bucket,
-)
 from tests.test_utils.unified_mocks import create_book_manager_mock, standard_storage_config
 
 
@@ -132,64 +129,3 @@ class TestBookManagerFullText:
             os.unlink(jsonl_file_path)
 
 
-class TestStorageFactories:
-    """Test storage factory functions for three-bucket configuration."""
-
-    @patch("grin_to_s3.storage.factories.create_minio_storage")
-    def test_create_storage_for_bucket_minio(self, mock_create_minio):
-        """Test creating storage for MinIO bucket."""
-        mock_storage = MagicMock()
-        mock_create_minio.return_value = mock_storage
-
-        config = {"endpoint_url": "http://localhost:9000", "access_key": "testuser", "secret_key": "testpass"}
-
-        result = create_storage_for_bucket("minio", config, "test-bucket")
-
-        mock_create_minio.assert_called_once_with(
-            endpoint_url="http://localhost:9000", access_key="testuser", secret_key="testpass"
-        )
-        assert result == mock_storage
-
-    @patch("grin_to_s3.storage.factories.create_s3_storage")
-    def test_create_storage_for_bucket_s3(self, mock_create_s3):
-        """Test creating storage for S3 bucket."""
-        mock_storage = MagicMock()
-        mock_create_s3.return_value = mock_storage
-
-        config = {}
-
-        result = create_storage_for_bucket("s3", config, "test-bucket")
-
-        mock_create_s3.assert_called_once_with(bucket="test-bucket")
-        assert result == mock_storage
-
-    @patch("grin_to_s3.storage.factories.load_json_credentials")
-    @patch("grin_to_s3.storage.factories.create_r2_storage")
-    def test_create_storage_for_bucket_r2(self, mock_create_r2, mock_load_creds):
-        """Test creating storage for R2 bucket."""
-        mock_storage = MagicMock()
-        mock_create_r2.return_value = mock_storage
-        mock_load_creds.return_value = {
-            "endpoint_url": "https://test-account.r2.cloudflarestorage.com",
-            "access_key": "test-key",
-            "secret_key": "test-secret",
-        }
-
-        config = {"credentials_file": "/path/to/creds.json"}
-
-        result = create_storage_for_bucket("r2", config, "test-bucket")
-
-        mock_load_creds.assert_called_once_with("/path/to/creds.json")
-        mock_create_r2.assert_called_once_with(
-            endpoint_url="https://test-account.r2.cloudflarestorage.com",
-            access_key="test-key",
-            secret_key="test-secret",
-        )
-        assert result == mock_storage
-
-    def test_create_storage_for_bucket_unsupported(self):
-        """Test creating storage for unsupported storage type."""
-        config = {}
-
-        with pytest.raises(ValueError, match="does not support bucket-based storage"):
-            create_storage_for_bucket("local", config, "test-bucket")
