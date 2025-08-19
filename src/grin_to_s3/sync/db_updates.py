@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 UPDATE_HANDLERS: dict[tuple[TaskType, TaskAction], list] = {}
 
 
-def on(task_type: TaskType, action: TaskAction, status_type: str = "sync", status_value: str | None = None) -> Callable[[Callable], Callable]:
+def on(
+    task_type: TaskType, action: TaskAction, status_type: str = "sync", status_value: str | None = None
+) -> Callable[[Callable], Callable]:
     """Decorator to register database update handlers.
 
     Args:

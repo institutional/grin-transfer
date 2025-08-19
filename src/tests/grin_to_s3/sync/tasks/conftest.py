@@ -43,8 +43,10 @@ def mock_pipeline():
         # Mock the path methods to return paths within temp directory
         def get_decrypted_path(barcode):
             return Path(temp_dir) / f"{barcode}.tar.gz"
+
         def get_extracted_path(barcode):
             return Path(temp_dir) / barcode
+
         pipeline.filesystem_manager.get_decrypted_file_path.side_effect = get_decrypted_path
         pipeline.filesystem_manager.get_extracted_directory_path.side_effect = get_extracted_path
 
@@ -53,11 +55,7 @@ def mock_pipeline():
         pipeline.storage.write_file = AsyncMock()
         pipeline.config = MagicMock()
         pipeline.config.storage_config = {
-            "config": {
-                "bucket_raw": "test-raw",
-                "bucket_full": "test-full",
-                "bucket_meta": "test-meta"
-            }
+            "config": {"bucket_raw": "test-raw", "bucket_full": "test-full", "bucket_meta": "test-meta"}
         }
 
         # Mock database tracker

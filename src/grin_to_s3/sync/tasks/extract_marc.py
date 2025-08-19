@@ -19,7 +19,13 @@ async def main(barcode: Barcode, unpack_data: UnpackData, pipeline: "SyncPipelin
 
     if not data["marc_metadata"]:
         logger.warning(f"No MARC metadata found for {barcode}")
-        return ExtractMarcResult(barcode=barcode, task_type=TaskType.EXTRACT_MARC, action=TaskAction.FAILED, data=data, reason="fail_no_marc_metadata")
+        return ExtractMarcResult(
+            barcode=barcode,
+            task_type=TaskType.EXTRACT_MARC,
+            action=TaskAction.FAILED,
+            data=data,
+            reason="fail_no_marc_metadata",
+        )
 
     await pipeline.db_tracker.update_book_marc_metadata(barcode, normalized_metadata)
 

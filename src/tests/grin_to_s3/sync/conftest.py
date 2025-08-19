@@ -82,5 +82,3 @@ async def sync_pipeline(mock_run_config, mock_process_stage):
     except Exception as e:
         # Don't fail tests due to cleanup issues, just warn
         print(f"Warning: Failed to cleanup pipeline: {e}")
-
-

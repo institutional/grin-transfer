@@ -90,7 +90,9 @@ class TestLocalStorageDirectWrite:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = create_local_test_config(temp_dir)
             storage = create_storage_from_config(config)
-            book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
+            book_manager = BookManager(
+                storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix=""
+            )
 
             # Test path generation
             barcode = "TEST123"
@@ -107,7 +109,9 @@ class TestLocalStorageDirectWrite:
         with tempfile.TemporaryDirectory() as temp_dir:
             config = create_local_test_config(temp_dir)
             storage = create_storage_from_config(config)
-            book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
+            book_manager = BookManager(
+                storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix=""
+            )
 
             # Test saving archive
             barcode = "TEST456"
@@ -199,7 +203,9 @@ class TestLocalStorageErrorHandling:
             try:
                 config = create_local_test_config(str(readonly_dir))
                 storage = create_storage_from_config(config)
-                book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
+                book_manager = BookManager(
+                    storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix=""
+                )
 
                 # Should fail with permission error
                 with pytest.raises((PermissionError, OSError)):

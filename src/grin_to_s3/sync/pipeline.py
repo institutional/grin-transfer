@@ -481,7 +481,7 @@ class SyncPipeline:
                 specific_barcodes=specific_barcodes,
                 queue_books=queue_books,
                 books_already_synced=books_already_synced,
-                limit=limit
+                limit=limit,
             )
 
             # Print the filtering summary
@@ -550,7 +550,7 @@ class SyncPipeline:
                 task_manager, books_to_process_count, self.concurrent_downloads, self.concurrent_uploads
             )
 
-            print(f"Starting sync of {books_to_process_count:,} books...")
+            print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')}...")
             print(f"{self.concurrent_downloads} concurrent downloads")
 
             if self.uses_local_storage:
@@ -629,9 +629,9 @@ class SyncPipeline:
             print(f"Filtered to specific barcodes: {len(specific_barcodes) if specific_barcodes else 0}")
 
         if limit and limit < len(available_to_sync):
-            print(f"Limited to first {limit:,} books")
+            print(f"Limited to first {limit:,} {pluralize(limit, 'book')}")
 
-        print(f"\nAll {books_to_process} books that would be processed:")
+        print(f"\nAll {books_to_process:,} {pluralize(books_to_process, 'book')} that would be processed:")
         print("-" * 60)
 
         # Get book records for all barcodes to show titles

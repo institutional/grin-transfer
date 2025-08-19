@@ -13,18 +13,19 @@ import shutil
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypedDict
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
-from .models import FileResult
-
 logger = logging.getLogger(__name__)
 
 
-class CSVExportResult(FileResult):
+class CSVExportResult(TypedDict):
     """Result dictionary for CSV export and upload operations."""
 
+    status: str
+    file_size: int
     num_rows: int
     export_time: float
 

@@ -67,9 +67,7 @@ class SyncProgressReporter:
 
                 # Check if it's time to report
                 if current_time - last_report_time >= interval:
-                    await self._show_progress(
-                        start_time, current_time, rate_calculator, interval, last_report_time
-                    )
+                    await self._show_progress(start_time, current_time, rate_calculator, interval, last_report_time)
 
                     # Update tracking
                     last_report_time = current_time

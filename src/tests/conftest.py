@@ -96,7 +96,6 @@ class ConfigBuilder:
         self._config["sync_config"]["batch_size"] = size
         return self
 
-
     def with_staging_dir(self, staging_dir: str):
         """Set staging directory."""
         self._config["sync_config"]["staging_dir"] = staging_dir
@@ -177,6 +176,7 @@ def temp_db():
 def mock_storage_config():
     """Fixture providing a standard mock storage configuration."""
     from tests.test_utils.unified_mocks import standard_storage_config
+
     return standard_storage_config()
 
 

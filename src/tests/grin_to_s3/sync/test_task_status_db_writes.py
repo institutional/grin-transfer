@@ -69,10 +69,7 @@ class TestHandlerBehavior:
         )
         previous_results = {
             TaskType.DOWNLOAD: TaskResult(
-                barcode="TEST123",
-                task_type=TaskType.DOWNLOAD,
-                action=TaskAction.COMPLETED,
-                data={"etag": "abc123"}
+                barcode="TEST123", task_type=TaskType.DOWNLOAD, action=TaskAction.COMPLETED, data={"etag": "abc123"}
             )
         }
 
@@ -128,10 +125,7 @@ class TestDatabaseUpdateOrchestration:
         # Mock previous results with download containing etag
         previous_results = {
             TaskType.DOWNLOAD: TaskResult(
-                barcode="TEST123",
-                task_type=TaskType.DOWNLOAD,
-                action=TaskAction.COMPLETED,
-                data={"etag": "abc123"}
+                barcode="TEST123", task_type=TaskType.DOWNLOAD, action=TaskAction.COMPLETED, data={"etag": "abc123"}
             )
         }
 
@@ -158,6 +152,7 @@ class TestDatabaseUpdateOrchestration:
         """System should prevent duplicate handlers for the same task/action."""
         # Try to register a duplicate handler for UPLOAD+COMPLETED (which already exists)
         with pytest.raises(ValueError, match="Handler for UPLOAD\\+completed already exists"):
+
             @on(TaskType.UPLOAD, TaskAction.COMPLETED, "custom_status", "custom_uploaded")
             async def duplicate_upload_handler(result, previous_results):
                 return {"status": ("custom_status", "custom_uploaded", {"custom_field": "custom_value"}), "books": {}}
@@ -249,7 +244,7 @@ class TestRealDatabaseIntegration:
                 barcode="TEST123",
                 task_type=TaskType.DOWNLOAD,
                 action=TaskAction.COMPLETED,
-                data={"etag": "download_etag_value"}
+                data={"etag": "download_etag_value"},
             )
         }
         await task_manager.run_task(TaskType.UPLOAD, "TEST123", mock_upload_task, real_db_pipeline, previous_results)
@@ -292,7 +287,7 @@ class TestRealDatabaseIntegration:
                 barcode="TEST123",
                 task_type=TaskType.DOWNLOAD,
                 action=TaskAction.COMPLETED,
-                data={"etag": "real_etag_value"}
+                data={"etag": "real_etag_value"},
             )
         }
         await task_manager.run_task(TaskType.UPLOAD, "TEST123", mock_upload_task, real_db_pipeline, previous_results)
@@ -328,7 +323,9 @@ class TestRealDatabaseIntegration:
             )
 
         previous_results = {}
-        await task_manager.run_task(TaskType.DOWNLOAD, "TEST123", mock_failed_download, real_db_pipeline, previous_results)
+        await task_manager.run_task(
+            TaskType.DOWNLOAD, "TEST123", mock_failed_download, real_db_pipeline, previous_results
+        )
 
         # Commit accumulated updates to the real database
         await commit_book_record_updates(real_db_pipeline, "TEST123")

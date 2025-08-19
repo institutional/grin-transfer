@@ -74,7 +74,9 @@ class TestStoragePathIntegrity:
         storage = Storage(config)
 
         # Test without base_prefix
-        book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
+        book_manager = BookManager(
+            storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix=""
+        )
 
         # Test raw archive path construction
         raw_path = book_manager._raw_archive_path("TEST001", "TEST001.tar.gz.gpg")
@@ -89,7 +91,9 @@ class TestStoragePathIntegrity:
         assert meta_path == "meta/books.csv"
 
         # Test with base_prefix
-        book_manager_with_prefix = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="myproject")
+        book_manager_with_prefix = BookManager(
+            storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="myproject"
+        )
 
         raw_path_prefixed = book_manager_with_prefix._raw_archive_path("TEST001", "TEST001.tar.gz.gpg")
         assert raw_path_prefixed == "raw/myproject/TEST001/TEST001.tar.gz.gpg"
@@ -104,7 +108,9 @@ class TestStoragePathIntegrity:
         """Test BookManager path construction with edge case barcode values."""
         config = BackendConfig(protocol="file")
         storage = Storage(config)
-        book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
+        book_manager = BookManager(
+            storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix=""
+        )
 
         # Test edge case barcodes
         test_cases = [
@@ -130,7 +136,9 @@ class TestStoragePathIntegrity:
         """Test handling of Unicode characters in barcodes."""
         config = BackendConfig(protocol="file")
         storage = Storage(config)
-        book_manager = BookManager(storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="")
+        book_manager = BookManager(
+            storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix=""
+        )
 
         # Test various Unicode characters
         unicode_barcodes = [
@@ -161,13 +169,19 @@ class TestStoragePathIntegrity:
         storage = Storage(config)
 
         # Test with non-empty bucket names
-        book_manager = BookManager(storage, storage_config=standard_storage_config("local", "my-raw-bucket", "my-meta-bucket", "my-full-bucket"), base_prefix="")
+        book_manager = BookManager(
+            storage,
+            storage_config=standard_storage_config("local", "my-raw-bucket", "my-meta-bucket", "my-full-bucket"),
+            base_prefix="",
+        )
         assert book_manager.bucket_raw == "my-raw-bucket"
         assert book_manager.bucket_meta == "my-meta-bucket"
         assert book_manager.bucket_full == "my-full-bucket"
 
         # Test with empty bucket names - BookManager accepts this but bucket names will be None
-        book_manager_empty = BookManager(storage, storage_config={"type": "local", "protocol": "local", "config": {}}, base_prefix="")
+        book_manager_empty = BookManager(
+            storage, storage_config={"type": "local", "protocol": "local", "config": {}}, base_prefix=""
+        )
         assert book_manager_empty.bucket_raw is None
         assert book_manager_empty.bucket_meta is None
         assert book_manager_empty.bucket_full is None

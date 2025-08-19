@@ -120,7 +120,10 @@ class TestLocalStorageIntegration:
 
             # Verify filesystem_manager is LocalDirectoryManager for local storage
             from grin_to_s3.storage.staging import LocalDirectoryManager
-            assert isinstance(pipeline.filesystem_manager, LocalDirectoryManager), "Local storage should have LocalDirectoryManager"
+
+            assert isinstance(pipeline.filesystem_manager, LocalDirectoryManager), (
+                "Local storage should have LocalDirectoryManager"
+            )
 
             # Verify staging directory path is configured correctly
             staging_dir = pipeline.staging_dir

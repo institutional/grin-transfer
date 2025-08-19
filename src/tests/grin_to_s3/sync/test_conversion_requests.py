@@ -174,7 +174,7 @@ class TestSyncPipelineIntegration:
     @pytest.mark.asyncio
     async def test_converted_queue_404_no_conversion_request(self, sync_pipeline):
         """STUBBED: Test that 404 errors in converted queue do not trigger conversion requests.
-        
+
         TODO: Replace with task-based test that verifies 404 handling in download task
         does not trigger conversion requests when not processing 'previous' queue.
         """
@@ -223,7 +223,7 @@ class TestSyncPipelineIntegration:
     @pytest.mark.asyncio
     async def test_run_sync_initializes_conversion_handler_for_previous_queue(self, sync_pipeline):
         """STUBBED: Test that setup_sync_loop initializes conversion handler when previous queue is specified.
-        
+
         TODO: Replace with test that verifies conversion handler initialization in task-based pipeline.
         """
         # STUB: This test needs to be rewritten for the new task-based architecture
@@ -232,7 +232,7 @@ class TestSyncPipelineIntegration:
     @pytest.mark.asyncio
     async def test_run_sync_no_conversion_handler_for_other_queues(self, sync_pipeline):
         """STUBBED: Test that setup_sync_loop does not initialize conversion handler for other queues.
-        
+
         TODO: Replace with test that verifies conversion handler is not initialized for non-previous queues.
         """
         # STUB: This test needs to be rewritten for the new task-based architecture

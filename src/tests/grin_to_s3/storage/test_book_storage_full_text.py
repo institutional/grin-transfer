@@ -131,6 +131,7 @@ class TestBookManagerFullText:
 
             os.unlink(jsonl_file_path)
 
+
 class TestStorageFactories:
     """Test storage factory functions for three-bucket configuration."""
 
@@ -192,4 +193,3 @@ class TestStorageFactories:
 
         with pytest.raises(ValueError, match="does not support bucket-based storage"):
             create_storage_for_bucket("local", config, "test-bucket")
-

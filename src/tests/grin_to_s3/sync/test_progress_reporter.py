@@ -209,12 +209,14 @@ class TestSyncProgressReporter:
                 times_called.append(start_time + INITIAL_PROGRESS_INTERVAL * 3 + REGULAR_PROGRESS_INTERVAL)
                 return times_called[-1]
 
-        with patch("time.time", side_effect=mock_time), \
-             patch("builtins.print") as mock_print, \
-             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-
+        with (
+            patch("time.time", side_effect=mock_time),
+            patch("builtins.print") as mock_print,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
             # Mock the sleep to exit after a few iterations
             sleep_call_count = 0
+
             async def mock_sleep_with_exit(*args):
                 nonlocal sleep_call_count
                 sleep_call_count += 1
@@ -241,10 +243,11 @@ class TestSyncProgressReporter:
             # After first exception, request shutdown to exit loop
             reporter.request_shutdown()
 
-        with patch.object(reporter, "_show_progress", side_effect=mock_show_progress), \
-             patch("asyncio.sleep", new_callable=AsyncMock), \
-             patch("time.time", return_value=1000.0):
-
+        with (
+            patch.object(reporter, "_show_progress", side_effect=mock_show_progress),
+            patch("asyncio.sleep", new_callable=AsyncMock),
+            patch("time.time", return_value=1000.0),
+        ):
             await reporter.run(1000.0, rate_calculator)
 
             # Should have attempted to show progress twice (once failed, once succeeded)
@@ -256,9 +259,7 @@ class TestSyncProgressReporter:
         # Request shutdown immediately
         reporter.request_shutdown()
 
-        with patch("builtins.print") as mock_print, \
-             patch("time.time", return_value=1000.0):
-
+        with patch("builtins.print") as mock_print, patch("time.time", return_value=1000.0):
             await reporter.run(1000.0, rate_calculator)
 
             # Should not have printed anything since shutdown was immediate
@@ -275,10 +276,11 @@ class TestSyncProgressReporter:
             if sleep_call_count == 5:  # Shutdown after a few sleep calls
                 reporter.request_shutdown()
 
-        with patch("asyncio.sleep", side_effect=mock_sleep_with_shutdown), \
-             patch("time.time", return_value=1000.0), \
-             patch("builtins.print"):
-
+        with (
+            patch("asyncio.sleep", side_effect=mock_sleep_with_shutdown),
+            patch("time.time", return_value=1000.0),
+            patch("builtins.print"),
+        ):
             await reporter.run(1000.0, rate_calculator)
 
             # Should have called sleep multiple times before shutdown

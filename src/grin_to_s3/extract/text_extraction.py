@@ -41,7 +41,6 @@ class InvalidPageFormatError(TextExtractionError):
     pass
 
 
-
 def _validate_and_finalize_extraction(
     page_data: dict[int, str], txt_files_found: int, archive_path: str
 ) -> dict[int, str]:

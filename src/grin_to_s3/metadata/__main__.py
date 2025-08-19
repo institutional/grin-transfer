@@ -22,7 +22,7 @@ async def test_marc_extraction(tarballs: list[str], output_file: str) -> list[di
 
         try:
             # Extract MARC metadata directly from the archive
-            marc_metadata = extract_marc_metadata(tarball_path)
+            marc_metadata = extract_marc_metadata(Path(tarball_path))
 
             result = {"barcode": barcode, "marc_metadata": marc_metadata}
             results.append(result)

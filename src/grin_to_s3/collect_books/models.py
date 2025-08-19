@@ -1171,12 +1171,12 @@ class SQLiteProgressTracker:
         )
 
     async def get_synced_books(self, storage_type: str) -> set[str]:
-        """Get set of barcodes that are already synced to the specified storage."""
+        """Get set of barcodes that are already synced (completed status in book_status_history)."""
         return await self._execute_barcode_query(
             """
-            SELECT DISTINCT barcode 
-            FROM book_sync_status 
-            WHERE storage_type = ? AND sync_status = 'synced'
+            SELECT DISTINCT barcode
+            FROM book_status_history
+            WHERE status_type = 'sync' AND status_value = 'completed'
             """,
-            (storage_type,)
+            (),
         )

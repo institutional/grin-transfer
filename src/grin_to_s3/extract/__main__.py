@@ -131,6 +131,7 @@ Examples:
                     print(f"  ✗ Failed: {e}")
                     if args.verbose:
                         import traceback
+
                         traceback.print_exc()
 
             print(f"\nSummary: Processed {processed} archives, extracted {total_pages} total pages")
@@ -144,6 +145,7 @@ Examples:
         print(f"Error: {e}")
         if args.verbose:
             import traceback
+
             traceback.print_exc()
         return 1
 
