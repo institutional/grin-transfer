@@ -154,49 +154,13 @@ class TestDatabaseUpdateOrchestration:
         assert books_updates["encrypted_etag"] == "abc123"  # From download result
         assert "sync_timestamp" in books_updates
 
-    @patch("grin_to_s3.sync.task_manager.batch_write_status_updates")
-    @pytest.mark.asyncio
-    async def test_multiple_handlers_for_same_task(self, mock_batch_write, mock_pipeline):
-        """TaskManager.run_task should handle multiple handlers for the same task/action."""
-        # Register a second handler for the same task/action
-        test_key = (TaskType.UPLOAD, TaskAction.COMPLETED)
-        original_handlers = UPDATE_HANDLERS.get(test_key, [])
-
-        @on(TaskType.UPLOAD, TaskAction.COMPLETED, "custom_status", "custom_uploaded")
-        async def custom_upload_handler(result, previous_results):
-            return {"status": ("custom_status", "custom_uploaded", {"custom_field": "custom_value"}), "books": {}}
-
-        try:
-            # Create TaskManager and simulate upload result
-            task_manager = TaskManager({TaskType.UPLOAD: 1})
-
-            async def mock_upload_task():
-                return TaskResult(
-                    barcode="TEST123",
-                    task_type=TaskType.UPLOAD,
-                    action=TaskAction.COMPLETED,
-                    data={"upload_path": "/bucket/TEST123.tar.gz", "storage_type": "s3"},
-                )
-
-            previous_results = {}
-            await task_manager.run_task(TaskType.UPLOAD, "TEST123", mock_upload_task, mock_pipeline, previous_results)
-
-            # Commit accumulated updates
-            await commit_book_record_updates(mock_pipeline, "TEST123")
-
-            # Should have called batch_write with only one status update (first handler wins)
-            mock_batch_write.assert_called_once()
-            status_updates = mock_batch_write.call_args[0][1]
-            assert len(status_updates) == 1  # Only first handler is used
-
-            # Should use original handler since it was registered first
-            status_update = status_updates[0]
-            assert status_update.status_type == "sync"  # Original handler
-            assert status_update.status_value == "uploaded"
-
-        finally:
-            # Clean up the test handler
-            UPDATE_HANDLERS[test_key] = original_handlers
+    def test_duplicate_handler_prevention(self):
+        """System should prevent duplicate handlers for the same task/action."""
+        # Try to register a duplicate handler for UPLOAD+COMPLETED (which already exists)
+        with pytest.raises(ValueError, match="Handler for UPLOAD\\+completed already exists"):
+            @on(TaskType.UPLOAD, TaskAction.COMPLETED, "custom_status", "custom_uploaded")
+            async def duplicate_upload_handler(result, previous_results):
+                return {"status": ("custom_status", "custom_uploaded", {"custom_field": "custom_value"}), "books": {}}
 
     @patch("grin_to_s3.sync.task_manager.batch_write_status_updates")
     @pytest.mark.asyncio

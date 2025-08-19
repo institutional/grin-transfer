@@ -32,9 +32,13 @@ def on(task_type: TaskType, action: TaskAction, status_type: str = "sync", statu
 
     def decorator(func):
         key = (task_type, action)
-        if key not in UPDATE_HANDLERS:
-            UPDATE_HANDLERS[key] = []
-        UPDATE_HANDLERS[key].append((func, status_type, status_value))
+        if key in UPDATE_HANDLERS:
+            existing_handler = UPDATE_HANDLERS[key][0][0]
+            raise ValueError(
+                f"Handler for {task_type.name}+{action.value} already exists: {existing_handler.__name__}. "
+                f"Cannot register duplicate handler: {func.__name__}"
+            )
+        UPDATE_HANDLERS[key] = [(func, status_type, status_value)]
         return func
 
     return decorator
@@ -183,12 +187,12 @@ async def cleanup_completed(result: TaskResult, previous_results: dict[TaskType,
 
 async def get_updates_for_task(result: TaskResult, previous_results: dict[TaskType, TaskResult]) -> dict[str, Any]:
     """Get database updates from registered handlers."""
-    handlers = UPDATE_HANDLERS.get((result.task_type, result.action), [])
+    handlers = UPDATE_HANDLERS.get((result.task_type, result.action))
 
     if not handlers:
         return {"status": None, "books": {}}
 
-    # Use first handler (should only be one per task/action combo)
+    # Get the single handler (exactly one per task/action combo)
     handler_func, status_type, status_value = handlers[0]
 
     # Call handler to get standardized updates
