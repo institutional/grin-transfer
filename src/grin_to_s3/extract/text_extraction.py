@@ -246,3 +246,24 @@ def extract_ocr_to_jsonl_file(extracted_dir_path: Path, output_path: Path) -> in
 
     logger.debug(f"OCR text saved to JSONL file (streaming filesystem): {output_path} ({page_count} pages)")
     return page_count
+
+
+async def extract_ocr_pages(unpack_data: dict, jsonl_path: Path) -> int:
+    """
+    Extract OCR text from unpacked archive to JSONL file.
+
+    Args:
+        unpack_data: Dictionary containing 'unpacked_path' key with Path to extracted directory
+        jsonl_path: Path to output JSONL file
+
+    Returns:
+        Number of pages processed
+    """
+    with open(jsonl_path, "w", encoding="utf-8") as f:
+        page_count = 0
+
+        for _, content in filesystem_page_generator(unpack_data["unpacked_path"]):
+            # Write the JSON-encoded content as a single line
+            f.write(json.dumps(content, ensure_ascii=False) + "\n")
+            page_count += 1
+    return page_count

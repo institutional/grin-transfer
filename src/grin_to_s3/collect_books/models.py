@@ -16,7 +16,7 @@ from typing import Any
 import aiosqlite
 
 from ..database import connect_async
-from ..database_utils import retry_database_operation
+from ..database.database_utils import retry_database_operation
 
 logger = logging.getLogger(__name__)
 

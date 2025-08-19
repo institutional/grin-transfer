@@ -12,7 +12,7 @@ import logging
 import sys
 from pathlib import Path
 
-from ..sync.tasks.extract_ocr import extract_ocr_pages as task_extract_ocr_pages
+from .text_extraction import extract_ocr_pages
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ Examples:
             print(f"Extracting OCR text from: {archive_path}")
 
             unpack_data = {"unpacked_path": archive_path}
-            page_count = await task_extract_ocr_pages(unpack_data, output_path)
+            page_count = await extract_ocr_pages(unpack_data, output_path)
 
             print(f"  ✓ Extracted {page_count} pages")
             print(f"  ✓ Saved to: {output_path}")
@@ -120,7 +120,7 @@ Examples:
 
                 try:
                     unpack_data = {"unpacked_path": archive_path}
-                    page_count = await task_extract_ocr_pages(unpack_data, output_path)
+                    page_count = await extract_ocr_pages(unpack_data, output_path)
 
                     total_pages += page_count
                     processed += 1

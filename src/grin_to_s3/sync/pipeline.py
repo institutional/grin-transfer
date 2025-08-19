@@ -39,6 +39,7 @@ from grin_to_s3.sync.tasks import (
     export_csv,
     extract_marc,
     extract_ocr,
+    request_conversion,
     unpack,
     upload,
 )
@@ -273,6 +274,7 @@ class SyncPipeline:
         self.current_queues: list[str] = []  # Track which queues are being processed
         self.conversion_handler: ConversionRequestHandler | None = None  # Lazy initialization
         self.conversion_request_limit = DEFAULT_CONVERSION_REQUEST_LIMIT
+        self.conversion_requests_made = 0
         self.book_manager = BookManager(
             self.storage, storage_config=self.config.storage_config, base_prefix=self.base_prefix
         )
@@ -285,6 +287,7 @@ class SyncPipeline:
 
         limits = {
             TaskType.CHECK: config.sync_task_check_concurrency,
+            TaskType.REQUEST_CONVERSION: 2,  # Limit concurrent conversion requests
             TaskType.DOWNLOAD: config.sync_task_download_concurrency,
             TaskType.DECRYPT: config.sync_task_decrypt_concurrency,
             TaskType.UPLOAD: config.sync_task_upload_concurrency,
@@ -554,6 +557,7 @@ class SyncPipeline:
             # Define task functions and limits
             task_funcs = {
                 TaskType.CHECK: check.main,
+                TaskType.REQUEST_CONVERSION: request_conversion.main,
                 TaskType.DOWNLOAD: download.main,
                 TaskType.DECRYPT: decrypt.main,
                 TaskType.UPLOAD: upload.main,

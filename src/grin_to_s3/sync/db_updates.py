@@ -78,6 +78,38 @@ async def check_completed(result: TaskResult, previous_results: dict[TaskType, T
     return {"status": ("sync", "checked", {"etag": etag} if etag else None), "books": {}}
 
 
+@on(TaskType.CHECK, TaskAction.FAILED)
+async def check_failed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    # Handle CHECK failures (like 404s)
+    metadata = {"reason": result.reason} if result.reason else None
+    if result.data:
+        metadata = metadata or {}
+        metadata.update(result.data)
+    return {"status": ("sync", "check_failed", metadata), "books": {}}
+
+
+@on(TaskType.REQUEST_CONVERSION, TaskAction.SKIPPED)
+async def request_conversion_skipped(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    metadata = {}
+    if result.data:
+        metadata.update(result.data)
+    if result.reason:
+        metadata["reason"] = result.reason
+
+    # Different status based on skip reason
+    match result.reason:
+        case "skip_conversion_requested":
+            return {"status": ("conversion", "requested", metadata), "books": {}}
+        case "skip_already_in_process":
+            return {"status": ("conversion", "in_process", metadata), "books": {}}
+        case "skip_verified_unavailable":
+            return {"status": ("conversion", "unavailable", metadata), "books": {"verified_unavailable": 1}}
+        case "skip_conversion_limit_reached":
+            return {"status": ("conversion", "limit_reached", metadata), "books": {}}
+        case _:
+            return {"status": ("conversion", "skipped", metadata), "books": {}}
+
+
 @on(TaskType.DOWNLOAD, TaskAction.COMPLETED, status_value="downloading")
 async def download_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
     etag = result.data.get("etag") if result.data else None

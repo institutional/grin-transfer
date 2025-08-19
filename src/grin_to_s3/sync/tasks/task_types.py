@@ -18,6 +18,7 @@ class TaskType(Enum):
 
     # Per-barcode tasks
     CHECK = auto()
+    REQUEST_CONVERSION = auto()
     DOWNLOAD = auto()
     DECRYPT = auto()
     UNPACK = auto()
@@ -104,6 +105,13 @@ class ExportCsvData(TypedDict):
     record_count: int
 
 
+class RequestConversionData(TypedDict):
+    """Data from REQUEST_CONVERSION task."""
+
+    conversion_status: Literal["requested", "in_process", "unavailable", "limit_reached"]
+    request_count: int
+
+
 class CleanupData(TypedDict):
     """Data from CLEANUP task."""
 
@@ -162,12 +170,18 @@ class StagingCleanupData(TypedDict):
 TData = TypeVar("TData")
 
 SKIP_REASONS = Literal[
-    "skip_archive_missing_from_grin",
-    "skip_etag_match",
-    "skip_database_backup_flag",
-    "fail_unexpected_http_status_code",
-    "fail_no_marc_metadata",
     "completed_match_with_force",
+    "fail_archive_missing",
+    "fail_no_marc_metadata",
+    "fail_unexpected_http_status_code",
+    "skip_already_in_process",
+    "skip_already_in_progress",
+    "skip_archive_missing_from_grin",
+    "skip_conversion_limit_reached",
+    "skip_conversion_requested",
+    "skip_database_backup_flag",
+    "skip_etag_match",
+    "skip_verified_unavailable",
 ]
 
 
@@ -210,6 +224,16 @@ class TaskResult(Generic[TData]):
 
     def next_tasks(self) -> list[TaskType]:
         """Return tasks that should run after this one."""
+
+        # Handle recovery paths for failed tasks
+        if self.action == TaskAction.FAILED:
+            match self.task_type:
+                case TaskType.CHECK if self.reason == "fail_archive_missing":
+                    return [TaskType.REQUEST_CONVERSION]
+                case _:
+                    return []
+
+        # Normal successful task flow
         if not self.should_continue_pipeline:
             return []
 
@@ -225,12 +249,15 @@ class TaskResult(Generic[TData]):
                 return [TaskType.EXTRACT_MARC, TaskType.EXTRACT_OCR, TaskType.EXPORT_CSV]
             case TaskType.UPLOAD:
                 return []  # CLEANUP is handled specially after all tasks complete
+            case TaskType.REQUEST_CONVERSION:
+                return []  # Conversion request never continues
             case _:
                 return []
 
 
 # Type aliases for specific task results
 CheckResult = TaskResult[CheckData]
+RequestConversionResult = TaskResult[RequestConversionData]
 DownloadResult = TaskResult[DownloadData]
 DecryptResult = TaskResult[DecryptData]
 UnpackResult = TaskResult[UnpackData]
@@ -252,6 +279,10 @@ StagingCleanupResult = Result[StagingCleanupData]
 # Task function protocols for type safety
 class CheckTaskFunc(Protocol):
     async def __call__(self, barcode: str, pipeline: SyncPipeline) -> CheckResult: ...
+
+
+class RequestConversionTaskFunc(Protocol):
+    async def __call__(self, barcode: str, pipeline: SyncPipeline) -> RequestConversionResult: ...
 
 
 class DownloadTaskFunc(Protocol):

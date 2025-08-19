@@ -17,7 +17,7 @@ from pathlib import Path
 import aiosqlite
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from .database import connect_async, connect_sync
+from . import connect_async, connect_sync
 
 logger = logging.getLogger(__name__)
 

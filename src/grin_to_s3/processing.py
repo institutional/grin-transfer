@@ -13,6 +13,7 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
@@ -24,8 +25,7 @@ from grin_to_s3.common import (
     print_oauth_setup_instructions,
     validate_and_parse_barcodes,
 )
-from grin_to_s3.database_utils import batch_write_status_updates, validate_database_file
-from grin_to_s3.extract.tracking import collect_status
+from grin_to_s3.database.database_utils import batch_write_status_updates, validate_database_file
 from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
     create_book_manager_for_uploads,
@@ -38,6 +38,17 @@ from grin_to_s3.run_config import apply_run_config_to_args, find_run_config, set
 from .constants import GRIN_RATE_LIMIT_DELAY
 from .database import connect_async, connect_sync
 from .queue_utils import get_converted_books, get_in_process_set
+
+
+class StatusUpdate(NamedTuple):
+    """Status update tuple for collecting updates before writing."""
+
+    barcode: str
+    status_type: str
+    status_value: str
+    metadata: dict | None = None
+    session_id: str | None = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -953,7 +964,7 @@ class ProcessingMonitor:
             for barcode in our_converted:
                 current_status = await db_tracker.get_latest_status(barcode, "processing_request")
                 if current_status != "converted":
-                    processing_status_updates.append(collect_status(barcode, "processing_request", "converted"))
+                    processing_status_updates.append(StatusUpdate(barcode, "processing_request", "converted"))
                     updates["converted"] += 1
 
             # Update books that are now in process
@@ -961,7 +972,7 @@ class ProcessingMonitor:
             for barcode in our_in_process:
                 current_status = await db_tracker.get_latest_status(barcode, "processing_request")
                 if current_status not in ("converted", "in_process"):
-                    processing_status_updates.append(collect_status(barcode, "processing_request", "in_process"))
+                    processing_status_updates.append(StatusUpdate(barcode, "processing_request", "in_process"))
                     updates["in_process"] += 1
 
             # Update books that have failed
@@ -969,7 +980,7 @@ class ProcessingMonitor:
             for barcode in our_failed:
                 current_status = await db_tracker.get_latest_status(barcode, "processing_request")
                 if current_status != "failed":
-                    processing_status_updates.append(collect_status(barcode, "processing_request", "failed"))
+                    processing_status_updates.append(StatusUpdate(barcode, "processing_request", "failed"))
                     updates["failed"] += 1
 
             # Batch write all processing status updates

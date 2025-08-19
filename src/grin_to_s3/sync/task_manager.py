@@ -10,14 +10,10 @@ import asyncio
 import logging
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
 from grin_to_s3.common import Barcode
-from grin_to_s3.database_utils import batch_write_status_updates
-from grin_to_s3.extract.tracking import collect_status
-
-if TYPE_CHECKING:
-    from grin_to_s3.sync.pipeline import SyncPipeline
+from grin_to_s3.database.database_utils import batch_write_status_updates
 
 from .db_updates import get_updates_for_task
 from .tasks.task_types import (
@@ -29,12 +25,28 @@ from .tasks.task_types import (
     ExportCsvTaskFunc,
     ExtractMarcTaskFunc,
     ExtractOcrTaskFunc,
+    RequestConversionTaskFunc,
     TaskAction,
     TaskResult,
     TaskType,
     UnpackTaskFunc,
     UploadTaskFunc,
 )
+
+
+class StatusUpdate(NamedTuple):
+    """Status update tuple for collecting updates before writing."""
+
+    barcode: str
+    status_type: str
+    status_value: str
+    metadata: dict | None = None
+    session_id: str | None = None
+
+
+if TYPE_CHECKING:
+    from grin_to_s3.sync.pipeline import SyncPipeline
+
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +64,7 @@ class TaskManager:
             limits: Max concurrent tasks per type
         """
         self.limits = limits or {
-            TaskType.CHECK: 10,  # Checks are fast
+            TaskType.CHECK: 10,
             TaskType.DOWNLOAD: 5,
             TaskType.DECRYPT: 3,
             TaskType.UNPACK: 3,
@@ -127,7 +139,7 @@ class TaskManager:
                 # Accumulate status history record
                 if updates.get("status"):
                     status_type, status_value, metadata = updates["status"]
-                    status_record = collect_status(barcode, status_type, status_value, metadata)
+                    status_record = StatusUpdate(barcode, status_type, status_value, metadata)
                     pipeline.book_record_updates[barcode]["status_history"].append(status_record)
 
                 # Accumulate books table field updates
@@ -201,6 +213,21 @@ async def process_book_pipeline(
                 results,  # Pass accumulated results
             )
             results[TaskType.CHECK] = check_result
+
+            # Check for next tasks (including recovery tasks)
+            next_tasks = check_result.next_tasks()
+
+            if TaskType.REQUEST_CONVERSION in next_tasks and TaskType.REQUEST_CONVERSION in task_funcs:
+                request_func = cast(RequestConversionTaskFunc, task_funcs[TaskType.REQUEST_CONVERSION])
+                request_result = await manager.run_task(
+                    TaskType.REQUEST_CONVERSION,
+                    barcode,
+                    lambda: request_func(barcode, pipeline),
+                    pipeline,
+                    results,
+                )
+                results[TaskType.REQUEST_CONVERSION] = request_result
+                return results  # End pipeline after conversion request
 
             if not check_result.should_continue_pipeline:
                 return results
@@ -404,5 +431,3 @@ async def process_books_batch(
             )
 
     return book_results
-
-

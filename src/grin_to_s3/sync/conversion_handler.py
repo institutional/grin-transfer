@@ -8,7 +8,7 @@ Handles conversion requests for missing archives during sync operations.
 import logging
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.database_utils import mark_verified_unavailable
+from grin_to_s3.database.database_utils import mark_verified_unavailable
 
 logger = logging.getLogger(__name__)
 

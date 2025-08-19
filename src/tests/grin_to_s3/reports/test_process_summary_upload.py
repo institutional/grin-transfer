@@ -143,7 +143,7 @@ class TestProcessSummaryUpload:
                 "bucket_raw": "test-raw",
                 "bucket_meta": "test-meta",
                 "bucket_full": "test-full",
-            }
+            },
         }
 
         # Mock storage creation

@@ -147,7 +147,6 @@ class RunConfig:
         """Get the full-text storage bucket from storage config."""
         return self.storage_config["config"].get("bucket_full")
 
-
     @property
     def log_file(self) -> str:
         """Get the unified log file path."""
@@ -357,7 +356,6 @@ def apply_run_config_to_args(args: Any, db_path: str) -> None:
     # Apply secrets_dir if not set
     if hasattr(args, "secrets_dir") and not getattr(args, "secrets_dir", None):
         args.secrets_dir = config.secrets_dir
-
 
     # Apply storage configuration if not set
     storage_args = config.get_storage_args()

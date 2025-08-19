@@ -17,8 +17,6 @@ from .factories import LOCAL_STORAGE_DEFAULTS
 if TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
 
-    from grin_to_s3.sync.progress_tracker import SQLiteProgressTracker
-
 logger = logging.getLogger(__name__)
 
 
@@ -77,7 +75,11 @@ class BookManager:
             return f"{self.bucket_meta}/{self.base_prefix}/{filename}"
         return f"{self.bucket_meta}/{filename}"
 
-    async def get_decrypted_archive_metadata(self, barcode: str, db_tracker: "SQLiteProgressTracker") -> dict[str, str]:
+    async def get_decrypted_archive_metadata(
+        self,
+        barcode: str,
+        db_tracker,
+    ) -> dict[str, str]:
         """Get metadata from decrypted archive file."""
         filename = f"{barcode}.tar.gz"
         path = self.raw_archive_path(barcode, filename)

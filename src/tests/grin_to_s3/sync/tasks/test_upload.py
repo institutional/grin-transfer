@@ -89,8 +89,10 @@ async def test_upload_with_storage_types(storage_config, expected_path):
             "http_status_code": 200,
         }
 
-        with patch("grin_to_s3.sync.tasks.upload.BookManager") as mock_book_manager_cls, \
-             patch("grin_to_s3.sync.tasks.upload.copy_file_to_base_path") as mock_copy_file:
+        with (
+            patch("grin_to_s3.sync.tasks.upload.BookManager") as mock_book_manager_cls,
+            patch("grin_to_s3.sync.tasks.upload.copy_file_to_base_path") as mock_copy_file,
+        ):
             mock_manager = MagicMock()
             mock_manager.raw_archive_path.return_value = expected_path
             mock_manager.storage.write_file = AsyncMock()

@@ -1,4 +1,3 @@
-import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -8,7 +7,6 @@ from grin_to_s3.common import (
     Barcode,
     compress_file_to_temp,
 )
-from grin_to_s3.extract.text_extraction import filesystem_page_generator
 from grin_to_s3.sync.tasks.task_types import ArchiveOcrMetadata, ExtractOcrResult, TaskAction, TaskType, UnpackData
 
 if TYPE_CHECKING:
@@ -44,11 +42,7 @@ async def main(barcode: Barcode, unpack_data: UnpackData, pipeline: "SyncPipelin
 
 
 async def extract_ocr_pages(unpack_data: UnpackData, jsonl_path: Path) -> int:
-    with open(jsonl_path, "w", encoding="utf-8") as f:
-        page_count = 0
+    """Extract OCR pages from unpacked data to JSONL file - delegates to text extraction module."""
+    from grin_to_s3.extract.text_extraction import extract_ocr_pages as _extract_ocr_pages
 
-        for _, content in filesystem_page_generator(unpack_data["unpacked_path"]):
-            # Write the JSON-encoded content as a single line
-            f.write(json.dumps(content, ensure_ascii=False) + "\n")
-            page_count += 1
-    return page_count
+    return await _extract_ocr_pages(unpack_data, jsonl_path)

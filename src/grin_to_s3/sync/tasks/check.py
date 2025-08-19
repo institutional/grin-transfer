@@ -24,14 +24,26 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
         data = await grin_head_request(barcode, pipeline.grin_client, pipeline.library_directory)
     except aiohttp.ClientResponseError as e:
         logger.info(f"[{barcode}] HEAD request returned HTTP {e.status}")
-        # If the HEAD response was a 404, that's a SKIP
+        # If the HEAD response was a 404, handle based on queue mode
         if e.status == 404:
-            return CheckResult(
-                barcode=barcode,
-                task_type=TaskType.CHECK,
-                action=TaskAction.SKIPPED,
-                reason="skip_archive_missing_from_grin",
-            )
+            logger.info(f"[{barcode}] Archive not found (404)")
+            # In previous queue, this is a failure we can recover from
+            if "previous" in pipeline.current_queues:
+                return CheckResult(
+                    barcode=barcode,
+                    task_type=TaskType.CHECK,
+                    action=TaskAction.FAILED,
+                    data={"etag": None, "file_size_bytes": None, "http_status_code": 404},
+                    reason="fail_archive_missing",
+                )
+            else:
+                # In other queues, just skip
+                return CheckResult(
+                    barcode=barcode,
+                    task_type=TaskType.CHECK,
+                    action=TaskAction.SKIPPED,
+                    reason="skip_archive_missing_from_grin",
+                )
         # Other failures are not expected and should be treated as FAILED
         return CheckResult(
             barcode=barcode,

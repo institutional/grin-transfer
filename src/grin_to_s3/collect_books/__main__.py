@@ -445,7 +445,7 @@ Examples:
                     "storage_config": storage_config,
                     "sync_config": sync_config,
                     "secrets_dir": args.secrets_dir,
-                    }
+                }
             )
 
             config_path = Path(f"output/{run_name}/run_config.json")
