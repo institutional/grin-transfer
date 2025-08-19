@@ -5,11 +5,13 @@ Shared functions and patterns to eliminate code duplication across V2 modules.
 """
 
 import asyncio
+import gzip
 import logging
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -26,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 # Common type aliases
+type Barcode = str
 type BarcodeSet = set[str]
 
 
@@ -38,6 +41,8 @@ DEFAULT_DOWNLOAD_TIMEOUT = 300
 DEFAULT_DOWNLOAD_RETRIES = 2
 DEFAULT_MAX_SEQUENTIAL_FAILURES = 10
 DEFAULT_RETRY_WAIT_SECONDS = 2
+
+DEFAULT_COMPRESSION_LEVEL = 1  # Fastest
 
 
 @asynccontextmanager
@@ -58,19 +63,6 @@ async def create_http_session(timeout: int | None = None):
 
     async with aiohttp.ClientSession(timeout=timeout_config, connector=connector) as session:
         yield session
-
-
-def expand_path(path: str) -> str:
-    """
-    Expand user home directory in file paths.
-
-    Args:
-        path: File path that may contain ~
-
-    Returns:
-        str: Expanded absolute path
-    """
-    return os.path.expanduser(path)
 
 
 def format_bytes(size_bytes: int) -> str:
@@ -193,65 +185,6 @@ def validate_and_parse_barcodes(barcodes_str: str) -> list[str]:
             )
 
     return barcodes
-
-
-class SlidingWindowRateCalculator:
-    """
-    Calculate processing rates using a sliding window for more accurate ETAs.
-
-    This prevents ETAs from being skewed by startup overhead or early slow batches
-    by using only the most recent batch completions for rate calculation.
-    """
-
-    def __init__(self, window_size: int = 5):
-        """
-        Initialize the rate calculator.
-
-        Args:
-            window_size: Number of recent batches to consider for rate calculation
-        """
-        self.window_size = window_size
-        self.batch_times: list[tuple[float, int]] = []  # (timestamp, processed_count)
-
-    def add_batch(self, timestamp: float, processed_count: int) -> None:
-        """
-        Add a batch completion record.
-
-        Args:
-            timestamp: Time when batch was completed
-            processed_count: Cumulative number of items processed
-        """
-        self.batch_times.append((timestamp, processed_count))
-
-        # Keep only recent batches for rate calculation
-        if len(self.batch_times) > self.window_size:
-            self.batch_times.pop(0)
-
-    def get_rate(self, fallback_start_time: float, fallback_processed_count: int) -> float:
-        """
-        Calculate current processing rate based on sliding window.
-
-        Args:
-            fallback_start_time: Start time for fallback rate calculation
-            fallback_processed_count: Total processed count for fallback
-
-        Returns:
-            Processing rate in items per second
-        """
-        if len(self.batch_times) >= 2:
-            # Use time and count span from oldest to newest batch in window
-            oldest_time, oldest_count = self.batch_times[0]
-            newest_time, newest_count = self.batch_times[-1]
-
-            time_span = newest_time - oldest_time
-            count_span = newest_count - oldest_count
-
-            return count_span / max(1, time_span)
-        else:
-            # Fallback to overall rate for first batch
-            current_time = time.time()
-            overall_elapsed = current_time - fallback_start_time
-            return fallback_processed_count / max(1, overall_elapsed)
 
 
 class ProgressReporter:
@@ -636,80 +569,67 @@ class RateLimiter:
         self.last_request_time = time.time()
 
 
-def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool = True) -> None:
-    """
-    Configure logging for all pipeline operations.
+def get_compressed_filename(original_filename: str) -> str:
+    """Get compressed filename by adding .gz extension."""
+    return f"{original_filename}.gz"
+
+
+def compress_file_to_temp(source_path: Path, compression_level: int = DEFAULT_COMPRESSION_LEVEL):
+    """Async context manager that compresses a file to a temporary location with automatic cleanup.
 
     Args:
-        level: Logging level (DEBUG, INFO, WARNING, ERROR)
-        log_file: Optional log file path (defaults to timestamped file in logs/)
-        append: Whether to append to existing log file (default: True)
+        source_path: Path to source file to compress
+        compression_level: Compression level 1-9 (9 = maximum compression)
+
+    Returns:
+        Async context manager yielding Path to the temporary compressed file
+
+    Raises:
+        CompressionError: If compression fails
+        FileNotFoundError: If source file doesn't exist
     """
-    # Create root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, level.upper()))
+    if not source_path.exists():
+        raise FileNotFoundError(f"Source file not found: {source_path}")
 
-    # Clear any existing handlers
-    root_logger.handlers.clear()
+    class AsyncCompressedTempFile:
+        def __init__(self, source: Path):
+            self.source_path = source
 
-    # Suppress debug logging from dependency modules
-    # Set dependency modules to INFO level to reduce noise
-    logging.getLogger("aiosqlite").setLevel(logging.INFO)
-    logging.getLogger("urllib3").setLevel(logging.INFO)
-    logging.getLogger("requests").setLevel(logging.INFO)
-    logging.getLogger("google").setLevel(logging.INFO)
-    logging.getLogger("google.auth").setLevel(logging.INFO)
-    logging.getLogger("google.oauth2").setLevel(logging.INFO)
-    logging.getLogger("asyncio").setLevel(logging.INFO)
-    # Suppress boto3/botocore verbose logging
-    logging.getLogger("boto3").setLevel(logging.WARNING)
-    logging.getLogger("botocore").setLevel(logging.WARNING)
-    logging.getLogger("s3transfer").setLevel(logging.WARNING)
-    logging.getLogger("aioboto3").setLevel(logging.WARNING)
-    logging.getLogger("aiobotocore").setLevel(logging.WARNING)
-    logging.getLogger("s3fs").setLevel(logging.WARNING)
-    # Suppress specific botocore sub-modules
-    logging.getLogger("botocore.hooks").setLevel(logging.WARNING)
-    logging.getLogger("botocore.endpoint").setLevel(logging.WARNING)
-    logging.getLogger("botocore.credentials").setLevel(logging.WARNING)
-    logging.getLogger("botocore.awsrequest").setLevel(logging.WARNING)
-    logging.getLogger("botocore.regions").setLevel(logging.WARNING)
+        async def __aenter__(self):
+            self.temp_file = tempfile.NamedTemporaryFile(suffix=".gz", delete=True)
+            temp_path = Path(self.temp_file.name)
 
-    # Create formatter
-    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+            try:
+                # Get original file size for logging
+                original_size = self.source_path.stat().st_size
 
-    # File handler (auto-generate timestamped filename if not provided)
-    if log_file is None:
-        # Create logs directory using environment variable or default
-        logs_dir = Path(os.environ.get("GRIN_LOG_DIR", "logs"))
-        logs_dir.mkdir(exist_ok=True)
+                # Perform compression in executor to avoid blocking
+                def _compress():
+                    with open(self.source_path, "rb") as f_in:
+                        with gzip.open(temp_path, "wb", compresslevel=compression_level) as f_out:
+                            shutil.copyfileobj(f_in, f_out)
 
-        # Generate timestamped filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = str(logs_dir / f"grin_pipeline_{timestamp}.log")
-    else:
-        # Ensure parent directory exists for custom log file
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
+                import asyncio
 
-    file_handler = logging.FileHandler(str(log_file), mode="a" if append else "w")
-    file_handler.setFormatter(formatter)
-    root_logger.addHandler(file_handler)
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, _compress)
 
-    # Force immediate flushing for file handler
-    def make_flush_func(h):
-        return lambda: h.stream.flush() if hasattr(h, "stream") else None
+                # Get compression stats
+                compressed_size = temp_path.stat().st_size
+                compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
 
-    # Replace flush method - type ignore for dynamic assignment
-    file_handler.flush = make_flush_func(file_handler)  # type: ignore[method-assign]
+                logger.info(
+                    f"Compression completed: {self.source_path.name} "
+                    f"({original_size:,} bytes -> {compressed_size:,} bytes, "
+                    f"{compression_ratio:.1f}% reduction)"
+                )
 
-    # Show user-friendly path (host-relative for Docker)
-    display_path = log_file
-    if is_docker_environment() and log_file.startswith("/app/logs/"):
-        # Convert container path to host path for Docker users
-        display_path = log_file.replace("/app/logs/", "docker-data/logs/")
+                return temp_path
+            except Exception as e:
+                self.temp_file.close()  # Cleanup on error
+                raise e
 
-    print(f"Logging to file: {display_path}\n")
-    logger = logging.getLogger(__name__)
-    logger.info(f"Logging to file: {log_file}")
-    logger.info(f"Logging initialized at {level} level")
+        async def __aexit__(self, exc_type, exc_val, exc_tb):  # noqa: ARG002
+            self.temp_file.close()  # Automatic cleanup
+
+    return AsyncCompressedTempFile(source_path)

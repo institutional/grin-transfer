@@ -13,18 +13,19 @@ import shutil
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypedDict
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.storage.staging import StagingDirectoryManager
 
-from .models import FileResult
-
 logger = logging.getLogger(__name__)
 
 
-class CSVExportResult(FileResult):
+class CSVExportResult(TypedDict):
     """Result dictionary for CSV export and upload operations."""
 
+    status: str
+    file_size: int
     num_rows: int
     export_time: float
 
@@ -74,11 +75,11 @@ async def export_and_upload_csv(
 
     temp_csv_path = None
     try:
-        logger.debug(f"Using staging directory: {staging_manager.staging_path}")
+        logger.debug(f"Using staging directory: {staging_manager.path}")
 
         # Create CSV file in staging directory with proper name
         csv_filename = custom_filename or "books_export.csv"
-        csv_path = staging_manager.staging_path / csv_filename
+        csv_path = staging_manager.path / csv_filename
         temp_csv_path = str(csv_path)
         logger.debug(f"Creating CSV file: {temp_csv_path}")
 

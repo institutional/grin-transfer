@@ -11,10 +11,19 @@ from pathlib import Path
 from typing import Any, NotRequired, TypedDict, cast
 
 # Sync configuration defaults
-DEFAULT_SYNC_CONCURRENT_DOWNLOADS = 5
-DEFAULT_SYNC_CONCURRENT_UPLOADS = 10
 DEFAULT_SYNC_BATCH_SIZE = 100
 DEFAULT_SYNC_DISK_SPACE_THRESHOLD = 0.9
+
+# Task concurrency defaults
+DEFAULT_SYNC_TASK_CHECK_CONCURRENCY = 5
+DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY = 2
+DEFAULT_SYNC_TASK_DECRYPT_CONCURRENCY = 2
+DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY = 3
+DEFAULT_SYNC_TASK_UNPACK_CONCURRENCY = 2
+DEFAULT_SYNC_TASK_EXTRACT_MARC_CONCURRENCY = 2
+DEFAULT_SYNC_TASK_EXTRACT_OCR_CONCURRENCY = 2
+DEFAULT_SYNC_TASK_EXPORT_CSV_CONCURRENCY = 2
+DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY = 1
 
 
 class StorageConfigDict(TypedDict, total=False):
@@ -111,6 +120,7 @@ class RunConfig:
         # Fill in protocol if missing (only field we auto-derive)
         if "protocol" not in stored_config:
             from .storage.factories import get_storage_protocol
+
             stored_config["protocol"] = get_storage_protocol(stored_config["type"])
         if "config" not in stored_config:
             stored_config["config"] = {}
@@ -138,11 +148,6 @@ class RunConfig:
         return self.storage_config["config"].get("bucket_full")
 
     @property
-    def limit(self) -> int | None:
-        """Get the limit parameter."""
-        return self.config_dict.get("limit")
-
-    @property
     def log_file(self) -> str:
         """Get the unified log file path."""
         return self.config_dict["log_file"]
@@ -153,14 +158,63 @@ class RunConfig:
         return self.config_dict.get("sync_config", {})
 
     @property
-    def sync_concurrent_downloads(self) -> int:
-        """Get the concurrent downloads setting for sync operations."""
-        return self.sync_config.get("concurrent_downloads", DEFAULT_SYNC_CONCURRENT_DOWNLOADS)
+    def sync_task_check_concurrency(self) -> int:
+        """Get the check task concurrency setting."""
+        return self.sync_config.get("task_check_concurrency", DEFAULT_SYNC_TASK_CHECK_CONCURRENCY)
 
     @property
-    def sync_concurrent_uploads(self) -> int:
-        """Get the concurrent uploads setting for sync operations."""
-        return self.sync_config.get("concurrent_uploads", DEFAULT_SYNC_CONCURRENT_UPLOADS)
+    def sync_task_download_concurrency(self) -> int:
+        """Get the download task concurrency setting."""
+        return self.sync_config.get("task_download_concurrency", DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY)
+
+    @property
+    def sync_task_decrypt_concurrency(self) -> int:
+        """Get the decrypt task concurrency setting."""
+        return self.sync_config.get("task_decrypt_concurrency", DEFAULT_SYNC_TASK_DECRYPT_CONCURRENCY)
+
+    @property
+    def sync_task_upload_concurrency(self) -> int:
+        """Get the upload task concurrency setting."""
+        return self.sync_config.get("task_upload_concurrency", DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY)
+
+    @property
+    def sync_task_unpack_concurrency(self) -> int:
+        """Get the unpack task concurrency setting."""
+        return self.sync_config.get("task_unpack_concurrency", DEFAULT_SYNC_TASK_UNPACK_CONCURRENCY)
+
+    @property
+    def sync_task_extract_marc_concurrency(self) -> int:
+        """Get the MARC extraction task concurrency setting."""
+        return self.sync_config.get("task_extract_marc_concurrency", DEFAULT_SYNC_TASK_EXTRACT_MARC_CONCURRENCY)
+
+    @property
+    def sync_task_extract_ocr_concurrency(self) -> int:
+        """Get the OCR extraction task concurrency setting."""
+        return self.sync_config.get("task_extract_ocr_concurrency", DEFAULT_SYNC_TASK_EXTRACT_OCR_CONCURRENCY)
+
+    @property
+    def sync_task_export_csv_concurrency(self) -> int:
+        """Get the CSV export task concurrency setting."""
+        return self.sync_config.get("task_export_csv_concurrency", DEFAULT_SYNC_TASK_EXPORT_CSV_CONCURRENCY)
+
+    @property
+    def sync_task_cleanup_concurrency(self) -> int:
+        """Get the cleanup task concurrency setting."""
+        return self.sync_config.get("task_cleanup_concurrency", DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY)
+
+    def get_task_concurrency_limits(self) -> dict[str, int]:
+        """Get all task concurrency limits as a dictionary."""
+        return {
+            "task_check_concurrency": self.sync_task_check_concurrency,
+            "task_download_concurrency": self.sync_task_download_concurrency,
+            "task_decrypt_concurrency": self.sync_task_decrypt_concurrency,
+            "task_upload_concurrency": self.sync_task_upload_concurrency,
+            "task_unpack_concurrency": self.sync_task_unpack_concurrency,
+            "task_extract_marc_concurrency": self.sync_task_extract_marc_concurrency,
+            "task_extract_ocr_concurrency": self.sync_task_extract_ocr_concurrency,
+            "task_export_csv_concurrency": self.sync_task_export_csv_concurrency,
+            "task_cleanup_concurrency": self.sync_task_cleanup_concurrency,
+        }
 
     @property
     def sync_batch_size(self) -> int:
@@ -176,7 +230,6 @@ class RunConfig:
     def sync_disk_space_threshold(self) -> float:
         """Get the disk space threshold setting for sync operations."""
         return self.sync_config.get("disk_space_threshold", DEFAULT_SYNC_DISK_SPACE_THRESHOLD)
-
 
     def get_storage_args(self) -> dict[str, str]:
         """Get storage arguments suitable for command line scripts."""
@@ -304,10 +357,6 @@ def apply_run_config_to_args(args: Any, db_path: str) -> None:
     if hasattr(args, "secrets_dir") and not getattr(args, "secrets_dir", None):
         args.secrets_dir = config.secrets_dir
 
-    # Apply limit if not set
-    if hasattr(args, "limit") and not getattr(args, "limit", None):
-        args.limit = config.limit
-
     # Apply storage configuration if not set
     storage_args = config.get_storage_args()
     for arg_name, value in storage_args.items():
@@ -352,8 +401,16 @@ def print_run_config_info(db_path: str) -> None:
 
         if config.sync_config:
             print("  Sync Configuration:")
-            print(f"    Concurrent Downloads: {config.sync_concurrent_downloads}")
-            print(f"    Concurrent Uploads: {config.sync_concurrent_uploads}")
+            print("    Task Concurrency Limits:")
+            print(f"      Check: {config.sync_task_check_concurrency}")
+            print(f"      Download: {config.sync_task_download_concurrency}")
+            print(f"      Decrypt: {config.sync_task_decrypt_concurrency}")
+            print(f"      Upload: {config.sync_task_upload_concurrency}")
+            print(f"      Unpack: {config.sync_task_unpack_concurrency}")
+            print(f"      Extract MARC: {config.sync_task_extract_marc_concurrency}")
+            print(f"      Extract OCR: {config.sync_task_extract_ocr_concurrency}")
+            print(f"      Export CSV: {config.sync_task_export_csv_concurrency}")
+            print(f"      Cleanup: {config.sync_task_cleanup_concurrency}")
             print(f"    Batch Size: {config.sync_batch_size}")
             print(f"    Disk Space Threshold: {config.sync_disk_space_threshold}")
             if config.sync_staging_dir:

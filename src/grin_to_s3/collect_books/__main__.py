@@ -18,15 +18,15 @@ from .collector import BookCollector
 from .config import ConfigManager
 
 sys.path.append("..")
-from grin_to_s3.common import (
+from grin_to_s3.logging_config import (
     setup_logging,
 )
 from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
 from grin_to_s3.run_config import (
     DEFAULT_SYNC_BATCH_SIZE,
-    DEFAULT_SYNC_CONCURRENT_DOWNLOADS,
-    DEFAULT_SYNC_CONCURRENT_UPLOADS,
     DEFAULT_SYNC_DISK_SPACE_THRESHOLD,
+    DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY,
+    DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY,
     build_storage_config_dict,
 )
 from grin_to_s3.storage import get_storage_protocol
@@ -210,16 +210,16 @@ Examples:
 
     # Sync configuration options (stored in run config for later use)
     parser.add_argument(
-        "--sync-concurrent-downloads",
+        "--sync-task-download-concurrency",
         type=int,
-        default=DEFAULT_SYNC_CONCURRENT_DOWNLOADS,
-        help=f"Concurrent downloads for sync operations (default: {DEFAULT_SYNC_CONCURRENT_DOWNLOADS})",
+        default=DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY,
+        help=f"Download task concurrency for sync operations (default: {DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY})",
     )
     parser.add_argument(
-        "--sync-concurrent-uploads",
+        "--sync-task-upload-concurrency",
         type=int,
-        default=DEFAULT_SYNC_CONCURRENT_UPLOADS,
-        help=f"Concurrent uploads for sync operations (default: {DEFAULT_SYNC_CONCURRENT_UPLOADS})",
+        default=DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY,
+        help=f"Upload task concurrency for sync operations (default: {DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY})",
     )
     parser.add_argument(
         "--sync-batch-size",
@@ -260,7 +260,6 @@ Examples:
 
     # Extract the actual identifier from run_name (remove "run_" prefix if present)
     run_identifier = run_name.removeprefix("run_") if run_name.startswith("run_") else run_name
-
 
     # Generate timestamp for output files (not resume files)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -318,8 +317,8 @@ Examples:
 
         # Build sync configuration from CLI arguments
         sync_config = {
-            "concurrent_downloads": args.sync_concurrent_downloads,
-            "concurrent_uploads": args.sync_concurrent_uploads,
+            "task_download_concurrency": args.sync_task_download_concurrency,
+            "task_upload_concurrency": args.sync_task_upload_concurrency,
             "batch_size": args.sync_batch_size,
             "staging_dir": args.sync_staging_dir,
             "disk_space_threshold": args.sync_disk_space_threshold,
@@ -338,7 +337,6 @@ Examples:
                 "storage_config": storage_config,
                 "sync_config": sync_config,
                 "secrets_dir": args.secrets_dir,
-                "limit": args.limit,
             }
         )
 
@@ -427,8 +425,8 @@ Examples:
 
             # Build sync configuration from CLI arguments
             sync_config = {
-                "concurrent_downloads": args.sync_concurrent_downloads,
-                "concurrent_uploads": args.sync_concurrent_uploads,
+                "task_download_concurrency": args.sync_task_download_concurrency,
+                "task_upload_concurrency": args.sync_task_upload_concurrency,
                 "batch_size": args.sync_batch_size,
                 "staging_dir": args.sync_staging_dir,
                 "disk_space_threshold": args.sync_disk_space_threshold,
@@ -447,7 +445,6 @@ Examples:
                     "storage_config": storage_config,
                     "sync_config": sync_config,
                     "secrets_dir": args.secrets_dir,
-                    "limit": args.limit,
                 }
             )
 
@@ -505,8 +502,6 @@ Examples:
             # Always end the stage and save summary
             run_summary.end_stage("collect")
             await save_process_summary(run_summary, book_manager)
-
-        return 0
 
     except Exception as e:
         if isinstance(e, KeyboardInterrupt):

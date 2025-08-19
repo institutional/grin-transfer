@@ -10,16 +10,8 @@ import json
 import logging
 import re
 import tarfile
-import time
 from collections.abc import Iterator
 from pathlib import Path
-
-from ..database_utils import batch_write_status_updates
-from .tracking import (
-    track_completion_collect,
-    track_failure_collect,
-    track_start_collect,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -47,95 +39,6 @@ class InvalidPageFormatError(TextExtractionError):
     """Raised when page files have invalid naming format."""
 
     pass
-
-
-async def extract_ocr_pages(
-    extracted_dir_path: str,
-    db_path: str,
-    session_id: str,
-    output_file: str,
-) -> int:
-    """
-    Extract OCR page texts from extracted archive directory to JSONL file.
-
-    Processes sequential page files (00000001.txt, 00000002.txt, etc.) from
-    Google Books archives, sorts by page number, and handles missing pages
-    by inserting empty strings at correct indices.
-
-    Args:
-        extracted_dir_path: Path to extracted archive directory (not .tar.gz file)
-        db_path: Path to SQLite database for tracking extraction status
-        session_id: Session ID for grouping related operations
-        output_file: Path to write pages as JSONL file
-        keep_extracted: Whether to keep extracted files after processing (default False).
-
-    Returns:
-        Number of pages written to JSONL file
-        Missing pages are represented as empty strings
-
-    Raises:
-        TextExtractionError: When extraction fails
-        CorruptedArchiveError: When archive cannot be opened
-        InvalidPageFormatError: When page files have invalid format
-    """
-    extracted_dir_obj = Path(extracted_dir_path)
-
-    # Set up tracking variables for database operations
-    barcode = extracted_dir_obj.name.replace("_extracted", "")
-
-    # Collect status updates for batching
-    status_updates = []
-
-    # Track extraction start
-    status_updates.append(track_start_collect(barcode, session_id))
-    start_time = time.time()
-
-    if not extracted_dir_obj.exists():
-        error = TextExtractionError(f"Extracted directory not found: {extracted_dir_path}")
-        status_updates.append(track_failure_collect(barcode, error, session_id))
-        await batch_write_status_updates(db_path, status_updates)
-        raise error
-
-    if not extracted_dir_obj.is_dir():
-        error = TextExtractionError(f"Expected directory, got file: {extracted_dir_path}")
-        status_updates.append(track_failure_collect(barcode, error, session_id))
-        await batch_write_status_updates(db_path, status_updates)
-        raise error
-
-    logger.debug(f"Starting OCR text extraction from {extracted_dir_path} (filesystem access)")
-
-    try:
-        # Write to JSONL file using streaming to avoid loading all pages into memory
-        output_path_obj = Path(output_file)
-        output_path_obj.parent.mkdir(parents=True, exist_ok=True)
-
-        page_count = _extract_ocr_to_jsonl_file(extracted_dir_path, output_path_obj)
-
-        # Track completion
-        extraction_time_ms = int((time.time() - start_time) * 1000)
-        file_size = Path(output_file).stat().st_size
-        status_updates.append(
-            track_completion_collect(
-                barcode,
-                page_count,
-                extraction_time_ms,
-                session_id,
-                file_size,
-                str(output_file),
-            )
-        )
-
-        # Write all status updates
-        await batch_write_status_updates(db_path, status_updates)
-
-        return page_count
-
-    except Exception as e:
-        status_updates.append(track_failure_collect(barcode, e, session_id))
-        await batch_write_status_updates(db_path, status_updates)
-        if isinstance(e, TextExtractionError):
-            raise
-        raise TextExtractionError(f"Unexpected error during extraction: {e}") from e
 
 
 def _validate_and_finalize_extraction(
@@ -261,7 +164,7 @@ def _page_content_generator(archive_path: str) -> Iterator[tuple[int, str]]:
             expected_page = page_num + 1
 
 
-def _filesystem_page_generator(extracted_dir_path: str):
+def filesystem_page_generator(extracted_dir: Path):
     """
     Generator that yields (page_number, content) tuples from filesystem.
 
@@ -271,13 +174,12 @@ def _filesystem_page_generator(extracted_dir_path: str):
         TextExtractionError: If no .txt files found
         InvalidPageFormatError: If no valid page files found
     """
-    extracted_dir = Path(extracted_dir_path)
 
     # Find all .txt files and sort by page number
     txt_files = list(extracted_dir.glob("**/*.txt"))
 
     if not txt_files:
-        raise TextExtractionError(f"No .txt files found in {extracted_dir_path}")
+        raise TextExtractionError(f"No .txt files found in {extracted_dir}")
 
     page_files = []
 
@@ -289,7 +191,7 @@ def _filesystem_page_generator(extracted_dir_path: str):
             logger.warning(f"Skipping file with invalid page format: {txt_file.name}")
 
     if not page_files:
-        raise InvalidPageFormatError(f"No valid page files found in {extracted_dir_path}")
+        raise InvalidPageFormatError(f"No valid page files found in {extracted_dir}")
 
     # Sort by page number
     page_files.sort(key=lambda x: x[0])
@@ -307,7 +209,6 @@ def _filesystem_page_generator(extracted_dir_path: str):
             with open(txt_file, encoding="utf-8", errors="replace") as page_file:
                 content = page_file.read()
             yield (page_num, content)
-            logger.debug(f"Processed page {page_num}: {len(content):,} characters")
         except Exception as e:
             logger.warning(f"Error reading {txt_file.name}: {e}")
             yield (page_num, "")
@@ -315,7 +216,7 @@ def _filesystem_page_generator(extracted_dir_path: str):
         expected_page = page_num + 1
 
 
-def _extract_ocr_to_jsonl_file(extracted_dir_path: str, output_path: Path) -> int:
+def extract_ocr_to_jsonl_file(extracted_dir_path: Path, output_path: Path) -> int:
     """
     Extract OCR text to JSONL file using streaming from filesystem to minimize memory usage.
 
@@ -327,11 +228,13 @@ def _extract_ocr_to_jsonl_file(extracted_dir_path: str, output_path: Path) -> in
 
     Returns:
         Number of pages processed
+
+    FIXME DEPRECATED
     """
     with open(output_path, "w", encoding="utf-8") as f:
         page_count = 0
 
-        for page_num, content in _filesystem_page_generator(extracted_dir_path):
+        for page_num, content in filesystem_page_generator(extracted_dir_path):
             # Write the JSON-encoded content as a single line
             f.write(json.dumps(content, ensure_ascii=False) + "\n")
             page_count += 1
@@ -342,4 +245,25 @@ def _extract_ocr_to_jsonl_file(extracted_dir_path: str, output_path: Path) -> in
                 )
 
     logger.debug(f"OCR text saved to JSONL file (streaming filesystem): {output_path} ({page_count} pages)")
+    return page_count
+
+
+async def extract_ocr_pages(unpack_data: dict, jsonl_path: Path) -> int:
+    """
+    Extract OCR text from unpacked archive to JSONL file.
+
+    Args:
+        unpack_data: Dictionary containing 'unpacked_path' key with Path to extracted directory
+        jsonl_path: Path to output JSONL file
+
+    Returns:
+        Number of pages processed
+    """
+    with open(jsonl_path, "w", encoding="utf-8") as f:
+        page_count = 0
+
+        for _, content in filesystem_page_generator(unpack_data["unpacked_path"]):
+            # Write the JSON-encoded content as a single line
+            f.write(json.dumps(content, ensure_ascii=False) + "\n")
+            page_count += 1
     return page_count

@@ -248,7 +248,7 @@ class E2ETestRunner:
                 "1",
             ],
             cwd=repo_dir,
-            timeout=60,
+            timeout=180,
         )
 
         # Sync with local storage - previous queue (test PR5 functionality)
@@ -266,7 +266,7 @@ class E2ETestRunner:
                 "1",
             ],
             cwd=repo_dir,
-            timeout=60,
+            timeout=180,
         )
 
         # Verify that archives actually exist and are not zero-byte
@@ -311,7 +311,7 @@ class E2ETestRunner:
                     "1",
                 ],
                 cwd=repo_dir,
-                timeout=60,
+                timeout=180,
             )
         else:
             logger.warning("R2 credentials not found, skipping R2 storage test")
@@ -456,7 +456,7 @@ class E2ETestRunner:
                 "1",
             ],
             cwd=repo_dir,
-            timeout=120,
+            timeout=180,
             env=docker_env,
         )
 

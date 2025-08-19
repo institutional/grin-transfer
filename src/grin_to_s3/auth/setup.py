@@ -198,7 +198,7 @@ If you don't have a client_secret.json file, follow these steps to create one:
                         self.end_headers()
                         self.wfile.write(b"<html><body><h1>Invalid request</h1></body></html>")
 
-                def log_message(self, format, *args):
+                def log_message(self, _format, *_args):
                     # Suppress log messages
                     pass
 

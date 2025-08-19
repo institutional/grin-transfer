@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from grin_to_s3.sync.database_backup import create_local_database_backup, upload_database_to_storage
+from grin_to_s3.database.database_backup import create_local_database_backup, upload_database_to_storage
 
 
 @pytest.mark.asyncio
@@ -67,7 +67,7 @@ async def test_upload_database_to_storage_latest():
     # Mock setup
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager._meta_path.return_value = "meta/books_latest.db.gz"
+    mock_book_manager.meta_path.return_value = "meta/books_latest.db.gz"
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
@@ -77,9 +77,7 @@ async def test_upload_database_to_storage_latest():
         db_path.write_text("mock database content")
 
         # Upload as latest
-        result = await upload_database_to_storage(
-            str(db_path), mock_book_manager, staging_manager=None, upload_type="latest"
-        )
+        result = await upload_database_to_storage(str(db_path), mock_book_manager, upload_type="latest")
 
         assert result["status"] == "completed"
         assert result["backup_filename"] == "books_latest.db.gz"
@@ -94,7 +92,7 @@ async def test_upload_database_to_storage_timestamped():
     # Mock setup
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager._meta_path.return_value = "meta/database_backups/books_backup_20240101_120000.db.gz"
+    mock_book_manager.meta_path.return_value = "meta/database_backups/books_backup_20240101_120000.db.gz"
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
@@ -104,9 +102,7 @@ async def test_upload_database_to_storage_timestamped():
         db_path.write_text("mock database content")
 
         # Upload as timestamped backup
-        result = await upload_database_to_storage(
-            str(db_path), mock_book_manager, staging_manager=None, upload_type="timestamped"
-        )
+        result = await upload_database_to_storage(str(db_path), mock_book_manager, upload_type="timestamped")
 
         assert result["status"] == "completed"
         assert "books_backup_" in result["backup_filename"]
@@ -117,31 +113,22 @@ async def test_upload_database_to_storage_timestamped():
 
 
 @pytest.mark.asyncio
-async def test_upload_database_to_storage_with_staging():
-    """Test database upload using staging manager."""
+async def test_upload_database_to_storage_compression_cleanup():
+    """Test database upload handles temporary compression files correctly."""
     # Mock setup
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager._meta_path.return_value = "meta/books_latest.db.gz"
+    mock_book_manager.meta_path.return_value = "meta/books_latest.db.gz"
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
-
-    mock_staging_manager = Mock()
 
     with tempfile.TemporaryDirectory() as temp_dir:
         # Create mock database file
         db_path = Path(temp_dir) / "test.db"
         db_path.write_text("mock database content")
 
-        # Create staging directory
-        staging_dir = Path(temp_dir) / "staging"
-        staging_dir.mkdir()
-        mock_staging_manager.staging_path = staging_dir
-
-        # Upload using staging
-        result = await upload_database_to_storage(
-            str(db_path), mock_book_manager, staging_manager=mock_staging_manager, upload_type="latest"
-        )
+        # Upload database
+        result = await upload_database_to_storage(str(db_path), mock_book_manager, upload_type="latest")
 
         assert result["status"] == "completed"
         assert result["backup_filename"] == "books_latest.db.gz"
@@ -149,11 +136,8 @@ async def test_upload_database_to_storage_with_staging():
         assert result["compressed_size"] > 0
         mock_storage.write_file.assert_called_once()
 
-        # Verify no staging files remain (compressed temp files are cleaned up)
-        db_files = list(staging_dir.glob("*.db"))
-        gz_files = list(staging_dir.glob("*.gz"))
-        assert len(db_files) == 0
-        assert len(gz_files) == 0
+        # Verify temporary compression files are cleaned up automatically
+        # (compress_file_to_temp context manager handles cleanup)
 
 
 @pytest.mark.asyncio
@@ -161,9 +145,7 @@ async def test_upload_database_to_storage_missing_file():
     """Test database upload with missing file."""
     mock_book_manager = Mock()
 
-    result = await upload_database_to_storage(
-        "/nonexistent/path.db", mock_book_manager, staging_manager=None, upload_type="latest"
-    )
+    result = await upload_database_to_storage("/nonexistent/path.db", mock_book_manager, upload_type="latest")
 
     assert result["status"] == "skipped"
     assert result["file_size"] == 0
@@ -176,7 +158,7 @@ async def test_upload_database_to_storage_upload_error():
     # Mock setup with failing storage
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager._meta_path.return_value = "meta/books_latest.db.gz"
+    mock_book_manager.meta_path.return_value = "meta/books_latest.db.gz"
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock(side_effect=Exception("Storage error"))
 
@@ -186,130 +168,8 @@ async def test_upload_database_to_storage_upload_error():
         db_path.write_text("mock database content")
 
         # Upload should fail
-        result = await upload_database_to_storage(
-            str(db_path), mock_book_manager, staging_manager=None, upload_type="latest"
-        )
+        result = await upload_database_to_storage(str(db_path), mock_book_manager, upload_type="latest")
 
         assert result["status"] == "failed"
         assert result["backup_filename"] == "books_latest.db.gz"  # Filename set before failure
         assert result["file_size"] > 0  # File size calculated before failure
-
-
-@pytest.mark.asyncio
-async def test_cleanup_local_backup_after_upload():
-    """Test that local backup files are cleaned up after successful upload when using block storage."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Create mock database file
-        db_path = Path(temp_dir) / "test.db"
-        db_path.write_text("mock database content")
-
-        # Create mock backup directory and backup file
-        backup_dir = db_path.parent / "backups"
-        backup_dir.mkdir()
-        backup_file = backup_dir / "test_backup_20240101_120000.db"
-        backup_file.write_text("backup content")
-
-        # Import here to avoid circular imports in tests
-        from grin_to_s3.sync.pipeline import SyncPipeline
-
-        # Create minimal mock pipeline instance with block storage
-        pipeline = Mock()
-        pipeline.db_path = str(db_path)
-        pipeline.staging_manager = Mock()  # Non-None indicates block storage
-
-        # Call the cleanup method (need to bind it to the mock)
-        cleanup_method = SyncPipeline._cleanup_local_backup.__get__(pipeline, SyncPipeline)
-        await cleanup_method(backup_file.name)
-
-        # Verify backup file was removed
-        assert not backup_file.exists()
-
-
-@pytest.mark.asyncio
-async def test_backup_database_conditional_cleanup():
-    """Test that the backup process conditionally cleans up based on storage type."""
-    from unittest.mock import AsyncMock, patch
-
-    # Test with block storage (should cleanup)
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = Path(temp_dir) / "test.db"
-        db_path.write_text("mock database content")
-
-        # Import here to avoid circular imports in tests
-        from grin_to_s3.sync.pipeline import SyncPipeline
-
-        # Create pipeline with block storage
-        pipeline = Mock()
-        pipeline.db_path = str(db_path)
-        pipeline.staging_manager = Mock()  # Non-None indicates block storage
-        pipeline.skip_database_backup = False
-        pipeline.uses_block_storage = True
-
-        # Mock the methods we'll call
-        with (
-            patch("grin_to_s3.sync.pipeline.create_local_database_backup") as mock_create,
-            patch("grin_to_s3.sync.pipeline.upload_database_to_storage") as mock_upload,
-        ):
-            mock_create.return_value = {"status": "completed", "backup_filename": "test_backup.db"}
-            mock_upload.return_value = {"status": "completed", "backup_filename": "test_backup.db.gz"}
-
-            with patch.object(pipeline, "_cleanup_local_backup", new=AsyncMock()) as mock_cleanup:
-                # Call the actual backup method
-                backup_method = SyncPipeline._backup_database_at_start.__get__(pipeline, SyncPipeline)
-                await backup_method()
-
-                # Verify cleanup was called for block storage
-                mock_cleanup.assert_called_once_with("test_backup.db")
-
-    # Test with local storage (should NOT cleanup)
-    with tempfile.TemporaryDirectory() as temp_dir:
-        db_path = Path(temp_dir) / "test.db"
-        db_path.write_text("mock database content")
-
-        # Create pipeline with local storage
-        pipeline = Mock()
-        pipeline.db_path = str(db_path)
-        pipeline.staging_manager = None  # None indicates local storage
-        pipeline.skip_database_backup = False
-        pipeline.uses_block_storage = False
-
-        with (
-            patch("grin_to_s3.sync.pipeline.create_local_database_backup") as mock_create,
-            patch("grin_to_s3.sync.pipeline.upload_database_to_storage") as mock_upload,
-        ):
-            mock_create.return_value = {"status": "completed", "backup_filename": "test_backup.db"}
-            mock_upload.return_value = {"status": "completed", "backup_filename": "test_backup.db.gz"}
-
-            with patch.object(pipeline, "_cleanup_local_backup", new=AsyncMock()) as mock_cleanup:
-                # Call the actual backup method
-                backup_method = SyncPipeline._backup_database_at_start.__get__(pipeline, SyncPipeline)
-                await backup_method()
-
-                # Verify cleanup was NOT called for local storage
-                mock_cleanup.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_cleanup_handles_missing_backup_file():
-    """Test that cleanup handles missing backup files gracefully."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Create mock database file
-        db_path = Path(temp_dir) / "test.db"
-        db_path.write_text("mock database content")
-
-        # Create backup directory but no backup file
-        backup_dir = db_path.parent / "backups"
-        backup_dir.mkdir()
-
-        # Import here to avoid circular imports in tests
-        from grin_to_s3.sync.pipeline import SyncPipeline
-
-        # Create minimal mock pipeline instance
-        pipeline = Mock()
-        pipeline.db_path = str(db_path)
-
-        # Call cleanup with non-existent file
-        cleanup_method = SyncPipeline._cleanup_local_backup.__get__(pipeline, SyncPipeline)
-        await cleanup_method("nonexistent_backup.db")
-
-        # Should not raise exception (graceful handling tested via no exception)

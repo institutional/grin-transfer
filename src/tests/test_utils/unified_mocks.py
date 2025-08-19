@@ -25,16 +25,18 @@ from tests.utils import create_test_archive
 # Mock Creation Functions
 # =============================================================================
 
-def standard_storage_config(storage_type: str = "local", bucket_raw: str = "test-raw", bucket_meta: str = "test-meta", bucket_full: str = "test-full") -> StorageConfig:
+
+def standard_storage_config(
+    storage_type: str = "local",
+    bucket_raw: str = "test-raw",
+    bucket_meta: str = "test-meta",
+    bucket_full: str = "test-full",
+) -> StorageConfig:
     """Standard storage configuration"""
     return {
         "type": storage_type,
         "protocol": storage_type,
-        "config": {
-            "bucket_raw": bucket_raw,
-            "bucket_meta": bucket_meta,
-            "bucket_full": bucket_full
-        }
+        "config": {"bucket_raw": bucket_raw, "bucket_meta": bucket_meta, "bucket_full": bucket_full},
     }
 
 
@@ -137,9 +139,9 @@ def create_book_manager_mock(
     def meta_path(filename: str) -> str:
         if base_prefix:
             return f"{mock_book_manager.bucket_meta}/{base_prefix}/{filename}"
-        return f"{mock_book_manager.bucket_meta }/{filename}"
+        return f"{mock_book_manager.bucket_meta}/{filename}"
 
-    mock_book_manager._meta_path = meta_path
+    mock_book_manager.meta_path = meta_path
 
     # BookManager methods delegate to the underlying storage
     # This reflects the real BookManager architecture where it wraps a Storage object
@@ -462,4 +464,3 @@ def create_progress_tracker_with_db_mock(db_path: str) -> MagicMock:
 def standard_bucket_config() -> dict[str, str]:
     """Standard bucket configuration for tests."""
     return {"bucket_raw": "test-raw", "bucket_meta": "test-meta", "bucket_full": "test-full"}
-

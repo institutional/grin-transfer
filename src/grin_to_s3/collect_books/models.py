@@ -16,7 +16,7 @@ from typing import Any
 import aiosqlite
 
 from ..database import connect_async
-from ..database_utils import retry_database_operation
+from ..database.database_utils import retry_database_operation
 
 logger = logging.getLogger(__name__)
 
@@ -267,10 +267,7 @@ class BoundedSet:
 
 class SQLiteProgressTracker:
     """
-    SQLite-based progress tracker that avoids memory leaks from large barcode sets.
-
-    Stores processed and failed barcodes in a SQLite database with O(log n) lookups.
-    Maintains minimal memory footprint regardless of dataset size.
+    SQLite-based progress tracker.
     """
 
     def __init__(self, db_path: str = "output/default/books.db", cache_size: int = 10000):
@@ -1171,4 +1168,15 @@ class SQLiteProgressTracker:
         return await self._execute_barcode_query(
             "SELECT DISTINCT barcode FROM book_status_history WHERE status_type = ? AND status_value = ?",
             (status_type, status_value),
+        )
+
+    async def get_synced_books(self, storage_type: str) -> set[str]:
+        """Get set of barcodes that are already synced (completed status in book_status_history)."""
+        return await self._execute_barcode_query(
+            """
+            SELECT DISTINCT barcode
+            FROM book_status_history
+            WHERE status_type = 'sync' AND status_value = 'completed'
+            """,
+            (),
         )

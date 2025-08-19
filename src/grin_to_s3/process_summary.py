@@ -16,7 +16,7 @@ from typing import Any
 
 import aiofiles
 
-from .compression import compress_file_to_temp, get_compressed_filename
+from .common import compress_file_to_temp, get_compressed_filename
 
 logger = logging.getLogger(__name__)
 
@@ -326,7 +326,7 @@ class RunSummaryManager:
             # Generate storage path for compressed process summary
             base_filename = f"process_summary_{self.run_name}.json"
             compressed_filename = get_compressed_filename(base_filename)
-            storage_path = self._book_manager._meta_path(compressed_filename)
+            storage_path = self._book_manager.meta_path(compressed_filename)
 
             # Get original file size for logging
             original_size = self.summary_file.stat().st_size

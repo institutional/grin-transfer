@@ -1,105 +1,171 @@
 #!/usr/bin/env python3
 """
-Sync Teardown Operations
+Teardown Operations for Sync Pipeline
 
-Standalone functions for handling post-sync operations and status updates
-without mutating external state.
+Handles batch-level operations that run after book processing completes,
+including final database upload and staging cleanup.
 """
 
 import logging
-from copy import deepcopy
-from typing import Any
+import shutil
+import time
+from pathlib import Path
+from typing import TYPE_CHECKING
 
-from grin_to_s3.database_utils import batch_write_status_updates
-from grin_to_s3.extract.tracking import StatusUpdate
+if TYPE_CHECKING:
+    from grin_to_s3.sync.pipeline import SyncPipeline
 
-from .models import SyncStats
+from ..database.database_backup import upload_database_to_storage
+from .tasks.task_types import (
+    FinalDatabaseUploadData,
+    FinalDatabaseUploadResult,
+    StagingCleanupData,
+    StagingCleanupResult,
+    TaskAction,
+    TaskType,
+)
 
 logger = logging.getLogger(__name__)
 
 
-async def process_skip_result_teardown(
-    barcode: str,
-    sync_status_updates: list[StatusUpdate],
-    db_path: str,
-    current_stats: SyncStats,
-) -> tuple[dict[str, Any], SyncStats]:
-    """
-    Process skip result and return status dictionary and updated stats copy.
+async def run_final_database_upload(pipeline: "SyncPipeline") -> FinalDatabaseUploadResult:
+    """Upload final database state as latest version to storage."""
+    if pipeline.dry_run:
+        logger.debug("Final database upload skipped in dry-run mode")
+        return FinalDatabaseUploadResult(
+            task_type=TaskType.FINAL_DATABASE_UPLOAD,
+            action=TaskAction.SKIPPED,
+            reason="skip_database_backup_flag",
+        )
 
-    Does not mutate the input stats dictionary - returns a copy with updates.
-    Handles database writes for status updates.
+    if not pipeline.uses_block_storage:
+        logger.debug("Final database upload skipped for local storage")
+        return FinalDatabaseUploadResult(
+            task_type=TaskType.FINAL_DATABASE_UPLOAD,
+            action=TaskAction.SKIPPED,
+            reason="skip_database_backup_flag",
+        )
 
-    Args:
-        barcode: Book barcode that was skipped
-        sync_status_updates: List of status updates from etag check
-        db_path: Database path for writing status updates
-        current_stats: Current statistics dictionary (not mutated)
-
-    Returns:
-        Tuple of (status_dict, updated_stats_copy)
-    """
-    # Create a copy of stats to avoid mutation
-    updated_stats = deepcopy(current_stats)
-
-    # Write sync status updates for books that don't need download
-    if sync_status_updates:
-        try:
-            await batch_write_status_updates(db_path, sync_status_updates)
-        except Exception as e:
-            logger.warning(f"[{barcode}] Failed to write status updates: {e}")
-
-    # Check the first status update to determine the result type
-    status_value = sync_status_updates[0].status_value if sync_status_updates else "unknown"
-    conversion_status = (
-        sync_status_updates[0].metadata.get("conversion_status")
-        if sync_status_updates and sync_status_updates[0].metadata
-        else None
+    logger.info("Uploading final database as latest version...")
+    upload_result = await upload_database_to_storage(
+        pipeline.db_path,
+        pipeline.book_manager,
+        upload_type="latest",
     )
 
-    if status_value == "completed" and conversion_status == "requested":
-        updated_stats["conversion_requested"] += 1
-        return {
-            "barcode": barcode,
-            "download_success": False,
-            "completed": True,
-            "conversion_requested": True,
-        }, updated_stats
-    elif status_value == "completed" and conversion_status == "in_process":
-        updated_stats["conversion_requested"] += 1  # Count in_process as conversion_requested in stats
-        return {
-            "barcode": barcode,
-            "download_success": False,
-            "completed": True,
-            "already_in_process": True,
-        }, updated_stats
-    elif status_value == "marked_unavailable":
-        updated_stats["marked_unavailable"] += 1
-        return {
-            "barcode": barcode,
-            "download_success": False,
-            "marked_unavailable": True,
-        }, updated_stats
-    elif (
-        status_value == "skipped"
-        and sync_status_updates[0].metadata
-        and sync_status_updates[0].metadata.get("skip_reason") == "conversion_limit_reached"
-    ):
-        updated_stats["skipped_conversion_limit"] += 1
-        updated_stats["skipped"] += 1
-        return {
-            "barcode": barcode,
-            "download_success": False,
-            "skipped": True,
-            "conversion_limit_reached": True,
-        }, updated_stats
-    else:
-        # Default ETag match or other skip
-        updated_stats["skipped_etag_match"] += 1
-        updated_stats["skipped"] += 1
-        return {
-            "barcode": barcode,
-            "download_success": False,
-            "skipped": True,
-            "skip_result": True,  # Simplified since we don't have access to the original skip_result
-        }, updated_stats
+    if upload_result["status"] != "completed":
+        return FinalDatabaseUploadResult(
+            task_type=TaskType.FINAL_DATABASE_UPLOAD,
+            action=TaskAction.FAILED,
+            error=f"Final database upload failed: {upload_result['status']}",
+        )
+
+    logger.info(f"Final database uploaded: {upload_result['backup_filename']}")
+
+    data: FinalDatabaseUploadData = {
+        "backup_filename": upload_result["backup_filename"],
+        "file_size": upload_result["file_size"],
+        "compressed_size": upload_result["compressed_size"],
+        "backup_time": upload_result["backup_time"],
+    }
+
+    return FinalDatabaseUploadResult(
+        task_type=TaskType.FINAL_DATABASE_UPLOAD,
+        action=TaskAction.COMPLETED,
+        data=data,
+    )
+
+
+async def run_staging_cleanup(pipeline: "SyncPipeline") -> StagingCleanupResult:
+    """Clean up staging directory after batch processing completes."""
+    start_time = time.time()
+
+    if pipeline.dry_run:
+        logger.debug("Staging cleanup skipped in dry-run mode")
+        return StagingCleanupResult(
+            task_type=TaskType.STAGING_CLEANUP,
+            action=TaskAction.SKIPPED,
+            reason="skip_database_backup_flag",
+        )
+
+    if not pipeline.uses_block_storage:
+        logger.debug("Staging cleanup skipped for local storage")
+        return StagingCleanupResult(
+            task_type=TaskType.STAGING_CLEANUP,
+            action=TaskAction.SKIPPED,
+            reason="skip_database_backup_flag",
+        )
+
+    if pipeline.skip_staging_cleanup:
+        logger.debug("Staging cleanup skipped due to --skip-staging-cleanup flag")
+        return StagingCleanupResult(
+            task_type=TaskType.STAGING_CLEANUP,
+            action=TaskAction.SKIPPED,
+            reason="skip_database_backup_flag",
+        )
+
+    try:
+        staging_path = str(pipeline.filesystem_manager.staging_path)
+        staging_path_obj = Path(staging_path)
+
+        if staging_path_obj.exists():
+            shutil.rmtree(staging_path)
+            logger.info(f"Staging directory {staging_path} cleaned up")
+        else:
+            logger.debug(f"Staging directory {staging_path} does not exist, skipping cleanup")
+
+        cleanup_time = time.time() - start_time
+
+        data: StagingCleanupData = {
+            "staging_path": staging_path,
+            "cleanup_time": cleanup_time,
+        }
+
+        return StagingCleanupResult(
+            task_type=TaskType.STAGING_CLEANUP,
+            action=TaskAction.COMPLETED,
+            data=data,
+        )
+
+    except Exception as e:
+        cleanup_time = time.time() - start_time
+        logger.error(f"Staging cleanup failed: {e}", exc_info=True)
+
+        return StagingCleanupResult(
+            task_type=TaskType.STAGING_CLEANUP,
+            action=TaskAction.FAILED,
+            error=f"Staging cleanup failed: {e}",
+        )
+
+
+async def run_teardown_operations(
+    pipeline: "SyncPipeline",
+) -> dict[str, FinalDatabaseUploadResult | StagingCleanupResult]:
+    """Run all teardown operations after batch processing completes.
+
+    Args:
+        pipeline: SyncPipeline instance with configuration
+
+    Returns:
+        Dict mapping operation names to their results
+    """
+    results: dict[str, FinalDatabaseUploadResult | StagingCleanupResult] = {}
+
+    # Skip teardown operations in dry-run mode
+    if pipeline.dry_run:
+        logger.info("Teardown operations skipped in dry-run mode")
+        return results
+
+    # Upload final database state
+    final_upload_result = await run_final_database_upload(pipeline)
+    results["final_database_upload"] = final_upload_result
+
+    # Clean up staging directory
+    staging_cleanup_result = await run_staging_cleanup(pipeline)
+    results["staging_cleanup"] = staging_cleanup_result
+
+    # Close database tracker
+    await pipeline.db_tracker.close()
+    logger.debug("Database tracker closed")
+
+    return results

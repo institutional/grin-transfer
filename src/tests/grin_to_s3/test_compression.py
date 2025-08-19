@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from grin_to_s3.compression import (
+from grin_to_s3.common import (
     compress_file_to_temp,
     get_compressed_filename,
 )
@@ -28,7 +28,7 @@ async def test_compress_file_to_temp():
         source_file.write_text("Test content for temporary compression")
 
         # Compress to temp using context manager
-        async with compress_file_to_temp(source_file) as compressed_file:
+        async with compress_file_to_temp(Path(source_file)) as compressed_file:
             # Verify temp file exists and source is untouched
             assert compressed_file.exists()
             assert source_file.exists()
@@ -41,7 +41,7 @@ async def test_compress_file_to_temp():
 def test_compress_file_to_temp_missing_source():
     """Test compression with missing source file."""
     with pytest.raises(FileNotFoundError):
-        compress_file_to_temp("/nonexistent/file.txt")
+        compress_file_to_temp(Path("/nonexistent/file.txt"))
 
 
 @pytest.mark.asyncio
@@ -56,7 +56,7 @@ async def test_compress_file_to_temp_context_manager():
         compressed_path = None
 
         # Use context manager
-        async with compress_file_to_temp(source_file) as temp_compressed:
+        async with compress_file_to_temp(Path(source_file)) as temp_compressed:
             compressed_path = temp_compressed
 
             # File should exist during context

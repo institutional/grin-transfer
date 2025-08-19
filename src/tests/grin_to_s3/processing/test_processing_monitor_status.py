@@ -9,13 +9,23 @@ Updated to use the batch status update system.
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
-from grin_to_s3.database_utils import batch_write_status_updates
-from grin_to_s3.extract.tracking import collect_status
+from grin_to_s3.database.database_utils import batch_write_status_updates
 from grin_to_s3.processing import ProcessingMonitor
+
+
+class StatusUpdate(NamedTuple):
+    """Status update tuple for collecting updates before writing."""
+
+    barcode: str
+    status_type: str
+    status_value: str
+    metadata: dict | None = None
+    session_id: str | None = None
 
 
 class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
@@ -52,7 +62,7 @@ class TestProcessingMonitorStatus(IsolatedAsyncioTestCase):
         # Add status progression using batch updates
         status_updates = []
         for status in status_progression:
-            status_updates.append(collect_status(barcode, "processing_request", status))
+            status_updates.append(StatusUpdate(barcode, "processing_request", status))
 
         if status_updates:
             await batch_write_status_updates(str(self.db_path), status_updates)

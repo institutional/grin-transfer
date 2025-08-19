@@ -5,6 +5,7 @@ Unit tests for GRIN enrichment functionality
 
 import os
 import sys
+from typing import NamedTuple
 
 import pytest
 import pytest_asyncio
@@ -12,10 +13,19 @@ import pytest_asyncio
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
-from grin_to_s3.database_utils import batch_write_status_updates
-from grin_to_s3.extract.tracking import collect_status
+from grin_to_s3.database.database_utils import batch_write_status_updates
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from tests.mocks import MockGRINClient
+
+
+class StatusUpdate(NamedTuple):
+    """Status update tuple for collecting updates before writing."""
+
+    barcode: str
+    status_type: str
+    status_value: str
+    metadata: dict | None = None
+    session_id: str | None = None
 
 
 class MockGRINEnrichmentClient(MockGRINClient):
@@ -126,7 +136,7 @@ class TestGRINEnrichmentPipeline:
             await tracker.save_book(book)
 
         # Add processing status using batched status history
-        status_updates = [collect_status(book.barcode, "processing_request", "converted") for book in test_books]
+        status_updates = [StatusUpdate(book.barcode, "processing_request", "converted") for book in test_books]
         await batch_write_status_updates(str(temp_db), status_updates)
 
         yield temp_db

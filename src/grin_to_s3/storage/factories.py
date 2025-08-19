@@ -230,66 +230,6 @@ def create_azure_storage(account_name: str, **kwargs: Any) -> Storage:
     return Storage(config)
 
 
-def create_storage_for_bucket(storage_type: str, config: dict, bucket_name: str) -> Storage:
-    """
-    Create storage instance for a specific bucket.
-
-    Args:
-        storage_type: Storage backend type (minio, r2, s3)
-        config: Configuration dictionary for the storage type
-        bucket_name: Name of the bucket to create storage for
-
-    Returns:
-        Storage: Configured storage instance for the specified bucket
-
-    Raises:
-        ValueError: If storage type doesn't support buckets or configuration is invalid
-    """
-    match storage_type:
-        case "minio":
-            # MinIO is only supported inside Docker container
-            # Use internal Docker network address by default
-            return create_minio_storage(
-                endpoint_url=config.get("endpoint_url", "http://minio:9000"),
-                access_key=config.get("access_key", "minioadmin"),
-                secret_key=config.get("secret_key", "minioadmin123"),
-            )
-
-        case "r2":
-            # Get R2 credentials from file
-            credentials_file = config.get("credentials_file") or find_credential_file("r2_credentials.json")
-            if not credentials_file:
-                host_path = DEFAULT_CREDENTIALS_DIR / "r2_credentials.json"
-                raise ValueError(
-                    f"R2 credentials file not found at {host_path}. "
-                    f"Copy examples/auth/r2-credentials-template.json to this location and edit with your R2 credentials."
-                )
-
-            try:
-                creds = load_json_credentials(str(credentials_file))
-                validate_required_keys(creds, ["endpoint_url", "access_key", "secret_key"], "R2 credentials")
-                return create_r2_storage(
-                    endpoint_url=creds["endpoint_url"],
-                    access_key=creds["access_key"],
-                    secret_key=creds["secret_key"],
-                )
-            except FileNotFoundError as e:
-                error_msg = f"R2 credentials file not found: {credentials_file}"
-                if not config.get("credentials_file"):
-                    error_msg += ". Create this file with your R2 credentials."
-                raise ValueError(error_msg) from e
-            except (ValueError, KeyError) as e:
-                raise ValueError(f"Invalid R2 credentials file {credentials_file}: {e}") from e
-
-        case "s3":
-            return create_s3_storage(bucket=bucket_name)
-
-        case _:
-            raise ValueError(f"Storage type {storage_type} does not support bucket-based storage")
-
-
-
-
 async def create_local_storage_directories(storage_config: dict) -> None:
     """Create all required directories for local storage.
 

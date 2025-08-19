@@ -10,7 +10,7 @@ import unittest.mock
 
 import pytest
 
-from grin_to_s3.database_utils import validate_database_file
+from grin_to_s3.database.database_utils import validate_database_file
 
 
 class TestValidateDatabaseFile:
@@ -159,7 +159,9 @@ class TestValidateDatabaseFile:
             conn.commit()
 
         # Mock sqlite3.connect to raise an error
-        with unittest.mock.patch("grin_to_s3.database_utils.sqlite3.connect", side_effect=sqlite3.Error("Test error")):
+        with unittest.mock.patch(
+            "grin_to_s3.database.database_utils.sqlite3.connect", side_effect=sqlite3.Error("Test error")
+        ):
             with pytest.raises(SystemExit):
                 validate_database_file(str(db_path))
 

@@ -13,6 +13,7 @@ import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NamedTuple
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
@@ -22,11 +23,10 @@ from grin_to_s3.common import (
     format_duration,
     pluralize,
     print_oauth_setup_instructions,
-    setup_logging,
     validate_and_parse_barcodes,
 )
-from grin_to_s3.database_utils import batch_write_status_updates, validate_database_file
-from grin_to_s3.extract.tracking import collect_status
+from grin_to_s3.database.database_utils import batch_write_status_updates, validate_database_file
+from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
     create_book_manager_for_uploads,
     create_process_summary,
@@ -37,74 +37,20 @@ from grin_to_s3.run_config import apply_run_config_to_args, find_run_config, set
 
 from .constants import GRIN_RATE_LIMIT_DELAY
 from .database import connect_async, connect_sync
+from .queue_utils import get_converted_books, get_in_process_set
+
+
+class StatusUpdate(NamedTuple):
+    """Status update tuple for collecting updates before writing."""
+
+    barcode: str
+    status_type: str
+    status_value: str
+    metadata: dict | None = None
+    session_id: str | None = None
+
 
 logger = logging.getLogger(__name__)
-
-
-# Type alias for cache entries: (book_barcodes, cached_timestamp)
-type CacheEntry = tuple[BarcodeSet, float]
-
-# Cache for in_process books by library directory (1 hour TTL)
-_in_process_cache: dict[str, CacheEntry] = {}
-
-
-async def get_in_process_set(grin_client, library_directory: str) -> BarcodeSet:
-    """Get set of books currently in GRIN processing queue with caching.
-
-    Args:
-        grin_client: GRIN client instance
-        library_directory: Library directory name
-
-    Returns:
-        Set of barcodes currently in processing queue
-    """
-    current_time = time.time()
-    cache_key = library_directory
-
-    # Check cache (1 hour TTL)
-    if cache_key in _in_process_cache:
-        books, cached_time = _in_process_cache[cache_key]
-        if current_time - cached_time < 3600:
-            logger.debug(f"Using cached in_process data for {library_directory}")
-            return books
-
-    try:
-        response_text = await grin_client.fetch_resource(library_directory, "_in_process?format=text")
-        lines = response_text.strip().split("\n")
-        books = {line.strip() for line in lines if line.strip()}
-
-        # Update cache
-        _in_process_cache[cache_key] = (books, current_time)
-        logger.debug(f"Fetched and cached {len(books)} in_process books for {library_directory}")
-        return books
-
-    except Exception as e:
-        logger.error(f"Failed to get in_process books for {library_directory}: {e}")
-        raise
-
-
-async def get_converted_books(grin_client, library_directory: str) -> set[str]:
-    """Get set of books that are converted and ready for download.
-
-    Args:
-        grin_client: GRIN client instance
-        library_directory: Library directory name
-
-    Returns:
-        set: Set of converted book barcodes
-    """
-    try:
-        response_text = await grin_client.fetch_resource(library_directory, "_converted?format=text")
-        lines = response_text.strip().split("\n")
-        converted_barcodes = set()
-        for line in lines:
-            if line.strip() and ".tar.gz.gpg" in line:
-                barcode = line.strip().replace(".tar.gz.gpg", "")
-                converted_barcodes.add(barcode)
-        return converted_barcodes
-    except Exception as e:
-        logger.warning(f"Failed to get converted books: {e}")
-        return set()
 
 
 async def parse_failed_books_response(grin_client, library_directory: str) -> BarcodeSet:
@@ -1018,7 +964,7 @@ class ProcessingMonitor:
             for barcode in our_converted:
                 current_status = await db_tracker.get_latest_status(barcode, "processing_request")
                 if current_status != "converted":
-                    processing_status_updates.append(collect_status(barcode, "processing_request", "converted"))
+                    processing_status_updates.append(StatusUpdate(barcode, "processing_request", "converted"))
                     updates["converted"] += 1
 
             # Update books that are now in process
@@ -1026,7 +972,7 @@ class ProcessingMonitor:
             for barcode in our_in_process:
                 current_status = await db_tracker.get_latest_status(barcode, "processing_request")
                 if current_status not in ("converted", "in_process"):
-                    processing_status_updates.append(collect_status(barcode, "processing_request", "in_process"))
+                    processing_status_updates.append(StatusUpdate(barcode, "processing_request", "in_process"))
                     updates["in_process"] += 1
 
             # Update books that have failed
@@ -1034,7 +980,7 @@ class ProcessingMonitor:
             for barcode in our_failed:
                 current_status = await db_tracker.get_latest_status(barcode, "processing_request")
                 if current_status != "failed":
-                    processing_status_updates.append(collect_status(barcode, "processing_request", "failed"))
+                    processing_status_updates.append(StatusUpdate(barcode, "processing_request", "failed"))
                     updates["failed"] += 1
 
             # Batch write all processing status updates

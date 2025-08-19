@@ -27,8 +27,8 @@ class DiskSpaceError(StagingDirectoryError):
     pass
 
 
-class StagingDirectoryManager:
-    """Manages staging directory for temporary file storage during sync pipeline."""
+class DirectoryManager:
+    """Manages directory for file storage during sync pipeline."""
 
     def __init__(self, staging_path: str | Path, capacity_threshold: float = 0.9):
         """
@@ -49,11 +49,55 @@ class StagingDirectoryManager:
 
     def get_decrypted_file_path(self, barcode: str) -> Path:
         """Get path for decrypted archive file."""
-        return self.staging_path / f"{barcode}.decrypted.tar.gz"
+        return self.staging_path / f"{barcode}.tar.gz"
 
     def get_extracted_directory_path(self, barcode: str) -> Path:
         """Get path for extracted archive directory."""
         return self.staging_path / f"{barcode}_extracted"
+
+    def get_staging_files(self) -> list[tuple[str, Path, Path]]:
+        """
+        Get list of files currently in staging directory.
+
+        Returns:
+            List of (barcode, encrypted_path, decrypted_path) tuples.
+            Paths may not exist if files are partially downloaded.
+        """
+        files = []
+
+        # Find all encrypted files
+        for encrypted_file in self.staging_path.glob("*.tar.gz.gpg"):
+            if encrypted_file.name.endswith(".tar.gz.gpg"):
+                barcode = encrypted_file.name[:-12]  # Remove .tar.gz.gpg
+                decrypted_file = self.get_decrypted_file_path(barcode)
+                files.append((barcode, encrypted_file, decrypted_file))
+
+        return files
+
+    async def wait_for_disk_space(self, *wargs, **kwargs):
+        # No-op for local directory
+        pass
+
+    def check_disk_space(self):
+        return True
+
+
+class LocalDirectoryManager(DirectoryManager):
+    def get_encrypted_file_path(self, barcode: str) -> Path:
+        """Get path for encrypted archive file including staging."""
+        return self.staging_path / "staging" / f"{barcode}.tar.gz.gpg"
+
+    def get_decrypted_file_path(self, barcode: str) -> Path:
+        """Get path for decrypted archive file including "raw" pseudo-bucket."""
+        return self.staging_path / "raw" / barcode / f"{barcode}.tar.gz"
+
+    def get_extracted_directory_path(self, barcode: str) -> Path:
+        """Get path for extracted archive directory."""
+        return self.staging_path / "staging" / f"{barcode}_extracted"
+
+
+class StagingDirectoryManager(DirectoryManager):
+    """Assumes the staging directory is an ephemeral resource used during sync operations, and may be safely destroyed"""
 
     def get_disk_usage(self) -> tuple[int, int, float]:
         """
@@ -150,25 +194,6 @@ class StagingDirectoryManager:
                 f"Disk space available, resuming operations "
                 f"({usage_ratio:.1%} full, {(total_bytes - used_bytes) / (1024 * 1024 * 1024):.1f} GB available)"
             )
-
-    def get_staging_files(self) -> list[tuple[str, Path, Path]]:
-        """
-        Get list of files currently in staging directory.
-
-        Returns:
-            List of (barcode, encrypted_path, decrypted_path) tuples.
-            Paths may not exist if files are partially downloaded.
-        """
-        files = []
-
-        # Find all encrypted files
-        for encrypted_file in self.staging_path.glob("*.tar.gz.gpg"):
-            if encrypted_file.name.endswith(".tar.gz.gpg"):
-                barcode = encrypted_file.name[:-12]  # Remove .tar.gz.gpg
-                decrypted_file = self.get_decrypted_file_path(barcode)
-                files.append((barcode, encrypted_file, decrypted_file))
-
-        return files
 
     def get_orphaned_files(self) -> list[tuple[str, list[Path]]]:
         """
