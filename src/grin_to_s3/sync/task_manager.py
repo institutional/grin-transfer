@@ -354,6 +354,7 @@ async def process_books_batch(
     barcodes: list[str],
     pipeline: "SyncPipeline",
     task_funcs: dict[TaskType, Callable],
+    task_manager: "TaskManager",
     max_concurrent: int = 5,
     limits: dict[TaskType, int] | None = None,
 ) -> dict[str, dict[TaskType, TaskResult]]:
@@ -365,11 +366,12 @@ async def process_books_batch(
         task_funcs: Dict mapping task types to their implementation functions
         max_concurrent: Max books processing at once
         limits: Concurrency limits per task type
+        task_manager: TaskManager instance to use
 
     Returns:
         Dict mapping barcode to its task results
     """
-    manager = TaskManager(limits)
+    manager = task_manager
     semaphore = asyncio.Semaphore(max_concurrent)
 
     async def process_with_limit(barcode: str):

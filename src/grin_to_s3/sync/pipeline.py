@@ -28,6 +28,7 @@ from grin_to_s3.storage import create_storage_from_config
 from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.staging import LocalDirectoryManager, StagingDirectoryManager
 from grin_to_s3.sync.task_manager import (
+    TaskManager,
     process_books_batch,
 )
 from grin_to_s3.sync.tasks import (
@@ -45,14 +46,9 @@ from grin_to_s3.sync.tasks.task_types import TaskType
 
 from .conversion_handler import ConversionRequestHandler
 from .preflight import run_preflight_operations
+from .progress_reporter import SyncProgressReporter
 from .teardown import run_teardown_operations
 from .utils import reset_bucket_cache
-
-# Progress reporting intervals
-INITIAL_PROGRESS_INTERVAL = 60  # 1 minute for first few reports
-REGULAR_PROGRESS_INTERVAL = 600  # 10 minutes for subsequent reports
-MAX_INITIAL_REPORTS = 3  # Number of initial reports before switching to regular interval
-
 
 logger = logging.getLogger(__name__)
 
@@ -243,10 +239,7 @@ class SyncPipeline:
         # Database update accumulator for atomic commits
         self.book_record_updates: dict[str, dict[str, Any]] = {}
 
-        # Track actual active task counts for accurate reporting
-        self._active_download_count = 0
-        self._active_upload_count = 0
-        self._pending_upload_count = 0  # Track pending uploads in queue
+        # Track active postprocessing tasks
         self._active_postprocessing_count = 0
 
         # Simple gate to prevent race conditions in task creation
@@ -266,9 +259,6 @@ class SyncPipeline:
             total_bytes=0,
         )
         self.start_time = time.time()
-        self._processed_count = 0  # Track total processed (downloaded) books
-        self._completed_count = 0  # Track fully synced books (upload completed/failed)
-        self._has_started_work = False  # Track if any work has begun
         self._sequential_failures = 0  # Track consecutive failures for exit logic
 
         # Initialize storage components once (now that tests provide complete configurations)
@@ -321,132 +311,6 @@ class SyncPipeline:
             return True
 
         return False
-
-    async def _background_progress_reporter(
-        self,
-        start_time: float,
-        books_to_process: int,
-        rate_calculator: SlidingWindowRateCalculator,
-    ) -> None:
-        """Independent background progress reporter that runs throughout pipeline."""
-        last_report_time = 0.0
-        initial_reports_count = 0
-        while not self._shutdown_requested:
-            try:
-                # Calculate timing for next report
-                current_time = time.time()
-                interval = (
-                    INITIAL_PROGRESS_INTERVAL
-                    if initial_reports_count < MAX_INITIAL_REPORTS
-                    else REGULAR_PROGRESS_INTERVAL
-                )
-
-                # Check if it's time to report
-                if current_time - last_report_time >= interval:
-                    # Query current state
-                    completed_count = await self._get_completed_count()
-
-                    # Get active task counts
-                    downloads_active = self._active_download_count
-                    uploads_active = self._active_upload_count
-                    uploads_queued = self._pending_upload_count
-
-                    # Determine pipeline phase
-                    sync_phase_active = downloads_active > 0 or uploads_active > 0
-
-                    # Show appropriate progress
-                    await self._show_unified_progress(
-                        completed_count,
-                        books_to_process,
-                        start_time,
-                        current_time,
-                        downloads_active,
-                        uploads_active,
-                        uploads_queued,
-                        sync_phase_active,
-                        rate_calculator,
-                        interval,
-                        last_report_time,
-                    )
-
-                    # Update tracking
-                    last_report_time = current_time
-                    if initial_reports_count < MAX_INITIAL_REPORTS:
-                        initial_reports_count += 1
-
-                # Sleep briefly to avoid busy-waiting, but check for shutdown more frequently
-                for _ in range(10):  # Check every 0.1 seconds instead of every 1 second
-                    if self._shutdown_requested:
-                        break
-                    await asyncio.sleep(0.1)
-
-            except Exception as e:
-                logger.error(f"Error in progress reporter: {e}", exc_info=True)
-                await asyncio.sleep(1)
-
-    async def _get_completed_count(self) -> int:
-        """Get count of books fully synced in current session."""
-        # Return the number of books that have been fully synced (upload completed or failed)
-        return self._completed_count
-
-    async def _show_unified_progress(
-        self,
-        completed_count: int,
-        books_to_process: int,
-        start_time: float,
-        current_time: float,
-        downloads_active: int,
-        uploads_active: int,
-        uploads_queued: int,
-        sync_phase_active: bool,
-        rate_calculator: SlidingWindowRateCalculator,
-        interval: int,
-        last_report_time: float,
-    ) -> None:
-        """Display unified progress for all pipeline phases."""
-        percentage = (completed_count / books_to_process) * 100 if books_to_process > 0 else 0
-        elapsed = current_time - start_time
-        rate = rate_calculator.get_rate(start_time, completed_count)
-
-        # Calculate ETA
-        remaining = books_to_process - completed_count
-        eta_text = ""
-        if rate > 0 and remaining > 0:
-            eta_seconds = remaining / rate
-            eta_text = f" (ETA: {format_duration(eta_seconds)})"
-
-        # Calculate time until next update
-        time_since_last_report = current_time - last_report_time
-        time_until_next_update = max(0, interval - time_since_last_report)
-        minutes_until_next = int(time_until_next_update // 60) + 1  # Round up to next minute
-        minute_plural = "min" if minutes_until_next == 1 else "min"
-        interval_desc = f"next update in {minutes_until_next} {minute_plural}"
-
-        # Build status message based on phase
-        if sync_phase_active:
-            # Download/upload phase
-            status_details = (
-                f"[{downloads_active}/{self.concurrent_downloads} downloads, "
-                f"{uploads_active}/{self.concurrent_uploads} uploads"
-            )
-            if uploads_queued > 0:
-                upload_plural = "upload" if uploads_queued == 1 else "uploads"
-                status_details += f", {uploads_queued} {upload_plural} queued"
-            status_details += "]"
-        else:
-            # Either starting or finalizing
-            if not self._has_started_work and completed_count == 0:
-                status_details = "[Starting...]"
-            else:
-                status_details = "[Finalizing]"
-
-        # Print progress
-        print(
-            f"{completed_count:,}/{books_to_process:,} "
-            f"({percentage:.1f}%) - {rate:.1f} books/sec - "
-            f"elapsed: {format_duration(elapsed)}{eta_text} "
-            f"{status_details} [{interval_desc}]"
-        )
 
     async def get_sync_status(self) -> dict:
         """Get current sync status and statistics."""
@@ -515,16 +379,6 @@ class SyncPipeline:
             print(f"  Full-text bucket: {self.config.storage_config['config'].get('bucket_full')}")
             print(f"  CSV export: {self.config.storage_config['config'].get('bucket_meta')}/books_latest.csv.gz")
 
-    async def _cancel_progress_reporter(self) -> None:
-        """Cancel the background progress reporter with timeout."""
-        if hasattr(self, "_progress_reporter_task") and not self._progress_reporter_task.done():
-            self._progress_reporter_task.cancel()
-            try:
-                # Wait for cancellation with timeout to prevent hanging
-                await asyncio.wait_for(self._progress_reporter_task, timeout=2.0)
-            except (TimeoutError, asyncio.CancelledError):
-                pass
-
     async def setup_sync_loop(
         self, queues: list[str] | None = None, limit: int | None = None, specific_barcodes: list[str] | None = None
     ) -> None:
@@ -535,6 +389,10 @@ class SyncPipeline:
             specific_barcodes: Optional list of specific barcodes to sync
             queues: List of queue types to process (converted, previous, changed, all)
         """
+        # Initialize progress reporter variables
+        progress_reporter = None
+        progress_reporter_task = None
+
         # Store current queues for use in conversion request handling
         self.current_queues = queues or []
 
@@ -591,7 +449,6 @@ class SyncPipeline:
             elif result.action.value == "skipped":
                 logger.info(f"Preflight operation {operation} skipped")
 
-        sync_successful = False
         try:
             # Process queues to get available books (unless specific barcodes are provided)
             all_available_books: set[str] = set()
@@ -647,10 +504,37 @@ class SyncPipeline:
 
             print(f"Found {len(available_to_sync):,} books that need syncing")
 
+            # Set up progress tracking and task management
+            books_to_process = min(limit or len(available_to_sync), len(available_to_sync))
+
+            # Define task functions and limits
+            task_funcs = {
+                TaskType.CHECK: check.main,
+                TaskType.DOWNLOAD: download.main,
+                TaskType.DECRYPT: decrypt.main,
+                TaskType.UPLOAD: upload.main,
+                TaskType.UNPACK: unpack.main,
+                TaskType.EXTRACT_MARC: extract_marc.main,
+                TaskType.EXTRACT_OCR: extract_ocr.main,
+                TaskType.EXPORT_CSV: export_csv.main,
+                TaskType.CLEANUP: cleanup.main,
+            }
+
+            limits = {
+                TaskType.CHECK: 5,
+                TaskType.DOWNLOAD: 2,
+                TaskType.DECRYPT: 2,
+                TaskType.UPLOAD: 3,
+                TaskType.UNPACK: 2,
+                TaskType.EXTRACT_MARC: 2,
+                TaskType.EXTRACT_OCR: 2,
+                TaskType.EXPORT_CSV: 2,
+                TaskType.CLEANUP: 1,
+            }
+
             # Handle dry-run mode
             if self.dry_run:
                 await self._show_dry_run_preview(available_to_sync, limit, specific_barcodes)
-                sync_successful = True
                 return
 
             if not available_to_sync:
@@ -676,11 +560,15 @@ class SyncPipeline:
                         f"{Path(self.db_path).parent.name}' to check processing progress"
                     )
 
-                sync_successful = True  # No books to process is considered successful
-                return
+                return  # No books to process is considered successful
 
-            # Set up progress tracking
-            books_to_process = min(limit or len(available_to_sync), len(available_to_sync))
+            # Create progress reporter with task manager integration
+            task_manager = TaskManager(limits)
+            rate_calculator = SlidingWindowRateCalculator(window_size=20)
+
+            progress_reporter = SyncProgressReporter(
+                task_manager, books_to_process, self.concurrent_downloads, self.concurrent_uploads
+            )
 
             print(f"Starting sync of {books_to_process:,} books...")
             print(f"{self.concurrent_downloads} concurrent downloads")
@@ -688,47 +576,20 @@ class SyncPipeline:
             if self.uses_local_storage:
                 print(f"{self.concurrent_uploads} uploads")
 
-            print(
-                f"Progress updates will be shown every {REGULAR_PROGRESS_INTERVAL // 60} minutes "
-                f"(more frequent initially)"
-            )
+            print("Progress updates will be shown every 10 minutes (more frequent initially)")
             print("---")
-            rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
             # Start background progress reporter
-            self._progress_reporter_task = asyncio.create_task(
-                self._background_progress_reporter(time.time(), books_to_process, rate_calculator)
-            )
+            progress_reporter_task = asyncio.create_task(progress_reporter.run(time.time(), rate_calculator))
 
-            # Define task functions
-            task_funcs = {
-                TaskType.CHECK: check.main,
-                TaskType.DOWNLOAD: download.main,
-                TaskType.DECRYPT: decrypt.main,
-                TaskType.UPLOAD: upload.main,
-                TaskType.UNPACK: unpack.main,
-                TaskType.EXTRACT_MARC: extract_marc.main,
-                TaskType.EXTRACT_OCR: extract_ocr.main,
-                TaskType.EXPORT_CSV: export_csv.main,
-                TaskType.CLEANUP: cleanup.main,
-            }
-
-            # Process all books with batch processing
-            results = await process_books_batch(
+            # Process all books with batch processing using the same task manager
+            await process_books_batch(
                 available_to_sync,
                 self,
                 task_funcs,
-                limits={
-                    TaskType.CHECK: 5,
-                    TaskType.DOWNLOAD: 2,
-                    TaskType.DECRYPT: 2,
-                    TaskType.UPLOAD: 3,
-                    TaskType.UNPACK: 2,
-                    TaskType.EXTRACT_MARC: 2,
-                    TaskType.EXTRACT_OCR: 2,
-                    TaskType.EXPORT_CSV: 2,
-                    TaskType.CLEANUP: 1,
-                },
+                max_concurrent=5,
+                limits=limits,
+                task_manager=task_manager,
             )
 
         except KeyboardInterrupt:
@@ -737,7 +598,24 @@ class SyncPipeline:
             print(f"Pipeline failed: {e}")
             logger.error(f"Pipeline failed: {e}", exc_info=True)
         finally:
-            pass
+            # Ensure progress reporter is shut down gracefully
+            if (
+                progress_reporter is not None
+                and progress_reporter_task is not None
+                and not progress_reporter_task.done()
+            ):
+                # Request graceful shutdown first
+                progress_reporter.request_shutdown()
+                try:
+                    # Wait for graceful shutdown with timeout
+                    await asyncio.wait_for(progress_reporter_task, timeout=2.0)
+                except TimeoutError:
+                    # Force cancellation if graceful shutdown takes too long
+                    progress_reporter_task.cancel()
+                    try:
+                        await asyncio.wait_for(progress_reporter_task, timeout=1.0)
+                    except (TimeoutError, asyncio.CancelledError):
+                        pass
 
     def _should_exit_for_failure_limit(self) -> bool:
         """Check if pipeline should exit due to sequential failure limit."""
