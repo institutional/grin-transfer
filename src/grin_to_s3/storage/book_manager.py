@@ -18,6 +18,7 @@ from grin_to_s3.run_config import StorageConfig
 
 from ..compression import compress_file_to_temp, get_compressed_filename
 from .base import Storage
+from .factories import LOCAL_STORAGE_DEFAULTS
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
@@ -45,9 +46,21 @@ class BookManager:
         """
 
         self.storage = storage
+
+        # Get bucket/directory names from config
         self.bucket_raw = storage_config["config"].get("bucket_raw")
         self.bucket_meta = storage_config["config"].get("bucket_meta")
         self.bucket_full = storage_config["config"].get("bucket_full")
+
+        # For local storage with missing bucket names, use directory defaults
+        if storage_config["type"] == "local":
+            if not self.bucket_raw:
+                self.bucket_raw = LOCAL_STORAGE_DEFAULTS["bucket_raw"]
+            if not self.bucket_meta:
+                self.bucket_meta = LOCAL_STORAGE_DEFAULTS["bucket_meta"]
+            if not self.bucket_full:
+                self.bucket_full = LOCAL_STORAGE_DEFAULTS["bucket_full"]
+
         self.base_prefix = base_prefix.rstrip("/")
 
     def _raw_archive_path(self, barcode: str, filename: str) -> str:

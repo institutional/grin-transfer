@@ -178,13 +178,13 @@ class TestStoragePathIntegrity:
         assert book_manager.bucket_meta == "my-meta-bucket"
         assert book_manager.bucket_full == "my-full-bucket"
 
-        # Test with empty bucket names - BookManager accepts this but bucket names will be None
+        # Test with empty bucket names - For local storage, should use defaults
         book_manager_empty = BookManager(
             storage, storage_config={"type": "local", "protocol": "local", "config": {}}, base_prefix=""
         )
-        assert book_manager_empty.bucket_raw is None
-        assert book_manager_empty.bucket_meta is None
-        assert book_manager_empty.bucket_full is None
+        assert book_manager_empty.bucket_raw == "raw"
+        assert book_manager_empty.bucket_meta == "meta"
+        assert book_manager_empty.bucket_full == "full"
 
     def test_storage_path_operations_with_empty_bucket(self):
         """Test that storage operations handle empty bucket names gracefully."""
