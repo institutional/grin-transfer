@@ -25,6 +25,7 @@ def mock_pipeline():
         pipeline.uses_block_storage = True
         pipeline.skip_staging_cleanup = False
         pipeline.start_time = 1234567890
+        pipeline.force = False  # Default to False for normal skip behavior
 
         # Download/upload settings
         pipeline.download_timeout = 300

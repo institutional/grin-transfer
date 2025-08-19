@@ -64,7 +64,9 @@ class TestLocalStorageIntegration:
             await tracker.close()
 
             # Test case 1: Valid storage config
-            config = test_config_builder.with_db_path(str(db_path)).local_storage("/valid/path").build()
+            valid_path = Path(temp_dir) / "valid_path"
+            valid_path.mkdir(parents=True, exist_ok=True)
+            config = test_config_builder.with_db_path(str(db_path)).local_storage(str(valid_path)).build()
 
             pipeline = SyncPipeline.from_run_config(
                 config=config,
@@ -82,11 +84,12 @@ class TestLocalStorageIntegration:
 
                     # Check that target directory was printed in startup configuration
                     print_calls = [str(call) for call in mock_print.call_args_list]
-                    target_dir_printed = any("/valid/path" in call for call in print_calls)
+                    target_dir_printed = any("valid_path" in call for call in print_calls)
                     assert target_dir_printed, "Target directory should be displayed in startup configuration"
 
             # Test case 2: Minimal storage config (no base_path)
-            pipeline.storage_config = {}
+            # Remove base_path from the existing pipeline's config to simulate missing base_path
+            pipeline.config.storage_config["config"] = {}  # Clear the config to remove base_path
 
             with patch("grin_to_s3.processing.get_converted_books", return_value=set()):
                 with patch("builtins.print") as mock_print:
@@ -95,11 +98,11 @@ class TestLocalStorageIntegration:
                     # Should handle missing base_path gracefully by showing "None"
                     print_calls = [str(call) for call in mock_print.call_args_list]
                     none_printed = any("None" in call for call in print_calls)
-                    assert none_printed, "Should display 'None' for missing base_path"
+                    assert none_printed, f"Should display 'None' for missing base_path. Print calls: {print_calls}"
 
     @pytest.mark.asyncio
-    async def test_staging_manager_none_handling(self, mock_process_stage, test_config_builder):
-        """Test that local storage properly handles None staging_manager."""
+    async def test_staging_manager_local_handling(self, mock_process_stage, test_config_builder):
+        """Test that local storage properly creates LocalDirectoryManager."""
         with tempfile.TemporaryDirectory() as temp_dir:
             db_path = Path(temp_dir) / "test.db"
 
@@ -115,9 +118,10 @@ class TestLocalStorageIntegration:
                 process_summary_stage=mock_process_stage,
             )
 
-            # Verify staging_manager is None for local storage
-            assert pipeline.filesystem_manager is None, "Local storage should not have staging manager"
+            # Verify filesystem_manager is LocalDirectoryManager for local storage
+            from grin_to_s3.storage.staging import LocalDirectoryManager
+            assert isinstance(pipeline.filesystem_manager, LocalDirectoryManager), "Local storage should have LocalDirectoryManager"
 
-            # Verify staging directory doesn't exist (since it's not created for local storage)
+            # Verify staging directory path is configured correctly
             staging_dir = pipeline.staging_dir
-            assert not staging_dir.exists(), "Staging directory should not be created for local storage"
+            assert staging_dir.parent == Path(db_path).parent, "Staging directory should be under run directory"
