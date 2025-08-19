@@ -111,7 +111,7 @@ async def test_etag_matches():
     book_manager = MagicMock()
     book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": "matching-etag"})
 
-    result = await check.etag_matches("MATCH123", "matching-etag", book_manager)
+    result = await check.etag_matches("MATCH123", "matching-etag", book_manager, MagicMock())
 
     assert result["matched"] is True
     assert result["reason"] == "etag_match"
@@ -123,7 +123,7 @@ async def test_etag_mismatch():
     book_manager = MagicMock()
     book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": "old-etag"})
 
-    result = await check.etag_matches("MISMATCH123", "new-etag", book_manager)
+    result = await check.etag_matches("MISMATCH123", "new-etag", book_manager, MagicMock())
 
     assert result["matched"] is False
     assert result["reason"] == "etag_mismatch"

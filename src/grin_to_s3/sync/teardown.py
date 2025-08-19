@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
 
-from .database_backup import upload_database_to_storage
+from ..database.database_backup import upload_database_to_storage
 from .tasks.task_types import (
     FinalDatabaseUploadData,
     FinalDatabaseUploadResult,

@@ -586,7 +586,7 @@ def _do_credential_setup(secrets_path: Path, creds_path: Path, remote_auth: bool
                         self.end_headers()
                         self.wfile.write(b"<html><body><h1>Invalid request</h1></body></html>")
 
-                def log_message(self, format, *args):
+                def log_message(self, _format, *_args):
                     # Suppress log messages
                     pass
 

@@ -141,7 +141,7 @@ def create_book_manager_mock(
             return f"{mock_book_manager.bucket_meta}/{base_prefix}/{filename}"
         return f"{mock_book_manager.bucket_meta}/{filename}"
 
-    mock_book_manager._meta_path = meta_path
+    mock_book_manager.meta_path = meta_path
 
     # BookManager methods delegate to the underlying storage
     # This reflects the real BookManager architecture where it wraps a Storage object

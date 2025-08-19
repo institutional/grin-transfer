@@ -145,11 +145,6 @@ class Storage:
         except FileNotFoundError:
             raise StorageNotFoundError(f"Object not found: {path}") from None
 
-    async def read_text(self, path: str, encoding: str = "utf-8") -> str:
-        """Read file as text."""
-        data = await self.read_bytes(path)
-        return data.decode(encoding)
-
     async def write_bytes(self, path: str, data: bytes) -> None:
         """Write bytes to file."""
         if self.config.protocol == "s3":
@@ -198,78 +193,33 @@ class Storage:
 
     async def write_file(self, path: str, file_path: str, metadata: dict[str, str] | None = None) -> None:
         """Stream file from filesystem to bucket."""
-        if self.config.protocol == "s3":
-            import aioboto3
-            import aiofiles
-
-            normalized_path = self._normalize_path(path)
-
-            # Use the credentials from the storage config
-            session_kwargs = {
-                "aws_access_key_id": self.config.options.get("key"),
-                "aws_secret_access_key": self.config.options.get("secret"),
-            }
-
-            # Add endpoint URL if present
-            if self.config.endpoint_url:
-                session_kwargs["endpoint_url"] = self.config.endpoint_url
-
-            session = aioboto3.Session()
-            s3_client: S3Client
-            async with session.client("s3", **session_kwargs) as s3_client:
-                # Parse bucket and key from path
-                path_parts = normalized_path.split("/", 1)
-                if len(path_parts) != 2:
-                    raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
-
-                bucket, key = path_parts
-                logger.debug(f"Calling bucket upload with {bucket}/{key} from {file_path} with metadata {metadata}")
-                await self._multipart_upload_from_file(s3_client, bucket, key, file_path, metadata)
-
-                return
-
-        else:
-            # For non-S3 storage, read file and use write_bytes
-            import aiofiles
-
-            async with aiofiles.open(file_path, "rb") as f:
-                data = await f.read()
-            await self.write_bytes(path, data)
-
-    async def write_bytes_with_metadata(self, path: str, data: bytes, metadata: dict[str, str]) -> None:
-        """Write bytes to file with S3 metadata."""
-        if self.config.protocol != "s3":
-            # Fall back to regular write for non-S3 storage
-            await self.write_bytes(path, data)
-            return
+        import aioboto3
 
         normalized_path = self._normalize_path(path)
 
-        try:
-            import aioboto3
+        # Use the credentials from the storage config
+        session_kwargs = {
+            "aws_access_key_id": self.config.options.get("key"),
+            "aws_secret_access_key": self.config.options.get("secret"),
+        }
 
-            # Use the credentials from the storage config
-            session_kwargs = {
-                "aws_access_key_id": self.config.options.get("key"),
-                "aws_secret_access_key": self.config.options.get("secret"),
-            }
+        # Add endpoint URL if present
+        if self.config.endpoint_url:
+            session_kwargs["endpoint_url"] = self.config.endpoint_url
 
-            # Add endpoint URL if present
-            if self.config.endpoint_url:
-                session_kwargs["endpoint_url"] = self.config.endpoint_url
+        session = aioboto3.Session()
+        s3_client: S3Client
+        async with session.client("s3", **session_kwargs) as s3_client:
+            # Parse bucket and key from path
+            path_parts = normalized_path.split("/", 1)
+            if len(path_parts) != 2:
+                raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
 
-            session = aioboto3.Session()
-            s3_client: S3Client
-            async with session.client("s3", **session_kwargs) as s3_client:
-                # Parse bucket and key from path
-                path_parts = normalized_path.split("/", 1)
-                if len(path_parts) == 2:
-                    bucket, key = path_parts
-                    await s3_client.put_object(Bucket=bucket, Key=key, Body=data, Metadata=metadata)
-        except Exception as e:
-            print(f"Failed to write with metadata: {e}")
-            # Fall back to regular write
-            await self.write_bytes(path, data)
+            bucket, key = path_parts
+            logger.debug(f"Calling bucket upload with {bucket}/{key} from {file_path} with metadata {metadata}")
+            await self._multipart_upload_from_file(s3_client, bucket, key, file_path, metadata)
+
+            return
 
     async def _multipart_upload_from_file(
         self, s3_client, bucket: str, key: str, file_path: str, metadata: dict[str, str] | None = None

@@ -18,9 +18,9 @@ from grin_to_s3.common import (
     DEFAULT_DOWNLOAD_RETRIES,
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_MAX_SEQUENTIAL_FAILURES,
-    setup_logging,
     validate_and_parse_barcodes,
 )
+from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
     create_book_manager_for_uploads,
     create_process_summary,
@@ -39,6 +39,29 @@ from grin_to_s3.sync.pipeline import SyncPipeline
 from grin_to_s3.sync.status import show_sync_status, validate_database_file
 
 logger = logging.getLogger(__name__)
+
+
+def _collect_task_concurrency_overrides(args) -> dict[str, int]:
+    """Collect task concurrency overrides from CLI arguments."""
+    overrides = {}
+
+    task_concurrency_args = [
+        ("task_check_concurrency", getattr(args, "task_check_concurrency", None)),
+        ("task_download_concurrency", getattr(args, "task_download_concurrency", None)),
+        ("task_decrypt_concurrency", getattr(args, "task_decrypt_concurrency", None)),
+        ("task_upload_concurrency", getattr(args, "task_upload_concurrency", None)),
+        ("task_unpack_concurrency", getattr(args, "task_unpack_concurrency", None)),
+        ("task_extract_marc_concurrency", getattr(args, "task_extract_marc_concurrency", None)),
+        ("task_extract_ocr_concurrency", getattr(args, "task_extract_ocr_concurrency", None)),
+        ("task_export_csv_concurrency", getattr(args, "task_export_csv_concurrency", None)),
+        ("task_cleanup_concurrency", getattr(args, "task_cleanup_concurrency", None)),
+    ]
+
+    for config_key, value in task_concurrency_args:
+        if value is not None:
+            overrides[config_key] = value
+
+    return overrides
 
 
 def _parse_and_validate_barcodes(args, sync_stage) -> list[str] | None:
@@ -121,6 +144,7 @@ async def _run_sync_pipeline(args, run_config: RunConfig, sync_stage) -> None:
         download_timeout=args.download_timeout,
         download_retries=args.download_retries,
         max_sequential_failures=args.max_sequential_failures,
+        task_concurrency_overrides=_collect_task_concurrency_overrides(args),
     )
 
     # Set up signal handlers for graceful shutdown
@@ -165,6 +189,9 @@ async def cmd_pipeline(args) -> None:
     # Apply run configuration defaults
     apply_run_config_to_args(args, db_path)
 
+    # Collect task concurrency overrides
+    task_concurrency_overrides = _collect_task_concurrency_overrides(args)
+
     print(f"Database: {db_path}")
 
     # Validate database
@@ -204,16 +231,35 @@ async def cmd_pipeline(args) -> None:
                 run_config["storage_config"] = storage_config_dict
                 storage_config = merged_config
 
+                # Apply task concurrency overrides to run config
+                if task_concurrency_overrides:
+                    if "sync_config" not in run_config:
+                        run_config["sync_config"] = {}
+                    run_config["sync_config"].update(task_concurrency_overrides)
+
                 # Write back to config file
                 with open(config_path, "w") as f:
                     json.dump(run_config, f, indent=2)
 
                 print(f"Updated storage configuration in {config_path}")
+                if task_concurrency_overrides:
+                    print(f"Applied task concurrency overrides: {task_concurrency_overrides}")
             else:
                 print(f"Using existing storage configuration from {config_path}")
                 # Use storage type from run config if not explicitly provided
                 if not args.storage:
                     args.storage = storage_type
+
+                # Still apply task concurrency overrides even if no storage args were provided
+                if task_concurrency_overrides:
+                    if "sync_config" not in run_config:
+                        run_config["sync_config"] = {}
+                    run_config["sync_config"].update(task_concurrency_overrides)
+
+                    # Write back to config file
+                    with open(config_path, "w") as f:
+                        json.dump(run_config, f, indent=2)
+                    print(f"Applied task concurrency overrides: {task_concurrency_overrides}")
 
         except (json.JSONDecodeError, OSError) as e:
             print(f"Warning: Could not read run config: {e}")
@@ -222,6 +268,13 @@ async def cmd_pipeline(args) -> None:
     else:
         print(f"Note: No run config found at {config_path}, building from args")
         storage_config = build_storage_config_dict(args)
+
+        # Create basic run config with task concurrency overrides if provided
+        if task_concurrency_overrides:
+            basic_run_config = {"sync_config": task_concurrency_overrides}
+            with open(config_path, "w") as f:
+                json.dump(basic_run_config, f, indent=2)
+            print(f"Created basic run config with task concurrency overrides: {task_concurrency_overrides}")
 
     # Set up logging - use unified log file from run config
     run_config = find_run_config(args.db_path)
@@ -404,6 +457,53 @@ Examples:
     # GRIN options
     pipeline_parser.add_argument(
         "--secrets-dir", help="Directory containing GRIN secrets (auto-detected from run config if not specified)"
+    )
+
+    # Task concurrency options
+    pipeline_parser.add_argument(
+        "--task-check-concurrency",
+        type=int,
+        help="Maximum concurrent check tasks",
+    )
+    pipeline_parser.add_argument(
+        "--task-download-concurrency",
+        type=int,
+        help="Maximum concurrent download tasks",
+    )
+    pipeline_parser.add_argument(
+        "--task-decrypt-concurrency",
+        type=int,
+        help="Maximum concurrent decrypt tasks",
+    )
+    pipeline_parser.add_argument(
+        "--task-upload-concurrency",
+        type=int,
+        help="Maximum concurrent upload tasks",
+    )
+    pipeline_parser.add_argument(
+        "--task-unpack-concurrency",
+        type=int,
+        help="Maximum concurrent unpack tasks",
+    )
+    pipeline_parser.add_argument(
+        "--task-extract-marc-concurrency",
+        type=int,
+        help="Maximum concurrent MARC extraction tasks",
+    )
+    pipeline_parser.add_argument(
+        "--task-extract-ocr-concurrency",
+        type=int,
+        help="Maximum concurrent OCR extraction tasks",
+    )
+    pipeline_parser.add_argument(
+        "--task-export-csv-concurrency",
+        type=int,
+        help="Maximum concurrent CSV export tasks",
+    )
+    pipeline_parser.add_argument(
+        "--task-cleanup-concurrency",
+        type=int,
+        help="Maximum concurrent cleanup tasks",
     )
 
     # Download options

@@ -14,8 +14,8 @@ import sys
 from pathlib import Path
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
-from grin_to_s3.common import setup_logging
 from grin_to_s3.database_utils import validate_database_file
+from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
 
 logger = logging.getLogger(__name__)

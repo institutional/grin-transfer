@@ -5,6 +5,7 @@ import aiohttp
 from botocore.exceptions import ClientError
 
 from grin_to_s3.client import GRINClient
+from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import Barcode, create_http_session
 from grin_to_s3.storage.book_manager import BookManager
 
@@ -44,7 +45,7 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
 
     # Now check for our own etag
     book_manager = BookManager(pipeline.storage, storage_config=pipeline.config.storage_config)
-    etag_match = await etag_matches(barcode, data["etag"], book_manager)
+    etag_match = await etag_matches(barcode, data["etag"], book_manager, pipeline.db_tracker)
     if etag_match["matched"]:
         if pipeline.force:
             return CheckResult(
@@ -93,14 +94,16 @@ async def grin_head_request(barcode: Barcode, grin_client: GRINClient, library_d
         return result
 
 
-async def etag_matches(barcode: Barcode, etag: str, book_manager: BookManager) -> ETagMatchResult:
+async def etag_matches(
+    barcode: Barcode, etag: str, book_manager: BookManager, db_tracker: SQLiteProgressTracker
+) -> ETagMatchResult:
     # Check if decrypted archive exists and matches encrypted ETag
     try:
-        metadata = cast(ArchiveMetadata, await book_manager.get_decrypted_archive_metadata(barcode))
+        metadata = cast(ArchiveMetadata, await book_manager.get_decrypted_archive_metadata(barcode, db_tracker))
 
         stored_encrypted_etag = metadata.get("encrypted_etag")
         if not stored_encrypted_etag:
-            logger.warning(f"[{barcode}] No stored etag present in our metadata; this is unexpected")
+            logger.debug(f"[{barcode}] No stored etag found; will download")
             return {"matched": False, "reason": "no_etag"}
         matches = stored_encrypted_etag.strip('"') == etag.strip('"')
         if matches:

@@ -5,8 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from grin_to_s3.collect_books.models import BookRecord
-from grin_to_s3.common import Barcode
-from grin_to_s3.compression import compress_file_to_temp
+from grin_to_s3.common import Barcode, compress_file_to_temp
 
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline

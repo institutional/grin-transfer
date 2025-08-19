@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
-from grin_to_s3.common import SlidingWindowRateCalculator
+from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 
 
 class TestSlidingWindowRateCalculator:

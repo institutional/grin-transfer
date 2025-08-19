@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from grin_to_s3.sync.database_backup import create_local_database_backup, upload_database_to_storage
+from grin_to_s3.database.database_backup import create_local_database_backup, upload_database_to_storage
 
 
 @pytest.mark.asyncio
@@ -67,7 +67,7 @@ async def test_upload_database_to_storage_latest():
     # Mock setup
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager._meta_path.return_value = "meta/books_latest.db.gz"
+    mock_book_manager.meta_path.return_value = "meta/books_latest.db.gz"
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
@@ -92,7 +92,7 @@ async def test_upload_database_to_storage_timestamped():
     # Mock setup
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager._meta_path.return_value = "meta/database_backups/books_backup_20240101_120000.db.gz"
+    mock_book_manager.meta_path.return_value = "meta/database_backups/books_backup_20240101_120000.db.gz"
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
@@ -118,7 +118,7 @@ async def test_upload_database_to_storage_compression_cleanup():
     # Mock setup
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager._meta_path.return_value = "meta/books_latest.db.gz"
+    mock_book_manager.meta_path.return_value = "meta/books_latest.db.gz"
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
@@ -158,7 +158,7 @@ async def test_upload_database_to_storage_upload_error():
     # Mock setup with failing storage
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager._meta_path.return_value = "meta/books_latest.db.gz"
+    mock_book_manager.meta_path.return_value = "meta/books_latest.db.gz"
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock(side_effect=Exception("Storage error"))
 

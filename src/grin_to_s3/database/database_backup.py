@@ -10,10 +10,12 @@ import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict
+from typing import TYPE_CHECKING, TypedDict
 
-from grin_to_s3.common import BackupManager
-from grin_to_s3.compression import compress_file_to_temp, get_compressed_filename
+from grin_to_s3.common import BackupManager, compress_file_to_temp, get_compressed_filename
+
+if TYPE_CHECKING:
+    from grin_to_s3.storage.book_manager import BookManager
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +96,9 @@ async def create_local_database_backup(db_path: str, backup_dir: str | None = No
     return result
 
 
-async def upload_database_to_storage(db_path: str, book_manager, upload_type: str = "latest") -> DatabaseBackupResult:
+async def upload_database_to_storage(
+    db_path: str, book_manager: "BookManager", upload_type: str = "latest"
+) -> DatabaseBackupResult:
     """Upload database file to metadata bucket with compression.
 
     Args:
@@ -127,12 +131,12 @@ async def upload_database_to_storage(db_path: str, book_manager, upload_type: st
         if upload_type == "latest":
             base_filename = "books_latest.db"
             compressed_filename = get_compressed_filename(base_filename)
-            storage_path = book_manager._meta_path(compressed_filename)
+            storage_path = book_manager.meta_path(compressed_filename)
         else:  # timestamped
             timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
             base_filename = f"books_backup_{timestamp}.db"
             compressed_filename = get_compressed_filename(base_filename)
-            storage_path = book_manager._meta_path(f"database_backups/{compressed_filename}")
+            storage_path = book_manager.meta_path(f"database_backups/{compressed_filename}")
 
         result["backup_filename"] = compressed_filename
 

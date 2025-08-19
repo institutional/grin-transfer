@@ -41,7 +41,7 @@ def mock_book_manager():
     """Mock BookManager with common setup."""
     with patch("grin_to_s3.sync.tasks.upload.BookManager") as mock_book_manager_cls:
         mock_manager = MagicMock()
-        mock_manager._raw_archive_path.return_value = "bucket/TEST123/TEST123.tar.gz"
+        mock_manager.raw_archive_path.return_value = "bucket/TEST123/TEST123.tar.gz"
         mock_manager.storage.write_file = AsyncMock()
         mock_book_manager_cls.return_value = mock_manager
         yield mock_book_manager_cls, mock_manager
@@ -61,8 +61,8 @@ async def test_main_successful_upload(mock_pipeline, sample_download_data, sampl
 @pytest.mark.parametrize(
     "storage_config,expected_path",
     [
-        ({"type": "s3", "config": {"bucket_raw": "test-bucket"}}, "test-bucket/TEST123/TEST123.tar.gz"),
-        ({"type": "local", "base_path": "/tmp/local"}, "/tmp/local/TEST123/TEST123.tar.gz"),
+        ({"protocol": "s3", "config": {"bucket_raw": "test-bucket"}}, "test-bucket/TEST123/TEST123.tar.gz"),
+        ({"protocol": "local", "base_path": "/tmp/local"}, "/tmp/local/TEST123/TEST123.tar.gz"),
     ],
 )
 @pytest.mark.asyncio
@@ -71,6 +71,8 @@ async def test_upload_with_storage_types(storage_config, expected_path):
     pipeline = MagicMock()
     pipeline.storage = MagicMock()
     pipeline.config.storage_config = storage_config
+    # Add uses_local_storage property that checks protocol
+    type(pipeline).uses_local_storage = property(lambda self: self.config.storage_config.get("protocol") == "local")
 
     with tempfile.TemporaryDirectory() as temp_dir:
         decrypted_path = Path(temp_dir) / "TEST123.tar.gz"
@@ -87,11 +89,15 @@ async def test_upload_with_storage_types(storage_config, expected_path):
             "http_status_code": 200,
         }
 
-        with patch("grin_to_s3.sync.tasks.upload.BookManager") as mock_book_manager_cls:
+        with patch("grin_to_s3.sync.tasks.upload.BookManager") as mock_book_manager_cls, \
+             patch("grin_to_s3.sync.tasks.upload.copy_file_to_base_path") as mock_copy_file:
             mock_manager = MagicMock()
-            mock_manager._raw_archive_path.return_value = expected_path
+            mock_manager.raw_archive_path.return_value = expected_path
             mock_manager.storage.write_file = AsyncMock()
             mock_book_manager_cls.return_value = mock_manager
+
+            # Mock the local storage copy function to return expected data
+            mock_copy_file.return_value = {"upload_path": Path(expected_path)}
 
             result = await upload.main("TEST123", download_data, decrypt_data, pipeline)
 
@@ -106,7 +112,9 @@ async def test_upload_metadata_includes_etag_and_barcode(sample_download_data, s
     _, mock_manager = mock_book_manager
     pipeline = MagicMock()
     pipeline.storage = MagicMock()
-    pipeline.config.storage_config = {"config": {"bucket_raw": "test-bucket"}}
+    pipeline.config.storage_config = {"protocol": "s3", "config": {"bucket_raw": "test-bucket"}}
+    # Let uses_local_storage be a property that returns False for s3 protocol
+    type(pipeline).uses_local_storage = property(lambda self: self.config.storage_config["protocol"] == "local")
 
     await upload.main("METADATA123", sample_download_data, sample_decrypt_data, pipeline)
 

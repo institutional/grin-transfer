@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from grin_to_s3.common import setup_logging
+from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.run_config import RunConfig
 
 

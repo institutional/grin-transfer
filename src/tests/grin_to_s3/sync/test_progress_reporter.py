@@ -8,10 +8,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from grin_to_s3.common import SlidingWindowRateCalculator
 from grin_to_s3.sync.progress_reporter import (
     INITIAL_PROGRESS_INTERVAL,
     REGULAR_PROGRESS_INTERVAL,
+    SlidingWindowRateCalculator,
     SyncProgressReporter,
 )
 from grin_to_s3.sync.tasks.task_types import TaskType
@@ -340,7 +340,7 @@ class TestSyncProgressReporter:
     async def test_pipeline_integration_progress_reporter_lifecycle(self):
         """Test that progress reporter integrates correctly with sync pipeline lifecycle."""
         # This is an integration test to ensure the progress reporter works with the sync pipeline
-        from grin_to_s3.common import SlidingWindowRateCalculator
+        from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 
         # Create mocks for TaskManager and pipeline dependencies
         mock_task_manager = Mock()

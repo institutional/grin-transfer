@@ -55,8 +55,12 @@ def mock_pipeline():
         pipeline.storage.write_file = AsyncMock()
         pipeline.config = MagicMock()
         pipeline.config.storage_config = {
+            "protocol": "s3",  # Default to non-local storage
             "config": {"bucket_raw": "test-raw", "bucket_full": "test-full", "bucket_meta": "test-meta"}
         }
+
+        # Add uses_local_storage property that checks protocol
+        type(pipeline).uses_local_storage = property(lambda self: self.config.storage_config.get("protocol") == "local")
 
         # Mock database tracker
         pipeline.db_tracker = MagicMock()

@@ -9,7 +9,6 @@ import logging
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.database_utils import mark_verified_unavailable
-from grin_to_s3.processing import ProcessingRequestError, request_conversion
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +42,8 @@ class ConversionRequestHandler:
             return "limit_reached"
 
         try:
+            from grin_to_s3.processing import ProcessingRequestError, request_conversion
+
             logger.info(f"[{barcode}] Requesting conversion for missing archive")
             result = await request_conversion(barcode, self.library_directory, self.secrets_dir)
 

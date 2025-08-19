@@ -406,30 +406,3 @@ async def process_books_batch(
     return book_results
 
 
-# Factory function for creating configured task manager
-def create_sync_task_manager(
-    concurrent_downloads: int = 5, concurrent_uploads: int = 10, concurrent_extractions: int = 5
-) -> TaskManager:
-    """
-    Create a task manager with sync-specific configuration.
-
-    Args:
-        concurrent_downloads: Max concurrent downloads
-        concurrent_uploads: Max concurrent uploads
-        concurrent_extractions: Max concurrent extraction tasks
-
-    Returns:
-        Configured TaskManager instance
-    """
-    limits = {
-        TaskType.CHECK: concurrent_downloads * 2,  # Checks are fast
-        TaskType.DOWNLOAD: concurrent_downloads,
-        TaskType.DECRYPT: min(concurrent_downloads, 3),  # Decryption is CPU intensive
-        TaskType.UNPACK: min(concurrent_downloads, 3),  # Unpacking is I/O intensive
-        TaskType.UPLOAD: concurrent_uploads,
-        TaskType.EXTRACT_MARC: concurrent_extractions,
-        TaskType.EXTRACT_OCR: concurrent_extractions,
-        TaskType.CLEANUP: 2,
-    }
-
-    return TaskManager(limits)

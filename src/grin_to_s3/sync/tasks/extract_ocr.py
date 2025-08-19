@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, cast
 
 from grin_to_s3.common import (
     Barcode,
+    compress_file_to_temp,
 )
-from grin_to_s3.compression import compress_file_to_temp
 from grin_to_s3.extract.text_extraction import filesystem_page_generator
 from grin_to_s3.sync.tasks.task_types import ArchiveOcrMetadata, ExtractOcrResult, TaskAction, TaskType, UnpackData
 

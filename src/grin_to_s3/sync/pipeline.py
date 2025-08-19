@@ -17,16 +17,16 @@ from grin_to_s3.common import (
     DEFAULT_DOWNLOAD_RETRIES,
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_MAX_SEQUENTIAL_FAILURES,
-    SlidingWindowRateCalculator,
     format_duration,
     pluralize,
 )
 from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT
-from grin_to_s3.processing import get_converted_books, get_in_process_set
+from grin_to_s3.queue_utils import get_converted_books, get_in_process_set
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config
 from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.staging import LocalDirectoryManager, StagingDirectoryManager
+from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 from grin_to_s3.sync.task_manager import (
     TaskManager,
     process_books_batch,
@@ -132,6 +132,7 @@ class SyncPipeline:
         download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
         download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
         max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
+        task_concurrency_overrides: dict[str, int] | None = None,
     ) -> "SyncPipeline":
         """Create SyncPipeline from RunConfig.
 
@@ -148,6 +149,7 @@ class SyncPipeline:
             download_timeout: Timeout for book downloads in seconds
             download_retries: Number of retry attempts for failed downloads
             max_sequential_failures: Exit pipeline after this many consecutive failures
+            task_concurrency_overrides: Override task concurrency limits from CLI
 
         Returns:
             Configured SyncPipeline instance
@@ -165,6 +167,7 @@ class SyncPipeline:
             download_timeout=download_timeout,
             download_retries=download_retries,
             max_sequential_failures=max_sequential_failures,
+            task_concurrency_overrides=task_concurrency_overrides,
         )
 
     def __init__(
@@ -181,6 +184,7 @@ class SyncPipeline:
         download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
         download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
         max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
+        task_concurrency_overrides: dict[str, int] | None = None,
     ):
         # Store configuration and runtime parameters
         self.config = config
@@ -202,10 +206,11 @@ class SyncPipeline:
         self.secrets_dir = config.secrets_dir
 
         # Sync configuration from RunConfig
-        self.concurrent_downloads = config.sync_concurrent_downloads
-        self.concurrent_uploads = config.sync_concurrent_uploads
         self.batch_size = config.sync_batch_size
         self.disk_space_threshold = config.sync_disk_space_threshold
+
+        # Build task concurrency limits from config and overrides
+        self.task_concurrency_limits = self._build_task_concurrency_limits(config, task_concurrency_overrides)
 
         self.filesystem_manager: LocalDirectoryManager | StagingDirectoryManager
 
@@ -232,8 +237,6 @@ class SyncPipeline:
             )
 
         # Concurrency control
-        self._download_semaphore = asyncio.Semaphore(self.concurrent_downloads)
-        self._upload_semaphore = asyncio.Semaphore(self.concurrent_uploads)
         self._shutdown_requested = False
         self._fatal_error: str | None = None  # Store fatal errors that should stop the pipeline
 
@@ -273,6 +276,44 @@ class SyncPipeline:
         self.book_manager = BookManager(
             self.storage, storage_config=self.config.storage_config, base_prefix=self.base_prefix
         )
+
+    def _build_task_concurrency_limits(
+        self, config: RunConfig, overrides: dict[str, int] | None = None
+    ) -> dict[TaskType, int]:
+        """Build task concurrency limits from config and CLI overrides."""
+        from grin_to_s3.sync.tasks.task_types import TaskType
+
+        limits = {
+            TaskType.CHECK: config.sync_task_check_concurrency,
+            TaskType.DOWNLOAD: config.sync_task_download_concurrency,
+            TaskType.DECRYPT: config.sync_task_decrypt_concurrency,
+            TaskType.UPLOAD: config.sync_task_upload_concurrency,
+            TaskType.UNPACK: config.sync_task_unpack_concurrency,
+            TaskType.EXTRACT_MARC: config.sync_task_extract_marc_concurrency,
+            TaskType.EXTRACT_OCR: config.sync_task_extract_ocr_concurrency,
+            TaskType.EXPORT_CSV: config.sync_task_export_csv_concurrency,
+            TaskType.CLEANUP: config.sync_task_cleanup_concurrency,
+        }
+
+        # Apply CLI overrides if provided
+        if overrides:
+            task_type_mapping = {
+                "task_check_concurrency": TaskType.CHECK,
+                "task_download_concurrency": TaskType.DOWNLOAD,
+                "task_decrypt_concurrency": TaskType.DECRYPT,
+                "task_upload_concurrency": TaskType.UPLOAD,
+                "task_unpack_concurrency": TaskType.UNPACK,
+                "task_extract_marc_concurrency": TaskType.EXTRACT_MARC,
+                "task_extract_ocr_concurrency": TaskType.EXTRACT_OCR,
+                "task_export_csv_concurrency": TaskType.EXPORT_CSV,
+                "task_cleanup_concurrency": TaskType.CLEANUP,
+            }
+
+            for config_key, value in overrides.items():
+                if config_key in task_type_mapping:
+                    limits[task_type_mapping[config_key]] = value
+
+        return limits
 
     @property
     def uses_block_storage(self) -> bool:
@@ -427,7 +468,9 @@ class SyncPipeline:
         else:
             print(f"Storage: {self.config.storage_config['type']}")
 
-        print(f"Concurrent downloads: {self.concurrent_downloads}")
+        print("Task concurrency limits:")
+        for task_type, task_limit in self.task_concurrency_limits.items():
+            print(f"  {task_type.name.lower()}: {task_limit}")
         print(f"Batch size: {self.batch_size}")
         if limit:
             print(f"Limit: {limit:,} {pluralize(limit, 'book')}")
@@ -435,7 +478,7 @@ class SyncPipeline:
 
         logger.info("Starting sync pipeline")
         logger.info(f"Database: {self.db_path}")
-        logger.info(f"Concurrent downloads: {self.concurrent_downloads}")
+        logger.info(f"Task concurrency limits: {self.task_concurrency_limits}")
 
         # Reset bucket cache at start of sync
         reset_bucket_cache()
@@ -521,17 +564,7 @@ class SyncPipeline:
                 TaskType.CLEANUP: cleanup.main,
             }
 
-            limits = {
-                TaskType.CHECK: 5,
-                TaskType.DOWNLOAD: 2,
-                TaskType.DECRYPT: 2,
-                TaskType.UPLOAD: 3,
-                TaskType.UNPACK: 2,
-                TaskType.EXTRACT_MARC: 2,
-                TaskType.EXTRACT_OCR: 2,
-                TaskType.EXPORT_CSV: 2,
-                TaskType.CLEANUP: 1,
-            }
+            limits = self.task_concurrency_limits
 
             # Handle dry-run mode
             if self.dry_run:
@@ -547,14 +580,17 @@ class SyncPipeline:
             rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
             progress_reporter = SyncProgressReporter(
-                task_manager, books_to_process_count, self.concurrent_downloads, self.concurrent_uploads
+                task_manager,
+                books_to_process_count,
+                self.task_concurrency_limits[TaskType.DOWNLOAD],
+                self.task_concurrency_limits[TaskType.UPLOAD],
             )
 
             print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')}...")
-            print(f"{self.concurrent_downloads} concurrent downloads")
+            print(f"{self.task_concurrency_limits[TaskType.DOWNLOAD]} concurrent downloads")
 
             if self.uses_local_storage:
-                print(f"{self.concurrent_uploads} uploads")
+                print(f"{self.task_concurrency_limits[TaskType.UPLOAD]} uploads")
 
             print("Progress updates will be shown every 10 minutes (more frequent initially)")
             print("---")
@@ -621,8 +657,9 @@ class SyncPipeline:
 
         print(f"Total books that would be processed: {books_to_process:,}")
         print(f"Storage type: {self.config.storage_config['type']}")
-        print(f"Concurrent downloads: {self.concurrent_downloads}")
-        print(f"Concurrent uploads: {self.concurrent_uploads}")
+        print("Task concurrency limits:")
+        for task_type, task_limit in self.task_concurrency_limits.items():
+            print(f"  {task_type.name.lower()}: {task_limit}")
         print(f"Batch size: {self.batch_size}")
 
         if specific_barcodes:
