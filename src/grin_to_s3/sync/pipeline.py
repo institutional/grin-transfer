@@ -642,11 +642,11 @@ class SyncPipeline:
             # TODO: Collect bytes from successful uploads if needed
             # This would require looking at upload task results
 
-        # Update basic counts
+        # Update final counts for this sync operation
         total_processed = synced + skipped + failed + conversion_requested
         total_successful = synced + skipped + conversion_requested  # Skipped and conversions are "successful"
 
-        self.process_summary_stage.increment_items(
+        self.process_summary_stage.set_final_counts(
             processed=total_processed,
             successful=total_successful,
             failed=failed,

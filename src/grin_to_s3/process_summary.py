@@ -94,6 +94,16 @@ class ProcessStageMetrics:
         self.items_retried += retried
         self.bytes_processed += bytes_count
 
+    def set_final_counts(
+        self, processed: int, successful: int, failed: int, retried: int = 0, bytes_count: int = 0
+    ) -> None:
+        """Set final counts for this stage (used at completion)."""
+        self.items_processed = processed
+        self.items_successful = successful
+        self.items_failed = failed
+        self.items_retried = retried
+        self.bytes_processed = bytes_count
+
     def add_error(self, error_type: str, error_message: str) -> None:
         """Record an error occurrence."""
         self.error_count += 1
