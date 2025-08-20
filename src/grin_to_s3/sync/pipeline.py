@@ -9,7 +9,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
@@ -17,7 +17,6 @@ from grin_to_s3.common import (
     DEFAULT_DOWNLOAD_RETRIES,
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_MAX_SEQUENTIAL_FAILURES,
-    format_duration,
     pluralize,
 )
 from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT
@@ -49,25 +48,10 @@ from .barcode_filtering import create_filtering_summary, filter_barcodes_pipelin
 from .conversion_handler import ConversionRequestHandler
 from .preflight import run_preflight_operations
 from .progress_reporter import SyncProgressReporter
-from .teardown import run_teardown_operations
 from .utils import reset_bucket_cache
 
 logger = logging.getLogger(__name__)
 
-
-class SyncStats(TypedDict):
-    """Statistics for sync operations."""
-
-    processed: int
-    synced: int  # Actually downloaded and uploaded to storage
-    failed: int
-    skipped: int
-    skipped_etag_match: int
-    skipped_conversion_limit: int
-    conversion_requested: int
-    marked_unavailable: int
-    uploaded: int
-    total_bytes: int
 
 
 async def get_books_from_queue(grin_client, library_directory: str, queue_name: str, db_tracker) -> set[str]:
@@ -250,19 +234,6 @@ class SyncPipeline:
         # Simple gate to prevent race conditions in task creation
         self._task_creation_lock = asyncio.Lock()
 
-        # Statistics
-        self.stats = SyncStats(
-            processed=0,
-            synced=0,
-            failed=0,
-            skipped=0,
-            skipped_etag_match=0,
-            skipped_conversion_limit=0,
-            conversion_requested=0,
-            marked_unavailable=0,
-            uploaded=0,
-            total_bytes=0,
-        )
         self.start_time = time.time()
         self._sequential_failures = 0  # Track consecutive failures for exit logic
 
@@ -338,7 +309,6 @@ class SyncPipeline:
         Returns:
             True if pipeline should exit, False otherwise
         """
-        self.stats["failed"] += 1
         self._sequential_failures += 1
 
         logger.error(f"[{barcode}] ❌ Failed: {error_msg}")
@@ -360,68 +330,7 @@ class SyncPipeline:
         """Get current sync status and statistics."""
         stats = await self.db_tracker.get_sync_stats(self.config.storage_config["protocol"])
 
-        return {
-            **stats,
-            "session_stats": self.stats,
-        }
-
-    async def _print_final_stats_and_outputs(self, total_elapsed: float, books_processed: int) -> None:
-        """Print comprehensive final statistics and output locations."""
-        run_name = Path(self.db_path).parent.name
-
-        print(f"\nSync completed for run: {run_name}")
-        print(f"  Runtime: {format_duration(total_elapsed)}")
-        print(f"  Books processed: {books_processed:,}")
-        print(f"  Successfully synced: {self.stats['synced']:,}")
-        print(f"  Failed: {self.stats['failed']:,}")
-
-        # Show detailed breakdown of results
-        if self.stats.get("conversion_requested", 0) > 0:
-            print(f"  Conversion requested: {self.stats['conversion_requested']:,}")
-        if self.stats.get("marked_unavailable", 0) > 0:
-            print(f"  Marked unavailable: {self.stats['marked_unavailable']:,}")
-        if self.stats.get("skipped_etag_match", 0) > 0:
-            print(f"  Skipped (ETag match): {self.stats['skipped_etag_match']:,}")
-        if self.stats.get("skipped_conversion_limit", 0) > 0:
-            print(f"  Skipped (conversion limit): {self.stats['skipped_conversion_limit']:,}")
-
-        if total_elapsed > 0 and self.stats["synced"] > 0:
-            avg_rate = self.stats["synced"] / total_elapsed
-            print(f"  Average rate: {avg_rate:.1f} books/second")
-
-        # Run teardown operations (database upload, staging cleanup)
-        teardown_results = await run_teardown_operations(self)
-
-        # Add teardown results to final report
-        for operation, result in teardown_results.items():
-            if result.action.value == "completed" and result.data:
-                if operation == "final_database_upload":
-                    data = result.data
-                    print(f"  Database backed up: {data.get('backup_filename')} ({data.get('file_size', 0):,} bytes)")
-                elif operation == "staging_cleanup":
-                    data = result.data
-                    print(f"  Staging cleanup completed: {data.get('staging_path')}")
-            elif result.action.value == "failed":
-                print(f"  {operation.replace('_', ' ').title()} failed: {result.error}")
-            elif result.action.value == "skipped":
-                logger.debug(f"{operation.replace('_', ' ').title()} skipped")
-        # Point to process summary file
-        process_summary_path = f"output/{run_name}/process_summary.json"
-        print(f"  Process summary: {process_summary_path}")
-        # Print storage locations
-        print("\nOutput locations:")
-
-        if self.uses_local_storage:
-            base_path = self.config.storage_config.get("base_path", "")
-            print(f"  Raw data: {base_path}/raw/")
-            print(f"  Metadata: {base_path}/meta/")
-            print(f"  Full-text: {base_path}/full/")
-            print(f"  CSV export: {base_path}/meta/books_latest.csv.gz")
-        else:
-            print(f"  Raw data bucket: {self.config.storage_config['config'].get('bucket_raw')}")
-            print(f"  Metadata bucket: {self.config.storage_config['config'].get('bucket_meta')}")
-            print(f"  Full-text bucket: {self.config.storage_config['config'].get('bucket_full')}")
-            print(f"  CSV export: {self.config.storage_config['config'].get('bucket_meta')}/books_latest.csv.gz")
+        return stats
 
     async def setup_sync_loop(
         self, queues: list[str] | None = None, limit: int | None = None, specific_barcodes: list[str] | None = None
@@ -445,10 +354,8 @@ class SyncPipeline:
             self.conversion_handler = ConversionRequestHandler(
                 library_directory=self.library_directory, db_tracker=self.db_tracker, secrets_dir=self.secrets_dir
             )
-        print("Starting GRIN-to-Storage sync pipeline")
         if self.dry_run:
             print("🔍 DRY-RUN MODE: No files will be downloaded or uploaded")
-        print(f"Database: {self.db_path}")
 
         # Display storage configuration details
         if self.uses_local_storage:
@@ -467,20 +374,13 @@ class SyncPipeline:
             print(f"  Raw bucket: {self.config.storage_config['config'].get('bucket_raw', 'unknown')}")
             print(f"  Meta bucket: {self.config.storage_config['config'].get('bucket_meta', 'unknown')}")
             print(f"  Full bucket: {self.config.storage_config['config'].get('bucket_full', 'unknown')}")
-        else:
-            print(f"Storage: {self.config.storage_config['type']}")
 
-        print("Task concurrency limits:")
-        for task_type, task_limit in self.task_concurrency_limits.items():
-            print(f"  {task_type.name.lower()}: {task_limit}")
-        print(f"Batch size: {self.batch_size}")
         if limit:
             print(f"Limit: {limit:,} {pluralize(limit, 'book')}")
         print()
 
         logger.info("Starting sync pipeline")
         logger.info(f"Database: {self.db_path}")
-        logger.info(f"Task concurrency limits: {self.task_concurrency_limits}")
 
         # Reset bucket cache at start of sync
         reset_bucket_cache()
@@ -499,7 +399,6 @@ class SyncPipeline:
             # Collect books from queues if not using specific barcodes
             queue_books = None
             if not specific_barcodes and queues:
-                print(f"Processing queues: {', '.join(queues)}")
                 queue_books = set()
                 for queue_name in queues:
                     print(f"Fetching books from '{queue_name}' queue...")
@@ -590,10 +489,6 @@ class SyncPipeline:
             )
 
             print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')}...")
-            print(f"{self.task_concurrency_limits[TaskType.DOWNLOAD]} concurrent downloads")
-
-            if self.uses_local_storage:
-                print(f"{self.task_concurrency_limits[TaskType.UPLOAD]} uploads")
 
             print("Progress updates will be shown every 10 minutes (more frequent initially)")
             print("---")
@@ -602,12 +497,15 @@ class SyncPipeline:
             progress_reporter_task = asyncio.create_task(progress_reporter.run(time.time(), rate_calculator))
 
             # Process the filtered books using the task manager
-            await process_books_batch(
+            book_results = await process_books_batch(
                 filtering_result.books_after_limit,
                 self,
                 task_funcs,
                 task_manager,
             )
+
+            # Update process summary with detailed metrics from book results
+            self._update_process_summary_metrics(book_results, queues, limit, specific_barcodes)
 
         except KeyboardInterrupt:
             # KeyboardInterrupt is handled by signal handler, just log and continue to cleanup
@@ -709,3 +607,79 @@ class SyncPipeline:
         logger.info(
             f"DRY-RUN: Would process {books_to_process} books with storage type {self.config.storage_config['type']}"
         )
+
+    def _update_process_summary_metrics(
+        self,
+        book_results: dict[str, dict],
+        queues: list[str] | None,
+        limit: int | None,
+        specific_barcodes: list[str] | None,
+    ) -> None:
+        """Update process summary stage with book-level outcome metrics."""
+        # Analyze book results to determine outcomes
+        synced = 0
+        skipped = 0
+        failed = 0
+        conversion_requested = 0
+
+        for task_results in book_results.values():
+            # Determine the overall outcome for this book
+            book_outcome = self._determine_book_outcome(task_results)
+
+            if book_outcome == "synced":
+                synced += 1
+            elif book_outcome == "skipped":
+                skipped += 1
+            elif book_outcome == "conversion_requested":
+                conversion_requested += 1
+            else:
+                failed += 1
+
+
+        # Store book outcomes
+        self.process_summary_stage.book_outcomes = {
+            "synced": synced,
+            "skipped": skipped,
+            "failed": failed,
+            "conversion_requested": conversion_requested,
+        }
+
+        # Store queue information
+        if queues:
+            self.process_summary_stage.queue_info["queues"] = queues
+        if limit:
+            self.process_summary_stage.queue_info["limit"] = limit
+        if specific_barcodes:
+            self.process_summary_stage.queue_info["specific_barcodes"] = len(specific_barcodes)
+
+        # Store conversion request statistics if available
+        if self.conversion_handler and self.conversion_requests_made > 0:
+            self.process_summary_stage.queue_info["conversion_requests"] = self.conversion_requests_made
+            self.process_summary_stage.queue_info["conversion_limit"] = self.conversion_request_limit
+
+
+    def _determine_book_outcome(self, task_results: dict) -> str:
+        """Determine the overall outcome for a single book based on its task results."""
+        from .tasks.task_types import TaskAction, TaskType
+
+        # Check if conversion was requested (for previous queue)
+        if TaskType.REQUEST_CONVERSION in task_results:
+            request_result = task_results[TaskType.REQUEST_CONVERSION]
+            if request_result.action == TaskAction.COMPLETED:
+                return "conversion_requested"
+
+        # Check if the book was skipped early (already synced or etag match)
+        if TaskType.CHECK in task_results:
+            check_result = task_results[TaskType.CHECK]
+            if check_result.action == TaskAction.SKIPPED:
+                return "skipped"
+
+        # Check if the full sync pipeline completed successfully
+        if TaskType.UPLOAD in task_results:
+            upload_result = task_results[TaskType.UPLOAD]
+            if upload_result.action == TaskAction.COMPLETED:
+                return "synced"
+
+        # If we got here, something failed
+        return "failed"
+

@@ -25,6 +25,7 @@ from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
     create_book_manager_for_uploads,
     create_process_summary,
+    display_step_summary,
     get_current_stage,
     save_process_summary,
 )
@@ -115,7 +116,7 @@ def _setup_signal_handlers(pipeline, sync_stage) -> None:
             sync_stage.add_progress_update("Force exit requested")
             # Use os._exit() instead of sys.exit() to avoid asyncio shutdown issues
             os._exit(1)
-        print(f"\nReceived signal {signum}, shutting down gracefully... No new downloads will be initiated.")
+        print(f"\nReceived signal {signum}, finishing sync for books in flight...")
         print("Press Control-C again to force immediate exit")
         sync_stage.add_progress_update("Graceful shutdown requested")
         pipeline._shutdown_requested = True
@@ -243,7 +244,7 @@ async def cmd_pipeline(args) -> None:
                 with open(config_path, "w") as f:
                     json.dump(run_config, f, indent=2)
 
-                print(f"Updated storage configuration in {config_path}")
+                print(f"Config in {config_path}")
                 if task_concurrency_overrides:
                     print(f"Applied task concurrency overrides: {task_concurrency_overrides}")
             else:
@@ -303,6 +304,8 @@ async def cmd_pipeline(args) -> None:
     sync_stage.set_command_arg("force_mode", args.force)
     if args.limit:
         sync_stage.set_command_arg("limit", args.limit)
+    if hasattr(args, "queue") and args.queue:
+        sync_stage.set_command_arg("queues", args.queue)
 
     try:
         # Load run config and update storage configuration
@@ -329,6 +332,9 @@ async def cmd_pipeline(args) -> None:
         run_summary.end_stage("sync")
         if not args.dry_run:
             await save_process_summary(run_summary, book_manager)
+
+        # Display completion summary
+        display_step_summary(run_summary, "sync")
 
 
 async def cmd_status(args) -> None:

@@ -50,7 +50,8 @@ class TestLocalStorageIntegration:
                 status = await pipeline.get_sync_status()
 
                 # Verify pipeline can be initialized and provide status
-                assert "session_stats" in status
+                assert "total_converted" in status
+                assert "storage_type" in status
 
     @pytest.mark.asyncio
     async def test_local_storage_startup_configuration_display(self, mock_process_stage, test_config_builder):

@@ -16,7 +16,7 @@ from typing import Any
 
 import aiofiles
 
-from .common import compress_file_to_temp, get_compressed_filename
+from .common import compress_file_to_temp, format_duration, get_compressed_filename
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,11 @@ class ProcessStageMetrics:
 
     # Progress tracking
     progress_updates: list[dict[str, Any]] = field(default_factory=list)
+
+    # Detailed sync-specific metrics
+    book_outcomes: dict[str, int] = field(default_factory=dict)  # Book-level outcomes (synced, skipped, failed, etc.)
+    queue_info: dict[str, Any] = field(default_factory=dict)  # Queue details from command args
+    error_breakdown: dict[str, int] = field(default_factory=dict)  # Error counts by type
 
     def start_stage(self) -> None:
         """Start timing this stage."""
@@ -223,6 +228,10 @@ class RunSummary:
                 "success_rate_percent": (
                     (stage.items_successful / max(1, stage.items_processed)) * 100 if stage.items_processed > 0 else 0
                 ),
+                # Detailed sync-specific metrics
+                "book_outcomes": stage.book_outcomes,
+                "queue_info": stage.queue_info,
+                "error_breakdown": stage.error_breakdown,
             }
 
         return {
@@ -443,12 +452,17 @@ async def create_book_manager_for_uploads(run_name: str):
         # Create storage instance
         storage_type = run_config.storage_type
 
+        # Local storage doesn't need process summary uploads to remote storage
+        if storage_type == "local":
+            logger.debug(f"Skipping process summary upload for local storage run {run_name}")
+            return None
+
         # Use the full storage config for new API
         storage = create_storage_from_config(run_config.storage_config)
 
-        # For non-local storage, validate that metadata bucket is configured
+        # Validate that metadata bucket is configured
         nested_config = run_config.storage_config["config"]
-        if storage_type != "local" and not nested_config.get("bucket_meta"):
+        if not nested_config.get("bucket_meta"):
             logger.warning(f"No metadata bucket configured for run {run_name}")
             return None
 
@@ -459,3 +473,144 @@ async def create_book_manager_for_uploads(run_name: str):
     except Exception as e:
         logger.error(f"Failed to create book storage for uploads: {e}")
         return None
+
+
+def display_step_summary(summary: RunSummary, step_name: str) -> None:
+    """Display a detailed summary of the step that just completed and overall run state.
+
+    Args:
+        summary: The run summary containing step data
+        step_name: Name of the step to display (e.g., 'collect', 'process', 'sync', 'enrich')
+    """
+    if step_name not in summary.stages:
+        return
+
+    step = summary.stages[step_name]
+
+    # Skip if step hasn't completed
+    if step.end_time is None or step.duration_seconds is None:
+        return
+
+    # Determine step display name and next command
+    step_display_map = {
+        "collect": ("Collected", "python grin.py sync pipeline --queue converted"),
+        "process": ("Requested processing for", "python grin.py process monitor"),
+        "sync": ("Synced (cumulative)", None),
+        "enrich": ("Enriched", "python grin.py export-csv"),
+    }
+
+    action_text, next_command = step_display_map.get(step_name, (step_name.title(), None))
+
+    # Format duration and rate
+    duration_str = format_duration(step.duration_seconds)
+
+    # Calculate rate if we have items processed
+    rate_str = ""
+    if step.items_processed > 0 and step.duration_seconds > 0:
+        rate = step.items_processed / step.duration_seconds
+        if rate >= 1:
+            rate_str = f" ({rate:.1f} books/s)"
+        else:
+            rate_str = f" ({60 * rate:.1f} books/min)"
+
+    # Build main summary line for current step
+    items_text = f"{step.items_processed:,} books" if step.items_processed > 0 else "operation"
+
+    print(f"\n✓ {action_text} {items_text} in {duration_str}{rate_str}")
+
+    # Show detailed results for current step
+    if step_name == "sync" and step.items_processed > 0:
+        failed = step.items_failed
+        successful = step.items_successful
+        skipped = step.items_processed - successful - failed
+        if skipped > 0:
+            print(f"  Success: {successful:,} | Failed: {failed:,} | Skipped: {skipped:,}")
+        elif failed > 0:
+            print(f"  Success: {successful:,} | Failed: {failed:,}")
+
+        # Display detailed sync metrics
+        _display_sync_details(step)
+    elif step.items_failed > 0 and step.items_processed > 0:
+        print(f"  Success: {step.items_successful:,} | Failed: {step.items_failed:,}")
+
+    # Show brief collection overview if we have multiple steps
+    if len(summary.stages) > 1:
+        step_order = ["collect", "process", "sync", "enrich"]
+        completed_steps = []
+
+        for s in step_order:
+            if s in summary.stages and summary.stages[s].end_time is not None:
+                step_data = summary.stages[s]
+                if step_data.items_processed > 0:
+                    completed_steps.append(f"{s}:{step_data.items_processed:,}")
+
+        if completed_steps:
+            print(f"  Collection: {' | '.join(completed_steps)} books")
+
+    # Show next command if available
+    if next_command:
+        run_name = summary.run_name
+        print(f"  Next: {next_command} --run-name {run_name}")
+
+    print()  # Add blank line for spacing
+
+
+def _display_sync_details(step: ProcessStageMetrics) -> None:
+    """Display detailed sync metrics for the sync stage focused on user outcomes."""
+    # Display queue information
+    if step.queue_info:
+        queues = step.queue_info.get("queues", [])
+        if queues:
+            queue_str = ", ".join(queues)
+            available = step.queue_info.get("available")
+            if available:
+                print(f"  Queue: {queue_str} ({available:,} available)")
+            else:
+                print(f"  Queue: {queue_str}")
+
+        limit = step.queue_info.get("limit")
+        specific_barcodes = step.queue_info.get("specific_barcodes")
+        conversion_requests = step.queue_info.get("conversion_requests")
+        conversion_limit = step.queue_info.get("conversion_limit")
+
+        if limit:
+            print(f"  Limit: {limit:,} books")
+        elif specific_barcodes:
+            print(f"  Specific barcodes: {specific_barcodes} books")
+
+        if conversion_requests and conversion_limit:
+            print(f"  Conversion requests: {conversion_requests:,}/{conversion_limit:,}")
+
+    # Display book outcomes
+    if step.book_outcomes:
+        print("  This session:")
+        synced = step.book_outcomes.get("synced", 0)
+        skipped = step.book_outcomes.get("skipped", 0)
+        failed = step.book_outcomes.get("failed", 0)
+        conversion_requested = step.book_outcomes.get("conversion_requested", 0)
+
+        if synced > 0:
+            print(f"    ✓ Successfully synced: {synced:,} books")
+        if conversion_requested > 0:
+            print(f"    → Conversion requested: {conversion_requested:,} books")
+        if skipped > 0:
+            print(f"    ⊘ Skipped (already synced): {skipped:,} books")
+        if failed > 0:
+            print(f"    ✗ Failed: {failed:,} books")
+
+    # Display bytes processed
+    if step.bytes_processed > 0:
+        bytes_str = _format_bytes(step.bytes_processed)
+        print(f"  {bytes_str} transferred")
+
+
+def _format_bytes(bytes_count: int) -> str:
+    """Format byte count as human-readable string."""
+    if bytes_count < 1024:
+        return f"{bytes_count} bytes"
+    elif bytes_count < 1024 * 1024:
+        return f"{bytes_count / 1024:.1f} KB"
+    elif bytes_count < 1024 * 1024 * 1024:
+        return f"{bytes_count / (1024 * 1024):.1f} MB"
+    else:
+        return f"{bytes_count / (1024 * 1024 * 1024):.1f} GB"

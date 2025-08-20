@@ -76,15 +76,15 @@ async def test_main_etag_continue_if_force(mock_pipeline):
 
 
 @pytest.mark.asyncio
-async def test_main_404_skip(mock_pipeline):
-    """Check task should skip when file not found in GRIN."""
+async def test_main_404_fail(mock_pipeline):
+    """Check task should fail when file not found in GRIN."""
     error_404 = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=404, message="Not Found")
     mock_pipeline.grin_client.auth.make_authenticated_request.side_effect = error_404
 
     result = await check.main("TEST123", mock_pipeline)
 
-    assert result.action == TaskAction.SKIPPED
-    assert result.reason == "skip_archive_missing_from_grin"
+    assert result.action == TaskAction.FAILED
+    assert result.reason == "fail_archive_missing"
 
 
 @pytest.mark.asyncio

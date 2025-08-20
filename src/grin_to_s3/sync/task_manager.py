@@ -252,8 +252,6 @@ async def process_book_pipeline(
                 results,  # Pass accumulated results
             )
             results[TaskType.DOWNLOAD] = download_result
-            logger.info(f"[{barcode}] Download task completed with success={download_result.success}")
-
             if not download_result.should_continue_pipeline:
                 return results
         else:
@@ -383,7 +381,44 @@ async def process_book_pipeline(
         # ALWAYS commit accumulated updates (success or failure)
         await commit_book_record_updates(pipeline, barcode)
 
+    # Update process summary with incremental counts for this book
+    _update_book_metrics(pipeline, results)
+
     return results
+
+
+def _update_book_metrics(pipeline: "SyncPipeline", results: dict) -> None:
+    """Update process summary stage incrementally for this book."""
+    # Import here to avoid circular imports
+    from .tasks.task_types import TaskAction, TaskType
+
+    # Determine if this book was successful overall
+    if TaskType.REQUEST_CONVERSION in results:
+        # Conversion request completed - this is a success for the "previous" queue
+        request_result = results[TaskType.REQUEST_CONVERSION]
+        if request_result.action == TaskAction.COMPLETED:
+            pipeline.process_summary_stage.increment_items(processed=1, successful=1)
+        else:
+            pipeline.process_summary_stage.increment_items(processed=1, failed=1)
+    elif TaskType.CHECK in results:
+        check_result = results[TaskType.CHECK]
+        if check_result.action == TaskAction.SKIPPED:
+            # Book was skipped (already synced/etag match) - this is successful
+            pipeline.process_summary_stage.increment_items(processed=1, successful=1)
+        elif TaskType.UPLOAD in results:
+            upload_result = results[TaskType.UPLOAD]
+            if upload_result.action == TaskAction.COMPLETED:
+                # Full sync completed successfully
+                pipeline.process_summary_stage.increment_items(processed=1, successful=1)
+            else:
+                # Upload failed - overall failure
+                pipeline.process_summary_stage.increment_items(processed=1, failed=1)
+        else:
+            # Some other failure in the pipeline
+            pipeline.process_summary_stage.increment_items(processed=1, failed=1)
+    else:
+        # No check task - probably a failure
+        pipeline.process_summary_stage.increment_items(processed=1, failed=1)
 
 
 async def process_books_batch(
@@ -406,28 +441,33 @@ async def process_books_batch(
     manager = task_manager
 
     async def process_book(barcode: str):
-        # Check if shutdown was requested before starting this book
-        if pipeline._shutdown_requested:
-            logger.info(f"[{barcode}] Skipping book processing due to shutdown request")
-            return barcode, {}
         return barcode, await process_book_pipeline(manager, barcode, pipeline, task_funcs)
 
-    # Create tasks for all books first
-    book_tasks = [process_book(barcode) for barcode in barcodes]
+    # Process books in chunks using pipeline.batch_size to control memory usage
+    results = []
+    chunk_size = pipeline.batch_size
 
-    # Check if shutdown was already requested before starting any work
-    if pipeline._shutdown_requested:
-        logger.info("Shutdown requested before batch processing started")
-        print("\nGraceful shutdown in progress, no new books will be processed...")
-        return {}
+    for i in range(0, len(barcodes), chunk_size):
+        # Check for shutdown between chunks for responsive cancellation
+        if pipeline._shutdown_requested:
+            logger.info("Shutdown requested, stopping batch processing")
+            print("\nGraceful shutdown in progress, no new books will be processed...")
+            break
 
-    try:
-        # Process all books - concurrency controlled by individual task semaphores
-        results = await asyncio.gather(*book_tasks, return_exceptions=True)
-    except KeyboardInterrupt:
-        # KeyboardInterrupt should propagate up to the signal handler
-        logger.info("KeyboardInterrupt caught during batch processing, allowing graceful shutdown")
-        raise
+        chunk = barcodes[i:i + chunk_size]
+        chunk_num = i // chunk_size + 1
+        total_chunks = (len(barcodes) + chunk_size - 1) // chunk_size
+        logger.info(f"Processing chunk {chunk_num}/{total_chunks}: {len(chunk)} books")
+
+        # Create tasks only for this chunk
+        chunk_tasks = [process_book(barcode) for barcode in chunk]
+
+        try:
+            chunk_results = await asyncio.gather(*chunk_tasks, return_exceptions=True)
+            results.extend(chunk_results)
+        except KeyboardInterrupt:
+            logger.info("KeyboardInterrupt caught during chunk processing, allowing graceful shutdown")
+            raise
 
     # Convert to dict
     book_results = {}
