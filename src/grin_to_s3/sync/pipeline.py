@@ -9,7 +9,7 @@ import asyncio
 import logging
 import time
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
@@ -52,20 +52,6 @@ from .utils import reset_bucket_cache
 
 logger = logging.getLogger(__name__)
 
-
-class SyncStats(TypedDict):
-    """Statistics for sync operations."""
-
-    processed: int
-    synced: int  # Actually downloaded and uploaded to storage
-    failed: int
-    skipped: int
-    skipped_etag_match: int
-    skipped_conversion_limit: int
-    conversion_requested: int
-    marked_unavailable: int
-    uploaded: int
-    total_bytes: int
 
 
 async def get_books_from_queue(grin_client, library_directory: str, queue_name: str, db_tracker) -> set[str]:
@@ -248,19 +234,6 @@ class SyncPipeline:
         # Simple gate to prevent race conditions in task creation
         self._task_creation_lock = asyncio.Lock()
 
-        # Statistics
-        self.stats = SyncStats(
-            processed=0,
-            synced=0,
-            failed=0,
-            skipped=0,
-            skipped_etag_match=0,
-            skipped_conversion_limit=0,
-            conversion_requested=0,
-            marked_unavailable=0,
-            uploaded=0,
-            total_bytes=0,
-        )
         self.start_time = time.time()
         self._sequential_failures = 0  # Track consecutive failures for exit logic
 
@@ -336,7 +309,6 @@ class SyncPipeline:
         Returns:
             True if pipeline should exit, False otherwise
         """
-        self.stats["failed"] += 1
         self._sequential_failures += 1
 
         logger.error(f"[{barcode}] ❌ Failed: {error_msg}")
@@ -358,10 +330,7 @@ class SyncPipeline:
         """Get current sync status and statistics."""
         stats = await self.db_tracker.get_sync_stats(self.config.storage_config["protocol"])
 
-        return {
-            **stats,
-            "session_stats": self.stats,
-        }
+        return stats
 
     async def setup_sync_loop(
         self, queues: list[str] | None = None, limit: int | None = None, specific_barcodes: list[str] | None = None
@@ -647,13 +616,25 @@ class SyncPipeline:
         specific_barcodes: list[str] | None,
     ) -> None:
         """Update process summary stage with detailed metrics from task manager and pipeline stats."""
-        # Update basic counts using pipeline stats
+        # Calculate totals from task manager stats
+        total_processed = 0
+        total_successful = 0
+        total_failed = 0
+
+        for task_type, stats in task_manager.stats.items():
+            # Only count meaningful processing tasks for the summary
+            if task_type.name.lower() in ["download", "upload", "decrypt", "unpack"]:
+                total_processed += stats["started"]
+                total_successful += stats["completed"]
+                total_failed += stats["failed"]
+
+        # Update basic counts using calculated totals from task manager
         self.process_summary_stage.increment_items(
-            processed=self.stats["processed"],
-            successful=self.stats["synced"],
-            failed=self.stats["failed"],
+            processed=total_processed,
+            successful=total_successful,
+            failed=total_failed,
             retried=0,
-            bytes_count=self.stats["total_bytes"],
+            bytes_count=0,  # Bytes tracking would need to be added separately if needed
         )
 
         # Store queue information
