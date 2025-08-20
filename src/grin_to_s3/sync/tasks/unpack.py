@@ -32,6 +32,6 @@ async def unpack_book(
     with tarfile.open(decrypted_file, "r:gz") as tar:
         tar.extractall(path=extracted_path)
 
-    logger.info(f"[{barcode}] Archive unpacked to {extracted_path}")
+    logger.debug(f"[{barcode}] Archive unpacked to {extracted_path}")
 
     return {"unpacked_path": extracted_path}

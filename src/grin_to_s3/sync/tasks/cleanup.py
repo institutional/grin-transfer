@@ -18,24 +18,18 @@ async def main(
     pipeline: "SyncPipeline",
     all_results: dict[TaskType, TaskResult[Any]],
 ) -> CleanupResult:
-    """Per-barcode cleanup tasks
+    """Per-barcode cleanup tasks"""
 
-    Removes staging data for a barcode to keep disk space available:
-    - Always removes extracted directory (temporary data)
-    - For cloud storage, removes downloaded/decrypted files when cleanup is enabled
-    """
+    if not pipeline.skip_staging_cleanup:
+        paths_to_remove = pipeline.filesystem_manager.get_paths_for_cleanup(barcode)
+        for path in paths_to_remove:
+            if not path.exists():
+                continue
+            if path.is_file():
+                path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path)
 
-    # Always clean up extracted directory
-    extracted_dir = pipeline.filesystem_manager.get_extracted_directory_path(barcode)
-    if extracted_dir.exists():
-        shutil.rmtree(extracted_dir)
-
-    # Clean up download/decrypt files for cloud storage
-    if pipeline.uses_block_storage and not pipeline.skip_staging_cleanup:
-        from grin_to_s3.storage.staging import StagingDirectoryManager
-        if isinstance(pipeline.filesystem_manager, StagingDirectoryManager):
-            pipeline.filesystem_manager.cleanup_files(barcode)
-
-    logger.debug(f"[{barcode}] Per-barcode cleanup completed")
+    logger.info(f"[{barcode}] ✅ Task pipeline completed for {barcode}")
 
     return CleanupResult(barcode=barcode, task_type=TaskType.CLEANUP, action=TaskAction.COMPLETED, data={})

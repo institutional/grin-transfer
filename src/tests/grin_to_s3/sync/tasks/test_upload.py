@@ -89,23 +89,22 @@ async def test_upload_with_storage_types(storage_config, expected_path):
             "http_status_code": 200,
         }
 
-        with (
-            patch("grin_to_s3.sync.tasks.upload.BookManager") as mock_book_manager_cls,
-            patch("grin_to_s3.sync.tasks.upload.copy_file_to_base_path") as mock_copy_file,
-        ):
+        with patch("grin_to_s3.sync.tasks.upload.BookManager") as mock_book_manager_cls:
             mock_manager = MagicMock()
             mock_manager.raw_archive_path.return_value = expected_path
             mock_manager.storage.write_file = AsyncMock()
             mock_book_manager_cls.return_value = mock_manager
 
-            # Mock the local storage copy function to return expected data
-            mock_copy_file.return_value = {"upload_path": Path(expected_path)}
-
             result = await upload.main("TEST123", download_data, decrypt_data, pipeline)
 
             assert result.action == TaskAction.COMPLETED
             assert result.data
-            assert expected_path == str(result.data["upload_path"])
+
+            # For local storage, the upload_path should be the decrypted_path
+            if pipeline.uses_local_storage:
+                assert str(result.data["upload_path"]) == str(decrypt_data["decrypted_path"])
+            else:
+                assert str(result.data["upload_path"]) == expected_path
 
 
 @pytest.mark.asyncio

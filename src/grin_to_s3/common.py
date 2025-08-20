@@ -609,8 +609,6 @@ def compress_file_to_temp(source_path: Path, compression_level: int = DEFAULT_CO
                         with gzip.open(temp_path, "wb", compresslevel=compression_level) as f_out:
                             shutil.copyfileobj(f_in, f_out)
 
-                import asyncio
-
                 loop = asyncio.get_event_loop()
                 await loop.run_in_executor(None, _compress)
 
@@ -618,7 +616,7 @@ def compress_file_to_temp(source_path: Path, compression_level: int = DEFAULT_CO
                 compressed_size = temp_path.stat().st_size
                 compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
 
-                logger.info(
+                logger.debug(
                     f"Compression completed: {self.source_path.name} "
                     f"({original_size:,} bytes -> {compressed_size:,} bytes, "
                     f"{compression_ratio:.1f}% reduction)"

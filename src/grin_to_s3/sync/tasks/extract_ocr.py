@@ -1,4 +1,5 @@
 import logging
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -7,6 +8,7 @@ from grin_to_s3.common import (
     Barcode,
     compress_file_to_temp,
 )
+from grin_to_s3.extract.text_extraction import extract_ocr_pages
 from grin_to_s3.sync.tasks.task_types import ArchiveOcrMetadata, ExtractOcrResult, TaskAction, TaskType, UnpackData
 
 if TYPE_CHECKING:
@@ -18,20 +20,27 @@ logger = logging.getLogger(__name__)
 async def main(barcode: Barcode, unpack_data: UnpackData, pipeline: "SyncPipeline") -> ExtractOcrResult:
     jsonl_filename = f"{barcode}_ocr.jsonl"
     jsonl_path = pipeline.filesystem_manager.staging_path / jsonl_filename
-    page_count = await extract_ocr_pages(unpack_data, jsonl_path)
-    bucket = pipeline.config.storage_config["config"].get("bucket_full")
 
-    if bucket:
-        jsonl_final_path = f"{bucket}/{jsonl_filename}.gz"
-        async with compress_file_to_temp(jsonl_path) as compressed_path:
-            metadata: ArchiveOcrMetadata = {
-                "barcode": barcode,
-                "acquisition_date": datetime.now().isoformat(),
-                "page_count": str(page_count),
-            }
+    page_count = await extract_ocr_pages(unpack_data, jsonl_path)
+    async with compress_file_to_temp(jsonl_path) as compressed_path:
+        metadata: ArchiveOcrMetadata = {
+            "barcode": barcode,
+            "acquisition_date": datetime.now().isoformat(),
+            "page_count": str(page_count),
+        }
+        if pipeline.uses_block_storage:
+            bucket = pipeline.config.storage_config["config"].get("bucket_full")
+
+            # Cloud storage: upload compressed file and leave staging file for cleanup
+            jsonl_final_path = f"{bucket}/{jsonl_filename}.gz"
             await pipeline.storage.write_file(jsonl_final_path, str(compressed_path), cast(dict[str, str], metadata))
-    else:
-        jsonl_final_path = jsonl_path
+        else:
+            # Local storage: move to 'full' subdirectory
+            base_path = Path(pipeline.config.storage_config["config"].get("base_path", ""))
+            jsonl_final_path = base_path / "full" / barcode / f"{jsonl_filename}.gz"
+            jsonl_final_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(compressed_path, jsonl_final_path)
+            jsonl_path.unlink()
 
     return ExtractOcrResult(
         barcode=barcode,
@@ -39,10 +48,3 @@ async def main(barcode: Barcode, unpack_data: UnpackData, pipeline: "SyncPipelin
         action=TaskAction.COMPLETED,
         data={"json_file_path": Path(jsonl_final_path), "page_count": page_count},
     )
-
-
-async def extract_ocr_pages(unpack_data: UnpackData, jsonl_path: Path) -> int:
-    """Extract OCR pages from unpacked data to JSONL file - delegates to text extraction module."""
-    from grin_to_s3.extract.text_extraction import extract_ocr_pages as _extract_ocr_pages
-
-    return await _extract_ocr_pages(unpack_data, jsonl_path)

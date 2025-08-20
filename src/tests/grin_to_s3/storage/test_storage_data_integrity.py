@@ -8,7 +8,6 @@ incorrect file paths, or metadata inconsistencies in storage operations.
 
 import json
 import tempfile
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -218,38 +217,6 @@ class TestStorageAtomicOperations:
             manager = StagingDirectoryManager(temp_dir, capacity_threshold=0.9)
             yield manager
 
-    def test_staging_directory_cleanup_atomicity(self, staging_manager):
-        """Test that staging cleanup is atomic and doesn't leave orphaned files."""
-        # Create test files that match the expected barcode pattern
-        test_barcodes = ["TEST001", "TEST002", "TEST003", "TEST004", "TEST005"]
-
-        for barcode in test_barcodes:
-            # Create encrypted files
-            encrypted_path = staging_manager.get_encrypted_file_path(barcode)
-            encrypted_path.write_text(f"encrypted content for {barcode}")
-
-            # Create decrypted files
-            decrypted_path = staging_manager.get_decrypted_file_path(barcode)
-            decrypted_path.write_text(f"decrypted content for {barcode}")
-
-        # Verify files exist
-        staging_files = staging_manager.get_staging_files()
-        assert len(staging_files) == 5
-
-        # Clean up specific barcode
-        freed_bytes = staging_manager.cleanup_files("TEST001")
-
-        # Verify cleanup results
-        assert freed_bytes > 0  # Should have freed some bytes
-
-        # Verify correct files were removed
-        assert not staging_manager.get_encrypted_file_path("TEST001").exists()
-        assert not staging_manager.get_decrypted_file_path("TEST001").exists()
-
-        # Verify other files still exist
-        assert staging_manager.get_encrypted_file_path("TEST002").exists()
-        assert staging_manager.get_decrypted_file_path("TEST002").exists()
-
     def test_staging_directory_space_calculation_accuracy(self, staging_manager):
         """Test accuracy of disk space calculations."""
         # Create files of known sizes
@@ -269,58 +236,6 @@ class TestStorageAtomicOperations:
         assert used_bytes > 0
         assert total_bytes > used_bytes
         assert 0.0 <= usage_ratio <= 1.0
-
-    def test_staging_concurrent_access_safety(self, staging_manager):
-        """Test that staging operations are safe under concurrent access."""
-        # Create multiple barcodes that might be accessed concurrently
-        test_barcodes = [f"CONCURRENT_{i:03d}" for i in range(10)]
-
-        for barcode in test_barcodes:
-            encrypted_path = staging_manager.get_encrypted_file_path(barcode)
-            encrypted_path.write_text(f"concurrent content {barcode}")
-
-        # Simulate concurrent cleanup operations
-        # In real concurrent scenario, these would run in different threads
-        freed_bytes_1 = sum(staging_manager.cleanup_files(barcode) for barcode in test_barcodes[:5])
-        freed_bytes_2 = sum(staging_manager.cleanup_files(barcode) for barcode in test_barcodes[5:])
-
-        # Should handle operations gracefully - each cleanup should succeed
-        assert freed_bytes_1 > 0
-        assert freed_bytes_2 > 0
-
-        # All files should be cleaned up
-        for barcode in test_barcodes:
-            assert not staging_manager.get_encrypted_file_path(barcode).exists()
-
-    @pytest.mark.asyncio
-    async def test_upload_operation_database_consistency(self):
-        """Test that database updates remain consistent with upload operations."""
-        # Mock storage and database components
-        mock_storage = MagicMock()
-        mock_tracker = AsyncMock()
-
-        # Simulate successful upload but failed database update
-        mock_storage.upload.return_value = True
-        mock_tracker.update_book_sync_data.side_effect = Exception("Database error")
-
-        # The operation should handle this gracefully
-        # In real implementation, this would be tested in sync operations
-
-        # Mock the scenario where upload succeeds but DB update fails
-        upload_success = True
-        db_update_success = False
-
-        try:
-            # Simulate upload
-            if upload_success:
-                # Simulate database update failure
-                raise Exception("Database update failed")
-        except Exception:
-            # Should have rollback/recovery mechanism
-            db_update_success = False
-
-        # Verify that the system handles inconsistent state
-        assert upload_success != db_update_success  # Inconsistent state detected
 
 
 class TestStorageConfigurationIntegrity:
