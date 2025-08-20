@@ -505,7 +505,7 @@ class SyncPipeline:
             )
 
             # Update process summary with detailed metrics from book results
-            self._update_process_summary_metrics(task_manager, book_results, queues, limit, specific_barcodes)
+            self._update_process_summary_metrics(book_results, queues, limit, specific_barcodes)
 
         except KeyboardInterrupt:
             # KeyboardInterrupt is handled by signal handler, just log and continue to cleanup
@@ -610,7 +610,6 @@ class SyncPipeline:
 
     def _update_process_summary_metrics(
         self,
-        task_manager: "TaskManager",
         book_results: dict[str, dict],
         queues: list[str] | None,
         limit: int | None,
@@ -671,22 +670,10 @@ class SyncPipeline:
         if specific_barcodes:
             self.process_summary_stage.queue_info["specific_barcodes"] = len(specific_barcodes)
 
-        # Store per-task-type statistics from task manager
-        for task_type, stats in task_manager.stats.items():
-            task_name = task_type.name.lower()
-            self.process_summary_stage.task_stats[task_name] = {
-                "started": stats["started"],
-                "completed": stats["completed"],
-                "skipped": stats["skipped"],
-                "failed": stats["failed"],
-            }
-
         # Store conversion request statistics if available
         if self.conversion_handler and self.conversion_requests_made > 0:
-            self.process_summary_stage.conversion_stats = {
-                "requests_made": self.conversion_requests_made,
-                "request_limit": self.conversion_request_limit,
-            }
+            self.process_summary_stage.queue_info["conversion_requests"] = self.conversion_requests_made
+            self.process_summary_stage.queue_info["conversion_limit"] = self.conversion_request_limit
 
         # Store error breakdown
         self.process_summary_stage.error_breakdown = error_counts
