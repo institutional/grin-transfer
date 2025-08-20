@@ -386,8 +386,6 @@ async def process_books_batch(
     pipeline: "SyncPipeline",
     task_funcs: dict[TaskType, Callable],
     task_manager: "TaskManager",
-    max_concurrent: int = 5,
-    limits: dict[TaskType, int] | None = None,
 ) -> dict[str, dict[TaskType, TaskResult]]:
     """
     Process multiple books with task-level concurrency control.
@@ -395,8 +393,6 @@ async def process_books_batch(
     Args:
         barcodes: List of book barcodes to process
         task_funcs: Dict mapping task types to their implementation functions
-        max_concurrent: Unused - kept for API compatibility
-        limits: Concurrency limits per task type
         task_manager: TaskManager instance to use
 
     Returns:

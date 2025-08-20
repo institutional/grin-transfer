@@ -602,14 +602,11 @@ class SyncPipeline:
             progress_reporter_task = asyncio.create_task(progress_reporter.run(time.time(), rate_calculator))
 
             # Process the filtered books using the task manager
-            # max_concurrent is ignored - concurrency is controlled by task-level limits
             await process_books_batch(
                 filtering_result.books_after_limit,
                 self,
                 task_funcs,
-                max_concurrent=5,  # Unused - kept for API compatibility
-                limits=limits,
-                task_manager=task_manager,
+                task_manager,
             )
 
         except KeyboardInterrupt:
