@@ -133,7 +133,7 @@ class TaskManager:
                 logger.error(f"[{barcode}] Task {task_type.name} failed: {error_msg}", exc_info=True)
                 result = TaskResult(barcode=barcode, task_type=task_type, action=TaskAction.FAILED, error=error_msg)
             finally:
-                # ALWAYS accumulate updates (success or failure)
+                # Always accumulate updates (success or failure)
                 updates = await get_updates_for_task(result, previous_results)
 
                 # Initialize record updates for this barcode if needed
