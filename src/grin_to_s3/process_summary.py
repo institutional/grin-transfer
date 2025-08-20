@@ -443,12 +443,17 @@ async def create_book_manager_for_uploads(run_name: str):
         # Create storage instance
         storage_type = run_config.storage_type
 
+        # Local storage doesn't need process summary uploads to remote storage
+        if storage_type == "local":
+            logger.debug(f"Skipping process summary upload for local storage run {run_name}")
+            return None
+
         # Use the full storage config for new API
         storage = create_storage_from_config(run_config.storage_config)
 
-        # For non-local storage, validate that metadata bucket is configured
+        # Validate that metadata bucket is configured
         nested_config = run_config.storage_config["config"]
-        if storage_type != "local" and not nested_config.get("bucket_meta"):
+        if not nested_config.get("bucket_meta"):
             logger.warning(f"No metadata bucket configured for run {run_name}")
             return None
 
