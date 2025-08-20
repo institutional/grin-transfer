@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
@@ -17,11 +18,13 @@ from .task_types import ArchiveMetadata, CheckData, CheckResult, ETagMatchResult
 logger = logging.getLogger(__name__)
 
 
-async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
+async def main(barcode: Barcode, pipeline: "SyncPipeline", grin_api_semaphore: asyncio.Semaphore) -> CheckResult:
     data: CheckData
 
     try:
-        data = await grin_head_request(barcode, pipeline.grin_client, pipeline.library_directory)
+        # Use shared GRIN request semaphore to coordinate with download tasks
+        async with grin_api_semaphore:
+            data = await grin_head_request(barcode, pipeline.grin_client, pipeline.library_directory)
     except aiohttp.ClientResponseError as e:
         logger.info(f"[{barcode}] HEAD request returned HTTP {e.status}")
         # If the HEAD response was a 404, handle based on queue mode

@@ -64,7 +64,7 @@ class TaskManager:
             limits: Max concurrent tasks per type
         """
         self.limits = limits or {
-            TaskType.CHECK: 10,
+            # CHECK tasks use shared GRIN request semaphore (no separate limit)
             TaskType.DOWNLOAD: 5,
             TaskType.DECRYPT: 3,
             TaskType.UNPACK: 3,
@@ -76,6 +76,10 @@ class TaskManager:
 
         # Create semaphores for each task type
         self.semaphores = {task_type: asyncio.Semaphore(limit) for task_type, limit in self.limits.items()}
+
+        # Shared semaphore for GRIN requests (check + download tasks)
+        # Both tasks hit the same endpoint so must share the 5-request limit
+        self.grin_api_semaphore = asyncio.Semaphore(5)
 
         # Track active tasks
         self.active_tasks: dict[str, set[TaskType]] = defaultdict(set)
@@ -208,7 +212,7 @@ async def process_book_pipeline(
             check_result = await manager.run_task(
                 TaskType.CHECK,
                 barcode,
-                lambda: check_func(barcode, pipeline),
+                lambda: check_func(barcode, pipeline, manager.grin_api_semaphore),
                 pipeline,
                 results,  # Pass accumulated results
             )
@@ -238,7 +242,7 @@ async def process_book_pipeline(
             download_result: DownloadResult = await manager.run_task(
                 TaskType.DOWNLOAD,
                 barcode,
-                lambda: download_func(barcode, pipeline),
+                lambda: download_func(barcode, pipeline, manager.grin_api_semaphore),
                 pipeline,
                 results,  # Pass accumulated results
             )
@@ -386,12 +390,12 @@ async def process_books_batch(
     limits: dict[TaskType, int] | None = None,
 ) -> dict[str, dict[TaskType, TaskResult]]:
     """
-    Process multiple books with controlled concurrency.
+    Process multiple books with task-level concurrency control.
 
     Args:
         barcodes: List of book barcodes to process
         task_funcs: Dict mapping task types to their implementation functions
-        max_concurrent: Max books processing at once
+        max_concurrent: Unused - kept for API compatibility
         limits: Concurrency limits per task type
         task_manager: TaskManager instance to use
 
@@ -399,14 +403,12 @@ async def process_books_batch(
         Dict mapping barcode to its task results
     """
     manager = task_manager
-    semaphore = asyncio.Semaphore(max_concurrent)
 
-    async def process_with_limit(barcode: str):
-        async with semaphore:
-            return barcode, await process_book_pipeline(manager, barcode, pipeline, task_funcs)
+    async def process_book(barcode: str):
+        return barcode, await process_book_pipeline(manager, barcode, pipeline, task_funcs)
 
-    # Process all books
-    results = await asyncio.gather(*[process_with_limit(barcode) for barcode in barcodes], return_exceptions=True)
+    # Process all books - concurrency controlled by individual task semaphores
+    results = await asyncio.gather(*[process_book(barcode) for barcode in barcodes], return_exceptions=True)
 
     # Convert to dict
     book_results = {}

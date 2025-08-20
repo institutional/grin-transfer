@@ -15,8 +15,8 @@ DEFAULT_SYNC_BATCH_SIZE = 100
 DEFAULT_SYNC_DISK_SPACE_THRESHOLD = 0.9
 
 # Task concurrency defaults
-DEFAULT_SYNC_TASK_CHECK_CONCURRENCY = 5
-DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY = 2
+# Note: CHECK and DOWNLOAD tasks share GRIN request concurrency (5 total)
+DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY = 5
 DEFAULT_SYNC_TASK_DECRYPT_CONCURRENCY = 2
 DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY = 3
 DEFAULT_SYNC_TASK_UNPACK_CONCURRENCY = 2
@@ -158,11 +158,6 @@ class RunConfig:
         return self.config_dict.get("sync_config", {})
 
     @property
-    def sync_task_check_concurrency(self) -> int:
-        """Get the check task concurrency setting."""
-        return self.sync_config.get("task_check_concurrency", DEFAULT_SYNC_TASK_CHECK_CONCURRENCY)
-
-    @property
     def sync_task_download_concurrency(self) -> int:
         """Get the download task concurrency setting."""
         return self.sync_config.get("task_download_concurrency", DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY)
@@ -205,7 +200,6 @@ class RunConfig:
     def get_task_concurrency_limits(self) -> dict[str, int]:
         """Get all task concurrency limits as a dictionary."""
         return {
-            "task_check_concurrency": self.sync_task_check_concurrency,
             "task_download_concurrency": self.sync_task_download_concurrency,
             "task_decrypt_concurrency": self.sync_task_decrypt_concurrency,
             "task_upload_concurrency": self.sync_task_upload_concurrency,
@@ -402,8 +396,7 @@ def print_run_config_info(db_path: str) -> None:
         if config.sync_config:
             print("  Sync Configuration:")
             print("    Task Concurrency Limits:")
-            print(f"      Check: {config.sync_task_check_concurrency}")
-            print(f"      Download: {config.sync_task_download_concurrency}")
+            print(f"      GRIN requests (Check + Download): {config.sync_task_download_concurrency}")
             print(f"      Decrypt: {config.sync_task_decrypt_concurrency}")
             print(f"      Upload: {config.sync_task_upload_concurrency}")
             print(f"      Unpack: {config.sync_task_unpack_concurrency}")
