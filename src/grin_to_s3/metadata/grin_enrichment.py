@@ -28,7 +28,7 @@ from grin_to_s3.database.database_utils import validate_database_file
 from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
     create_process_summary,
-    display_stage_summary,
+    display_step_summary,
     get_current_stage,
     save_process_summary,
 )
@@ -837,7 +837,7 @@ Examples:
             await save_process_summary(run_summary, book_manager)
 
             # Display completion summary
-            display_stage_summary(run_summary, "enrich")
+            display_step_summary(run_summary, "enrich")
 
 
 async def enrich_main():

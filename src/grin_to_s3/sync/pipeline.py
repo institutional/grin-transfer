@@ -430,7 +430,6 @@ class SyncPipeline:
             # Collect books from queues if not using specific barcodes
             queue_books = None
             if not specific_barcodes and queues:
-                print(f"Processing queues: {', '.join(queues)}")
                 queue_books = set()
                 for queue_name in queues:
                     print(f"Fetching books from '{queue_name}' queue...")

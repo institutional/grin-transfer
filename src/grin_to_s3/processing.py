@@ -30,7 +30,7 @@ from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
     create_book_manager_for_uploads,
     create_process_summary,
-    display_stage_summary,
+    display_step_summary,
     get_current_stage,
     save_process_summary,
 )
@@ -1144,7 +1144,7 @@ async def cmd_request(args) -> None:
         await save_process_summary(run_summary, book_manager)
 
         # Display completion summary
-        display_stage_summary(run_summary, "process")
+        display_step_summary(run_summary, "process")
 
 
 async def cmd_monitor(args) -> None:
