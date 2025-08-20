@@ -62,7 +62,7 @@ class ConversionRequestHandler:
             else:
                 # Mark as verified_unavailable
                 logger.warning(f"[{barcode}] Conversion request failed: {result}")
-                await self._mark_verified_unavailable(barcode, result)
+                await mark_verified_unavailable(str(self.db_tracker.db_path), barcode, result)
                 return "unavailable"
 
         except ProcessingRequestError as e:
@@ -76,17 +76,10 @@ class ConversionRequestHandler:
                 return "in_process"
             else:
                 logger.error(f"[{barcode}] Conversion request failed: {e}")
-                await self._mark_verified_unavailable(barcode, str(e))
+                await mark_verified_unavailable(str(self.db_tracker.db_path), barcode, str(e))
                 return "unavailable"
         except Exception as e:
             logger.error(f"[{barcode}] Unexpected error during conversion request: {e}")
-            await self._mark_verified_unavailable(barcode, str(e))
+            await mark_verified_unavailable(str(self.db_tracker.db_path), barcode, str(e))
             return "unavailable"
 
-    async def _mark_verified_unavailable(self, barcode: str, reason: str) -> None:
-        """Mark a book as verified unavailable in the database."""
-        try:
-            await mark_verified_unavailable(self.db_tracker.db_path, barcode, reason)
-        except Exception as e:
-            logger.error(f"[{barcode}] Failed to mark as verified_unavailable in database: {e}")
-            # Don't re-raise - database failures shouldn't prevent conversion logic from continuing
