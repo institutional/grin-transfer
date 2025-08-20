@@ -1,4 +1,5 @@
 import logging
+import shutil
 from typing import TYPE_CHECKING, Any
 
 from grin_to_s3.common import (
@@ -17,12 +18,24 @@ async def main(
     pipeline: "SyncPipeline",
     all_results: dict[TaskType, TaskResult[Any]],
 ) -> CleanupResult:
-    """Per-barcode cleanup task.
+    """Per-barcode cleanup tasks
 
-    This task handles any per-barcode cleanup operations.
-    Batch-level operations (staging cleanup, database operations) have been
-    moved to the teardown module.
+    Removes staging data for a barcode to keep disk space available:
+    - Always removes extracted directory (temporary data)
+    - For cloud storage, removes downloaded/decrypted files when cleanup is enabled
     """
+
+    # Always clean up extracted directory
+    extracted_dir = pipeline.filesystem_manager.get_extracted_directory_path(barcode)
+    if extracted_dir.exists():
+        shutil.rmtree(extracted_dir)
+
+    # Clean up download/decrypt files for cloud storage
+    if pipeline.uses_block_storage and not pipeline.skip_staging_cleanup:
+        from grin_to_s3.storage.staging import StagingDirectoryManager
+        if isinstance(pipeline.filesystem_manager, StagingDirectoryManager):
+            pipeline.filesystem_manager.cleanup_files(barcode)
+
     logger.debug(f"[{barcode}] Per-barcode cleanup completed")
 
     return CleanupResult(barcode=barcode, task_type=TaskType.CLEANUP, action=TaskAction.COMPLETED, data={})
