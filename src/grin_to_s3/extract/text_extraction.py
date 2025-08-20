@@ -12,6 +12,10 @@ import re
 import tarfile
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from grin_to_s3.sync.tasks.task_types import UnpackData
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +252,7 @@ def extract_ocr_to_jsonl_file(extracted_dir_path: Path, output_path: Path) -> in
     return page_count
 
 
-async def extract_ocr_pages(unpack_data: dict, jsonl_path: Path) -> int:
+async def extract_ocr_pages(unpack_data: "UnpackData", jsonl_path: Path) -> int:
     """
     Extract OCR text from unpacked archive to JSONL file.
 

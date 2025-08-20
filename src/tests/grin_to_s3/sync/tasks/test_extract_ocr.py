@@ -93,3 +93,47 @@ async def test_extract_with_storage_config():
             assert result.action == TaskAction.COMPLETED
             assert result.data
             assert "test-bucket/TEST123_ocr.jsonl.gz" == str(result.data["json_file_path"])
+
+
+@pytest.mark.asyncio
+async def test_extract_local_storage_moves_file_to_full_directory():
+    """Extract OCR should move JSONL file to 'full' subdirectory for local storage."""
+
+    filesystem_manager = MagicMock(spec=DirectoryManager)
+    pipeline = MagicMock()
+    pipeline.filesystem_manager = filesystem_manager
+
+    unpack_data: UnpackData = {
+        "unpacked_path": Path("/tmp/TEST123"),
+    }
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        output_dir = Path(temp_dir) / "output"
+        staging_path = Path(temp_dir) / "staging"
+        staging_path.mkdir()
+        filesystem_manager.staging_path = staging_path
+
+        # Configure for local storage
+        pipeline.config.storage_config = {"config": {"base_path": str(output_dir)}}  # No bucket_full = local storage
+        pipeline.uses_block_storage = False
+
+        # Create the JSONL file in staging
+        jsonl_staging_path = staging_path / "TEST123_ocr.jsonl"
+        jsonl_staging_path.write_text("test content")
+
+        with patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract:
+            mock_extract.return_value = 1
+
+            result = await extract_ocr.main("TEST123", unpack_data, pipeline)
+
+            # Verify the result
+            assert result.action == TaskAction.COMPLETED
+            assert result.data
+            expected_final_path = output_dir / "full" / "TEST123" / "TEST123_ocr.jsonl.gz"
+            assert str(result.data["json_file_path"]) == str(expected_final_path)
+
+            # Verify staging file was moved (no longer exists)
+            assert not jsonl_staging_path.exists()
+
+            # Verify file was moved to final location
+            assert expected_final_path.exists()

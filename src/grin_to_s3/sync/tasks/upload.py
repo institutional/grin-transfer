@@ -1,5 +1,4 @@
 import logging
-import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -29,8 +28,12 @@ async def main(
     book_manager = BookManager(pipeline.storage, storage_config=pipeline.config.storage_config)
 
     if pipeline.uses_local_storage:
-        print("LOCAL")
-        data = copy_file_to_base_path(barcode, decrypted_data, book_manager)
+        # For local storage, the LocalDirectoryManager already places the decrypted file
+        # in the final location, so no copy is needed
+        assert decrypted_data["decrypted_path"] is not None
+        final_path = Path(decrypted_data["decrypted_path"])
+        logger.debug(f"[{barcode}] Local storage: decrypted archive already at final location {final_path}")
+        data: UploadData = {"upload_path": final_path}
     else:
         data = await upload_book_from_filesystem(barcode, decrypted_data, download_data, book_manager)
 
@@ -40,22 +43,6 @@ async def main(
         action=TaskAction.COMPLETED,
         data=data,
     )
-
-
-def copy_file_to_base_path(
-    barcode: Barcode,
-    decrypted: DecryptData,
-    book_manager: BookManager,
-) -> UploadData:
-    """Copy a file to the correct local storage output directory."""
-    assert decrypted["decrypted_path"] is not None
-    to_path = Path(book_manager.raw_archive_path(barcode, f"{barcode}.tar.gz"))
-    to_path.parent.mkdir(parents=True, exist_ok=True)
-
-    shutil.copy2(decrypted["decrypted_path"], to_path)
-    logger.info(f"[{barcode}] Copying decrypted archive to final {to_path}..")
-
-    return {"upload_path": Path(to_path)}
 
 
 async def upload_book_from_filesystem(
@@ -79,7 +66,7 @@ async def upload_book_from_filesystem(
     # Generate a path to deposit the file
     to_path = book_manager.raw_archive_path(barcode, f"{barcode}.tar.gz")
 
-    logger.info(f"[{barcode}] Uploading decrypted archive with encrypted ETag metadata...")
+    logger.info(f"[{barcode}] Starting upload of decrypted archive to {to_path}.")
 
     await book_manager.storage.write_file(to_path, str(decrypted["decrypted_path"]), cast(dict[str, str], metadata))
 

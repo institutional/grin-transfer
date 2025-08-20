@@ -78,6 +78,9 @@ class DirectoryManager:
         # No-op for local directory
         pass
 
+    def get_files_for_cleanup(self, barcode: str) -> list[Path]:
+        return []
+
     def check_disk_space(self):
         return True
 
@@ -94,6 +97,11 @@ class LocalDirectoryManager(DirectoryManager):
     def get_extracted_directory_path(self, barcode: str) -> Path:
         """Get path for extracted archive directory."""
         return self.staging_path / "staging" / f"{barcode}_extracted"
+
+    def get_paths_for_cleanup(self, barcode: str) -> list[Path]:
+        encrypted_path = self.get_encrypted_file_path(barcode)
+        extracted_dir = self.get_extracted_directory_path(barcode)
+        return [encrypted_path, extracted_dir]
 
 
 class StagingDirectoryManager(DirectoryManager):
@@ -220,81 +228,6 @@ class StagingDirectoryManager(DirectoryManager):
 
         return orphaned
 
-    def cleanup_files(self, barcode: str) -> int:
-        """
-        Clean up staging files for a specific barcode including extracted directory.
-
-        Args:
-            barcode: Book barcode to clean up
-
-        Returns:
-            Total bytes freed by cleanup
-        """
-        encrypted_path = self.get_encrypted_file_path(barcode)
-        decrypted_path = self.get_decrypted_file_path(barcode)
-        extracted_dir = self.get_extracted_directory_path(barcode)
-
-        total_freed = 0
-
-        # Clean up files
-        for path in [encrypted_path, decrypted_path]:
-            if path.exists():
-                try:
-                    file_size = path.stat().st_size
-                    path.unlink()
-                    total_freed += file_size
-                    logger.debug(
-                        f"[{barcode}] Cleaned up staging file: {path.name} ({file_size / (1024 * 1024):.1f} MB)"
-                    )
-                except OSError as e:
-                    logger.warning(f"[{barcode}] Failed to clean up {path.name}: {e}")
-
-        # Clean up extracted directory
-        if extracted_dir.exists():
-            try:
-                # Calculate directory size before removal
-                dir_size = sum(f.stat().st_size for f in extracted_dir.rglob("*") if f.is_file())
-                shutil.rmtree(extracted_dir)
-                total_freed += dir_size
-                logger.debug(
-                    f"[{barcode}] Cleaned up extracted directory: {extracted_dir.name} ({dir_size / (1024 * 1024):.1f} MB)"
-                )
-            except OSError as e:
-                logger.warning(f"[{barcode}] Failed to clean up extracted directory {extracted_dir.name}: {e}")
-
-        return total_freed
-
-    def cleanup_orphaned_files(self, max_age_hours: int = 24) -> int:
-        """
-        Clean up orphaned files older than specified age.
-
-        Args:
-            max_age_hours: Maximum age in hours before cleanup
-
-        Returns:
-            Number of files cleaned up
-        """
-        cleaned_count = 0
-        current_time = time.time()
-        max_age_seconds = max_age_hours * 3600
-
-        for barcode, file_paths in self.get_orphaned_files():
-            should_cleanup = False
-
-            for path in file_paths:
-                age = current_time - path.stat().st_mtime
-                if age > max_age_seconds:
-                    should_cleanup = True
-                    break
-
-            if should_cleanup:
-                logger.info(f"Cleaning up orphaned files for barcode: {barcode}")
-                freed_bytes = self.cleanup_files(barcode)
-                logger.debug(f"Freed {freed_bytes / (1024 * 1024):.1f} MB from orphaned staging files for {barcode}")
-                cleaned_count += len(file_paths)
-
-        return cleaned_count
-
     def get_staging_summary(self) -> dict[str, Any]:
         """
         Get summary information about staging directory.
@@ -324,3 +257,9 @@ class StagingDirectoryManager(DirectoryManager):
             "capacity_threshold": self.capacity_threshold,
             "space_available": usage_ratio < self.capacity_threshold,
         }
+
+    def get_paths_for_cleanup(self, barcode: str) -> list[Path]:
+        encrypted_path = self.get_encrypted_file_path(barcode)
+        decrypted_path = self.get_decrypted_file_path(barcode)
+        extracted_dir = self.get_extracted_directory_path(barcode)
+        return [encrypted_path, decrypted_path, extracted_dir]
