@@ -26,8 +26,6 @@ from grin_to_s3.client import GRINClient, GRINRow
 from grin_to_s3.common import (
     ProgressReporter,
     RateLimiter,
-    format_bytes,
-    format_duration,
     pluralize,
     print_oauth_setup_instructions,
 )
@@ -730,69 +728,9 @@ class BookCollector:
             # Finish progress tracking
             self.progress.finish()
 
-        # Final summary
-        actual_runtime = self.progress_tracker.accumulated_runtime
-        if hasattr(self, "session_start_time"):
-            session_elapsed = (datetime.now(UTC) - self.session_start_time).total_seconds()
-            actual_runtime += session_elapsed
-
-        job_start_time = datetime.fromisoformat(self.job_metadata["job_started"].replace("Z", "+00:00"))
-        wall_clock_elapsed = (datetime.now(UTC) - job_start_time).total_seconds()
-        performance_metrics = await self._calculate_performance_metrics(actual_runtime)
-
-        print()
-        print("=" * 60)
-        print("Book Collection Summary")
-        print("=" * 60)
-
-        # Basic stats from SQLite
-        total_books = await self.sqlite_tracker.get_processed_count()
-        print(f"{pluralize(total_books, 'Record')} processed: {total_books:,}")
-        failed_count = await self.sqlite_tracker.get_failed_count()
-        print(f"Failed {pluralize(failed_count, 'record')}: {failed_count:,}")
-        print(f"Success rate: {((total_books / max(1, total_books + failed_count)) * 100):.1f}%")
-
-        # Output info
-        output_path = Path(output_file)
-        print(f"Output file: {output_path}")
-        if output_path.exists():
-            print(f"File size: {format_bytes(output_path.stat().st_size)}")
-
-            # Count total records in final CSV file
-            try:
-                with open(output_path) as f:
-                    csv_reader = csv.reader(f)
-                    next(csv_reader)  # Skip header
-                    total_csv_records = sum(1 for row in csv_reader if row)
-                print(f"Total records in CSV: {total_csv_records:,}")
-            except Exception as e:
-                print(f"Could not count CSV records: {e}")
-
-        # Performance metrics
-        print()
-        print("Performance:")
-        print(f"  Actual runtime: {format_duration(actual_runtime)}")
-        print(f"  Wall-clock elapsed: {format_duration(wall_clock_elapsed)}")
-        print(f"  Processing rate: {performance_metrics['books_per_hour']:.1f} books/hour")
-        print(f"  Resume count: {self.resume_count}")
-
-        print(f"\nProgress file: {self.resume_file}")
-
         # Return completion status
         return completed_successfully
 
-    def print_next_step_command(self, run_name: str) -> None:
-        """Print the command to start the sync pipeline after successful collection."""
-        from grin_to_s3.common import get_command_prefix
-
-        base_cmd = get_command_prefix()
-
-        print()
-        print("=" * 60)
-        print("Next Step: Sync Pipeline")
-        print("=" * 60)
-        print(f"{base_cmd} sync pipeline --run-name {run_name} --queue converted")
-        print()
 
     async def process_book(self, grin_row: GRINRow) -> BookRecord | None:
         """Process a single GRINRow from GRIN and return its record.
