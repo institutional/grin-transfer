@@ -621,7 +621,6 @@ class SyncPipeline:
         skipped = 0
         failed = 0
         conversion_requested = 0
-        error_counts: dict[str, int] = {}
 
         for task_results in book_results.values():
             # Determine the overall outcome for this book
@@ -635,8 +634,6 @@ class SyncPipeline:
                 conversion_requested += 1
             else:
                 failed += 1
-                # Collect error information
-                self._collect_book_errors(task_results, error_counts)
 
 
         # Store book outcomes
@@ -660,8 +657,6 @@ class SyncPipeline:
             self.process_summary_stage.queue_info["conversion_requests"] = self.conversion_requests_made
             self.process_summary_stage.queue_info["conversion_limit"] = self.conversion_request_limit
 
-        # Store error breakdown
-        self.process_summary_stage.error_breakdown = error_counts
 
     def _determine_book_outcome(self, task_results: dict) -> str:
         """Determine the overall outcome for a single book based on its task results."""
@@ -688,12 +683,3 @@ class SyncPipeline:
         # If we got here, something failed
         return "failed"
 
-    def _collect_book_errors(self, task_results: dict, error_counts: dict[str, int]) -> None:
-        """Collect error information from failed task results."""
-        from .tasks.task_types import TaskAction
-
-        for task_result in task_results.values():
-            if task_result.action == TaskAction.FAILED and task_result.error:
-                # Extract error type from error message
-                error_type = type(task_result.error).__name__ if hasattr(task_result.error, "__class__") else "Unknown"
-                error_counts[error_type] = error_counts.get(error_type, 0) + 1

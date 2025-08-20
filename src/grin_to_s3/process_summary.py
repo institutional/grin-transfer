@@ -495,7 +495,7 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
     step_display_map = {
         "collect": ("Collected", "python grin.py sync pipeline --queue converted"),
         "process": ("Requested processing for", "python grin.py process monitor"),
-        "sync": ("Sync stage total", None),
+        "sync": ("Synced (cumulative)", None),
         "enrich": ("Enriched", "python grin.py export-csv"),
     }
 
@@ -583,7 +583,7 @@ def _display_sync_details(step: ProcessStageMetrics) -> None:
 
     # Display book outcomes
     if step.book_outcomes:
-        print("  Results:")
+        print("  This session:")
         synced = step.book_outcomes.get("synced", 0)
         skipped = step.book_outcomes.get("skipped", 0)
         failed = step.book_outcomes.get("failed", 0)
@@ -602,14 +602,6 @@ def _display_sync_details(step: ProcessStageMetrics) -> None:
     if step.bytes_processed > 0:
         bytes_str = _format_bytes(step.bytes_processed)
         print(f"  {bytes_str} transferred")
-
-    # Display error breakdown only if there were failures
-    if step.error_breakdown and sum(step.error_breakdown.values()) > 0:
-        total_errors = sum(step.error_breakdown.values())
-        print(f"  Errors ({total_errors}):")
-        for error_type, count in step.error_breakdown.items():
-            if count > 0:
-                print(f"    {error_type}: {count} books")
 
 
 def _format_bytes(bytes_count: int) -> str:
