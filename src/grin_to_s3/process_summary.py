@@ -94,16 +94,6 @@ class ProcessStageMetrics:
         self.items_retried += retried
         self.bytes_processed += bytes_count
 
-    def set_final_counts(
-        self, processed: int, successful: int, failed: int, retried: int = 0, bytes_count: int = 0
-    ) -> None:
-        """Set final counts for this stage (used at completion)."""
-        self.items_processed = processed
-        self.items_successful = successful
-        self.items_failed = failed
-        self.items_retried = retried
-        self.bytes_processed = bytes_count
-
     def add_error(self, error_type: str, error_message: str) -> None:
         """Record an error occurrence."""
         self.error_count += 1
@@ -505,7 +495,7 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
     step_display_map = {
         "collect": ("Collected", "python grin.py sync pipeline --queue converted"),
         "process": ("Requested processing for", "python grin.py process monitor"),
-        "sync": ("Synced", None),
+        "sync": ("Sync stage total", None),
         "enrich": ("Enriched", "python grin.py export-csv"),
     }
 

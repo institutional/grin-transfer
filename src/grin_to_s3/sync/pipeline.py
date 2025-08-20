@@ -621,7 +621,6 @@ class SyncPipeline:
         skipped = 0
         failed = 0
         conversion_requested = 0
-        total_bytes = 0
         error_counts: dict[str, int] = {}
 
         for task_results in book_results.values():
@@ -639,20 +638,6 @@ class SyncPipeline:
                 # Collect error information
                 self._collect_book_errors(task_results, error_counts)
 
-            # TODO: Collect bytes from successful uploads if needed
-            # This would require looking at upload task results
-
-        # Update final counts for this sync operation
-        total_processed = synced + skipped + failed + conversion_requested
-        total_successful = synced + skipped + conversion_requested  # Skipped and conversions are "successful"
-
-        self.process_summary_stage.set_final_counts(
-            processed=total_processed,
-            successful=total_successful,
-            failed=failed,
-            retried=0,
-            bytes_count=total_bytes,
-        )
 
         # Store book outcomes
         self.process_summary_stage.book_outcomes = {

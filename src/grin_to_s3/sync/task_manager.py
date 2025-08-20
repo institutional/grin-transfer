@@ -381,7 +381,44 @@ async def process_book_pipeline(
         # ALWAYS commit accumulated updates (success or failure)
         await commit_book_record_updates(pipeline, barcode)
 
+    # Update process summary with incremental counts for this book
+    _update_book_metrics(pipeline, results)
+
     return results
+
+
+def _update_book_metrics(pipeline: "SyncPipeline", results: dict) -> None:
+    """Update process summary stage incrementally for this book."""
+    # Import here to avoid circular imports
+    from .tasks.task_types import TaskAction, TaskType
+
+    # Determine if this book was successful overall
+    if TaskType.REQUEST_CONVERSION in results:
+        # Conversion request completed - this is a success for the "previous" queue
+        request_result = results[TaskType.REQUEST_CONVERSION]
+        if request_result.action == TaskAction.COMPLETED:
+            pipeline.process_summary_stage.increment_items(processed=1, successful=1)
+        else:
+            pipeline.process_summary_stage.increment_items(processed=1, failed=1)
+    elif TaskType.CHECK in results:
+        check_result = results[TaskType.CHECK]
+        if check_result.action == TaskAction.SKIPPED:
+            # Book was skipped (already synced/etag match) - this is successful
+            pipeline.process_summary_stage.increment_items(processed=1, successful=1)
+        elif TaskType.UPLOAD in results:
+            upload_result = results[TaskType.UPLOAD]
+            if upload_result.action == TaskAction.COMPLETED:
+                # Full sync completed successfully
+                pipeline.process_summary_stage.increment_items(processed=1, successful=1)
+            else:
+                # Upload failed - overall failure
+                pipeline.process_summary_stage.increment_items(processed=1, failed=1)
+        else:
+            # Some other failure in the pipeline
+            pipeline.process_summary_stage.increment_items(processed=1, failed=1)
+    else:
+        # No check task - probably a failure
+        pipeline.process_summary_stage.increment_items(processed=1, failed=1)
 
 
 async def process_books_batch(
