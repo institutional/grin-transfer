@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,21 +25,23 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def main(barcode: Barcode, pipeline: "SyncPipeline") -> DownloadResult:
+async def main(barcode: Barcode, pipeline: "SyncPipeline", grin_api_semaphore: asyncio.Semaphore) -> DownloadResult:
     to_path = pipeline.filesystem_manager.get_encrypted_file_path(barcode)
 
     # Ensure parent directories exist
     to_path.parent.mkdir(parents=True, exist_ok=True)
 
-    data = await download_book_to_filesystem(
-        barcode,
-        to_path,
-        pipeline.grin_client,
-        pipeline.library_directory,
-        pipeline.filesystem_manager,
-        pipeline.download_timeout,
-        pipeline.download_retries,
-    )
+    # Use shared GRIN request semaphore to coordinate with check tasks
+    async with grin_api_semaphore:
+        data = await download_book_to_filesystem(
+            barcode,
+            to_path,
+            pipeline.grin_client,
+            pipeline.library_directory,
+            pipeline.filesystem_manager,
+            pipeline.download_timeout,
+            pipeline.download_retries,
+        )
 
     return DownloadResult(
         barcode=barcode,

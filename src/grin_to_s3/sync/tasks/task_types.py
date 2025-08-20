@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -7,7 +8,6 @@ from typing import TYPE_CHECKING, Any, Generic, Literal, Protocol, TypedDict, Ty
 
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
-
 
 class TaskType(Enum):
     """Types of tasks in the sync pipeline."""
@@ -278,7 +278,7 @@ StagingCleanupResult = Result[StagingCleanupData]
 
 # Task function protocols for type safety
 class CheckTaskFunc(Protocol):
-    async def __call__(self, barcode: str, pipeline: SyncPipeline) -> CheckResult: ...
+    async def __call__(self, barcode: str, pipeline: SyncPipeline, grin_api_semaphore: asyncio.Semaphore) -> CheckResult: ...
 
 
 class RequestConversionTaskFunc(Protocol):
@@ -286,7 +286,7 @@ class RequestConversionTaskFunc(Protocol):
 
 
 class DownloadTaskFunc(Protocol):
-    async def __call__(self, barcode: str, pipeline: SyncPipeline) -> DownloadResult: ...
+    async def __call__(self, barcode: str, pipeline: SyncPipeline, grin_api_semaphore: asyncio.Semaphore) -> DownloadResult: ...
 
 
 class DecryptTaskFunc(Protocol):

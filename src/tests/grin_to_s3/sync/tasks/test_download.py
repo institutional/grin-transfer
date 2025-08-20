@@ -6,6 +6,7 @@ Tests the download task functionality that was previously part of operations.py.
 Covers equivalent functionality to the download tests from the original operations module.
 """
 
+import asyncio
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -76,7 +77,8 @@ class TestDownloadMain:
                 "etag": "abc123",
                 "file_size_bytes": 1024,
             }
-            result = await download.main("TEST123", mock_pipeline)
+            grin_semaphore = asyncio.Semaphore(5)
+            result = await download.main("TEST123", mock_pipeline, grin_semaphore)
 
             assert result.action == TaskAction.COMPLETED
             assert result.data is not None
@@ -94,7 +96,8 @@ class TestDownloadMain:
                 "etag": None,
                 "file_size_bytes": 0,
             }
-            result = await download.main("TEST123", mock_pipeline)
+            grin_semaphore = asyncio.Semaphore(5)
+            result = await download.main("TEST123", mock_pipeline, grin_semaphore)
 
             assert result.action == TaskAction.FAILED
 
@@ -112,7 +115,8 @@ class TestDownloadMain:
                     "etag": "abc123",
                     "file_size_bytes": 1024,
                 }
-                await download.main("TEST123", mock_pipeline)
+                grin_semaphore = asyncio.Semaphore(5)
+                await download.main("TEST123", mock_pipeline, grin_semaphore)
 
                 assert nested_path.parent.exists()
 
@@ -323,7 +327,8 @@ class TestDownloadStorageParametrization:
                     "file_size_bytes": 2048,
                 }
 
-                result = await download.main("MAIN123", pipeline)
+                grin_semaphore = asyncio.Semaphore(5)
+                result = await download.main("MAIN123", pipeline, grin_semaphore)
 
                 # Task result should be consistent regardless of storage type
                 assert result.action == TaskAction.COMPLETED

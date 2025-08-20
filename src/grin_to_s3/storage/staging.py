@@ -149,7 +149,7 @@ class StagingDirectoryManager(DirectoryManager):
 
         # Log disk usage occasionally
         if usage_ratio > 0.7:  # Log when >70% full
-            logger.info(
+            logger.debug(
                 f"Staging disk usage: {usage_ratio:.1%} "
                 f"({used_bytes / (1024**3):.1f}GB / {total_bytes / (1024**3):.1f}GB)"
             )

@@ -286,7 +286,7 @@ class SyncPipeline:
         from grin_to_s3.sync.tasks.task_types import TaskType
 
         limits = {
-            TaskType.CHECK: config.sync_task_check_concurrency,
+            # CHECK tasks use shared GRIN request semaphore (no separate limit)
             TaskType.REQUEST_CONVERSION: 2,  # Limit concurrent conversion requests
             TaskType.DOWNLOAD: config.sync_task_download_concurrency,
             TaskType.DECRYPT: config.sync_task_decrypt_concurrency,
@@ -301,7 +301,6 @@ class SyncPipeline:
         # Apply CLI overrides if provided
         if overrides:
             task_type_mapping = {
-                "task_check_concurrency": TaskType.CHECK,
                 "task_download_concurrency": TaskType.DOWNLOAD,
                 "task_decrypt_concurrency": TaskType.DECRYPT,
                 "task_upload_concurrency": TaskType.UPLOAD,
@@ -607,9 +606,7 @@ class SyncPipeline:
                 filtering_result.books_after_limit,
                 self,
                 task_funcs,
-                max_concurrent=5,
-                limits=limits,
-                task_manager=task_manager,
+                task_manager,
             )
 
         except KeyboardInterrupt:

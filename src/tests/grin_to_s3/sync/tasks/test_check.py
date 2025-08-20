@@ -3,6 +3,7 @@
 Tests for sync tasks check module.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -27,7 +28,8 @@ async def test_main_needs_download(mock_pipeline):
     ):
         mock_etag_matches.return_value = {"matched": False, "reason": "no_archive"}
 
-        result = await check.main("TEST123", mock_pipeline)
+        grin_semaphore = asyncio.Semaphore(5)
+        result = await check.main("TEST123", mock_pipeline, grin_semaphore)
 
         assert result.action == TaskAction.COMPLETED
         assert result.data is not None
@@ -49,7 +51,8 @@ async def test_main_etag_match_skips(mock_pipeline):
     ):
         mock_etag_matches.return_value = {"matched": True, "reason": "etag_match"}
 
-        result = await check.main("TEST123", mock_pipeline)
+        grin_semaphore = asyncio.Semaphore(5)
+        result = await check.main("TEST123", mock_pipeline, grin_semaphore)
 
         assert result.action == TaskAction.SKIPPED
         assert result.reason == "skip_etag_match"
@@ -69,7 +72,8 @@ async def test_main_etag_continue_if_force(mock_pipeline):
     ):
         mock_etag_matches.return_value = {"matched": True, "reason": "etag_match"}
 
-        result = await check.main("TEST123", mock_pipeline)
+        grin_semaphore = asyncio.Semaphore(5)
+        result = await check.main("TEST123", mock_pipeline, grin_semaphore)
 
         assert result.action == TaskAction.COMPLETED
         assert result.reason == "completed_match_with_force"
@@ -81,7 +85,8 @@ async def test_main_404_skip(mock_pipeline):
     error_404 = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=404, message="Not Found")
     mock_pipeline.grin_client.auth.make_authenticated_request.side_effect = error_404
 
-    result = await check.main("TEST123", mock_pipeline)
+    grin_semaphore = asyncio.Semaphore(5)
+    result = await check.main("TEST123", mock_pipeline, grin_semaphore)
 
     assert result.action == TaskAction.SKIPPED
     assert result.reason == "skip_archive_missing_from_grin"
