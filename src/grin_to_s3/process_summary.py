@@ -484,7 +484,7 @@ def display_stage_summary(summary: RunSummary, stage_name: str) -> None:
 
     # Determine stage display name and next command
     stage_display_map = {
-        "collect": ("Collected", "python grin.py sync pipeline"),
+        "collect": ("Collected", "python grin.py sync pipeline --queue converted"),
         "process": ("Requested processing for", "python grin.py process monitor"),
         "sync": ("Synced", None),
         "enrich": ("Enriched", "python grin.py export-csv"),
@@ -506,7 +506,8 @@ def display_stage_summary(summary: RunSummary, stage_name: str) -> None:
 
     # Build main summary line for current stage
     items_text = f"{stage.items_processed:,} books" if stage.items_processed > 0 else "operation"
-    print(f"✓ {action_text} {items_text} in {duration_str}{rate_str}")
+
+    print(f"\n✓ {action_text} {items_text} in {duration_str}{rate_str}")
 
     # Show detailed results for current stage if relevant
     if stage_name in ["sync"] and stage.items_processed > 0:

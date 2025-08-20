@@ -404,28 +404,33 @@ async def process_books_batch(
     manager = task_manager
 
     async def process_book(barcode: str):
-        # Check if shutdown was requested before starting this book
-        if pipeline._shutdown_requested:
-            logger.info(f"[{barcode}] Skipping book processing due to shutdown request")
-            return barcode, {}
         return barcode, await process_book_pipeline(manager, barcode, pipeline, task_funcs)
 
-    # Create tasks for all books first
-    book_tasks = [process_book(barcode) for barcode in barcodes]
+    # Process books in chunks using pipeline.batch_size to control memory usage
+    results = []
+    chunk_size = pipeline.batch_size
 
-    # Check if shutdown was already requested before starting any work
-    if pipeline._shutdown_requested:
-        logger.info("Shutdown requested before batch processing started")
-        print("\nGraceful shutdown in progress, no new books will be processed...")
-        return {}
+    for i in range(0, len(barcodes), chunk_size):
+        # Check for shutdown between chunks for responsive cancellation
+        if pipeline._shutdown_requested:
+            logger.info("Shutdown requested, stopping batch processing")
+            print("\nGraceful shutdown in progress, no new books will be processed...")
+            break
 
-    try:
-        # Process all books - concurrency controlled by individual task semaphores
-        results = await asyncio.gather(*book_tasks, return_exceptions=True)
-    except KeyboardInterrupt:
-        # KeyboardInterrupt should propagate up to the signal handler
-        logger.info("KeyboardInterrupt caught during batch processing, allowing graceful shutdown")
-        raise
+        chunk = barcodes[i:i + chunk_size]
+        chunk_num = i // chunk_size + 1
+        total_chunks = (len(barcodes) + chunk_size - 1) // chunk_size
+        logger.info(f"Processing chunk {chunk_num}/{total_chunks}: {len(chunk)} books")
+
+        # Create tasks only for this chunk
+        chunk_tasks = [process_book(barcode) for barcode in chunk]
+
+        try:
+            chunk_results = await asyncio.gather(*chunk_tasks, return_exceptions=True)
+            results.extend(chunk_results)
+        except KeyboardInterrupt:
+            logger.info("KeyboardInterrupt caught during chunk processing, allowing graceful shutdown")
+            raise
 
     # Convert to dict
     book_results = {}

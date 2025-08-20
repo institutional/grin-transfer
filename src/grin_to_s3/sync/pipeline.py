@@ -363,7 +363,6 @@ class SyncPipeline:
             "session_stats": self.stats,
         }
 
-
     async def setup_sync_loop(
         self, queues: list[str] | None = None, limit: int | None = None, specific_barcodes: list[str] | None = None
     ) -> None:
@@ -386,10 +385,8 @@ class SyncPipeline:
             self.conversion_handler = ConversionRequestHandler(
                 library_directory=self.library_directory, db_tracker=self.db_tracker, secrets_dir=self.secrets_dir
             )
-        print("Starting GRIN-to-Storage sync pipeline")
         if self.dry_run:
             print("🔍 DRY-RUN MODE: No files will be downloaded or uploaded")
-        print(f"Database: {self.db_path}")
 
         # Display storage configuration details
         if self.uses_local_storage:
@@ -408,20 +405,13 @@ class SyncPipeline:
             print(f"  Raw bucket: {self.config.storage_config['config'].get('bucket_raw', 'unknown')}")
             print(f"  Meta bucket: {self.config.storage_config['config'].get('bucket_meta', 'unknown')}")
             print(f"  Full bucket: {self.config.storage_config['config'].get('bucket_full', 'unknown')}")
-        else:
-            print(f"Storage: {self.config.storage_config['type']}")
 
-        print("Task concurrency limits:")
-        for task_type, task_limit in self.task_concurrency_limits.items():
-            print(f"  {task_type.name.lower()}: {task_limit}")
-        print(f"Batch size: {self.batch_size}")
         if limit:
             print(f"Limit: {limit:,} {pluralize(limit, 'book')}")
         print()
 
         logger.info("Starting sync pipeline")
         logger.info(f"Database: {self.db_path}")
-        logger.info(f"Task concurrency limits: {self.task_concurrency_limits}")
 
         # Reset bucket cache at start of sync
         reset_bucket_cache()
