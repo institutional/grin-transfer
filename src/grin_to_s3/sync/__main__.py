@@ -25,6 +25,7 @@ from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
     create_book_manager_for_uploads,
     create_process_summary,
+    display_stage_summary,
     get_current_stage,
     save_process_summary,
 )
@@ -329,6 +330,9 @@ async def cmd_pipeline(args) -> None:
         run_summary.end_stage("sync")
         if not args.dry_run:
             await save_process_summary(run_summary, book_manager)
+
+        # Display completion summary
+        display_stage_summary(run_summary, "sync")
 
 
 async def cmd_status(args) -> None:

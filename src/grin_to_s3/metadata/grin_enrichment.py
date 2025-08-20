@@ -26,7 +26,12 @@ from grin_to_s3.common import (
 from grin_to_s3.database.connections import connect_async
 from grin_to_s3.database.database_utils import validate_database_file
 from grin_to_s3.logging_config import setup_logging
-from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
+from grin_to_s3.process_summary import (
+    create_process_summary,
+    display_stage_summary,
+    get_current_stage,
+    save_process_summary,
+)
 from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 
@@ -830,6 +835,9 @@ Examples:
         if run_summary:
             run_summary.end_stage("enrich")
             await save_process_summary(run_summary, book_manager)
+
+            # Display completion summary
+            display_stage_summary(run_summary, "enrich")
 
 
 async def enrich_main():

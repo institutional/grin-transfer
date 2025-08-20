@@ -17,7 +17,6 @@ from grin_to_s3.common import (
     DEFAULT_DOWNLOAD_RETRIES,
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_MAX_SEQUENTIAL_FAILURES,
-    format_duration,
     pluralize,
 )
 from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT
@@ -49,7 +48,6 @@ from .barcode_filtering import create_filtering_summary, filter_barcodes_pipelin
 from .conversion_handler import ConversionRequestHandler
 from .preflight import run_preflight_operations
 from .progress_reporter import SyncProgressReporter
-from .teardown import run_teardown_operations
 from .utils import reset_bucket_cache
 
 logger = logging.getLogger(__name__)
@@ -365,63 +363,6 @@ class SyncPipeline:
             "session_stats": self.stats,
         }
 
-    async def _print_final_stats_and_outputs(self, total_elapsed: float, books_processed: int) -> None:
-        """Print comprehensive final statistics and output locations."""
-        run_name = Path(self.db_path).parent.name
-
-        print(f"\nSync completed for run: {run_name}")
-        print(f"  Runtime: {format_duration(total_elapsed)}")
-        print(f"  Books processed: {books_processed:,}")
-        print(f"  Successfully synced: {self.stats['synced']:,}")
-        print(f"  Failed: {self.stats['failed']:,}")
-
-        # Show detailed breakdown of results
-        if self.stats.get("conversion_requested", 0) > 0:
-            print(f"  Conversion requested: {self.stats['conversion_requested']:,}")
-        if self.stats.get("marked_unavailable", 0) > 0:
-            print(f"  Marked unavailable: {self.stats['marked_unavailable']:,}")
-        if self.stats.get("skipped_etag_match", 0) > 0:
-            print(f"  Skipped (ETag match): {self.stats['skipped_etag_match']:,}")
-        if self.stats.get("skipped_conversion_limit", 0) > 0:
-            print(f"  Skipped (conversion limit): {self.stats['skipped_conversion_limit']:,}")
-
-        if total_elapsed > 0 and self.stats["synced"] > 0:
-            avg_rate = self.stats["synced"] / total_elapsed
-            print(f"  Average rate: {avg_rate:.1f} books/second")
-
-        # Run teardown operations (database upload, staging cleanup)
-        teardown_results = await run_teardown_operations(self)
-
-        # Add teardown results to final report
-        for operation, result in teardown_results.items():
-            if result.action.value == "completed" and result.data:
-                if operation == "final_database_upload":
-                    data = result.data
-                    print(f"  Database backed up: {data.get('backup_filename')} ({data.get('file_size', 0):,} bytes)")
-                elif operation == "staging_cleanup":
-                    data = result.data
-                    print(f"  Staging cleanup completed: {data.get('staging_path')}")
-            elif result.action.value == "failed":
-                print(f"  {operation.replace('_', ' ').title()} failed: {result.error}")
-            elif result.action.value == "skipped":
-                logger.debug(f"{operation.replace('_', ' ').title()} skipped")
-        # Point to process summary file
-        process_summary_path = f"output/{run_name}/process_summary.json"
-        print(f"  Process summary: {process_summary_path}")
-        # Print storage locations
-        print("\nOutput locations:")
-
-        if self.uses_local_storage:
-            base_path = self.config.storage_config.get("base_path", "")
-            print(f"  Raw data: {base_path}/raw/")
-            print(f"  Metadata: {base_path}/meta/")
-            print(f"  Full-text: {base_path}/full/")
-            print(f"  CSV export: {base_path}/meta/books_latest.csv.gz")
-        else:
-            print(f"  Raw data bucket: {self.config.storage_config['config'].get('bucket_raw')}")
-            print(f"  Metadata bucket: {self.config.storage_config['config'].get('bucket_meta')}")
-            print(f"  Full-text bucket: {self.config.storage_config['config'].get('bucket_full')}")
-            print(f"  CSV export: {self.config.storage_config['config'].get('bucket_meta')}/books_latest.csv.gz")
 
     async def setup_sync_loop(
         self, queues: list[str] | None = None, limit: int | None = None, specific_barcodes: list[str] | None = None

@@ -21,7 +21,12 @@ sys.path.append("..")
 from grin_to_s3.logging_config import (
     setup_logging,
 )
-from grin_to_s3.process_summary import create_process_summary, get_current_stage, save_process_summary
+from grin_to_s3.process_summary import (
+    create_process_summary,
+    display_stage_summary,
+    get_current_stage,
+    save_process_summary,
+)
 from grin_to_s3.run_config import (
     DEFAULT_SYNC_BATCH_SIZE,
     DEFAULT_SYNC_DISK_SPACE_THRESHOLD,
@@ -476,13 +481,9 @@ Examples:
             # Track completion status
             if completed:
                 collect_stage.add_progress_update("Collection completed successfully")
-                # Show next step command for successful completion
-                collector.print_next_step_command(run_name)
             else:
                 collect_stage.add_progress_update("Collection incomplete - interrupted or limited")
-
-            # Only show resume command if collection was not completed
-            if not completed:
+                # Show resume command if collection was not completed
                 print_resume_command(args, run_name)
 
             return 0
@@ -502,6 +503,9 @@ Examples:
             # Always end the stage and save summary
             run_summary.end_stage("collect")
             await save_process_summary(run_summary, book_manager)
+
+            # Display completion summary
+            display_stage_summary(run_summary, "collect")
 
     except Exception as e:
         if isinstance(e, KeyboardInterrupt):

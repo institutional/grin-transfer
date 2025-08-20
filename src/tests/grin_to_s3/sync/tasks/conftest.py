@@ -68,7 +68,6 @@ def mock_pipeline():
         pipeline.db_tracker.close = AsyncMock()
         pipeline.db_tracker.get_all_books_csv_data = AsyncMock()
 
-        # Mock stats and output functions
-        pipeline._print_final_stats_and_outputs = AsyncMock(return_value={})
+        # Mock stats and output functions (none needed currently)
 
         yield pipeline

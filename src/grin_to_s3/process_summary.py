@@ -16,7 +16,7 @@ from typing import Any
 
 import aiofiles
 
-from .common import compress_file_to_temp, get_compressed_filename
+from .common import compress_file_to_temp, format_duration, get_compressed_filename
 
 logger = logging.getLogger(__name__)
 
@@ -464,3 +464,79 @@ async def create_book_manager_for_uploads(run_name: str):
     except Exception as e:
         logger.error(f"Failed to create book storage for uploads: {e}")
         return None
+
+
+def display_stage_summary(summary: RunSummary, stage_name: str) -> None:
+    """Display a concise summary of the stage that just completed and overall run state.
+
+    Args:
+        summary: The run summary containing stage data
+        stage_name: Name of the stage to display (e.g., 'collect', 'process', 'sync', 'enrich')
+    """
+    if stage_name not in summary.stages:
+        return
+
+    stage = summary.stages[stage_name]
+
+    # Skip if stage hasn't completed
+    if stage.end_time is None or stage.duration_seconds is None:
+        return
+
+    # Determine stage display name and next command
+    stage_display_map = {
+        "collect": ("Collected", "python grin.py sync pipeline"),
+        "process": ("Requested processing for", "python grin.py process monitor"),
+        "sync": ("Synced", None),
+        "enrich": ("Enriched", "python grin.py export-csv"),
+    }
+
+    action_text, next_command = stage_display_map.get(stage_name, (stage_name.title(), None))
+
+    # Format duration and rate
+    duration_str = format_duration(stage.duration_seconds)
+
+    # Calculate rate if we have items processed
+    rate_str = ""
+    if stage.items_processed > 0 and stage.duration_seconds > 0:
+        rate = stage.items_processed / stage.duration_seconds
+        if rate >= 1:
+            rate_str = f" ({rate:.1f} books/s)"
+        else:
+            rate_str = f" ({60 * rate:.1f} books/min)"
+
+    # Build main summary line for current stage
+    items_text = f"{stage.items_processed:,} books" if stage.items_processed > 0 else "operation"
+    print(f"✓ {action_text} {items_text} in {duration_str}{rate_str}")
+
+    # Show detailed results for current stage if relevant
+    if stage_name in ["sync"] and stage.items_processed > 0:
+        failed = stage.items_failed
+        successful = stage.items_successful
+        skipped = stage.items_processed - successful - failed
+        if skipped > 0:
+            print(f"  Success: {successful:,} | Failed: {failed:,} | Skipped: {skipped:,}")
+        elif failed > 0:
+            print(f"  Success: {successful:,} | Failed: {failed:,}")
+    elif stage.items_failed > 0 and stage.items_processed > 0:
+        print(f"  Success: {stage.items_successful:,} | Failed: {stage.items_failed:,}")
+
+    # Show brief collection overview if we have multiple stages
+    if len(summary.stages) > 1:
+        stage_order = ["collect", "process", "sync", "enrich"]
+        completed_stages = []
+
+        for s in stage_order:
+            if s in summary.stages and summary.stages[s].end_time is not None:
+                stage_data = summary.stages[s]
+                if stage_data.items_processed > 0:
+                    completed_stages.append(f"{s}:{stage_data.items_processed:,}")
+
+        if completed_stages:
+            print(f"  Collection: {' | '.join(completed_stages)} books")
+
+    # Show next command if available
+    if next_command:
+        run_name = summary.run_name
+        print(f"  Next: {next_command} --run-name {run_name}")
+
+    print()  # Add blank line for spacing
