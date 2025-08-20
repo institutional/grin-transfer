@@ -9,6 +9,7 @@ import argparse
 import asyncio
 import json
 import logging
+import os
 import signal
 import sys
 from pathlib import Path
@@ -112,8 +113,9 @@ def _setup_signal_handlers(pipeline, sync_stage) -> None:
             # Second interrupt - hard exit
             print(f"\nReceived second signal {signum}, forcing immediate exit...")
             sync_stage.add_progress_update("Force exit requested")
-            sys.exit(1)
-        print(f"\nReceived signal {signum}, shutting down gracefully...")
+            # Use os._exit() instead of sys.exit() to avoid asyncio shutdown issues
+            os._exit(1)
+        print(f"\nReceived signal {signum}, shutting down gracefully... No new downloads will be initiated.")
         print("Press Control-C again to force immediate exit")
         sync_stage.add_progress_update("Graceful shutdown requested")
         pipeline._shutdown_requested = True

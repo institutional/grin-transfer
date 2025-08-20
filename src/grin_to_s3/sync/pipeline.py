@@ -610,7 +610,8 @@ class SyncPipeline:
             )
 
         except KeyboardInterrupt:
-            print("\nOperation cancelled by user")
+            # KeyboardInterrupt is handled by signal handler, just log and continue to cleanup
+            logger.info("Processing interrupted by user signal, proceeding to cleanup")
         except Exception as e:
             print(f"Pipeline failed: {e}")
             logger.error(f"Pipeline failed: {e}", exc_info=True)
