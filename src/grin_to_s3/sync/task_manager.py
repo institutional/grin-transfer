@@ -252,8 +252,6 @@ async def process_book_pipeline(
                 results,  # Pass accumulated results
             )
             results[TaskType.DOWNLOAD] = download_result
-            logger.info(f"[{barcode}] Download task completed with success={download_result.success}")
-
             if not download_result.should_continue_pipeline:
                 return results
         else:
