@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -278,7 +277,7 @@ StagingCleanupResult = Result[StagingCleanupData]
 
 # Task function protocols for type safety
 class CheckTaskFunc(Protocol):
-    async def __call__(self, barcode: str, pipeline: SyncPipeline, grin_api_semaphore: asyncio.Semaphore) -> CheckResult: ...
+    async def __call__(self, barcode: str, pipeline: SyncPipeline) -> CheckResult: ...
 
 
 class RequestConversionTaskFunc(Protocol):
@@ -286,7 +285,7 @@ class RequestConversionTaskFunc(Protocol):
 
 
 class DownloadTaskFunc(Protocol):
-    async def __call__(self, barcode: str, pipeline: SyncPipeline, grin_api_semaphore: asyncio.Semaphore) -> DownloadResult: ...
+    async def __call__(self, barcode: str, pipeline: SyncPipeline) -> DownloadResult: ...
 
 
 class DecryptTaskFunc(Protocol):

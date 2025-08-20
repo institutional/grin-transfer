@@ -81,6 +81,10 @@ class TaskManager:
         # Both tasks hit the same endpoint so must share the 5-request limit
         self.grin_api_semaphore = asyncio.Semaphore(5)
 
+        # CHECK and DOWNLOAD tasks use the shared GRIN API semaphore
+        self.semaphores[TaskType.CHECK] = self.grin_api_semaphore
+        self.semaphores[TaskType.DOWNLOAD] = self.grin_api_semaphore
+
         # Track active tasks
         self.active_tasks: dict[str, set[TaskType]] = defaultdict(set)
 
@@ -114,7 +118,7 @@ class TaskManager:
             self.active_tasks[barcode].add(task_type)
             self.stats[task_type]["started"] += 1
 
-            result: TaskResult
+            result: TaskResult | None = None
             try:
                 result = await task_func()
 
@@ -133,26 +137,27 @@ class TaskManager:
                 logger.error(f"[{barcode}] Task {task_type.name} failed: {error_msg}", exc_info=True)
                 result = TaskResult(barcode=barcode, task_type=task_type, action=TaskAction.FAILED, error=error_msg)
             finally:
-                # Always accumulate updates (success or failure)
-                updates = await get_updates_for_task(result, previous_results)
-
-                # Initialize record updates for this barcode if needed
-                if barcode not in pipeline.book_record_updates:
-                    pipeline.book_record_updates[barcode] = {"status_history": [], "books_fields": {}}
-
-                # Accumulate status history record
-                if updates.get("status"):
-                    status_type, status_value, metadata = updates["status"]
-                    status_record = StatusUpdate(barcode, status_type, status_value, metadata)
-                    pipeline.book_record_updates[barcode]["status_history"].append(status_record)
-
-                # Accumulate books table field updates
-                if updates.get("books"):
-                    pipeline.book_record_updates[barcode]["books_fields"].update(updates["books"])
-
+                # Always clean up active tasks tracking
                 self.active_tasks[barcode].discard(task_type)
                 if not self.active_tasks[barcode]:
                     del self.active_tasks[barcode]
+
+            # Accumulate database updates
+            updates = await get_updates_for_task(result, previous_results)
+
+            # Initialize record updates for this barcode if needed
+            if barcode not in pipeline.book_record_updates:
+                pipeline.book_record_updates[barcode] = {"status_history": [], "books_fields": {}}
+
+            # Accumulate status history record
+            if updates.get("status"):
+                status_type, status_value, metadata = updates["status"]
+                status_record = StatusUpdate(barcode, status_type, status_value, metadata)
+                pipeline.book_record_updates[barcode]["status_history"].append(status_record)
+
+            # Accumulate books table field updates
+            if updates.get("books"):
+                pipeline.book_record_updates[barcode]["books_fields"].update(updates["books"])
 
             return result
 
@@ -212,7 +217,7 @@ async def process_book_pipeline(
             check_result = await manager.run_task(
                 TaskType.CHECK,
                 barcode,
-                lambda: check_func(barcode, pipeline, manager.grin_api_semaphore),
+                lambda: check_func(barcode, pipeline),
                 pipeline,
                 results,  # Pass accumulated results
             )
@@ -242,7 +247,7 @@ async def process_book_pipeline(
             download_result: DownloadResult = await manager.run_task(
                 TaskType.DOWNLOAD,
                 barcode,
-                lambda: download_func(barcode, pipeline, manager.grin_api_semaphore),
+                lambda: download_func(barcode, pipeline),
                 pipeline,
                 results,  # Pass accumulated results
             )
@@ -401,10 +406,28 @@ async def process_books_batch(
     manager = task_manager
 
     async def process_book(barcode: str):
+        # Check if shutdown was requested before starting this book
+        if pipeline._shutdown_requested:
+            logger.info(f"[{barcode}] Skipping book processing due to shutdown request")
+            return barcode, {}
         return barcode, await process_book_pipeline(manager, barcode, pipeline, task_funcs)
 
-    # Process all books - concurrency controlled by individual task semaphores
-    results = await asyncio.gather(*[process_book(barcode) for barcode in barcodes], return_exceptions=True)
+    # Create tasks for all books first
+    book_tasks = [process_book(barcode) for barcode in barcodes]
+
+    # Check if shutdown was already requested before starting any work
+    if pipeline._shutdown_requested:
+        logger.info("Shutdown requested before batch processing started")
+        print("\nGraceful shutdown in progress, no new books will be processed...")
+        return {}
+
+    try:
+        # Process all books - concurrency controlled by individual task semaphores
+        results = await asyncio.gather(*book_tasks, return_exceptions=True)
+    except KeyboardInterrupt:
+        # KeyboardInterrupt should propagate up to the signal handler
+        logger.info("KeyboardInterrupt caught during batch processing, allowing graceful shutdown")
+        raise
 
     # Convert to dict
     book_results = {}
@@ -412,8 +435,12 @@ async def process_books_batch(
         if isinstance(result, tuple):
             barcode, task_results = result
             book_results[barcode] = task_results
+        elif isinstance(result, KeyboardInterrupt):
+            # KeyboardInterrupt from individual tasks should also propagate up
+            logger.info("KeyboardInterrupt from individual task, allowing graceful shutdown")
+            raise result
         elif isinstance(result, Exception):
-            logger.error(f"Book processing failed: {result}")
+            logger.error(f"Book processing failed: {type(result).__name__}: {result}", exc_info=result)
 
     # Log final stats
     logger.info(f"Processed {len(book_results)}/{len(barcodes)} books")
