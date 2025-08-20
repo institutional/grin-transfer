@@ -50,10 +50,9 @@ class ProcessStageMetrics:
     progress_updates: list[dict[str, Any]] = field(default_factory=list)
 
     # Detailed sync-specific metrics
-    task_stats: dict[str, dict[str, int]] = field(default_factory=dict)  # Per-task-type statistics
+    book_outcomes: dict[str, int] = field(default_factory=dict)  # Book-level outcomes (synced, skipped, failed, etc.)
     queue_info: dict[str, Any] = field(default_factory=dict)  # Queue details from command args
-    conversion_stats: dict[str, int] = field(default_factory=dict)  # Conversion request metrics
-    error_breakdown: dict[str, list[str]] = field(default_factory=dict)  # Detailed error information
+    error_breakdown: dict[str, int] = field(default_factory=dict)  # Error counts by type
 
     def start_stage(self) -> None:
         """Start timing this stage."""
@@ -230,9 +229,8 @@ class RunSummary:
                     (stage.items_successful / max(1, stage.items_processed)) * 100 if stage.items_processed > 0 else 0
                 ),
                 # Detailed sync-specific metrics
-                "task_stats": stage.task_stats,
+                "book_outcomes": stage.book_outcomes,
                 "queue_info": stage.queue_info,
-                "conversion_stats": stage.conversion_stats,
                 "error_breakdown": stage.error_breakdown,
             }
 
@@ -558,55 +556,54 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
 
 
 def _display_sync_details(step: ProcessStageMetrics) -> None:
-    """Display detailed sync metrics for the sync stage."""
+    """Display detailed sync metrics for the sync stage focused on user outcomes."""
     # Display queue information
     if step.queue_info:
         queues = step.queue_info.get("queues", [])
         if queues:
             queue_str = ", ".join(queues)
-            print(f"  Queue: {queue_str}")
+            available = step.queue_info.get("available")
+            if available:
+                print(f"  Queue: {queue_str} ({available:,} available)")
+            else:
+                print(f"  Queue: {queue_str}")
 
         limit = step.queue_info.get("limit")
+        specific_barcodes = step.queue_info.get("specific_barcodes")
         if limit:
             print(f"  Limit: {limit:,} books")
-
-        specific_barcodes = step.queue_info.get("specific_barcodes")
-        if specific_barcodes:
+        elif specific_barcodes:
             print(f"  Specific barcodes: {specific_barcodes} books")
+
+    # Display book outcomes
+    if step.book_outcomes:
+        print("  Results:")
+        synced = step.book_outcomes.get("synced", 0)
+        skipped = step.book_outcomes.get("skipped", 0)
+        failed = step.book_outcomes.get("failed", 0)
+        conversion_requested = step.book_outcomes.get("conversion_requested", 0)
+
+        if synced > 0:
+            print(f"    ✓ Successfully synced: {synced:,} books")
+        if conversion_requested > 0:
+            print(f"    → Conversion requested: {conversion_requested:,} books")
+        if skipped > 0:
+            print(f"    ⊘ Skipped (already synced): {skipped:,} books")
+        if failed > 0:
+            print(f"    ✗ Failed: {failed:,} books")
 
     # Display bytes processed
     if step.bytes_processed > 0:
         bytes_str = _format_bytes(step.bytes_processed)
-        print(f"  Data transferred: {bytes_str}")
+        print(f"  {bytes_str} transferred")
 
-    # Display task breakdown
-    if step.task_stats:
-        print("  Task breakdown:")
-        for task_name, stats in step.task_stats.items():
-            completed = stats.get("completed", 0)
-            failed = stats.get("failed", 0)
-
-            if completed > 0 or failed > 0:
-                task_display = task_name.replace("_", " ").title()
-                if failed > 0:
-                    print(f"    {task_display}: {completed} completed, {failed} failed")
-                else:
-                    print(f"    {task_display}: {completed} completed")
-
-    # Display error breakdown
-    if step.error_breakdown:
-        total_errors = sum(len(errors) for errors in step.error_breakdown.values())
-        if total_errors > 0:
-            print(f"  Errors ({total_errors} total):")
-            for error_type, error_list in step.error_breakdown.items():
-                print(f"    {error_type}: {len(error_list)} occurrences")
-
-    # Display conversion request statistics
-    if step.conversion_stats:
-        requests_made = step.conversion_stats.get("requests_made", 0)
-        request_limit = step.conversion_stats.get("request_limit", 0)
-        if requests_made > 0:
-            print(f"  Conversion requests: {requests_made:,}/{request_limit:,}")
+    # Display error breakdown only if there were failures
+    if step.error_breakdown and sum(step.error_breakdown.values()) > 0:
+        total_errors = sum(step.error_breakdown.values())
+        print(f"  Errors ({total_errors}):")
+        for error_type, count in step.error_breakdown.items():
+            if count > 0:
+                print(f"    {error_type}: {count} books")
 
 
 def _format_bytes(bytes_count: int) -> str:

@@ -497,15 +497,15 @@ class SyncPipeline:
             progress_reporter_task = asyncio.create_task(progress_reporter.run(time.time(), rate_calculator))
 
             # Process the filtered books using the task manager
-            await process_books_batch(
+            book_results = await process_books_batch(
                 filtering_result.books_after_limit,
                 self,
                 task_funcs,
                 task_manager,
             )
 
-            # Update process summary with detailed metrics from task manager and pipeline stats
-            self._update_process_summary_metrics(task_manager, queues, limit, specific_barcodes)
+            # Update process summary with detailed metrics from book results
+            self._update_process_summary_metrics(task_manager, book_results, queues, limit, specific_barcodes)
 
         except KeyboardInterrupt:
             # KeyboardInterrupt is handled by signal handler, just log and continue to cleanup
@@ -611,31 +611,57 @@ class SyncPipeline:
     def _update_process_summary_metrics(
         self,
         task_manager: "TaskManager",
+        book_results: dict[str, dict],
         queues: list[str] | None,
         limit: int | None,
         specific_barcodes: list[str] | None,
     ) -> None:
-        """Update process summary stage with detailed metrics from task manager and pipeline stats."""
-        # Calculate totals from task manager stats
-        total_processed = 0
-        total_successful = 0
-        total_failed = 0
+        """Update process summary stage with book-level outcome metrics."""
+        # Analyze book results to determine outcomes
+        synced = 0
+        skipped = 0
+        failed = 0
+        conversion_requested = 0
+        total_bytes = 0
+        error_counts: dict[str, int] = {}
 
-        for task_type, stats in task_manager.stats.items():
-            # Only count meaningful processing tasks for the summary
-            if task_type.name.lower() in ["download", "upload", "decrypt", "unpack"]:
-                total_processed += stats["started"]
-                total_successful += stats["completed"]
-                total_failed += stats["failed"]
+        for task_results in book_results.values():
+            # Determine the overall outcome for this book
+            book_outcome = self._determine_book_outcome(task_results)
 
-        # Update basic counts using calculated totals from task manager
+            if book_outcome == "synced":
+                synced += 1
+            elif book_outcome == "skipped":
+                skipped += 1
+            elif book_outcome == "conversion_requested":
+                conversion_requested += 1
+            else:
+                failed += 1
+                # Collect error information
+                self._collect_book_errors(task_results, error_counts)
+
+            # TODO: Collect bytes from successful uploads if needed
+            # This would require looking at upload task results
+
+        # Update basic counts
+        total_processed = synced + skipped + failed + conversion_requested
+        total_successful = synced + skipped + conversion_requested  # Skipped and conversions are "successful"
+
         self.process_summary_stage.increment_items(
             processed=total_processed,
             successful=total_successful,
-            failed=total_failed,
+            failed=failed,
             retried=0,
-            bytes_count=0,  # Bytes tracking would need to be added separately if needed
+            bytes_count=total_bytes,
         )
+
+        # Store book outcomes
+        self.process_summary_stage.book_outcomes = {
+            "synced": synced,
+            "skipped": skipped,
+            "failed": failed,
+            "conversion_requested": conversion_requested,
+        }
 
         # Store queue information
         if queues:
@@ -662,9 +688,40 @@ class SyncPipeline:
                 "request_limit": self.conversion_request_limit,
             }
 
-        # Store detailed error breakdown by collecting error types from pipeline stats
-        for error_type, count in self.process_summary_stage.error_types.items():
-            if count > 0:
-                self.process_summary_stage.error_breakdown[error_type] = [
-                    f"{count} occurrence{'s' if count != 1 else ''}"
-                ]
+        # Store error breakdown
+        self.process_summary_stage.error_breakdown = error_counts
+
+    def _determine_book_outcome(self, task_results: dict) -> str:
+        """Determine the overall outcome for a single book based on its task results."""
+        from .tasks.task_types import TaskAction, TaskType
+
+        # Check if conversion was requested (for previous queue)
+        if TaskType.REQUEST_CONVERSION in task_results:
+            request_result = task_results[TaskType.REQUEST_CONVERSION]
+            if request_result.action == TaskAction.COMPLETED:
+                return "conversion_requested"
+
+        # Check if the book was skipped early (already synced or etag match)
+        if TaskType.CHECK in task_results:
+            check_result = task_results[TaskType.CHECK]
+            if check_result.action == TaskAction.SKIPPED:
+                return "skipped"
+
+        # Check if the full sync pipeline completed successfully
+        if TaskType.UPLOAD in task_results:
+            upload_result = task_results[TaskType.UPLOAD]
+            if upload_result.action == TaskAction.COMPLETED:
+                return "synced"
+
+        # If we got here, something failed
+        return "failed"
+
+    def _collect_book_errors(self, task_results: dict, error_counts: dict[str, int]) -> None:
+        """Collect error information from failed task results."""
+        from .tasks.task_types import TaskAction
+
+        for task_result in task_results.values():
+            if task_result.action == TaskAction.FAILED and task_result.error:
+                # Extract error type from error message
+                error_type = type(task_result.error).__name__ if hasattr(task_result.error, "__class__") else "Unknown"
+                error_counts[error_type] = error_counts.get(error_type, 0) + 1
