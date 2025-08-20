@@ -535,6 +535,9 @@ class SyncPipeline:
                 task_manager,
             )
 
+            # Update process summary with detailed metrics from task manager and pipeline stats
+            self._update_process_summary_metrics(task_manager, queues, limit, specific_barcodes)
+
         except KeyboardInterrupt:
             # KeyboardInterrupt is handled by signal handler, just log and continue to cleanup
             logger.info("Processing interrupted by user signal, proceeding to cleanup")
@@ -635,3 +638,52 @@ class SyncPipeline:
         logger.info(
             f"DRY-RUN: Would process {books_to_process} books with storage type {self.config.storage_config['type']}"
         )
+
+    def _update_process_summary_metrics(
+        self,
+        task_manager: "TaskManager",
+        queues: list[str] | None,
+        limit: int | None,
+        specific_barcodes: list[str] | None,
+    ) -> None:
+        """Update process summary stage with detailed metrics from task manager and pipeline stats."""
+        # Update basic counts using pipeline stats
+        self.process_summary_stage.increment_items(
+            processed=self.stats["processed"],
+            successful=self.stats["synced"],
+            failed=self.stats["failed"],
+            retried=0,
+            bytes_count=self.stats["total_bytes"],
+        )
+
+        # Store queue information
+        if queues:
+            self.process_summary_stage.queue_info["queues"] = queues
+        if limit:
+            self.process_summary_stage.queue_info["limit"] = limit
+        if specific_barcodes:
+            self.process_summary_stage.queue_info["specific_barcodes"] = len(specific_barcodes)
+
+        # Store per-task-type statistics from task manager
+        for task_type, stats in task_manager.stats.items():
+            task_name = task_type.name.lower()
+            self.process_summary_stage.task_stats[task_name] = {
+                "started": stats["started"],
+                "completed": stats["completed"],
+                "skipped": stats["skipped"],
+                "failed": stats["failed"],
+            }
+
+        # Store conversion request statistics if available
+        if self.conversion_handler and self.conversion_requests_made > 0:
+            self.process_summary_stage.conversion_stats = {
+                "requests_made": self.conversion_requests_made,
+                "request_limit": self.conversion_request_limit,
+            }
+
+        # Store detailed error breakdown by collecting error types from pipeline stats
+        for error_type, count in self.process_summary_stage.error_types.items():
+            if count > 0:
+                self.process_summary_stage.error_breakdown[error_type] = [
+                    f"{count} occurrence{'s' if count != 1 else ''}"
+                ]

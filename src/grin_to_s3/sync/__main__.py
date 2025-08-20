@@ -304,6 +304,8 @@ async def cmd_pipeline(args) -> None:
     sync_stage.set_command_arg("force_mode", args.force)
     if args.limit:
         sync_stage.set_command_arg("limit", args.limit)
+    if hasattr(args, "queue") and args.queue:
+        sync_stage.set_command_arg("queues", args.queue)
 
     try:
         # Load run config and update storage configuration
