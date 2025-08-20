@@ -521,10 +521,6 @@ class SyncPipeline:
             )
 
             print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')}...")
-            print(f"{self.task_concurrency_limits[TaskType.DOWNLOAD]} concurrent downloads")
-
-            if self.uses_local_storage:
-                print(f"{self.task_concurrency_limits[TaskType.UPLOAD]} uploads")
 
             print("Progress updates will be shown every 10 minutes (more frequent initially)")
             print("---")
