@@ -30,7 +30,13 @@ from grin_to_s3.process_summary import (
 from grin_to_s3.run_config import (
     DEFAULT_SYNC_BATCH_SIZE,
     DEFAULT_SYNC_DISK_SPACE_THRESHOLD,
+    DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY,
+    DEFAULT_SYNC_TASK_DECRYPT_CONCURRENCY,
     DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY,
+    DEFAULT_SYNC_TASK_EXPORT_CSV_CONCURRENCY,
+    DEFAULT_SYNC_TASK_EXTRACT_MARC_CONCURRENCY,
+    DEFAULT_SYNC_TASK_EXTRACT_OCR_CONCURRENCY,
+    DEFAULT_SYNC_TASK_UNPACK_CONCURRENCY,
     DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY,
     build_storage_config_dict,
 )
@@ -106,6 +112,23 @@ def print_resume_command(args, run_name: str) -> None:
     print("\nTo check status:")
     print(f"python grin.py status --run-name {run_name}")
     print("=" * 60)
+
+
+def build_sync_config_from_args(args) -> dict:
+    """Build sync configuration dictionary from CLI arguments."""
+    return {
+        "task_download_concurrency": args.sync_task_download_concurrency,
+        "task_decrypt_concurrency": args.sync_task_decrypt_concurrency,
+        "task_upload_concurrency": args.sync_task_upload_concurrency,
+        "task_unpack_concurrency": args.sync_task_unpack_concurrency,
+        "task_extract_marc_concurrency": args.sync_task_extract_marc_concurrency,
+        "task_extract_ocr_concurrency": args.sync_task_extract_ocr_concurrency,
+        "task_export_csv_concurrency": args.sync_task_export_csv_concurrency,
+        "task_cleanup_concurrency": args.sync_task_cleanup_concurrency,
+        "batch_size": args.sync_batch_size,
+        "staging_dir": args.sync_staging_dir,
+        "disk_space_threshold": args.sync_disk_space_threshold,
+    }
 
 
 async def main():
@@ -227,6 +250,42 @@ Examples:
         help=f"Upload task concurrency for sync operations (default: {DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY})",
     )
     parser.add_argument(
+        "--sync-task-decrypt-concurrency",
+        type=int,
+        default=DEFAULT_SYNC_TASK_DECRYPT_CONCURRENCY,
+        help=f"Decrypt task concurrency for sync operations (default: {DEFAULT_SYNC_TASK_DECRYPT_CONCURRENCY})",
+    )
+    parser.add_argument(
+        "--sync-task-unpack-concurrency",
+        type=int,
+        default=DEFAULT_SYNC_TASK_UNPACK_CONCURRENCY,
+        help=f"Unpack task concurrency for sync operations (default: {DEFAULT_SYNC_TASK_UNPACK_CONCURRENCY})",
+    )
+    parser.add_argument(
+        "--sync-task-extract-marc-concurrency",
+        type=int,
+        default=DEFAULT_SYNC_TASK_EXTRACT_MARC_CONCURRENCY,
+        help=f"Extract MARC task concurrency for sync operations (default: {DEFAULT_SYNC_TASK_EXTRACT_MARC_CONCURRENCY})",
+    )
+    parser.add_argument(
+        "--sync-task-extract-ocr-concurrency",
+        type=int,
+        default=DEFAULT_SYNC_TASK_EXTRACT_OCR_CONCURRENCY,
+        help=f"Extract OCR task concurrency for sync operations (default: {DEFAULT_SYNC_TASK_EXTRACT_OCR_CONCURRENCY})",
+    )
+    parser.add_argument(
+        "--sync-task-export-csv-concurrency",
+        type=int,
+        default=DEFAULT_SYNC_TASK_EXPORT_CSV_CONCURRENCY,
+        help=f"Export CSV task concurrency for sync operations (default: {DEFAULT_SYNC_TASK_EXPORT_CSV_CONCURRENCY})",
+    )
+    parser.add_argument(
+        "--sync-task-cleanup-concurrency",
+        type=int,
+        default=DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY,
+        help=f"Cleanup task concurrency for sync operations (default: {DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY})",
+    )
+    parser.add_argument(
         "--sync-batch-size",
         type=int,
         default=DEFAULT_SYNC_BATCH_SIZE,
@@ -321,13 +380,7 @@ Examples:
         )
 
         # Build sync configuration from CLI arguments
-        sync_config = {
-            "task_download_concurrency": args.sync_task_download_concurrency,
-            "task_upload_concurrency": args.sync_task_upload_concurrency,
-            "batch_size": args.sync_batch_size,
-            "staging_dir": args.sync_staging_dir,
-            "disk_space_threshold": args.sync_disk_space_threshold,
-        }
+        sync_config = build_sync_config_from_args(args)
 
         # Create enhanced config dict with storage and runtime info
         config_dict = config.to_dict()
@@ -429,13 +482,7 @@ Examples:
             )
 
             # Build sync configuration from CLI arguments
-            sync_config = {
-                "task_download_concurrency": args.sync_task_download_concurrency,
-                "task_upload_concurrency": args.sync_task_upload_concurrency,
-                "batch_size": args.sync_batch_size,
-                "staging_dir": args.sync_staging_dir,
-                "disk_space_threshold": args.sync_disk_space_threshold,
-            }
+            sync_config = build_sync_config_from_args(args)
 
             # Write run configuration to run directory
             config_dict = config.to_dict()

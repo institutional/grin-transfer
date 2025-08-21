@@ -35,7 +35,6 @@ from grin_to_s3.sync.tasks import (
     cleanup,
     decrypt,
     download,
-    export_csv,
     extract_marc,
     extract_ocr,
     request_conversion,
@@ -47,11 +46,10 @@ from grin_to_s3.sync.tasks.task_types import TaskType
 from .barcode_filtering import create_filtering_summary, filter_barcodes_pipeline
 from .conversion_handler import ConversionRequestHandler
 from .preflight import run_preflight_operations
-from .progress_reporter import SyncProgressReporter
+from .teardown import run_teardown_operations
 from .utils import reset_bucket_cache
 
 logger = logging.getLogger(__name__)
-
 
 
 async def get_books_from_queue(grin_client, library_directory: str, queue_name: str, db_tracker) -> set[str]:
@@ -265,7 +263,6 @@ class SyncPipeline:
             TaskType.UNPACK: config.sync_task_unpack_concurrency,
             TaskType.EXTRACT_MARC: config.sync_task_extract_marc_concurrency,
             TaskType.EXTRACT_OCR: config.sync_task_extract_ocr_concurrency,
-            TaskType.EXPORT_CSV: config.sync_task_export_csv_concurrency,
             TaskType.CLEANUP: config.sync_task_cleanup_concurrency,
         }
 
@@ -278,7 +275,6 @@ class SyncPipeline:
                 "task_unpack_concurrency": TaskType.UNPACK,
                 "task_extract_marc_concurrency": TaskType.EXTRACT_MARC,
                 "task_extract_ocr_concurrency": TaskType.EXTRACT_OCR,
-                "task_export_csv_concurrency": TaskType.EXPORT_CSV,
                 "task_cleanup_concurrency": TaskType.CLEANUP,
             }
 
@@ -342,9 +338,6 @@ class SyncPipeline:
             specific_barcodes: Optional list of specific barcodes to sync
             queues: List of queue types to process (converted, previous, changed, all)
         """
-        # Initialize progress reporter variables
-        progress_reporter = None
-        progress_reporter_task = None
 
         # Store current queues for use in conversion request handling
         self.current_queues = queues or []
@@ -387,12 +380,12 @@ class SyncPipeline:
 
         # Run preflight operations (including database backup)
         preflight_results = await run_preflight_operations(self)
-        for operation, result in preflight_results.items():
-            if result.action.value == "failed":
-                logger.error(f"Preflight operation {operation} failed: {result.error}")
-            elif result.action.value == "completed":
+        for operation, preflight_result in preflight_results.items():
+            if preflight_result.action.value == "failed":
+                logger.error(f"Preflight operation {operation} failed: {preflight_result.error}")
+            elif preflight_result.action.value == "completed":
                 logger.info(f"Preflight operation {operation} completed successfully")
-            elif result.action.value == "skipped":
+            elif preflight_result.action.value == "skipped":
                 logger.info(f"Preflight operation {operation} skipped")
 
         try:
@@ -462,7 +455,6 @@ class SyncPipeline:
                 TaskType.UNPACK: unpack.main,
                 TaskType.EXTRACT_MARC: extract_marc.main,
                 TaskType.EXTRACT_OCR: extract_ocr.main,
-                TaskType.EXPORT_CSV: export_csv.main,
                 TaskType.CLEANUP: cleanup.main,
             }
 
@@ -477,24 +469,13 @@ class SyncPipeline:
             if not filtering_result.books_after_limit:
                 return  # No books to process is considered successful
 
-            # Create progress reporter with task manager integration
+            # Create task manager and rate calculator
             task_manager = TaskManager(limits)
             rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
-            progress_reporter = SyncProgressReporter(
-                task_manager,
-                books_to_process_count,
-                self.task_concurrency_limits[TaskType.DOWNLOAD],
-                self.task_concurrency_limits[TaskType.UPLOAD],
-            )
-
             print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')}...")
-
-            print("Progress updates will be shown every 10 minutes (more frequent initially)")
+            print(f"Progress will be shown after each batch of {self.batch_size} books completes")
             print("---")
-
-            # Start background progress reporter
-            progress_reporter_task = asyncio.create_task(progress_reporter.run(time.time(), rate_calculator))
 
             # Process the filtered books using the task manager
             book_results = await process_books_batch(
@@ -502,6 +483,7 @@ class SyncPipeline:
                 self,
                 task_funcs,
                 task_manager,
+                rate_calculator,
             )
 
             # Update process summary with detailed metrics from book results
@@ -514,24 +496,8 @@ class SyncPipeline:
             print(f"Pipeline failed: {e}")
             logger.error(f"Pipeline failed: {e}", exc_info=True)
         finally:
-            # Ensure progress reporter is shut down gracefully
-            if (
-                progress_reporter is not None
-                and progress_reporter_task is not None
-                and not progress_reporter_task.done()
-            ):
-                # Request graceful shutdown first
-                progress_reporter.request_shutdown()
-                try:
-                    # Wait for graceful shutdown with timeout
-                    await asyncio.wait_for(progress_reporter_task, timeout=2.0)
-                except TimeoutError:
-                    # Force cancellation if graceful shutdown takes too long
-                    progress_reporter_task.cancel()
-                    try:
-                        await asyncio.wait_for(progress_reporter_task, timeout=1.0)
-                    except (TimeoutError, asyncio.CancelledError):
-                        pass
+            print("Starting teardown and final cleanup...")
+            await run_teardown_operations(self)
 
     def _should_exit_for_failure_limit(self) -> bool:
         """Check if pipeline should exit due to sequential failure limit."""
@@ -635,7 +601,6 @@ class SyncPipeline:
             else:
                 failed += 1
 
-
         # Store book outcomes
         self.process_summary_stage.book_outcomes = {
             "synced": synced,
@@ -656,7 +621,6 @@ class SyncPipeline:
         if self.conversion_handler and self.conversion_requests_made > 0:
             self.process_summary_stage.queue_info["conversion_requests"] = self.conversion_requests_made
             self.process_summary_stage.queue_info["conversion_limit"] = self.conversion_request_limit
-
 
     def _determine_book_outcome(self, task_results: dict) -> str:
         """Determine the overall outcome for a single book based on its task results."""
@@ -682,4 +646,3 @@ class SyncPipeline:
 
         # If we got here, something failed
         return "failed"
-

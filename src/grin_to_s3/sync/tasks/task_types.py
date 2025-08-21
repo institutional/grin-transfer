@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Generic, Literal, Protocol, TypedDict, Ty
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
 
+
 class TaskType(Enum):
     """Types of tasks in the sync pipeline."""
 
@@ -161,14 +162,14 @@ class FinalDatabaseUploadData(TypedDict):
 class StagingCleanupData(TypedDict):
     """Data from STAGING_CLEANUP task."""
 
-    staging_path: str
+    staging_path: Path
     cleanup_time: float
 
 
 # Generic type for task result data
 TData = TypeVar("TData")
 
-SKIP_REASONS = Literal[
+REASONS = Literal[
     "completed_match_with_force",
     "fail_archive_missing",
     "fail_no_marc_metadata",
@@ -178,8 +179,12 @@ SKIP_REASONS = Literal[
     "skip_archive_missing_from_grin",
     "skip_conversion_limit_reached",
     "skip_conversion_requested",
+    "skip_csv_export",
     "skip_database_backup_flag",
+    "skip_dry_run",
     "skip_etag_match",
+    "skip_not_applicable",
+    "skip_staging_cleanup",
     "skip_verified_unavailable",
 ]
 
@@ -192,7 +197,7 @@ class Result(Generic[TData]):
     action: TaskAction
     error: str | None = None
     data: TData | None = None
-    reason: SKIP_REASONS | None = None  # For skipped operations
+    reason: REASONS | None = None
 
     @property
     def success(self) -> bool:
@@ -209,7 +214,7 @@ class TaskResult(Generic[TData]):
     action: TaskAction
     error: str | None = None
     data: TData | None = None
-    reason: SKIP_REASONS | None = None  # For skipped tasks
+    reason: REASONS | None = None
 
     @property
     def success(self) -> bool:
@@ -245,7 +250,7 @@ class TaskResult(Generic[TData]):
             case TaskType.DECRYPT:
                 return [TaskType.UPLOAD, TaskType.UNPACK]
             case TaskType.UNPACK:
-                return [TaskType.EXTRACT_MARC, TaskType.EXTRACT_OCR, TaskType.EXPORT_CSV]
+                return [TaskType.EXTRACT_MARC, TaskType.EXTRACT_OCR]
             case TaskType.UPLOAD:
                 return []  # CLEANUP is handled specially after all tasks complete
             case TaskType.REQUEST_CONVERSION:
@@ -273,6 +278,7 @@ DatabaseUploadResult = Result[DatabaseUploadData]
 # Teardown operation results (no barcode)
 FinalDatabaseUploadResult = Result[FinalDatabaseUploadData]
 StagingCleanupResult = Result[StagingCleanupData]
+CsvExportTeardownResult = Result[ExportCsvData]
 
 
 # Task function protocols for type safety
