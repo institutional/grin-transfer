@@ -589,6 +589,7 @@ class BookCollector:
         try:
             # Load progress and initialize session tracking
             await self.load_progress()
+            self.pagination_state = self.progress_tracker.pagination_state
 
             # Initialize session timing
             self.progress_tracker.start_session()
