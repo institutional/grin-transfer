@@ -7,7 +7,6 @@ Contains the BookCollector class responsible for coordinating the entire book co
 
 import asyncio
 import csv
-import errno
 import hashlib
 import json
 import logging
@@ -82,9 +81,6 @@ class BookCollector:
         self.recent_processed = BoundedSet(max_size=self.config.recent_cache_size)
         self.recent_failed = BoundedSet(max_size=self.config.recent_failed_cache_size)
 
-        # File locking for concurrent session prevention
-        self._lock_file: Path | None = None
-        self._lock_fd: int | None = None
 
         # Job metadata
         self.job_metadata = self._create_job_metadata(rate_limit, storage_config)
@@ -182,128 +178,6 @@ class BookCollector:
             "estimated_completion_hours": round(eta_hours, 1) if eta_hours else None,
         }
 
-    def _acquire_session_lock(self, output_file: str) -> bool:
-        """Acquire exclusive lock to prevent concurrent sessions.
-
-        Creates lock files for both the output CSV and progress file to prevent
-        multiple sessions from corrupting each other's work.
-
-        Returns True if lock acquired successfully, False if another session is running.
-        """
-        try:
-            # Create lock file paths
-            output_path = Path(output_file)
-            progress_lock_file = self.resume_file.with_suffix(".lock")
-            output_path.with_suffix(".lock")
-
-            # Ensure the progress directory exists for lock files
-            progress_lock_file.parent.mkdir(parents=True, exist_ok=True)
-
-            # Try to acquire progress file lock first
-            try:
-                self._lock_fd = os.open(str(progress_lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                self._lock_file = progress_lock_file
-            except OSError as e:
-                if e.errno == errno.EEXIST:
-                    # Check if the process is still running
-                    if self._is_lock_stale(progress_lock_file):
-                        logger.info(f"Removing stale lock file: {progress_lock_file}")
-                        progress_lock_file.unlink(missing_ok=True)
-                        # Retry lock acquisition
-                        self._lock_fd = os.open(str(progress_lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                        self._lock_file = progress_lock_file
-                    else:
-                        return False
-                else:
-                    raise
-
-            # Write lock file content with session info
-            lock_info = {
-                "pid": os.getpid(),
-                "hostname": socket.gethostname(),
-                "started_at": datetime.now(UTC).isoformat(),
-                "user": os.getenv("USER") or os.getenv("USERNAME") or "unknown",
-                "output_file": str(output_path.absolute()),
-                "progress_file": str(self.resume_file.absolute()),
-            }
-
-            os.write(self._lock_fd, json.dumps(lock_info, indent=2).encode())
-            os.fsync(self._lock_fd)
-
-            logger.info(f"Session lock acquired: {progress_lock_file.name}")
-            return True
-
-        except Exception as e:
-            logger.warning(f"Failed to acquire session lock: {e}")
-            return False
-
-    def _is_lock_stale(self, lock_file: Path) -> bool:
-        """Check if a lock file is stale (process no longer running)."""
-        try:
-            with open(lock_file) as f:
-                lock_info = json.load(f)
-
-            pid = lock_info.get("pid")
-            if not pid:
-                return True
-
-            # Check if process is still running
-            try:
-                os.kill(pid, 0)  # Signal 0 checks if process exists
-                return False  # Process still running
-            except OSError:
-                return True  # Process not found
-
-        except (json.JSONDecodeError, FileNotFoundError, KeyError):
-            return True  # Invalid lock file
-
-    def _release_session_lock(self):
-        """Release the session lock."""
-        if self._lock_fd is not None:
-            try:
-                os.close(self._lock_fd)
-                self._lock_fd = None
-            except OSError:
-                pass
-
-        if self._lock_file and self._lock_file.exists():
-            try:
-                self._lock_file.unlink()
-                logger.info(f"Session lock released: {self._lock_file.name}")
-            except OSError:
-                pass
-            self._lock_file = None
-
-    def _check_concurrent_session(self, output_file: str) -> bool:
-        """Check if another session is already running with same files.
-
-        Returns True if it's safe to proceed, False if another session detected.
-        """
-        Path(output_file)
-        progress_lock_file = self.resume_file.with_suffix(".lock")
-
-        # Check progress file lock
-        if progress_lock_file.exists():
-            if not self._is_lock_stale(progress_lock_file):
-                try:
-                    with open(progress_lock_file) as f:
-                        lock_info = json.load(f)
-
-                    logger.error("Another CSV export session is already running:")
-                    logger.error(f"  PID: {lock_info.get('pid', 'unknown')}")
-                    logger.error(f"  User: {lock_info.get('user', 'unknown')}")
-                    logger.error(f"  Host: {lock_info.get('hostname', 'unknown')}")
-                    logger.error(f"  Started: {lock_info.get('started_at', 'unknown')}")
-                    logger.error(f"  Progress file: {lock_info.get('progress_file', 'unknown')}")
-                    logger.error(f"  Output file: {lock_info.get('output_file', 'unknown')}")
-                    logger.error("Wait for the other session to complete or stop it before starting a new one.")
-                    return False
-
-                except (json.JSONDecodeError, FileNotFoundError):
-                    # Invalid lock file, remove it
-                    progress_lock_file.unlink(missing_ok=True)
-
-        return True
 
     # Progress file archiving moved to progress.py
 
@@ -559,16 +433,6 @@ class BookCollector:
             print_oauth_setup_instructions()
             return False
 
-        # Check for concurrent sessions before starting
-        print("Checking for concurrent sessions...")
-        if not self._check_concurrent_session(output_file):
-            return False
-
-        # Acquire session lock to prevent concurrent access
-        print("Acquiring session lock...")
-        if not self._acquire_session_lock(output_file):
-            print("❌ Failed to acquire session lock. Another session may be running.")
-            return False
 
         # Archive existing progress file before starting execution
         logger.debug("Backing up progress file...")
@@ -723,8 +587,6 @@ class BookCollector:
             # Remove signal handler
             loop.remove_signal_handler(signal.SIGINT)
 
-            # Release session lock
-            self._release_session_lock()
 
             # Finish progress tracking
             self.progress.finish()

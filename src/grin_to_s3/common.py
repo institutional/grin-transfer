@@ -5,6 +5,7 @@ Shared functions and patterns to eliminate code duplication across V2 modules.
 """
 
 import asyncio
+import fcntl
 import gzip
 import logging
 import os
@@ -16,6 +17,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TextIO
 
 import aiofiles
 import aiohttp
@@ -43,6 +45,51 @@ DEFAULT_MAX_SEQUENTIAL_FAILURES = 10
 DEFAULT_RETRY_WAIT_SECONDS = 2
 
 DEFAULT_COMPRESSION_LEVEL = 1  # Fastest
+
+
+class SessionLock:
+    """File-based session lock using native fcntl locking.
+
+    Prevents concurrent access to shared resources within the same run.
+    Lock is automatically released when the process exits.
+    """
+
+    def __init__(self, lock_file_path: Path):
+        self.lock_file_path = lock_file_path
+        self.lock_file: TextIO | None = None
+
+    def acquire(self) -> bool:
+        """Try to acquire exclusive lock.
+
+        Returns:
+            bool: True if lock acquired, False if already locked by another process
+        """
+        self.lock_file_path.parent.mkdir(parents=True, exist_ok=True)
+        self.lock_file = open(self.lock_file_path, "w")
+        try:
+            fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except BlockingIOError:
+            self.lock_file.close()
+            self.lock_file = None
+            return False
+
+    def release(self) -> None:
+        """Release the lock."""
+        if self.lock_file:
+            fcntl.flock(self.lock_file.fileno(), fcntl.LOCK_UN)
+            self.lock_file.close()
+            self.lock_file = None
+
+    def __enter__(self):
+        """Context manager entry."""
+        if not self.acquire():
+            raise RuntimeError("Could not acquire session lock")
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.release()
 
 
 @asynccontextmanager
