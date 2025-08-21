@@ -21,9 +21,9 @@ from grin_to_s3.common import (
     BarcodeSet,
     RateLimiter,
     format_duration,
+    parse_barcode_arguments,
     pluralize,
     print_oauth_setup_instructions,
-    validate_and_parse_barcodes,
 )
 from grin_to_s3.database.database_utils import batch_write_status_updates, validate_database_file
 from grin_to_s3.logging_config import setup_logging
@@ -1046,16 +1046,21 @@ async def cmd_request(args) -> None:
         process_stage.set_command_arg("limit", args.limit)
     if args.barcodes:
         process_stage.set_command_arg("barcodes", args.barcodes)
+    if hasattr(args, "barcodes_file") and args.barcodes_file:
+        process_stage.set_command_arg("barcodes_file", args.barcodes_file)
 
     # Parse and validate barcodes if provided
-    parsed_barcodes = None
-    if args.barcodes:
-        try:
-            parsed_barcodes = validate_and_parse_barcodes(args.barcodes)
-            print(f"Parsed {len(parsed_barcodes)} barcodes for processing")
-        except ValueError as e:
-            print(f"❌ Invalid barcodes format: {e}")
-            sys.exit(1)
+    try:
+        barcodes_str = getattr(args, "barcodes", None)
+        barcodes_file = getattr(args, "barcodes_file", None)
+        parsed_barcodes = parse_barcode_arguments(barcodes_str, barcodes_file)
+
+        if parsed_barcodes:
+            source_desc = "command line" if barcodes_str else f"file '{barcodes_file}'"
+            print(f"Parsed {len(parsed_barcodes)} barcodes for processing from {source_desc}")
+    except (ValueError, FileNotFoundError) as e:
+        print(f"❌ {e}")
+        sys.exit(1)
 
     # Create and run pipeline
     try:
@@ -1433,6 +1438,9 @@ Examples:
     request_parser.add_argument("--limit", type=int, help="Limit number of processing requests to make")
     request_parser.add_argument(
         "--barcodes", help="Comma-separated list of specific barcodes to process (e.g., '12345,67890,abcde')"
+    )
+    request_parser.add_argument(
+        "--barcodes-file", help="Path to a text file containing barcodes to process (one per line, supports comments with #)"
     )
     request_parser.add_argument(
         "--status-only", action="store_true", help="Only check current status, don't make requests"
