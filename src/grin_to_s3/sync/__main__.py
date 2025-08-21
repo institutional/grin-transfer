@@ -593,10 +593,9 @@ Examples:
     if args.command == "pipeline":
         has_queue = hasattr(args, "queue") and args.queue
         has_barcodes = hasattr(args, "barcodes") and args.barcodes
-        has_barcodes_file = hasattr(args, "barcodes_file") and args.barcodes_file
+        has_barcodes_file = hasattr(args, "barcodes_file") and getattr(args, "barcodes_file", None)
 
-        barcode_options = [has_barcodes, has_barcodes_file]
-        barcode_count = sum(barcode_options)
+        barcode_count = int(bool(has_barcodes)) + int(bool(has_barcodes_file))
 
         # Check mutual exclusivity between queue and barcode options
         if has_queue and barcode_count > 0:
