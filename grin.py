@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 # Import all subcommand modules at startup to catch import errors early
 from grin_to_s3.auth import main as auth_main
 from grin_to_s3.collect_books.__main__ import main as collect_main
+from grin_to_s3.common import SessionLock
 from grin_to_s3.export import main as export_main
 from grin_to_s3.extract import main as extract_main
 from grin_to_s3.metadata.grin_enrichment import enrich_main
@@ -107,9 +108,22 @@ For more help on each command, use: python grin.py <command> --help
     }
 
 
+def get_run_name_from_args() -> str | None:
+    """Extract run name from command line arguments."""
+    for i, arg in enumerate(sys.argv):
+        if arg == "--run-name" and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+    return None
+
+
+def needs_database_lock(command: str) -> bool:
+    """Determine if a command needs database locking."""
+    return command in ["collect", "process", "sync", "enrich"]
+
+
 async def main():
     """Main entry point for the grin CLI."""
-    parser, subparsers = create_parser()
+    parser, _ = create_parser()
 
     # Parse args to get the command
     if len(sys.argv) < 2:
@@ -118,61 +132,79 @@ async def main():
 
     command = sys.argv[1]
 
-    # Route to appropriate module based on command
-    if command == "auth":
-        # Remove 'auth' from args and pass the rest
-        sys.argv = [sys.argv[0]] + sys.argv[2:]
-        auth_main()
-        return 0
+    # Apply session lock for database-modifying commands
+    session_lock = None
+    if needs_database_lock(command):
+        run_name = get_run_name_from_args()
+        if run_name:
+            lock_path = Path(f"output/{run_name}/session.lock")
+            session_lock = SessionLock(lock_path)
+            if not session_lock.acquire():
+                print(f"Another session is already running for run-name '{run_name}'")
+                print("Wait for the other session to complete or stop it before starting a new one.")
+                return 1
 
-    elif command == "collect":
-        # Remove 'collect' from args and pass the rest
-        sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await collect_main()
+    try:
+        # Route to appropriate module based on command
+        if command == "auth":
+            # Remove 'auth' from args and pass the rest
+            sys.argv = [sys.argv[0]] + sys.argv[2:]
+            auth_main()
+            return 0
 
-    elif command == "process":
-        # Remove 'process' from args and pass the rest
-        sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await process_main()
+        elif command == "collect":
+            # Remove 'collect' from args and pass the rest
+            sys.argv = [sys.argv[0]] + sys.argv[2:]
+            return await collect_main()
 
-    elif command == "sync":
-        # Remove 'sync' from args and pass the rest
-        sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await sync_main()
+        elif command == "process":
+            # Remove 'process' from args and pass the rest
+            sys.argv = [sys.argv[0]] + sys.argv[2:]
+            return await process_main()
 
-    elif command == "storage":
-        # Remove 'storage' from args and pass the rest
-        sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await storage_main()
+        elif command == "sync":
+            # Remove 'sync' from args and pass the rest
+            sys.argv = [sys.argv[0]] + sys.argv[2:]
+            return await sync_main()
 
-    elif command == "extract":
-        # Remove 'extract' from args and pass the rest
-        sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await extract_main()
+        elif command == "storage":
+            # Remove 'storage' from args and pass the rest
+            sys.argv = [sys.argv[0]] + sys.argv[2:]
+            return await storage_main()
 
-    elif command == "enrich":
-        # Remove 'enrich' from args and pass the rest
-        sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await enrich_main()
+        elif command == "extract":
+            # Remove 'extract' from args and pass the rest
+            sys.argv = [sys.argv[0]] + sys.argv[2:]
+            return await extract_main()
 
-    elif command == "export":
-        # Remove 'export' from args and pass the rest
-        sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await export_main()
+        elif command == "enrich":
+            # Remove 'enrich' from args and pass the rest
+            sys.argv = [sys.argv[0]] + sys.argv[2:]
+            return await enrich_main()
 
-    elif command == "reports":
-        # Remove 'reports' from args and pass the rest
-        sys.argv = [sys.argv[0]] + sys.argv[2:]
-        return await reports_main()
+        elif command == "export":
+            # Remove 'export' from args and pass the rest
+            sys.argv = [sys.argv[0]] + sys.argv[2:]
+            return await export_main()
 
-    elif command in ["-h", "--help"]:
-        parser.print_help()
-        return 0
+        elif command == "reports":
+            # Remove 'reports' from args and pass the rest
+            sys.argv = [sys.argv[0]] + sys.argv[2:]
+            return await reports_main()
 
-    else:
-        print(f"Unknown command: {command}")
-        parser.print_help()
-        return 1
+        elif command in ["-h", "--help"]:
+            parser.print_help()
+            return 0
+
+        else:
+            print(f"Unknown command: {command}")
+            parser.print_help()
+            return 1
+
+    finally:
+        # Release session lock if acquired
+        if session_lock:
+            session_lock.release()
 
 
 if __name__ == "__main__":
