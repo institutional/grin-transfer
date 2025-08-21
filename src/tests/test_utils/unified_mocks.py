@@ -70,15 +70,12 @@ def create_storage_mock(
     # Configure async methods
     if should_fail:
         mock_storage.write_file = AsyncMock(side_effect=Exception("Storage write failed"))
-        mock_storage.write_bytes = AsyncMock(side_effect=Exception("Storage write failed"))
         mock_storage.write_text = AsyncMock(side_effect=Exception("Storage write failed"))
         mock_storage.save_decrypted_archive_from_file = AsyncMock(side_effect=Exception("Storage upload failed"))
         mock_storage.save_ocr_text_jsonl_from_file = AsyncMock(side_effect=Exception("OCR upload failed"))
     else:
         mock_storage.write_file = AsyncMock(return_value=None)
-        mock_storage.write_bytes = AsyncMock(return_value=None)
         mock_storage.write_text = AsyncMock(return_value=None)
-        mock_storage.write_bytes_with_metadata = AsyncMock(return_value=config.get("metadata_path", "test-path"))
         mock_storage.save_decrypted_archive_from_file = AsyncMock(
             return_value=config.get("archive_path", "test-raw/TEST123/TEST123.tar.gz")
         )

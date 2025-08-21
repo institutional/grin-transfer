@@ -145,51 +145,6 @@ class Storage:
         except FileNotFoundError:
             raise StorageNotFoundError(f"Object not found: {path}") from None
 
-    async def write_bytes(self, path: str, data: bytes) -> None:
-        """Write bytes to file."""
-        if self.config.protocol == "s3":
-            # Use aioboto3 for non-blocking S3 uploads
-            try:
-                import aioboto3
-
-                normalized_path = self._normalize_path(path)
-
-                # Use the credentials from the storage config
-                session_kwargs = {
-                    "aws_access_key_id": self.config.options.get("key"),
-                    "aws_secret_access_key": self.config.options.get("secret"),
-                }
-
-                # Add endpoint URL if present
-                if self.config.endpoint_url:
-                    session_kwargs["endpoint_url"] = self.config.endpoint_url
-
-                session = aioboto3.Session()
-                s3_client: S3Client
-                async with session.client("s3", **session_kwargs) as s3_client:
-                    # Parse bucket and key from path
-                    path_parts = normalized_path.split("/", 1)
-                    if len(path_parts) == 2:
-                        bucket, key = path_parts
-
-                        # Use single-part upload for bytes data
-                        await s3_client.put_object(Bucket=bucket, Key=key, Body=data)
-                        return
-            except Exception as e:
-                print(f"Failed to write with aioboto3, falling back to sync: {e}")
-                # Fall through to sync method
-
-        # Use sync method for local filesystem or as fallback
-        loop = asyncio.get_event_loop()
-        fs = self._get_fs()
-        normalized_path = self._normalize_path(path)
-
-        # Ensure parent directories exist for local filesystem
-        if self.config.protocol == "file":
-            parent = Path(normalized_path).parent
-            parent.mkdir(parents=True, exist_ok=True)
-
-        await loop.run_in_executor(None, fs.pipe, normalized_path, data)
 
     async def write_file(self, path: str, file_path: str, metadata: dict[str, str] | None = None) -> None:
         """Stream file from filesystem to bucket."""
@@ -269,9 +224,58 @@ class Storage:
             raise e
 
     async def write_text(self, path: str, text: str, encoding: str = "utf-8") -> None:
-        """Write text to file."""
+        """
+        Utility method for writing small text files to storage.
+
+        WARNING: Do not use for large files - use write_file() instead.
+        This method loads the entire text into memory and should only be used
+        for small configuration files, metadata, or similar bounded content.
+        """
         data = text.encode(encoding)
-        await self.write_bytes(path, data)
+
+        if self.config.protocol == "s3":
+            # Use aioboto3 for non-blocking S3 uploads
+            try:
+                import aioboto3
+
+                normalized_path = self._normalize_path(path)
+
+                # Use the credentials from the storage config
+                session_kwargs = {
+                    "aws_access_key_id": self.config.options.get("key"),
+                    "aws_secret_access_key": self.config.options.get("secret"),
+                }
+
+                # Add endpoint URL if present
+                if self.config.endpoint_url:
+                    session_kwargs["endpoint_url"] = self.config.endpoint_url
+
+                session = aioboto3.Session()
+                s3_client: S3Client
+                async with session.client("s3", **session_kwargs) as s3_client:
+                    # Parse bucket and key from path
+                    path_parts = normalized_path.split("/", 1)
+                    if len(path_parts) == 2:
+                        bucket, key = path_parts
+
+                        # Use single-part upload for bytes data
+                        await s3_client.put_object(Bucket=bucket, Key=key, Body=data)
+                        return
+            except Exception as e:
+                print(f"Failed to write with aioboto3, falling back to sync: {e}")
+                # Fall through to sync method
+
+        # Use sync method for local filesystem or as fallback
+        loop = asyncio.get_event_loop()
+        fs = self._get_fs()
+        normalized_path = self._normalize_path(path)
+
+        # Ensure parent directories exist for local filesystem
+        if self.config.protocol == "file":
+            parent = Path(normalized_path).parent
+            parent.mkdir(parents=True, exist_ok=True)
+
+        await loop.run_in_executor(None, fs.pipe, normalized_path, data)
 
     async def stream_download(self, path: str, chunk_size: int = 8192) -> AsyncGenerator[bytes, None]:
         """Stream download file in chunks."""
