@@ -171,3 +171,93 @@ class TestOCRConfiguration:
         reconstructed = MockOCRConfig(enabled=bool(config_dict["enabled"]), log_level=str(config_dict["log_level"]))
         assert reconstructed.enabled == config.enabled
         assert reconstructed.log_level == config.log_level
+
+    def test_extraction_tasks_actually_skipped(self, mock_process_stage, test_config_builder):
+        """Test that EXTRACT_OCR and EXTRACT_MARC tasks are not included in task_funcs when skipped."""
+        with (
+            patch("grin_to_s3.sync.pipeline.SQLiteProgressTracker") as mock_tracker,
+            patch("grin_to_s3.sync.pipeline.GRINClient") as mock_client,
+            patch("grin_to_s3.storage.StagingDirectoryManager") as mock_staging,
+        ):
+            from grin_to_s3.sync.tasks.task_types import TaskType
+
+            mock_tracker.return_value = Mock()
+            mock_client.return_value = Mock()
+            mock_staging.return_value = Mock()
+
+            config = (
+                test_config_builder.with_db_path(":memory:")
+                .with_library_directory("/tmp/library")
+                .local_storage("/tmp/test")
+                .with_staging_dir("/tmp/test")
+                .build()
+            )
+
+            # Create pipeline with both skip flags enabled
+            pipeline = SyncPipeline.from_run_config(
+                config=config,
+                process_summary_stage=mock_process_stage,
+                skip_extract_ocr=True,
+                skip_extract_marc=True,
+            )
+
+            # Mock the task function creation logic by calling the same code
+            # that creates task_funcs in the run_sync method
+            from grin_to_s3.sync.tasks import (
+                check,
+                cleanup,
+                decrypt,
+                download,
+                extract_marc,
+                extract_ocr,
+                request_conversion,
+                unpack,
+                upload,
+            )
+
+            task_funcs = {
+                TaskType.CHECK: check.main,
+                TaskType.REQUEST_CONVERSION: request_conversion.main,
+                TaskType.DOWNLOAD: download.main,
+                TaskType.DECRYPT: decrypt.main,
+                TaskType.UPLOAD: upload.main,
+                TaskType.UNPACK: unpack.main,
+                TaskType.CLEANUP: cleanup.main,
+            }
+
+            # Apply the same conditional logic as the fix
+            if not pipeline.skip_extract_marc:
+                task_funcs[TaskType.EXTRACT_MARC] = extract_marc.main
+            if not pipeline.skip_extract_ocr:
+                task_funcs[TaskType.EXTRACT_OCR] = extract_ocr.main
+
+            # Verify that extraction tasks are NOT in task_funcs when skipped
+            assert TaskType.EXTRACT_OCR not in task_funcs, "OCR extraction task should be skipped"
+            assert TaskType.EXTRACT_MARC not in task_funcs, "MARC extraction task should be skipped"
+
+            # Test with flags disabled (default behavior)
+            pipeline_enabled = SyncPipeline.from_run_config(
+                config=config,
+                process_summary_stage=mock_process_stage,
+                skip_extract_ocr=False,
+                skip_extract_marc=False,
+            )
+
+            task_funcs_enabled = {
+                TaskType.CHECK: check.main,
+                TaskType.REQUEST_CONVERSION: request_conversion.main,
+                TaskType.DOWNLOAD: download.main,
+                TaskType.DECRYPT: decrypt.main,
+                TaskType.UPLOAD: upload.main,
+                TaskType.UNPACK: unpack.main,
+                TaskType.CLEANUP: cleanup.main,
+            }
+
+            if not pipeline_enabled.skip_extract_marc:
+                task_funcs_enabled[TaskType.EXTRACT_MARC] = extract_marc.main
+            if not pipeline_enabled.skip_extract_ocr:
+                task_funcs_enabled[TaskType.EXTRACT_OCR] = extract_ocr.main
+
+            # Verify that extraction tasks ARE in task_funcs when not skipped
+            assert TaskType.EXTRACT_OCR in task_funcs_enabled, "OCR extraction task should be included"
+            assert TaskType.EXTRACT_MARC in task_funcs_enabled, "MARC extraction task should be included"

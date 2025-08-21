@@ -453,10 +453,14 @@ class SyncPipeline:
                 TaskType.DECRYPT: decrypt.main,
                 TaskType.UPLOAD: upload.main,
                 TaskType.UNPACK: unpack.main,
-                TaskType.EXTRACT_MARC: extract_marc.main,
-                TaskType.EXTRACT_OCR: extract_ocr.main,
                 TaskType.CLEANUP: cleanup.main,
             }
+
+            # Conditionally add extraction tasks based on skip flags
+            if not self.skip_extract_marc:
+                task_funcs[TaskType.EXTRACT_MARC] = extract_marc.main
+            if not self.skip_extract_ocr:
+                task_funcs[TaskType.EXTRACT_OCR] = extract_ocr.main
 
             limits = self.task_concurrency_limits
 
