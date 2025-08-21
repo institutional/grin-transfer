@@ -135,7 +135,7 @@ class ProcessingClient:
             # Parse results for all barcodes
             results = {}
             result_lines = lines[1:]
-            failed_requests = []
+            has_failures = False
 
             if len(result_lines) != len(barcodes):
                 logger.warning(f"Expected {len(barcodes)} result lines, got {len(result_lines)}")
@@ -157,10 +157,10 @@ class ProcessingClient:
                     logger.debug(f"Successfully requested processing for {returned_barcode}")
                 else:
                     logger.warning(f"Processing request failed for {returned_barcode}: {status}")
-                    failed_requests.append((returned_barcode, status))
+                    has_failures = True
 
             # If there were failures, log the full GRIN response at WARNING level for debugging
-            if failed_requests:
+            if has_failures:
                 logger.warning(f"Processing request failures detected. Full GRIN response:\n{response_text}")
 
             return results
