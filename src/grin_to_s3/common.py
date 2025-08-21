@@ -148,6 +148,26 @@ def calculate_transfer_speed(bytes_transferred: int, duration_seconds: float) ->
     return f"{format_bytes(int(bytes_per_second))}/s"
 
 
+def _validate_barcode(barcode: str) -> None:
+    """Validate a single barcode.
+
+    Args:
+        barcode: Barcode to validate
+
+    Raises:
+        ValueError: If the barcode is invalid
+    """
+    if not barcode:
+        raise ValueError("Empty barcode found")
+    if len(barcode) < 3 or len(barcode) > 50:
+        raise ValueError(f"Barcode '{barcode}' has invalid length (must be 3-50 characters)")
+    # Check for reasonable characters (alphanumeric, dash, underscore)
+    if not all(c.isalnum() or c in "-_" for c in barcode):
+        raise ValueError(
+            f"Barcode '{barcode}' contains invalid characters (only alphanumeric, dash, underscore allowed)"
+        )
+
+
 def validate_and_parse_barcodes(barcodes_str: str) -> list[str]:
     """Validate and parse comma-separated barcode string.
 
@@ -172,19 +192,91 @@ def validate_and_parse_barcodes(barcodes_str: str) -> list[str]:
     if not barcodes:
         raise ValueError("No valid barcodes found")
 
-    # Basic barcode validation - check for reasonable format
+    # Validate each barcode
     for barcode in barcodes:
-        if not barcode:
-            raise ValueError("Empty barcode found")
-        if len(barcode) < 3 or len(barcode) > 50:
-            raise ValueError(f"Barcode '{barcode}' has invalid length (must be 3-50 characters)")
-        # Check for reasonable characters (alphanumeric, dash, underscore)
-        if not all(c.isalnum() or c in "-_" for c in barcode):
-            raise ValueError(
-                f"Barcode '{barcode}' contains invalid characters (only alphanumeric, dash, underscore allowed)"
-            )
+        _validate_barcode(barcode)
 
     return barcodes
+
+
+def read_barcodes_from_file(file_path: str) -> list[str]:
+    """Read and validate barcodes from a text file.
+
+    Args:
+        file_path: Path to the text file containing barcodes
+
+    Returns:
+        List of validated barcodes
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist
+        ValueError: If any barcode is invalid or no valid barcodes are found
+    """
+    from pathlib import Path
+
+    path = Path(file_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Barcodes file not found: {file_path}")
+
+    if not path.is_file():
+        raise ValueError(f"Path is not a file: {file_path}")
+
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+    except OSError as e:
+        raise ValueError(f"Failed to read barcodes file '{file_path}': {e}") from e
+
+    barcodes = []
+    for line_num, line in enumerate(lines, 1):
+        # Strip whitespace and skip empty lines and comments
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        try:
+            _validate_barcode(line)
+            barcodes.append(line)
+        except ValueError as e:
+            raise ValueError(f"Invalid barcode on line {line_num}: {e}") from e
+
+    if not barcodes:
+        raise ValueError(f"No valid barcodes found in file: {file_path}")
+
+    return barcodes
+
+
+def parse_barcode_arguments(barcodes_str: str | None, barcodes_file: str | None) -> list[str] | None:
+    """Parse and validate barcodes from either string or file input.
+
+    Args:
+        barcodes_str: Comma-separated string of barcodes (or None)
+        barcodes_file: Path to file containing barcodes (or None)
+
+    Returns:
+        List of validated barcodes, or None if no input provided
+
+    Raises:
+        ValueError: If both inputs provided, or if any barcode is invalid
+        FileNotFoundError: If file doesn't exist
+    """
+    has_barcodes = barcodes_str is not None and barcodes_str.strip()
+    has_barcodes_file = barcodes_file is not None and barcodes_file.strip()
+
+    # Check mutual exclusivity
+    if has_barcodes and has_barcodes_file:
+        raise ValueError("Cannot specify both --barcodes and --barcodes-file. Use one or the other.")
+
+    # Return None if neither is provided
+    if not has_barcodes and not has_barcodes_file:
+        return None
+
+    if has_barcodes:
+        assert barcodes_str is not None  # Type checker hint - already checked above
+        return validate_and_parse_barcodes(barcodes_str)
+    else:
+        assert barcodes_file is not None  # Type checker hint - already checked above
+        return read_barcodes_from_file(barcodes_file)
 
 
 class ProgressReporter:

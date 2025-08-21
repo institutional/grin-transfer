@@ -19,7 +19,7 @@ from grin_to_s3.common import (
     DEFAULT_DOWNLOAD_RETRIES,
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_MAX_SEQUENTIAL_FAILURES,
-    validate_and_parse_barcodes,
+    parse_barcode_arguments,
 )
 from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
@@ -67,19 +67,24 @@ def _collect_task_concurrency_overrides(args) -> dict[str, int]:
 
 
 def _parse_and_validate_barcodes(args, sync_stage) -> list[str] | None:
-    """Parse and validate barcode arguments."""
-    if not (hasattr(args, "barcodes") and args.barcodes):
-        return None
-
+    """Parse and validate barcode arguments from either --barcodes or --barcodes-file."""
     try:
-        specific_barcodes = validate_and_parse_barcodes(args.barcodes)
-        print(f"Filtering to specific barcodes: {', '.join(specific_barcodes)}")
+        barcodes_str = getattr(args, "barcodes", None)
+        barcodes_file = getattr(args, "barcodes_file", None)
+
+        specific_barcodes = parse_barcode_arguments(barcodes_str, barcodes_file)
+
+        if specific_barcodes is None:
+            return None
+
+        source_desc = "command line" if barcodes_str else f"file '{barcodes_file}'"
+        print(f"Filtering to specific barcodes from {source_desc}: {', '.join(specific_barcodes)}")
         sync_stage.set_command_arg("specific_barcodes", len(specific_barcodes))
-        sync_stage.add_progress_update(f"Filtering to {len(specific_barcodes)} specific barcodes")
+        sync_stage.add_progress_update(f"Filtering to {len(specific_barcodes)} specific barcodes from {source_desc}")
         return specific_barcodes
-    except ValueError as e:
+    except (ValueError, FileNotFoundError) as e:
         sync_stage.add_error("BarcodeValidationError", str(e))
-        print(f"Error: Invalid barcodes: {e}")
+        print(f"Error: {e}")
         sys.exit(1)
 
 
@@ -370,6 +375,9 @@ Examples:
   # Sync specific books only (no --queue needed)
   python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
 
+  # Sync books from a file (no --queue needed)
+  python grin.py sync pipeline --run-name harvard_2024 --barcodes-file barcodes.txt
+
   # Sync a single book (no --queue needed)
   python grin.py sync pipeline --run-name harvard_2024 --barcodes "39015123456789"
 
@@ -397,6 +405,9 @@ Examples:
 
   # Sync specific books only (no --queue needed with --barcodes)
   python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
+
+  # Sync books from a text file (no --queue needed with --barcodes-file)
+  python grin.py sync pipeline --run-name harvard_2024 --barcodes-file my_books.txt
 
   # Retry failed syncs only
   python grin.py sync pipeline --run-name harvard_2024 --queue converted --status failed
@@ -438,6 +449,9 @@ Examples:
     pipeline_parser.add_argument("--limit", type=int, help="Limit number of books to sync")
     pipeline_parser.add_argument(
         "--barcodes", help="Comma-separated list of specific barcodes to sync (e.g., '12345,67890,abcde')"
+    )
+    pipeline_parser.add_argument(
+        "--barcodes-file", help="Path to a text file containing barcodes to sync (one per line, supports comments with #)"
     )
     pipeline_parser.add_argument("--status", help="Filter books by sync status (e.g., 'failed', 'pending')")
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
@@ -575,19 +589,29 @@ Examples:
         parser.print_help()
         sys.exit(1)
 
-    # Validate --queue and --barcodes mutual exclusivity for pipeline command
+    # Validate --queue and barcode options mutual exclusivity for pipeline command
     if args.command == "pipeline":
-        if hasattr(args, "queue") and hasattr(args, "barcodes"):
-            if args.queue and args.barcodes:
-                print(
-                    "Error: --queue and --barcodes are mutually exclusive. Use either --queue to process from queues or --barcodes to process specific books."
-                )
-                sys.exit(1)
-            elif not args.queue and not args.barcodes:
-                print(
-                    "Error: Either --queue or --barcodes is required. Use --queue to process from queues or --barcodes to process specific books."
-                )
-                sys.exit(1)
+        has_queue = hasattr(args, "queue") and args.queue
+        has_barcodes = hasattr(args, "barcodes") and args.barcodes
+        has_barcodes_file = hasattr(args, "barcodes_file") and getattr(args, "barcodes_file", None)
+
+        barcode_count = int(bool(has_barcodes)) + int(bool(has_barcodes_file))
+
+        # Check mutual exclusivity between queue and barcode options
+        if has_queue and barcode_count > 0:
+            print(
+                "Error: --queue and barcode options (--barcodes, --barcodes-file) are mutually exclusive. "
+                "Use either --queue to process from queues or barcode options to process specific books."
+            )
+            sys.exit(1)
+
+        # Ensure at least one option is provided
+        elif not has_queue and barcode_count == 0:
+            print(
+                "Error: Either --queue or a barcode option (--barcodes or --barcodes-file) is required. "
+                "Use --queue to process from queues or barcode options to process specific books."
+            )
+            sys.exit(1)
 
     if args.command == "pipeline":
         await cmd_pipeline(args)
