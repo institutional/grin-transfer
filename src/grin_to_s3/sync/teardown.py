@@ -9,14 +9,15 @@ including final database upload and staging cleanup.
 import logging
 import shutil
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
 
 from ..database.database_backup import upload_database_to_storage
+from .tasks import export_csv
 from .tasks.task_types import (
+    CsvExportTeardownResult,
     FinalDatabaseUploadData,
     FinalDatabaseUploadResult,
     StagingCleanupData,
@@ -28,6 +29,39 @@ from .tasks.task_types import (
 logger = logging.getLogger(__name__)
 
 
+async def run_csv_export(pipeline: "SyncPipeline") -> CsvExportTeardownResult:
+    """Export book metadata to CSV format as part of teardown operations."""
+    if pipeline.dry_run:
+        logger.debug("CSV export skipped in dry-run mode")
+        return CsvExportTeardownResult(
+            task_type=TaskType.EXPORT_CSV,
+            action=TaskAction.SKIPPED,
+            reason="skip_dry_run",
+        )
+
+    if pipeline.skip_csv_export:
+        logger.debug("CSV export skipped due to --skip-csv-export flag")
+        return CsvExportTeardownResult(
+            task_type=TaskType.EXPORT_CSV,
+            action=TaskAction.SKIPPED,
+            reason="skip_csv_export",
+        )
+
+    try:
+        result = await export_csv.main(pipeline)
+
+        # Return the result directly since it's already the right type
+        return result
+
+    except Exception as e:
+        logger.error(f"CSV export failed: {e}", exc_info=True)
+        return CsvExportTeardownResult(
+            task_type=TaskType.EXPORT_CSV,
+            action=TaskAction.FAILED,
+            error=f"CSV export failed: {e}",
+        )
+
+
 async def run_final_database_upload(pipeline: "SyncPipeline") -> FinalDatabaseUploadResult:
     """Upload final database state as latest version to storage."""
     if pipeline.dry_run:
@@ -35,18 +69,17 @@ async def run_final_database_upload(pipeline: "SyncPipeline") -> FinalDatabaseUp
         return FinalDatabaseUploadResult(
             task_type=TaskType.FINAL_DATABASE_UPLOAD,
             action=TaskAction.SKIPPED,
-            reason="skip_database_backup_flag",
+            reason="skip_dry_run",
         )
-
     if not pipeline.uses_block_storage:
         logger.debug("Final database upload skipped for local storage")
         return FinalDatabaseUploadResult(
             task_type=TaskType.FINAL_DATABASE_UPLOAD,
             action=TaskAction.SKIPPED,
-            reason="skip_database_backup_flag",
+            reason="skip_not_applicable",
         )
 
-    logger.info("Uploading final database as latest version...")
+    logger.info("Uploading database as latest version...")
     upload_result = await upload_database_to_storage(
         pipeline.db_path,
         pipeline.book_manager,
@@ -59,8 +92,6 @@ async def run_final_database_upload(pipeline: "SyncPipeline") -> FinalDatabaseUp
             action=TaskAction.FAILED,
             error=f"Final database upload failed: {upload_result['status']}",
         )
-
-    logger.info(f"Final database uploaded: {upload_result['backup_filename']}")
 
     data: FinalDatabaseUploadData = {
         "backup_filename": upload_result["backup_filename"],
@@ -85,7 +116,7 @@ async def run_staging_cleanup(pipeline: "SyncPipeline") -> StagingCleanupResult:
         return StagingCleanupResult(
             task_type=TaskType.STAGING_CLEANUP,
             action=TaskAction.SKIPPED,
-            reason="skip_database_backup_flag",
+            reason="skip_dry_run",
         )
 
     if not pipeline.uses_block_storage:
@@ -93,7 +124,7 @@ async def run_staging_cleanup(pipeline: "SyncPipeline") -> StagingCleanupResult:
         return StagingCleanupResult(
             task_type=TaskType.STAGING_CLEANUP,
             action=TaskAction.SKIPPED,
-            reason="skip_database_backup_flag",
+            reason="skip_not_applicable",
         )
 
     if pipeline.skip_staging_cleanup:
@@ -101,46 +132,28 @@ async def run_staging_cleanup(pipeline: "SyncPipeline") -> StagingCleanupResult:
         return StagingCleanupResult(
             task_type=TaskType.STAGING_CLEANUP,
             action=TaskAction.SKIPPED,
-            reason="skip_database_backup_flag",
+            reason="skip_staging_cleanup",
         )
 
-    try:
-        staging_path = str(pipeline.filesystem_manager.staging_path)
-        staging_path_obj = Path(staging_path)
+    shutil.rmtree(pipeline.filesystem_manager.staging_path, ignore_errors=True)
 
-        if staging_path_obj.exists():
-            shutil.rmtree(staging_path)
-            logger.info(f"Staging directory {staging_path} cleaned up")
-        else:
-            logger.debug(f"Staging directory {staging_path} does not exist, skipping cleanup")
+    cleanup_time = time.time() - start_time
 
-        cleanup_time = time.time() - start_time
+    data: StagingCleanupData = {
+        "staging_path": pipeline.filesystem_manager.staging_path,
+        "cleanup_time": cleanup_time,
+    }
 
-        data: StagingCleanupData = {
-            "staging_path": staging_path,
-            "cleanup_time": cleanup_time,
-        }
-
-        return StagingCleanupResult(
-            task_type=TaskType.STAGING_CLEANUP,
-            action=TaskAction.COMPLETED,
-            data=data,
-        )
-
-    except Exception as e:
-        cleanup_time = time.time() - start_time
-        logger.error(f"Staging cleanup failed: {e}", exc_info=True)
-
-        return StagingCleanupResult(
-            task_type=TaskType.STAGING_CLEANUP,
-            action=TaskAction.FAILED,
-            error=f"Staging cleanup failed: {e}",
-        )
+    return StagingCleanupResult(
+        task_type=TaskType.STAGING_CLEANUP,
+        action=TaskAction.COMPLETED,
+        data=data,
+    )
 
 
 async def run_teardown_operations(
     pipeline: "SyncPipeline",
-) -> dict[str, FinalDatabaseUploadResult | StagingCleanupResult]:
+) -> dict[str, CsvExportTeardownResult | FinalDatabaseUploadResult | StagingCleanupResult]:
     """Run all teardown operations after batch processing completes.
 
     Args:
@@ -149,12 +162,16 @@ async def run_teardown_operations(
     Returns:
         Dict mapping operation names to their results
     """
-    results: dict[str, FinalDatabaseUploadResult | StagingCleanupResult] = {}
+    results: dict[str, CsvExportTeardownResult | FinalDatabaseUploadResult | StagingCleanupResult] = {}
 
     # Skip teardown operations in dry-run mode
     if pipeline.dry_run:
         logger.info("Teardown operations skipped in dry-run mode")
         return results
+
+    # Export CSV with all processed books first
+    csv_export_result = await run_csv_export(pipeline)
+    results["csv_export"] = csv_export_result
 
     # Upload final database state
     final_upload_result = await run_final_database_upload(pipeline)
@@ -166,6 +183,5 @@ async def run_teardown_operations(
 
     # Close database tracker
     await pipeline.db_tracker.close()
-    logger.debug("Database tracker closed")
 
     return results

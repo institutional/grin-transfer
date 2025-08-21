@@ -8,11 +8,12 @@ and post-processing tasks with dependency management.
 
 import asyncio
 import logging
+import time
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
-from grin_to_s3.common import Barcode
+from grin_to_s3.common import Barcode, format_duration
 from grin_to_s3.database.database_utils import batch_write_status_updates
 
 from .db_updates import get_updates_for_task
@@ -22,7 +23,6 @@ from .tasks.task_types import (
     DecryptTaskFunc,
     DownloadResult,
     DownloadTaskFunc,
-    ExportCsvTaskFunc,
     ExtractMarcTaskFunc,
     ExtractOcrTaskFunc,
     RequestConversionTaskFunc,
@@ -46,9 +46,61 @@ class StatusUpdate(NamedTuple):
 
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
+    from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 
 
 logger = logging.getLogger(__name__)
+
+
+def _show_batch_progress(
+    manager: "TaskManager",
+    start_time: float,
+    total_books: int,
+    rate_calculator: "SlidingWindowRateCalculator",
+    chunk_num: int,
+    total_chunks: int,
+) -> None:
+    """Show progress after a batch completes."""
+    # Calculate completed count from upload task statistics (upload is the final task)
+    upload_stats = manager.stats[TaskType.UPLOAD]
+    completed_count = upload_stats["completed"] + upload_stats["failed"]
+
+    # Skip showing progress if no books completed yet
+    if completed_count == 0:
+        return
+
+    # Calculate progress metrics
+    current_time = time.time()
+    percentage = (completed_count / total_books) * 100 if total_books > 0 else 0
+    elapsed = current_time - start_time
+
+    # Update rate calculator
+    rate_calculator.add_batch(current_time, completed_count)
+    rate = rate_calculator.get_rate(start_time, completed_count)
+
+    # Calculate ETA
+    remaining = total_books - completed_count
+    eta_text = ""
+    if rate > 0 and remaining > 0:
+        eta_seconds = remaining / rate
+        eta_text = f" (ETA: {format_duration(eta_seconds)})"
+
+    # Get active task counts
+    downloads_active = manager.get_active_task_count(TaskType.DOWNLOAD)
+    uploads_active = manager.get_active_task_count(TaskType.UPLOAD)
+
+    # Build task status with active counts and limits
+    download_limit = manager.limits.get(TaskType.DOWNLOAD, 0)
+    upload_limit = manager.limits.get(TaskType.UPLOAD, 0)
+    task_status = f"[{downloads_active}/{download_limit} downloads, {uploads_active}/{upload_limit} uploads]"
+
+    # Show progress
+    print(
+        f"{completed_count:,}/{total_books:,} "
+        f"({percentage:.1f}%) - {rate:.1f} books/sec - "
+        f"elapsed: {format_duration(elapsed)}{eta_text} "
+        f"{task_status} [batch {chunk_num}/{total_chunks}]"
+    )
 
 
 class TaskManager:
@@ -340,30 +392,25 @@ async def process_book_pipeline(
                     )
                 )
 
-            # CSV export
-            if TaskType.EXPORT_CSV in task_funcs:
-                csv_func = cast(ExportCsvTaskFunc, task_funcs[TaskType.EXPORT_CSV])
 
-                extraction_tasks.append(
-                    manager.run_task(
-                        TaskType.EXPORT_CSV,
-                        barcode,
-                        lambda: csv_func(barcode, pipeline),
-                        pipeline,
-                        results,  # Pass accumulated results
-                    )
-                )
+            # Gather upload and extraction tasks in parallel
+            parallel_tasks = [upload_task] + extraction_tasks
 
-            # Wait for extractions
-            if extraction_tasks:
-                extraction_results = await asyncio.gather(*extraction_tasks, return_exceptions=True)
-                for result in extraction_results:
-                    if isinstance(result, TaskResult):
-                        results[result.task_type] = result
+            parallel_results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
 
-        # Collect upload result before cleanup
-        upload_result = await upload_task
-        results[TaskType.UPLOAD] = upload_result
+            # Process results - first result is always upload_task
+            upload_result = parallel_results[0]
+            if isinstance(upload_result, TaskResult):
+                results[TaskType.UPLOAD] = upload_result
+
+            # Process extraction results
+            for result in parallel_results[1:]:
+                if isinstance(result, TaskResult):
+                    results[result.task_type] = result
+        else:
+            # No extractions, just wait for upload
+            upload_result = await upload_task
+            results[TaskType.UPLOAD] = upload_result
 
         # Cleanup runs last, after everything else is done
         if TaskType.CLEANUP in task_funcs:
@@ -426,19 +473,23 @@ async def process_books_batch(
     pipeline: "SyncPipeline",
     task_funcs: dict[TaskType, Callable],
     task_manager: "TaskManager",
+    rate_calculator: "SlidingWindowRateCalculator",
 ) -> dict[str, dict[TaskType, TaskResult]]:
     """
     Process multiple books with task-level concurrency control.
 
     Args:
         barcodes: List of book barcodes to process
+        pipeline: Pipeline instance for configuration
         task_funcs: Dict mapping task types to their implementation functions
         task_manager: TaskManager instance to use
+        rate_calculator: Rate calculator for progress reporting
 
     Returns:
         Dict mapping barcode to its task results
     """
     manager = task_manager
+    start_time = time.time()
 
     async def process_book(barcode: str):
         return barcode, await process_book_pipeline(manager, barcode, pipeline, task_funcs)
@@ -465,6 +516,17 @@ async def process_books_batch(
         try:
             chunk_results = await asyncio.gather(*chunk_tasks, return_exceptions=True)
             results.extend(chunk_results)
+
+            # Show progress after this chunk completes
+            _show_batch_progress(
+                manager,
+                start_time,
+                len(barcodes),
+                rate_calculator,
+                chunk_num,
+                total_chunks,
+            )
+
         except KeyboardInterrupt:
             logger.info("KeyboardInterrupt caught during chunk processing, allowing graceful shutdown")
             raise

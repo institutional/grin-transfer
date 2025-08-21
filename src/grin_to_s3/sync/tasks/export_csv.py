@@ -5,17 +5,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from grin_to_s3.collect_books.models import BookRecord
-from grin_to_s3.common import Barcode, compress_file_to_temp
+from grin_to_s3.common import compress_file_to_temp
 
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
 
-from .task_types import ExportCsvData, ExportCsvResult, TaskAction, TaskType
+from .task_types import ExportCsvData, Result, TaskAction, TaskType
 
 logger = logging.getLogger(__name__)
 
 
-async def main(barcode: Barcode, pipeline: "SyncPipeline") -> ExportCsvResult:
+async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
     """Export book metadata to CSV format."""
     base_path = pipeline.filesystem_manager.staging_path
     filename = "books_latest.csv"
@@ -54,15 +54,16 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> ExportCsvResult:
             # Upload compressed file to both locations
             await pipeline.storage.write_file(f"{bucket}/{filename}.gz", str(compressed_path))
             await pipeline.storage.write_file(f"{bucket}/books_{timestamp}.csv.gz", str(compressed_path))
-            logger.debug(f"Successfully uploaded latest compressed CSV to {bucket}")
+            logger.info(f"Successfully uploaded latest compressed CSV to {bucket}/{filename}.gz")
+    else:
+        logger.info(f"CSV exported as {csv_path}")
 
     data: ExportCsvData = {
         "csv_file_path": Path(bucket_path) if bucket_path else csv_path,
         "record_count": record_count,
     }
 
-    return ExportCsvResult(
-        barcode=barcode,
+    return Result(
         task_type=TaskType.EXPORT_CSV,
         action=TaskAction.COMPLETED,
         data=data,
