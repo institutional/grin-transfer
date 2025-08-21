@@ -1050,17 +1050,13 @@ async def cmd_request(args) -> None:
         process_stage.set_command_arg("barcodes_file", args.barcodes_file)
 
     # Parse and validate barcodes if provided
-    try:
-        barcodes_str = getattr(args, "barcodes", None)
-        barcodes_file = getattr(args, "barcodes_file", None)
-        parsed_barcodes = parse_barcode_arguments(barcodes_str, barcodes_file)
+    barcodes_str = getattr(args, "barcodes", None)
+    barcodes_file = getattr(args, "barcodes_file", None)
+    parsed_barcodes = parse_barcode_arguments(barcodes_str, barcodes_file)
 
-        if parsed_barcodes:
-            source_desc = "command line" if barcodes_str else f"file '{barcodes_file}'"
-            print(f"Parsed {len(parsed_barcodes)} barcodes for processing from {source_desc}")
-    except (ValueError, FileNotFoundError) as e:
-        print(f"❌ {e}")
-        sys.exit(1)
+    if parsed_barcodes:
+        source_desc = "command line" if barcodes_str else f"file '{barcodes_file}'"
+        print(f"Parsed {len(parsed_barcodes)} barcodes for processing from {source_desc}")
 
     # Create and run pipeline
     try:
