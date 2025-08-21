@@ -447,7 +447,9 @@ Examples:
         if args.storage == "local":
             try:
                 await create_local_storage_directories(final_storage_dict)
-            except ValueError:
+            except ValueError as e:
+                print(f"Error: {e}")
+                print("Usage: python grin.py collect --storage local --storage-config base_path=/path/to/storage")
                 sys.exit(1)
 
         else:
