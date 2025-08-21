@@ -119,15 +119,4 @@ async def run_preflight_operations(pipeline: "SyncPipeline") -> dict[str, Databa
     backup_result = await run_database_backup(pipeline)
     results["database_backup"] = backup_result
 
-    # Only upload to block storage
-    if pipeline.uses_block_storage and backup_result.action == TaskAction.COMPLETED:
-        upload_result = await run_database_upload(pipeline)
-        results["database_upload"] = upload_result
-
-        # Clean up local backup after successful upload
-        if upload_result.action == TaskAction.COMPLETED and backup_result.data:
-            backup_filename = backup_result.data["backup_filename"]
-            if backup_filename:
-                await cleanup_local_backup(pipeline.db_path, backup_filename)
-
     return results
