@@ -85,21 +85,12 @@ def _show_batch_progress(
         eta_seconds = remaining / rate
         eta_text = f" (ETA: {format_duration(eta_seconds)})"
 
-    # Get active task counts
-    downloads_active = manager.get_active_task_count(TaskType.DOWNLOAD)
-    uploads_active = manager.get_active_task_count(TaskType.UPLOAD)
-
-    # Build task status with active counts and limits
-    download_limit = manager.limits.get(TaskType.DOWNLOAD, 0)
-    upload_limit = manager.limits.get(TaskType.UPLOAD, 0)
-    task_status = f"[{downloads_active}/{download_limit} downloads, {uploads_active}/{upload_limit} uploads]"
-
     # Show progress
     print(
         f"{completed_count:,}/{total_books:,} "
         f"({percentage:.1f}%) - {rate:.1f} books/sec - "
         f"elapsed: {format_duration(elapsed)}{eta_text} "
-        f"{task_status} [batch {chunk_num}/{total_chunks}]"
+        f"[batch {chunk_num:,}/{total_chunks:,}]"
     )
 
 
