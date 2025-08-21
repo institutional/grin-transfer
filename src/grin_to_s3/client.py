@@ -10,9 +10,14 @@ from datetime import datetime
 from typing import Any
 
 from selectolax.lexbor import LexborHTMLParser
+from tenacity import retry, stop_after_attempt, wait_fixed
 
 from grin_to_s3.auth import GRINAuth
-from grin_to_s3.common import create_http_session
+from grin_to_s3.common import (
+    DEFAULT_DOWNLOAD_RETRIES,
+    DEFAULT_RETRY_WAIT_SECONDS,
+    create_http_session,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +204,11 @@ class GRINClient:
         if prefetch_task and not prefetch_task.done():
             prefetch_task.cancel()
 
+    @retry(
+        stop=stop_after_attempt(DEFAULT_DOWNLOAD_RETRIES + 1),
+        wait=wait_fixed(DEFAULT_RETRY_WAIT_SECONDS),
+        reraise=True,
+    )
     async def _prefetch_page(self, url: str) -> tuple[str, str]:
         """
         Prefetch a page's HTML content in the background.
