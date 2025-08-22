@@ -347,9 +347,9 @@ class TestProgressReporting:
                     progress_interval=4,
                 )
 
-                # Look for queue depth in progress output
+                # Look for queue depth in progress output (now includes downloads and processing info)
                 progress_calls = [
-                    str(call[0][0]) for call in mock_print.call_args_list if call[0] and "[queue:" in str(call[0][0])
+                    str(call[0][0]) for call in mock_print.call_args_list if call[0] and "queued:" in str(call[0][0])
                 ]
 
                 # Should have at least one progress report with queue depth

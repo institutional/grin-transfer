@@ -75,6 +75,7 @@ def show_queue_progress(
     rate_calculator: "SlidingWindowRateCalculator",
     completed_count: int,
     queue_depth: int,
+    active_tasks: dict[str, int],
 ) -> None:
     """Show progress for queue-based processing."""
     # Skip showing progress if no books completed yet
@@ -97,10 +98,13 @@ def show_queue_progress(
         eta_seconds = remaining / rate
         eta_text = f" (ETA: {format_duration(eta_seconds)})"
 
-    # Show progress with queue depth
+    # Show progress with active task breakdown
+    downloads = active_tasks.get("downloads", 0)
+    download_limit = active_tasks.get("download_limit", 5)
+    processing = active_tasks.get("processing", 0)
     print(
         f"{completed_count:,}/{total_books:,} "
         f"({percentage:.1f}%) - {rate:.1f} books/sec - "
         f"elapsed: {format_duration(elapsed)}{eta_text} "
-        f"[queue: {queue_depth}]"
+        f"[downloads: {downloads}/{download_limit}, processing: {processing}, queued: {queue_depth}]"
     )

@@ -414,7 +414,15 @@ async def process_books_with_queue(
 
                 # Show progress periodically
                 if current_completed % progress_interval == 0 or current_completed == total_books:
-                    show_queue_progress(start_time, total_books, rate_calculator, current_completed, queue.qsize())
+                    # Get active task counts for enhanced progress display
+                    active_downloads = manager.get_active_task_count(TaskType.CHECK) + manager.get_active_task_count(TaskType.DOWNLOAD)
+                    active_processing = manager.get_active_task_count() - active_downloads
+                    download_limit = manager.limits.get(TaskType.DOWNLOAD, 5)
+
+                    show_queue_progress(
+                        start_time, total_books, rate_calculator, current_completed, queue.qsize(),
+                        {"downloads": active_downloads, "processing": active_processing, "download_limit": download_limit}
+                    )
 
             except Exception as e:
                 # Log error but don't crash the worker
