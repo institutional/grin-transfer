@@ -394,8 +394,8 @@ async def process_books_with_queue(
         task_funcs: Dict mapping task types to their implementation functions
         task_manager: TaskManager instance to use
         rate_calculator: Rate calculator for progress reporting
-        workers: Number of concurrent worker tasks (default 20)
-        progress_interval: Show progress every N completed books (default 20)
+        workers: Number of concurrent worker tasks
+        progress_interval: Show progress every N completed books
 
     Returns:
         Dict mapping barcode to its task results
@@ -512,20 +512,51 @@ async def process_books_with_queue(
     logger.info(
         f"Starting {download_workers} download workers and {processing_workers} processing workers for {total_books:,} books"
     )
-
+    print(
+        f"Starting {download_workers} download workers and {processing_workers} processing workers for {total_books:,} books...\n"
+    )
     download_tasks = [asyncio.create_task(download_worker()) for _ in range(download_workers)]
     processing_tasks = [asyncio.create_task(processing_worker()) for _ in range(processing_workers)]
 
     try:
-        # Feed download queue incrementally (blocks when full for backpressure)
-        for barcode in barcodes:
-            # Check for shutdown before adding each book
-            if pipeline._shutdown_requested:
-                logger.info("Shutdown requested, stopping queue feeding")
-                print("\nGraceful shutdown in progress, no new books will be processed...")
-                break
+        # Feed download queue aggressively to keep it saturated
+        barcode_iter = iter(barcodes)
+        barcodes_exhausted = False
+        items_fed = 0
+        feed_cycles = 0
 
-            await download_queue.put(barcode)
+        while not barcodes_exhausted:
+            feed_cycles += 1
+            items_added_this_cycle = 0
+
+            # Try to fill the queue if there's space and we have more barcodes
+            while not barcodes_exhausted and download_queue.qsize() < download_queue.maxsize:
+                try:
+                    barcode = next(barcode_iter)
+                    if pipeline._shutdown_requested:
+                        logger.info("Shutdown requested, stopping queue feeding")
+                        print("\nGraceful shutdown in progress, no new books will be processed...")
+                        barcodes_exhausted = True
+                        break
+                    download_queue.put_nowait(barcode)
+                    items_fed += 1
+                    items_added_this_cycle += 1
+                except StopIteration:
+                    barcodes_exhausted = True
+                    logger.debug(f"Queue feeding exhausted after {items_fed} items fed in {feed_cycles} cycles")
+                    break
+                except asyncio.QueueFull:
+                    break
+
+            if items_added_this_cycle > 0:
+                logger.debug(
+                    f"Queue feed cycle {feed_cycles}: added {items_added_this_cycle} items, "
+                    f"queue now {download_queue.qsize()}/{download_queue.maxsize}"
+                )
+
+            # If we still have barcodes but queue is full, wait a bit
+            if not barcodes_exhausted:
+                await asyncio.sleep(0.1)
 
         # Wait for all download queue items to be processed
         await download_queue.join()

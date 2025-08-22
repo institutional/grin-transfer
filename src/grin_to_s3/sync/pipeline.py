@@ -174,7 +174,7 @@ class SyncPipeline:
         download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
         max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
         task_concurrency_overrides: dict[str, int] | None = None,
-        worker_count: int = 20,
+        worker_count: int = 100,
         progress_interval: int = 20,
     ):
         # Store configuration and runtime parameters

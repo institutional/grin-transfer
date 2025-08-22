@@ -151,6 +151,7 @@ async def _run_sync_pipeline(args, run_config: RunConfig, sync_stage) -> None:
         download_retries=args.download_retries,
         max_sequential_failures=args.max_sequential_failures,
         task_concurrency_overrides=_collect_task_concurrency_overrides(args),
+        worker_count=args.workers,
     )
 
     # Set up signal handlers for graceful shutdown
@@ -480,6 +481,12 @@ Examples:
     )
 
     # Task concurrency options
+    pipeline_parser.add_argument(
+        "--workers",
+        type=int,
+        default=100,
+        help="Total number of concurrent workers for processing. Workers are split between download and processing phases (default: 100)",
+    )
     pipeline_parser.add_argument(
         "--task-check-concurrency",
         type=int,
