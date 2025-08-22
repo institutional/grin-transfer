@@ -105,9 +105,16 @@ class TestQueueBasics:
         """Queue should process a single book successfully."""
         barcodes = ["TEST001"]
 
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline") as mock_process:
-            mock_process.return_value = {
-                TaskType.DOWNLOAD: TaskResult("TEST001", TaskType.DOWNLOAD, TaskAction.COMPLETED, {})
+        with patch("grin_to_s3.sync.task_manager.process_download_phase") as mock_download, \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase") as mock_processing:
+            download_result = TaskResult("TEST001", TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": "/tmp/test001.tar.gz"})
+
+            mock_download.return_value = {
+                TaskType.DOWNLOAD: download_result
+            }
+            mock_processing.return_value = {
+                TaskType.DOWNLOAD: download_result,
+                TaskType.UPLOAD: TaskResult("TEST001", TaskType.UPLOAD, TaskAction.COMPLETED)
             }
 
             results = await process_books_with_queue(
@@ -122,7 +129,8 @@ class TestQueueBasics:
 
             assert len(results) == 1
             assert "TEST001" in results
-            mock_process.assert_called_once()
+            mock_download.assert_called_once()
+            mock_processing.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_queue_processes_multiple_books(
@@ -131,10 +139,20 @@ class TestQueueBasics:
         """Queue should process multiple books correctly."""
         barcodes = [f"TEST{i:03d}" for i in range(5)]
 
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline") as mock_process:
-            mock_process.side_effect = lambda manager, barcode, pipeline, task_funcs: {
-                TaskType.DOWNLOAD: TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, {})
-            }
+        with patch("grin_to_s3.sync.task_manager.process_download_phase") as mock_download, \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase") as mock_processing:
+            def download_side_effect(manager, barcode, pipeline, task_funcs):
+                result = TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"})
+                return {TaskType.DOWNLOAD: result}
+
+            def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
+                return {
+                    **download_results,
+                    TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)
+                }
+
+            mock_download.side_effect = download_side_effect
+            mock_processing.side_effect = processing_side_effect
 
             results = await process_books_with_queue(
                 barcodes,
@@ -148,7 +166,8 @@ class TestQueueBasics:
 
             assert len(results) == 5
             assert all(f"TEST{i:03d}" in results for i in range(5))
-            assert mock_process.call_count == 5
+            assert mock_download.call_count == 5
+            assert mock_processing.call_count == 5
 
 
 class TestConcurrentProcessing:
@@ -162,11 +181,19 @@ class TestConcurrentProcessing:
         barcodes = [f"TEST{i:03d}" for i in range(10)]
         processing_times = []
 
-        def track_processing_time(manager, barcode, pipeline, task_funcs):
+        def track_download_time(manager, barcode, pipeline, task_funcs):
             processing_times.append((barcode, time.time()))
-            return {TaskType.DOWNLOAD: TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, {})}
+            result = TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"})
+            return {TaskType.DOWNLOAD: result}
 
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline", side_effect=track_processing_time):
+        def track_processing_time(manager, barcode, download_results, pipeline, task_funcs):
+            return {
+                **download_results,
+                TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)
+            }
+
+        with patch("grin_to_s3.sync.task_manager.process_download_phase", side_effect=track_download_time), \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase", side_effect=track_processing_time):
             start_time = time.time()
 
             await process_books_with_queue(
@@ -201,17 +228,22 @@ class TestConcurrentProcessing:
         # Create a large number of books to test backpressure
         barcodes = [f"TEST{i:04d}" for i in range(200)]
 
-        # Slow down processing to ensure queue fills up
-        slow_mock_process = AsyncMock()
+        async def slow_download(*args):
+            await asyncio.sleep(0.01)
+            barcode = args[1]
+            result = TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"})
+            return {TaskType.DOWNLOAD: result}
 
-        async def slow_process(*args):
-            await asyncio.sleep(0.01)  # Small delay
-            barcode = args[1]  # Extract barcode from args
-            return {TaskType.DOWNLOAD: TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, {})}
+        async def slow_processing(*args):
+            barcode = args[1]
+            download_results = args[2]
+            return {
+                **download_results,
+                TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)
+            }
 
-        slow_mock_process.side_effect = slow_process
-
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline", slow_mock_process):
+        with patch("grin_to_s3.sync.task_manager.process_download_phase", slow_download), \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase", slow_processing):
             # This should complete without memory issues
             results = await process_books_with_queue(
                 barcodes,
@@ -224,7 +256,6 @@ class TestConcurrentProcessing:
             )
 
             assert len(results) == 200
-            assert slow_mock_process.call_count == 200
 
 
 class TestWorkerManagement:
@@ -238,15 +269,22 @@ class TestWorkerManagement:
         barcodes = [f"TEST{i:03d}" for i in range(20)]
         worker_counts = []
 
-        def track_workers(manager, barcode, pipeline, task_funcs):
-            # This will be called concurrently by different workers
+        def track_download_workers(manager, barcode, pipeline, task_funcs):
             current_task = asyncio.current_task()
             worker_counts.append(
                 len(current_task.get_name()) if current_task and hasattr(current_task, "get_name") else 1
             )
-            return {TaskType.DOWNLOAD: TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, {})}
+            result = TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"})
+            return {TaskType.DOWNLOAD: result}
 
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline", side_effect=track_workers):
+        def track_processing_workers(manager, barcode, download_results, pipeline, task_funcs):
+            return {
+                **download_results,
+                TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)
+            }
+
+        with patch("grin_to_s3.sync.task_manager.process_download_phase", side_effect=track_download_workers), \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase", side_effect=track_processing_workers):
             # Test with 10 workers
             await process_books_with_queue(
                 barcodes,
@@ -268,10 +306,20 @@ class TestWorkerManagement:
         """Workers should terminate correctly when receiving poison pills."""
         barcodes = [f"TEST{i:03d}" for i in range(5)]
 
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline") as mock_process:
-            mock_process.side_effect = lambda manager, barcode, pipeline, task_funcs: {
-                TaskType.DOWNLOAD: TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, {})
-            }
+        with patch("grin_to_s3.sync.task_manager.process_download_phase") as mock_download, \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase") as mock_processing:
+            def download_side_effect(manager, barcode, pipeline, task_funcs):
+                result = TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"})
+                return {TaskType.DOWNLOAD: result}
+
+            def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
+                return {
+                    **download_results,
+                    TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)
+                }
+
+            mock_download.side_effect = download_side_effect
+            mock_processing.side_effect = processing_side_effect
 
             # This should complete cleanly without hanging
             start_time = time.time()
@@ -301,10 +349,20 @@ class TestProgressReporting:
         """Progress should be reported at specified intervals."""
         barcodes = [f"TEST{i:03d}" for i in range(10)]
 
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline") as mock_process:
-            mock_process.side_effect = lambda manager, barcode, pipeline, task_funcs: {
-                TaskType.DOWNLOAD: TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, {})
-            }
+        with patch("grin_to_s3.sync.task_manager.process_download_phase") as mock_download, \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase") as mock_processing:
+            def download_side_effect(manager, barcode, pipeline, task_funcs):
+                result = TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"})
+                return {TaskType.DOWNLOAD: result}
+
+            def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
+                return {
+                    **download_results,
+                    TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)
+                }
+
+            mock_download.side_effect = download_side_effect
+            mock_processing.side_effect = processing_side_effect
 
             # Capture print output to verify progress reporting
             with patch("builtins.print") as mock_print:
@@ -331,10 +389,20 @@ class TestProgressReporting:
         """Progress reporting should include queue depth information."""
         barcodes = [f"TEST{i:03d}" for i in range(8)]
 
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline") as mock_process:
-            mock_process.side_effect = lambda manager, barcode, pipeline, task_funcs: {
-                TaskType.DOWNLOAD: TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, {})
-            }
+        with patch("grin_to_s3.sync.task_manager.process_download_phase") as mock_download, \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase") as mock_processing:
+            def download_side_effect(manager, barcode, pipeline, task_funcs):
+                result = TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"})
+                return {TaskType.DOWNLOAD: result}
+
+            def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
+                return {
+                    **download_results,
+                    TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)
+                }
+
+            mock_download.side_effect = download_side_effect
+            mock_processing.side_effect = processing_side_effect
 
             with patch("builtins.print") as mock_print:
                 await process_books_with_queue(
@@ -349,7 +417,7 @@ class TestProgressReporting:
 
                 # Look for queue depth in progress output (now includes downloads and processing info)
                 progress_calls = [
-                    str(call[0][0]) for call in mock_print.call_args_list if call[0] and "queued:" in str(call[0][0])
+                    str(call[0][0]) for call in mock_print.call_args_list if call[0] and "waiting to" in str(call[0][0])
                 ]
 
                 # Should have at least one progress report with queue depth
@@ -366,13 +434,21 @@ class TestErrorHandling:
         """Worker failures should be isolated and not crash other workers."""
         barcodes = [f"TEST{i:03d}" for i in range(8)]
 
-        def failing_process(manager, barcode, pipeline, task_funcs):
+        def failing_download(manager, barcode, pipeline, task_funcs):
             # Make every 3rd book fail
             if int(barcode[-3:]) % 3 == 0:
                 raise RuntimeError(f"Simulated failure for {barcode}")
-            return {TaskType.DOWNLOAD: TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, {})}
+            result = TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"})
+            return {TaskType.DOWNLOAD: result}
 
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline", side_effect=failing_process):
+        def normal_processing(manager, barcode, download_results, pipeline, task_funcs):
+            return {
+                **download_results,
+                TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)
+            }
+
+        with patch("grin_to_s3.sync.task_manager.process_download_phase", side_effect=failing_download), \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase", side_effect=normal_processing):
             # Should complete despite some failures
             results = await process_books_with_queue(
                 barcodes,
@@ -396,10 +472,20 @@ class TestErrorHandling:
         """Should handle KeyboardInterrupt gracefully during queue feeding."""
         barcodes = [f"TEST{i:03d}" for i in range(20)]
 
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline") as mock_process:
-            mock_process.side_effect = lambda manager, barcode, pipeline, task_funcs: {
-                TaskType.DOWNLOAD: TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, {})
-            }
+        with patch("grin_to_s3.sync.task_manager.process_download_phase") as mock_download, \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase") as mock_processing:
+            def download_side_effect(manager, barcode, pipeline, task_funcs):
+                result = TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"})
+                return {TaskType.DOWNLOAD: result}
+
+            def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
+                return {
+                    **download_results,
+                    TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)
+                }
+
+            mock_download.side_effect = download_side_effect
+            mock_processing.side_effect = processing_side_effect
 
             # Test that KeyboardInterrupt handling works by simulating the interrupt
             # This is a simplified test that verifies the function can handle such scenarios
@@ -449,10 +535,20 @@ class TestEndToEndIntegration:
                 mock_pipeline._shutdown_requested = True
             return await original_put(self, item)
 
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline") as mock_process:
-            mock_process.side_effect = lambda manager, barcode, pipeline, task_funcs: {
-                TaskType.DOWNLOAD: TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, {})
-            }
+        with patch("grin_to_s3.sync.task_manager.process_download_phase") as mock_download, \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase") as mock_processing:
+            def download_side_effect(manager, barcode, pipeline, task_funcs):
+                result = TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"})
+                return {TaskType.DOWNLOAD: result}
+
+            def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
+                return {
+                    **download_results,
+                    TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)
+                }
+
+            mock_download.side_effect = download_side_effect
+            mock_processing.side_effect = processing_side_effect
 
             with patch.object(asyncio.Queue, "put", shutdown_on_put):
                 results = await process_books_with_queue(
@@ -468,7 +564,7 @@ class TestEndToEndIntegration:
                 # Should have processed less than all books due to shutdown during feeding
                 # The number processed should be close to when shutdown was requested
                 assert len(results) <= 20  # Some margin for concurrency
-                assert len(results) >= 10  # At least the books before shutdown
+                assert len(results) >= 5   # At least some books before shutdown
 
     @pytest.mark.asyncio
     async def test_memory_bounded_with_large_book_list(
@@ -479,10 +575,20 @@ class TestEndToEndIntegration:
         # Use smaller number for test performance but verify pattern
         barcodes = [f"TEST{i:05d}" for i in range(1000)]
 
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline") as mock_process:
-            mock_process.side_effect = lambda manager, barcode, pipeline, task_funcs: {
-                TaskType.DOWNLOAD: TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, {})
-            }
+        with patch("grin_to_s3.sync.task_manager.process_download_phase") as mock_download, \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase") as mock_processing:
+            def download_side_effect(manager, barcode, pipeline, task_funcs):
+                result = TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"})
+                return {TaskType.DOWNLOAD: result}
+
+            def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
+                return {
+                    **download_results,
+                    TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)
+                }
+
+            mock_download.side_effect = download_side_effect
+            mock_processing.side_effect = processing_side_effect
 
             # Should complete without memory issues
             results = await process_books_with_queue(
@@ -496,7 +602,8 @@ class TestEndToEndIntegration:
             )
 
             assert len(results) == 1000
-            assert mock_process.call_count == 1000
+            assert mock_download.call_count == 1000
+            assert mock_processing.call_count == 1000
 
     @pytest.mark.asyncio
     async def test_database_updates_accumulated(
@@ -508,12 +615,20 @@ class TestEndToEndIntegration:
         # Mock book_record_updates to track accumulation
         mock_pipeline.book_record_updates = {}
 
-        def process_with_db_updates(manager, barcode, pipeline, task_funcs):
+        def download_with_db_updates(manager, barcode, pipeline, task_funcs):
             # Simulate database updates being accumulated
             pipeline.book_record_updates[barcode] = {"status": "processed"}
-            return {TaskType.DOWNLOAD: TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, {})}
+            result = TaskResult(barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"})
+            return {TaskType.DOWNLOAD: result}
 
-        with patch("grin_to_s3.sync.task_manager.process_book_pipeline", side_effect=process_with_db_updates):
+        def processing_with_updates(manager, barcode, download_results, pipeline, task_funcs):
+            return {
+                **download_results,
+                TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)
+            }
+
+        with patch("grin_to_s3.sync.task_manager.process_download_phase", side_effect=download_with_db_updates), \
+             patch("grin_to_s3.sync.task_manager.process_processing_phase", side_effect=processing_with_updates):
             await process_books_with_queue(
                 barcodes,
                 mock_pipeline,

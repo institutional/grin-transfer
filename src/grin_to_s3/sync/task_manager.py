@@ -165,11 +165,11 @@ class TaskManager:
         }
 
 
-async def process_book_pipeline(
+async def process_download_phase(
     manager: TaskManager, barcode: Barcode, pipeline: "SyncPipeline", task_funcs: dict[TaskType, Callable]
 ) -> dict[TaskType, TaskResult]:
     """
-    Process a single book through the entire pipeline.
+    Process the download phase only (CHECK and DOWNLOAD tasks).
 
     Args:
         manager: Task manager for concurrency control
@@ -177,7 +177,7 @@ async def process_book_pipeline(
         task_funcs: Dict mapping task types to their implementation functions
 
     Returns:
-        Dict of all task results for this book
+        Dict of download phase task results
     """
     results: dict[TaskType, TaskResult] = {}
 
@@ -228,6 +228,40 @@ async def process_book_pipeline(
         else:
             # No download task, can't continue
             return results
+
+    finally:
+        # ALWAYS commit accumulated updates (success or failure)
+        await commit_book_record_updates(pipeline, barcode)
+
+    return results
+
+
+async def process_processing_phase(
+    manager: TaskManager, barcode: Barcode, download_results: dict[TaskType, TaskResult],
+    pipeline: "SyncPipeline", task_funcs: dict[TaskType, Callable]
+) -> dict[TaskType, TaskResult]:
+    """
+    Process the post-download phase (DECRYPT through CLEANUP tasks).
+
+    Args:
+        manager: Task manager for concurrency control
+        barcode: Book barcode to process
+        download_results: Results from the download phase
+        pipeline: Pipeline instance
+        task_funcs: Dict mapping task types to their implementation functions
+
+    Returns:
+        Dict of all task results for this book
+    """
+    # Start with download results
+    results: dict[TaskType, TaskResult] = download_results.copy()
+
+    # Get download result data for processing phase
+    download_result = results.get(TaskType.DOWNLOAD)
+    if not download_result or not download_result.should_continue_pipeline:
+        return results
+
+    try:
         # Decrypt
         download_data = download_result.data
         assert download_data is not None
@@ -353,6 +387,7 @@ async def process_book_pipeline(
     return results
 
 
+
 async def process_books_with_queue(
     barcodes: list[str],
     pipeline: "SyncPipeline",
@@ -363,10 +398,10 @@ async def process_books_with_queue(
     progress_interval: int = 20,
 ) -> dict[str, dict[TaskType, TaskResult]]:
     """
-    Process multiple books using a feed-forward queue for continuous streaming.
+    Process multiple books using two separate queues for optimal download saturation.
 
-    This eliminates dead time by allowing new downloads to start while uploads
-    from previous books are still running. Uses bounded memory via a small queue.
+    Uses dedicated download workers to keep GRIN API saturated at 5 concurrent requests
+    while processing workers handle post-download tasks independently.
 
     Args:
         barcodes: List of book barcodes to process
@@ -384,31 +419,65 @@ async def process_books_with_queue(
     start_time = time.time()
     total_books = len(barcodes)
 
-    # Create bounded queue to prevent unbounded task creation
-    queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=100)
+    # Create two separate queues for different phases
+    download_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=100)
+    processing_queue: asyncio.Queue[tuple[str, dict[TaskType, TaskResult]] | None] = asyncio.Queue(maxsize=50)
 
     # Thread-safe counters for progress reporting
     completed_count = 0
     results_dict = {}
     results_lock = asyncio.Lock()
 
-    async def worker() -> None:
-        """Worker that processes books from the queue until poison pill received."""
-        nonlocal completed_count
-
+    async def download_worker() -> None:
+        """Worker that only handles CHECK and DOWNLOAD tasks."""
         while True:
-            barcode = await queue.get()
+            barcode = await download_queue.get()
             if barcode is None:  # Poison pill - time to exit
-                queue.task_done()
+                download_queue.task_done()
                 break
 
             try:
-                # Process this book through the pipeline
-                task_results = await process_book_pipeline(manager, barcode, pipeline, task_funcs)
+                # Process download phase only
+                download_results = await process_download_phase(manager, barcode, pipeline, task_funcs)
+
+                # If download was successful, pass to processing queue
+                download_result = download_results.get(TaskType.DOWNLOAD)
+                if download_result and download_result.should_continue_pipeline:
+                    await processing_queue.put((barcode, download_results))
+                else:
+                    # Download failed or conversion requested, count as completed
+                    async with results_lock:
+                        results_dict[barcode] = download_results
+                        completed_count += 1
+
+            except Exception as e:
+                # Log error but don't crash the worker
+                logger.error(f"[{barcode}] Download worker failed: {type(e).__name__}: {e}", exc_info=True)
+                async with results_lock:
+                    completed_count += 1
+
+            finally:
+                download_queue.task_done()
+
+    async def processing_worker() -> None:
+        """Worker that handles post-download processing tasks."""
+        nonlocal completed_count
+
+        while True:
+            item = await processing_queue.get()
+            if item is None:  # Poison pill - time to exit
+                processing_queue.task_done()
+                break
+
+            barcode, download_results = item
+
+            try:
+                # Process post-download phase
+                final_results = await process_processing_phase(manager, barcode, download_results, pipeline, task_funcs)
 
                 # Store results thread-safely
                 async with results_lock:
-                    results_dict[barcode] = task_results
+                    results_dict[barcode] = final_results
                     completed_count += 1
                     current_completed = completed_count
 
@@ -420,25 +489,31 @@ async def process_books_with_queue(
                     download_limit = manager.limits.get(TaskType.DOWNLOAD, 5)
 
                     show_queue_progress(
-                        start_time, total_books, rate_calculator, current_completed, queue.qsize(),
+                        start_time, total_books, rate_calculator, current_completed,
+                        download_queue.qsize(), processing_queue.qsize(),
                         {"downloads": active_downloads, "processing": active_processing, "download_limit": download_limit}
                     )
 
             except Exception as e:
                 # Log error but don't crash the worker
-                logger.error(f"[{barcode}] Worker failed processing book: {type(e).__name__}: {e}", exc_info=True)
+                logger.error(f"[{barcode}] Processing worker failed: {type(e).__name__}: {e}", exc_info=True)
                 async with results_lock:
                     completed_count += 1
 
             finally:
-                queue.task_done()
+                processing_queue.task_done()
 
-    # Start fixed number of worker tasks
-    logger.info(f"Starting {workers} workers for {total_books:,} books")
-    worker_tasks = [asyncio.create_task(worker()) for _ in range(workers)]
+    # Create workers: 5 dedicated to downloads, rest to processing
+    download_workers = min(5, workers)  # Match GRIN API limit
+    processing_workers = max(1, workers - download_workers)
+
+    logger.info(f"Starting {download_workers} download workers and {processing_workers} processing workers for {total_books:,} books")
+
+    download_tasks = [asyncio.create_task(download_worker()) for _ in range(download_workers)]
+    processing_tasks = [asyncio.create_task(processing_worker()) for _ in range(processing_workers)]
 
     try:
-        # Feed queue incrementally (blocks when full for backpressure)
+        # Feed download queue incrementally (blocks when full for backpressure)
         for barcode in barcodes:
             # Check for shutdown before adding each book
             if pipeline._shutdown_requested:
@@ -446,22 +521,30 @@ async def process_books_with_queue(
                 print("\nGraceful shutdown in progress, no new books will be processed...")
                 break
 
-            await queue.put(barcode)
+            await download_queue.put(barcode)
 
-        # Wait for all queued items to be processed
-        await queue.join()
+        # Wait for all download queue items to be processed
+        await download_queue.join()
+
+        # Wait for all processing queue items to be processed
+        await processing_queue.join()
 
     except KeyboardInterrupt:
         logger.info("KeyboardInterrupt caught during queue feeding, allowing graceful shutdown")
         raise
 
     finally:
-        # Send poison pills to all workers
-        for _ in worker_tasks:
-            await queue.put(None)
+        # Send poison pills to download workers
+        for _ in range(download_workers):
+            await download_queue.put(None)
+
+        # Send poison pills to processing workers
+        for _ in range(processing_workers):
+            await processing_queue.put(None)
 
         # Wait for all workers to finish
-        await asyncio.gather(*worker_tasks, return_exceptions=True)
+        all_workers = download_tasks + processing_tasks
+        await asyncio.gather(*all_workers, return_exceptions=True)
 
     # Log final stats
     logger.info(f"Processed {len(results_dict)}/{total_books} books")
