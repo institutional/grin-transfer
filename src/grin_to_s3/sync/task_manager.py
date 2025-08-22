@@ -439,6 +439,7 @@ async def process_books_with_queue(
                 # Log error but don't crash the worker
                 logger.error(f"[{barcode}] Download worker failed: {type(e).__name__}: {e}", exc_info=True)
                 async with results_lock:
+                    # Don't store failed results, just count as completed
                     completed_count += 1
 
             finally:
@@ -469,11 +470,9 @@ async def process_books_with_queue(
                 # Show progress periodically
                 if current_completed % progress_interval == 0 or current_completed == total_books:
                     # Get active task counts for enhanced progress display
-                    active_downloads = manager.get_active_task_count(TaskType.CHECK) + manager.get_active_task_count(
-                        TaskType.DOWNLOAD
-                    )
+                    active_downloads = manager.get_active_task_count(TaskType.DOWNLOAD)
                     active_processing = manager.get_active_task_count() - active_downloads
-                    download_limit = manager.limits.get(TaskType.DOWNLOAD, 5)
+                    download_limit = manager.limits[TaskType.DOWNLOAD]
 
                     show_queue_progress(
                         start_time,
@@ -493,13 +492,15 @@ async def process_books_with_queue(
                 # Log error but don't crash the worker
                 logger.error(f"[{barcode}] Processing worker failed: {type(e).__name__}: {e}", exc_info=True)
                 async with results_lock:
+                    # Don't store failed results, just count as completed
                     completed_count += 1
 
             finally:
                 processing_queue.task_done()
 
-    # Create workers: 5 dedicated to downloads, rest to processing
-    download_workers = min(5, workers)  # Match GRIN API limit
+    # Create workers: use download task limit, rest to processing
+    download_limit = manager.limits[TaskType.DOWNLOAD]
+    download_workers = min(download_limit, workers)
     processing_workers = max(1, workers - download_workers)
 
     logger.info(
