@@ -52,46 +52,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _show_batch_progress(
-    manager: "TaskManager",
-    start_time: float,
-    total_books: int,
-    rate_calculator: "SlidingWindowRateCalculator",
-    chunk_num: int,
-    total_chunks: int,
-) -> None:
-    """Show progress after a batch completes."""
-    # Calculate completed count from upload task statistics (upload is the final task)
-    upload_stats = manager.stats[TaskType.UPLOAD]
-    completed_count = upload_stats["completed"] + upload_stats["failed"]
-
-    # Skip showing progress if no books completed yet
-    if completed_count == 0:
-        return
-
-    # Calculate progress metrics
-    current_time = time.time()
-    percentage = (completed_count / total_books) * 100 if total_books > 0 else 0
-    elapsed = current_time - start_time
-
-    # Update rate calculator
-    rate_calculator.add_batch(current_time, completed_count)
-    rate = rate_calculator.get_rate(start_time, completed_count)
-
-    # Calculate ETA
-    remaining = total_books - completed_count
-    eta_text = ""
-    if rate > 0 and remaining > 0:
-        eta_seconds = remaining / rate
-        eta_text = f" (ETA: {format_duration(eta_seconds)})"
-
-    # Show progress
-    print(
-        f"{completed_count:,}/{total_books:,} "
-        f"({percentage:.1f}%) - {rate:.1f} books/sec - "
-        f"elapsed: {format_duration(elapsed)}{eta_text} "
-        f"[batch {chunk_num:,}/{total_chunks:,}]"
-    )
 
 
 class TaskManager:
@@ -459,15 +419,20 @@ def _update_book_metrics(pipeline: "SyncPipeline", results: dict) -> None:
         pipeline.process_summary_stage.increment_items(processed=1, failed=1)
 
 
-async def process_books_batch(
+async def process_books_with_queue(
     barcodes: list[str],
     pipeline: "SyncPipeline",
     task_funcs: dict[TaskType, Callable],
     task_manager: "TaskManager",
     rate_calculator: "SlidingWindowRateCalculator",
+    workers: int = 20,
+    progress_interval: int = 20,
 ) -> dict[str, dict[TaskType, TaskResult]]:
     """
-    Process multiple books with task-level concurrency control.
+    Process multiple books using a feed-forward queue for continuous streaming.
+
+    This eliminates dead time by allowing new downloads to start while uploads
+    from previous books are still running. Uses bounded memory via a small queue.
 
     Args:
         barcodes: List of book barcodes to process
@@ -475,68 +440,92 @@ async def process_books_batch(
         task_funcs: Dict mapping task types to their implementation functions
         task_manager: TaskManager instance to use
         rate_calculator: Rate calculator for progress reporting
+        workers: Number of concurrent worker tasks (default 20)
+        progress_interval: Show progress every N completed books (default 20)
 
     Returns:
         Dict mapping barcode to its task results
     """
     manager = task_manager
     start_time = time.time()
+    total_books = len(barcodes)
 
-    async def process_book(barcode: str):
-        return barcode, await process_book_pipeline(manager, barcode, pipeline, task_funcs)
+    # Create bounded queue to prevent unbounded task creation
+    queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=100)
 
-    # Process books in chunks using pipeline.batch_size to control memory usage
-    results = []
-    chunk_size = pipeline.batch_size
+    # Thread-safe counters for progress reporting
+    completed_count = 0
+    results_dict = {}
+    results_lock = asyncio.Lock()
 
-    for i in range(0, len(barcodes), chunk_size):
-        # Check for shutdown between chunks for responsive cancellation
-        if pipeline._shutdown_requested:
-            logger.info("Shutdown requested, stopping batch processing")
-            print("\nGraceful shutdown in progress, no new books will be processed...")
-            break
+    async def worker() -> None:
+        """Worker that processes books from the queue until poison pill received."""
+        nonlocal completed_count
 
-        chunk = barcodes[i:i + chunk_size]
-        chunk_num = i // chunk_size + 1
-        total_chunks = (len(barcodes) + chunk_size - 1) // chunk_size
-        logger.info(f"Processing chunk {chunk_num}/{total_chunks}: {len(chunk)} books")
+        while True:
+            barcode = await queue.get()
+            if barcode is None:  # Poison pill - time to exit
+                queue.task_done()
+                break
 
-        # Create tasks only for this chunk
-        chunk_tasks = [process_book(barcode) for barcode in chunk]
+            try:
+                # Process this book through the pipeline
+                task_results = await process_book_pipeline(manager, barcode, pipeline, task_funcs)
 
-        try:
-            chunk_results = await asyncio.gather(*chunk_tasks, return_exceptions=True)
-            results.extend(chunk_results)
+                # Store results thread-safely
+                async with results_lock:
+                    results_dict[barcode] = task_results
+                    completed_count += 1
+                    current_completed = completed_count
 
-            # Show progress after this chunk completes
-            _show_batch_progress(
-                manager,
-                start_time,
-                len(barcodes),
-                rate_calculator,
-                chunk_num,
-                total_chunks,
-            )
+                # Show progress periodically
+                if current_completed % progress_interval == 0 or current_completed == total_books:
+                    _show_queue_progress(
+                        manager, start_time, total_books, rate_calculator,
+                        current_completed, queue.qsize()
+                    )
 
-        except KeyboardInterrupt:
-            logger.info("KeyboardInterrupt caught during chunk processing, allowing graceful shutdown")
-            raise
+            except Exception as e:
+                # Log error but don't crash the worker
+                logger.error(f"[{barcode}] Worker failed processing book: {type(e).__name__}: {e}", exc_info=True)
+                async with results_lock:
+                    completed_count += 1
 
-    # Convert to dict
-    book_results = {}
-    for result in results:
-        if isinstance(result, tuple):
-            barcode, task_results = result
-            book_results[barcode] = task_results
-        elif isinstance(result, KeyboardInterrupt):
-            # KeyboardInterrupt from individual tasks should also propagate up
-            logger.info("KeyboardInterrupt from individual task, allowing graceful shutdown")
-            raise result
-        elif isinstance(result, Exception):
-            logger.error(f"Book processing failed: {type(result).__name__}: {result}", exc_info=result)
+            finally:
+                queue.task_done()
+
+    # Start fixed number of worker tasks
+    logger.info(f"Starting {workers} workers for {total_books:,} books")
+    worker_tasks = [asyncio.create_task(worker()) for _ in range(workers)]
+
+    try:
+        # Feed queue incrementally (blocks when full for backpressure)
+        for barcode in barcodes:
+            # Check for shutdown before adding each book
+            if pipeline._shutdown_requested:
+                logger.info("Shutdown requested, stopping queue feeding")
+                print("\nGraceful shutdown in progress, no new books will be processed...")
+                break
+
+            await queue.put(barcode)
+
+        # Wait for all queued items to be processed
+        await queue.join()
+
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt caught during queue feeding, allowing graceful shutdown")
+        raise
+
+    finally:
+        # Send poison pills to all workers
+        for _ in worker_tasks:
+            await queue.put(None)
+
+        # Wait for all workers to finish
+        await asyncio.gather(*worker_tasks, return_exceptions=True)
 
     # Log final stats
-    logger.info(f"Processed {len(book_results)}/{len(barcodes)} books")
+    logger.info(f"Processed {len(results_dict)}/{total_books} books")
     for task_type in TaskType:
         stats = manager.stats[task_type]
         if stats["started"] > 0:
@@ -548,4 +537,42 @@ async def process_books_batch(
                 f"failed={stats['failed']}"
             )
 
-    return book_results
+    return results_dict
+
+
+def _show_queue_progress(
+    manager: "TaskManager",
+    start_time: float,
+    total_books: int,
+    rate_calculator: "SlidingWindowRateCalculator",
+    completed_count: int,
+    queue_depth: int,
+) -> None:
+    """Show progress for queue-based processing."""
+    # Skip showing progress if no books completed yet
+    if completed_count == 0:
+        return
+
+    # Calculate progress metrics
+    current_time = time.time()
+    percentage = (completed_count / total_books) * 100 if total_books > 0 else 0
+    elapsed = current_time - start_time
+
+    # Update rate calculator
+    rate_calculator.add_batch(current_time, completed_count)
+    rate = rate_calculator.get_rate(start_time, completed_count)
+
+    # Calculate ETA
+    remaining = total_books - completed_count
+    eta_text = ""
+    if rate > 0 and remaining > 0:
+        eta_seconds = remaining / rate
+        eta_text = f" (ETA: {format_duration(eta_seconds)})"
+
+    # Show progress with queue depth
+    print(
+        f"{completed_count:,}/{total_books:,} "
+        f"({percentage:.1f}%) - {rate:.1f} books/sec - "
+        f"elapsed: {format_duration(elapsed)}{eta_text} "
+        f"[queue: {queue_depth}]"
+    )

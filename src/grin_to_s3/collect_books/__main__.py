@@ -28,7 +28,6 @@ from grin_to_s3.process_summary import (
     save_process_summary,
 )
 from grin_to_s3.run_config import (
-    DEFAULT_SYNC_BATCH_SIZE,
     DEFAULT_SYNC_DISK_SPACE_THRESHOLD,
     DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY,
     DEFAULT_SYNC_TASK_DECRYPT_CONCURRENCY,
@@ -125,7 +124,6 @@ def build_sync_config_from_args(args) -> dict:
         "task_extract_ocr_concurrency": args.sync_task_extract_ocr_concurrency,
         "task_export_csv_concurrency": args.sync_task_export_csv_concurrency,
         "task_cleanup_concurrency": args.sync_task_cleanup_concurrency,
-        "batch_size": args.sync_batch_size,
         "staging_dir": args.sync_staging_dir,
         "disk_space_threshold": args.sync_disk_space_threshold,
     }
@@ -284,12 +282,6 @@ Examples:
         type=int,
         default=DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY,
         help=f"Cleanup task concurrency for sync operations (default: {DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY})",
-    )
-    parser.add_argument(
-        "--sync-batch-size",
-        type=int,
-        default=DEFAULT_SYNC_BATCH_SIZE,
-        help=f"Batch size for sync operations (default: {DEFAULT_SYNC_BATCH_SIZE})",
     )
     parser.add_argument("--sync-staging-dir", help="Custom staging directory path for sync operations (default: auto)")
     parser.add_argument(

@@ -47,7 +47,6 @@ def mock_run_config(test_config_builder):
         .minio_storage(bucket_raw="test-raw")
         .with_concurrent_downloads(2)
         .with_concurrent_uploads(1)
-        .with_batch_size(10)
         .build()
     )
 

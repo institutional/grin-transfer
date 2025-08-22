@@ -101,11 +101,9 @@ def _apply_single_book_optimization(
         **optimized_config.config_dict.get("sync_config", {}),
         "concurrent_downloads": 1,  # Optimal for single book
         "concurrent_uploads": 1,  # Optimal for single book
-        "batch_size": 1,  # Single book batch
     }
     print("  - Concurrent downloads: 1")
     print("  - Concurrent uploads: 1")
-    print("  - Batch size: 1")
     print()
     sync_stage.add_progress_update("Single book mode optimization applied")
     return optimized_config

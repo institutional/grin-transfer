@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, NotRequired, TypedDict, cast
 
 # Sync configuration defaults
-DEFAULT_SYNC_BATCH_SIZE = 20
 DEFAULT_SYNC_DISK_SPACE_THRESHOLD = 0.9
 
 # Task concurrency defaults
@@ -210,10 +209,6 @@ class RunConfig:
             "task_cleanup_concurrency": self.sync_task_cleanup_concurrency,
         }
 
-    @property
-    def sync_batch_size(self) -> int:
-        """Get the batch size setting for sync operations."""
-        return self.sync_config.get("batch_size", DEFAULT_SYNC_BATCH_SIZE)
 
     @property
     def sync_staging_dir(self) -> str | None:
@@ -404,7 +399,6 @@ def print_run_config_info(db_path: str) -> None:
             print(f"      Extract OCR: {config.sync_task_extract_ocr_concurrency}")
             print(f"      Export CSV: {config.sync_task_export_csv_concurrency}")
             print(f"      Cleanup: {config.sync_task_cleanup_concurrency}")
-            print(f"    Batch Size: {config.sync_batch_size}")
             print(f"    Disk Space Threshold: {config.sync_disk_space_threshold}")
             if config.sync_staging_dir:
                 print(f"    Staging Directory: {config.sync_staging_dir}")

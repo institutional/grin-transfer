@@ -28,7 +28,7 @@ from grin_to_s3.storage.staging import LocalDirectoryManager, StagingDirectoryMa
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 from grin_to_s3.sync.task_manager import (
     TaskManager,
-    process_books_batch,
+    process_books_with_queue,
 )
 from grin_to_s3.sync.tasks import (
     check,
@@ -116,6 +116,8 @@ class SyncPipeline:
         download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
         max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
         task_concurrency_overrides: dict[str, int] | None = None,
+        worker_count: int = 20,
+        progress_interval: int = 20,
     ) -> "SyncPipeline":
         """Create SyncPipeline from RunConfig.
 
@@ -133,6 +135,8 @@ class SyncPipeline:
             download_retries: Number of retry attempts for failed downloads
             max_sequential_failures: Exit pipeline after this many consecutive failures
             task_concurrency_overrides: Override task concurrency limits from CLI
+            worker_count: Number of concurrent workers for book processing (default 20)
+            progress_interval: Number of books processed between progress updates (default 20)
 
         Returns:
             Configured SyncPipeline instance
@@ -151,6 +155,8 @@ class SyncPipeline:
             download_retries=download_retries,
             max_sequential_failures=max_sequential_failures,
             task_concurrency_overrides=task_concurrency_overrides,
+            worker_count=worker_count,
+            progress_interval=progress_interval,
         )
 
     def __init__(
@@ -168,6 +174,8 @@ class SyncPipeline:
         download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
         max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
         task_concurrency_overrides: dict[str, int] | None = None,
+        worker_count: int = 20,
+        progress_interval: int = 20,
     ):
         # Store configuration and runtime parameters
         self.config = config
@@ -182,6 +190,8 @@ class SyncPipeline:
         self.download_retries = download_retries
         self.max_sequential_failures = max_sequential_failures
         self.process_summary_stage = process_summary_stage
+        self.worker_count = worker_count
+        self.progress_interval = progress_interval
 
         # Extract commonly used config values
         self.db_path = config.sqlite_db_path
@@ -189,7 +199,6 @@ class SyncPipeline:
         self.secrets_dir = config.secrets_dir
 
         # Sync configuration from RunConfig
-        self.batch_size = config.sync_batch_size
         self.disk_space_threshold = config.sync_disk_space_threshold
 
         # Build task concurrency limits from config and overrides
@@ -478,16 +487,18 @@ class SyncPipeline:
             rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
             print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')}...")
-            print(f"Progress will be shown after each batch of {self.batch_size} books completes")
+            print(f"Progress will be shown every {self.progress_interval} books completed")
             print("---")
 
-            # Process the filtered books using the task manager
-            book_results = await process_books_batch(
+            # Process the filtered books using the queue-based task manager
+            book_results = await process_books_with_queue(
                 filtering_result.books_after_limit,
                 self,
                 task_funcs,
                 task_manager,
                 rate_calculator,
+                workers=self.worker_count,
+                progress_interval=self.progress_interval,
             )
 
             # Update process summary with detailed metrics from book results
@@ -530,7 +541,6 @@ class SyncPipeline:
         print("Task concurrency limits:")
         for task_type, task_limit in self.task_concurrency_limits.items():
             print(f"  {task_type.name.lower()}: {task_limit}")
-        print(f"Batch size: {self.batch_size}")
 
         if specific_barcodes:
             print(f"Filtered to specific barcodes: {len(specific_barcodes) if specific_barcodes else 0}")
