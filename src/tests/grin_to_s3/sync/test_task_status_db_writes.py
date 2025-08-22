@@ -11,8 +11,15 @@ import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.database import connect_async
-from grin_to_s3.sync.db_updates import UPDATE_HANDLERS, download_failed, get_updates_for_task, on, upload_completed
-from grin_to_s3.sync.task_manager import TaskManager, commit_book_record_updates
+from grin_to_s3.sync.db_updates import (
+    UPDATE_HANDLERS,
+    commit_book_record_updates,
+    download_failed,
+    get_updates_for_task,
+    on,
+    upload_completed,
+)
+from grin_to_s3.sync.task_manager import TaskManager
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
 
 

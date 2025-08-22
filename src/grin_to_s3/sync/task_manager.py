@@ -7,19 +7,16 @@ and post-processing tasks with dependency management.
 """
 
 import asyncio
-import json
 import logging
 import time
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from grin_to_s3.common import Barcode
-from grin_to_s3.database.database_utils import connect_async, retry_database_operation
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator, show_queue_progress
 
-from .db_updates import get_updates_for_task
+from .db_updates import StatusUpdate, commit_book_record_updates, get_updates_for_task
 from .tasks.task_types import (
     CheckTaskFunc,
     CleanupTaskFunc,
@@ -35,17 +32,6 @@ from .tasks.task_types import (
     UnpackTaskFunc,
     UploadTaskFunc,
 )
-
-
-class StatusUpdate(NamedTuple):
-    """Status update tuple for collecting updates before writing."""
-
-    barcode: str
-    status_type: str
-    status_value: str
-    metadata: dict | None = None
-    session_id: str | None = None
-
 
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
@@ -177,64 +163,6 @@ class TaskManager:
             "active_total": self.get_active_task_count(),
             "active_by_type": {task_type: self.get_active_task_count(task_type) for task_type in TaskType},
         }
-
-
-@retry_database_operation
-async def commit_book_record_updates(pipeline: "SyncPipeline", barcode: str):
-    """Commit all accumulated database record updates for a book."""
-    record_updates = pipeline.book_record_updates.get(barcode)
-    if not record_updates:
-        return
-
-    now = datetime.now(UTC).isoformat()
-    async with connect_async(str(pipeline.db_tracker.db_path)) as conn:
-        # Write all status history records
-        if record_updates["status_history"]:
-            for status_update in record_updates["status_history"]:
-                await conn.execute(
-                    """INSERT INTO book_status_history
-                       (barcode, status_type, status_value, timestamp, session_id, metadata)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (
-                        status_update.barcode,
-                        status_update.status_type,
-                        status_update.status_value,
-                        datetime.now(UTC).isoformat(),
-                        status_update.session_id,
-                        json.dumps(status_update.metadata) if status_update.metadata else None,
-                    ),
-                )
-
-        # Update books table fields
-        if record_updates["books_fields"]:
-            sync_data = record_updates["books_fields"]
-            await conn.execute(
-                """
-                UPDATE books SET
-                    storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
-                    last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
-                    sync_timestamp = ?, sync_error = ?,
-                    updated_at = ?
-                WHERE barcode = ?
-            """,
-                (
-                    sync_data.get("storage_type"),
-                    sync_data.get("storage_path"),
-                    sync_data.get("storage_decrypted_path"),
-                    sync_data.get("last_etag_check"),
-                    sync_data.get("encrypted_etag"),
-                    sync_data.get("is_decrypted", False),
-                    sync_data.get("sync_timestamp", now),
-                    sync_data.get("sync_error"),
-                    now,
-                    barcode,
-                ),
-            )
-
-        await conn.commit()
-
-    # Clean up after commit
-    del pipeline.book_record_updates[barcode]
 
 
 async def process_book_pipeline(
@@ -486,9 +414,7 @@ async def process_books_with_queue(
 
                 # Show progress periodically
                 if current_completed % progress_interval == 0 or current_completed == total_books:
-                    show_queue_progress(
-                        start_time, total_books, rate_calculator, current_completed, queue.qsize()
-                    )
+                    show_queue_progress(start_time, total_books, rate_calculator, current_completed, queue.qsize())
 
             except Exception as e:
                 # Log error but don't crash the worker
@@ -543,5 +469,3 @@ async def process_books_with_queue(
             )
 
     return results_dict
-
-

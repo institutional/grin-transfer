@@ -1,14 +1,31 @@
 #!/usr/bin/env python3
 """Database update handlers for sync pipeline tasks."""
 
+import json
 import logging
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
+from grin_to_s3.database import connect_async
+from grin_to_s3.database.database_utils import retry_database_operation
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
 
+if TYPE_CHECKING:
+    from grin_to_s3.sync.pipeline import SyncPipeline
+
 logger = logging.getLogger(__name__)
+
+
+class StatusUpdate(NamedTuple):
+    """Status update tuple for collecting updates before writing."""
+
+    barcode: str
+    status_type: str
+    status_value: str
+    metadata: dict | None = None
+    session_id: str | None = None
+
 
 # Registry of update handlers
 UPDATE_HANDLERS: dict[tuple[TaskType, TaskAction], list] = {}
@@ -238,3 +255,61 @@ async def get_updates_for_task(result: TaskResult, previous_results: dict[TaskTy
         _log_status_update(result.barcode, result.task_type, result.action, status_type_val, status_value_val, metadata)
 
     return updates
+
+
+@retry_database_operation
+async def commit_book_record_updates(pipeline: "SyncPipeline", barcode: str):
+    """Commit all accumulated database record updates for a book."""
+    record_updates = pipeline.book_record_updates.get(barcode)
+    if not record_updates:
+        return
+
+    now = datetime.now(UTC).isoformat()
+    async with connect_async(str(pipeline.db_tracker.db_path)) as conn:
+        # Write all status history records
+        if record_updates["status_history"]:
+            for status_update in record_updates["status_history"]:
+                await conn.execute(
+                    """INSERT INTO book_status_history
+                       (barcode, status_type, status_value, timestamp, session_id, metadata)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        status_update.barcode,
+                        status_update.status_type,
+                        status_update.status_value,
+                        datetime.now(UTC).isoformat(),
+                        status_update.session_id,
+                        json.dumps(status_update.metadata) if status_update.metadata else None,
+                    ),
+                )
+
+        # Update books table fields
+        if record_updates["books_fields"]:
+            sync_data = record_updates["books_fields"]
+            await conn.execute(
+                """
+                UPDATE books SET
+                    storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
+                    last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
+                    sync_timestamp = ?, sync_error = ?,
+                    updated_at = ?
+                WHERE barcode = ?
+            """,
+                (
+                    sync_data.get("storage_type"),
+                    sync_data.get("storage_path"),
+                    sync_data.get("storage_decrypted_path"),
+                    sync_data.get("last_etag_check"),
+                    sync_data.get("encrypted_etag"),
+                    sync_data.get("is_decrypted", False),
+                    sync_data.get("sync_timestamp", now),
+                    sync_data.get("sync_error"),
+                    now,
+                    barcode,
+                ),
+            )
+
+        await conn.commit()
+
+    # Clean up after commit
+    del pipeline.book_record_updates[barcode]
