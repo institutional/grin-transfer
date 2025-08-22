@@ -440,7 +440,6 @@ class TestErrorHandling:
     """Test error handling and resilience."""
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Test has hanging issue - needs investigation")
     async def test_individual_book_failures_dont_crash_workers(
         self, mock_pipeline, mock_task_manager, mock_rate_calculator, mock_task_functions
     ):
@@ -473,10 +472,34 @@ class TestErrorHandling:
                 progress_interval=2,
             )
 
-            # Should have results for successful books only
-            # Books 000, 003, 006 should fail (every 3rd), others succeed
-            expected_successes = 8 - 3  # 3 failures
-            assert len(results) == expected_successes
+            # Should have results for all books (including failures)
+            assert len(results) == 8
+
+            # Check that the right books failed (every 3rd: 000, 003, 006)
+            failed_barcodes = []
+            successful_barcodes = []
+
+            for barcode, result in results.items():
+                download_result = result.get(TaskType.DOWNLOAD)
+                if download_result and download_result.action == TaskAction.FAILED:
+                    failed_barcodes.append(barcode)
+                else:
+                    successful_barcodes.append(barcode)
+
+            # Verify expected failures and successes
+            assert set(failed_barcodes) == {"TEST000", "TEST003", "TEST006"}
+            assert set(successful_barcodes) == {"TEST001", "TEST002", "TEST004", "TEST005", "TEST007"}
+
+            # Verify successful books have both DOWNLOAD and UPLOAD results
+            for barcode in successful_barcodes:
+                assert TaskType.DOWNLOAD in results[barcode]
+                assert TaskType.UPLOAD in results[barcode]
+
+            # Verify failed books only have DOWNLOAD result with error
+            for barcode in failed_barcodes:
+                assert TaskType.DOWNLOAD in results[barcode]
+                assert TaskType.UPLOAD not in results[barcode]
+                assert results[barcode][TaskType.DOWNLOAD].error is not None
 
     @pytest.mark.asyncio
     async def test_graceful_shutdown_on_interrupt(

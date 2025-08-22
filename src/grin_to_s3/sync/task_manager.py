@@ -424,23 +424,18 @@ async def process_books_with_queue(
             try:
                 # Process download phase only
                 download_results = await process_download_phase(manager, barcode, pipeline, task_funcs)
-
-                # If download was successful, pass to processing queue
-                download_result = download_results.get(TaskType.DOWNLOAD)
-                if download_result and download_result.should_continue_pipeline:
-                    await processing_queue.put((barcode, download_results))
-                else:
-                    # Download failed or conversion requested, count as completed
-                    async with results_lock:
-                        results_dict[barcode] = download_results
-                        completed_count += 1
+                await processing_queue.put((barcode, download_results))
 
             except Exception as e:
                 # Log error but don't crash the worker
                 logger.error(f"[{barcode}] Download worker failed: {type(e).__name__}: {e}", exc_info=True)
-                async with results_lock:
-                    # Don't store failed results, just count as completed
-                    completed_count += 1
+                # Create failure result and send to processing queue
+                error_msg = f"{type(e).__name__}: {e}"
+                failure_result: TaskResult = TaskResult(
+                    barcode=barcode, task_type=TaskType.DOWNLOAD, action=TaskAction.FAILED, error=error_msg
+                )
+                download_results = {TaskType.DOWNLOAD: failure_result}
+                await processing_queue.put((barcode, download_results))
 
             finally:
                 download_queue.task_done()
@@ -458,8 +453,19 @@ async def process_books_with_queue(
             barcode, download_results = item
 
             try:
-                # Process post-download phase
-                final_results = await process_processing_phase(manager, barcode, download_results, pipeline, task_funcs)
+                # Check if download was successful
+                download_result = download_results.get(TaskType.DOWNLOAD)
+                if download_result and download_result.action == TaskAction.FAILED:
+                    # Download failed, just store the failure result
+                    final_results = download_results
+                elif download_result and not download_result.should_continue_pipeline:
+                    # Download succeeded but shouldn't continue (e.g., conversion requested)
+                    final_results = download_results
+                else:
+                    # Download succeeded and should continue with processing
+                    final_results = await process_processing_phase(
+                        manager, barcode, download_results, pipeline, task_funcs
+                    )
 
                 # Store results thread-safely
                 async with results_lock:
