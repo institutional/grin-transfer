@@ -45,34 +45,17 @@ class TaskManager:
     Manages concurrent task execution with semaphores.
     """
 
-    def __init__(self, limits: dict[TaskType, int] | None = None):
+    def __init__(self, limits: dict[TaskType, int]):
         """
         Initialize with concurrency limits per task type.
 
         Args:
             limits: Max concurrent tasks per type
         """
-        self.limits = limits or {
-            # CHECK tasks use shared GRIN request semaphore (no separate limit)
-            TaskType.DOWNLOAD: 5,
-            TaskType.DECRYPT: 3,
-            TaskType.UNPACK: 3,
-            TaskType.UPLOAD: 10,
-            TaskType.EXTRACT_MARC: 5,
-            TaskType.EXTRACT_OCR: 5,
-            TaskType.CLEANUP: 2,
-        }
+        self.limits = limits
 
         # Create semaphores for each task type
         self.semaphores = {task_type: asyncio.Semaphore(limit) for task_type, limit in self.limits.items()}
-
-        # Shared semaphore for GRIN requests (check + download tasks)
-        # Both tasks hit the same endpoint so must share the 5-request limit
-        self.grin_api_semaphore = asyncio.Semaphore(5)
-
-        # CHECK and DOWNLOAD tasks use the shared GRIN API semaphore
-        self.semaphores[TaskType.CHECK] = self.grin_api_semaphore
-        self.semaphores[TaskType.DOWNLOAD] = self.grin_api_semaphore
 
         # Track active tasks
         self.active_tasks: dict[str, set[TaskType]] = defaultdict(set)
@@ -237,8 +220,11 @@ async def process_download_phase(
 
 
 async def process_processing_phase(
-    manager: TaskManager, barcode: Barcode, download_results: dict[TaskType, TaskResult],
-    pipeline: "SyncPipeline", task_funcs: dict[TaskType, Callable]
+    manager: TaskManager,
+    barcode: Barcode,
+    download_results: dict[TaskType, TaskResult],
+    pipeline: "SyncPipeline",
+    task_funcs: dict[TaskType, Callable],
 ) -> dict[TaskType, TaskResult]:
     """
     Process the post-download phase (DECRYPT through CLEANUP tasks).
@@ -387,7 +373,6 @@ async def process_processing_phase(
     return results
 
 
-
 async def process_books_with_queue(
     barcodes: list[str],
     pipeline: "SyncPipeline",
@@ -484,14 +469,24 @@ async def process_books_with_queue(
                 # Show progress periodically
                 if current_completed % progress_interval == 0 or current_completed == total_books:
                     # Get active task counts for enhanced progress display
-                    active_downloads = manager.get_active_task_count(TaskType.CHECK) + manager.get_active_task_count(TaskType.DOWNLOAD)
+                    active_downloads = manager.get_active_task_count(TaskType.CHECK) + manager.get_active_task_count(
+                        TaskType.DOWNLOAD
+                    )
                     active_processing = manager.get_active_task_count() - active_downloads
                     download_limit = manager.limits.get(TaskType.DOWNLOAD, 5)
 
                     show_queue_progress(
-                        start_time, total_books, rate_calculator, current_completed,
-                        download_queue.qsize(), processing_queue.qsize(),
-                        {"downloads": active_downloads, "processing": active_processing, "download_limit": download_limit}
+                        start_time,
+                        total_books,
+                        rate_calculator,
+                        current_completed,
+                        download_queue.qsize(),
+                        processing_queue.qsize(),
+                        {
+                            "downloads": active_downloads,
+                            "processing": active_processing,
+                            "download_limit": download_limit,
+                        },
                     )
 
             except Exception as e:
@@ -507,7 +502,9 @@ async def process_books_with_queue(
     download_workers = min(5, workers)  # Match GRIN API limit
     processing_workers = max(1, workers - download_workers)
 
-    logger.info(f"Starting {download_workers} download workers and {processing_workers} processing workers for {total_books:,} books")
+    logger.info(
+        f"Starting {download_workers} download workers and {processing_workers} processing workers for {total_books:,} books"
+    )
 
     download_tasks = [asyncio.create_task(download_worker()) for _ in range(download_workers)]
     processing_tasks = [asyncio.create_task(processing_worker()) for _ in range(processing_workers)]

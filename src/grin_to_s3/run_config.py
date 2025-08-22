@@ -14,8 +14,8 @@ from typing import Any, NotRequired, TypedDict, cast
 DEFAULT_SYNC_DISK_SPACE_THRESHOLD = 0.9
 
 # Task concurrency defaults
-# Note: CHECK and DOWNLOAD tasks share GRIN request concurrency (5 total)
-DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY = 5
+DEFAULT_SYNC_TASK_CHECK_CONCURRENCY = 2
+DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY = 4
 DEFAULT_SYNC_TASK_DECRYPT_CONCURRENCY = 20
 DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY = 20
 DEFAULT_SYNC_TASK_UNPACK_CONCURRENCY = 20
@@ -157,6 +157,11 @@ class RunConfig:
         return self.config_dict.get("sync_config", {})
 
     @property
+    def sync_task_check_concurrency(self) -> int:
+        """Get the check task concurrency setting."""
+        return self.sync_config.get("task_check_concurrency", DEFAULT_SYNC_TASK_CHECK_CONCURRENCY)
+
+    @property
     def sync_task_download_concurrency(self) -> int:
         """Get the download task concurrency setting."""
         return self.sync_config.get("task_download_concurrency", DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY)
@@ -195,20 +200,6 @@ class RunConfig:
     def sync_task_cleanup_concurrency(self) -> int:
         """Get the cleanup task concurrency setting."""
         return self.sync_config.get("task_cleanup_concurrency", DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY)
-
-    def get_task_concurrency_limits(self) -> dict[str, int]:
-        """Get all task concurrency limits as a dictionary."""
-        return {
-            "task_download_concurrency": self.sync_task_download_concurrency,
-            "task_decrypt_concurrency": self.sync_task_decrypt_concurrency,
-            "task_upload_concurrency": self.sync_task_upload_concurrency,
-            "task_unpack_concurrency": self.sync_task_unpack_concurrency,
-            "task_extract_marc_concurrency": self.sync_task_extract_marc_concurrency,
-            "task_extract_ocr_concurrency": self.sync_task_extract_ocr_concurrency,
-            "task_export_csv_concurrency": self.sync_task_export_csv_concurrency,
-            "task_cleanup_concurrency": self.sync_task_cleanup_concurrency,
-        }
-
 
     @property
     def sync_staging_dir(self) -> str | None:
