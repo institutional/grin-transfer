@@ -5,7 +5,7 @@ import json
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -157,9 +157,8 @@ class TestDatabaseUpdateOrchestration:
             async def duplicate_upload_handler(result, previous_results):
                 return {"status": ("custom_status", "custom_uploaded", {"custom_field": "custom_value"}), "books": {}}
 
-    @patch("grin_to_s3.sync.task_manager.batch_write_status_updates")
     @pytest.mark.asyncio
-    async def test_failed_task_handling(self, mock_batch_write, mock_pipeline):
+    async def test_failed_task_handling(self, mock_pipeline):
         """TaskManager.run_task should capture error messages in status updates for failed tasks."""
         task_manager = TaskManager({TaskType.DOWNLOAD: 1})
 
@@ -174,12 +173,12 @@ class TestDatabaseUpdateOrchestration:
         previous_results = {}
         await task_manager.run_task(TaskType.DOWNLOAD, "TEST123", mock_failed_download, mock_pipeline, previous_results)
 
-        # Commit accumulated updates
-        await commit_book_record_updates(mock_pipeline, "TEST123")
+        # Verify error was captured in accumulated updates
+        assert "TEST123" in mock_pipeline.book_record_updates
+        book_updates = mock_pipeline.book_record_updates["TEST123"]
+        assert "status_history" in book_updates
 
-        # Verify error was captured in status update
-        mock_batch_write.assert_called_once()
-        status_updates = mock_batch_write.call_args[0][1]
+        status_updates = book_updates["status_history"]
         assert len(status_updates) == 1
 
         status_update = status_updates[0]

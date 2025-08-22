@@ -12,13 +12,16 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import aiofiles
 
 from .common import compress_file_to_temp, format_duration, get_compressed_filename
 
 logger = logging.getLogger(__name__)
+
+# Book processing outcome types
+BookOutcome = Literal["conversion_requested", "skipped", "synced", "failed"]
 
 
 @dataclass
@@ -105,6 +108,40 @@ class ProcessStageMetrics:
     def set_command_arg(self, key: str, value: Any) -> None:
         """Set a command-line argument or configuration value for this stage."""
         self.command_args[key] = value
+
+    @staticmethod
+    def determine_book_outcome(task_results: dict) -> BookOutcome:
+        """Determine the overall outcome for a book based on its task results."""
+        from grin_to_s3.sync.tasks.task_types import TaskAction, TaskType
+
+        # Check if conversion was requested (for previous queue)
+        if TaskType.REQUEST_CONVERSION in task_results:
+            request_result = task_results[TaskType.REQUEST_CONVERSION]
+            if request_result.action == TaskAction.COMPLETED:
+                return "conversion_requested"
+
+        # Check if the book was skipped early (already synced or etag match)
+        if TaskType.CHECK in task_results:
+            check_result = task_results[TaskType.CHECK]
+            if check_result.action == TaskAction.SKIPPED:
+                return "skipped"
+
+        # Check if the full sync pipeline completed successfully
+        if TaskType.UPLOAD in task_results:
+            upload_result = task_results[TaskType.UPLOAD]
+            if upload_result.action == TaskAction.COMPLETED:
+                return "synced"
+
+        # If we got here, something failed
+        return "failed"
+
+    def increment_by_outcome(self, outcome: BookOutcome) -> None:
+        """Increment counters based on book outcome."""
+        self.items_processed += 1
+        if outcome in ["synced", "skipped", "conversion_requested"]:
+            self.items_successful += 1
+        else:
+            self.items_failed += 1
 
 
 @dataclass

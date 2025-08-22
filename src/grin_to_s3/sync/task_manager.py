@@ -7,14 +7,17 @@ and post-processing tasks with dependency management.
 """
 
 import asyncio
+import json
 import logging
 import time
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, NamedTuple, cast
 
-from grin_to_s3.common import Barcode, format_duration
-from grin_to_s3.database.database_utils import batch_write_status_updates
+from grin_to_s3.common import Barcode
+from grin_to_s3.database.database_utils import connect_async, retry_database_operation
+from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator, show_queue_progress
 
 from .db_updates import get_updates_for_task
 from .tasks.task_types import (
@@ -46,12 +49,9 @@ class StatusUpdate(NamedTuple):
 
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
-    from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 
 
 logger = logging.getLogger(__name__)
-
-
 
 
 class TaskManager:
@@ -179,19 +179,59 @@ class TaskManager:
         }
 
 
+@retry_database_operation
 async def commit_book_record_updates(pipeline: "SyncPipeline", barcode: str):
     """Commit all accumulated database record updates for a book."""
     record_updates = pipeline.book_record_updates.get(barcode)
     if not record_updates:
         return
 
-    # Write all status history records (batch_write_status_updates handles its own transaction)
-    if record_updates["status_history"]:
-        await batch_write_status_updates(str(pipeline.db_tracker.db_path), record_updates["status_history"])
+    now = datetime.now(UTC).isoformat()
+    async with connect_async(str(pipeline.db_tracker.db_path)) as conn:
+        # Write all status history records
+        if record_updates["status_history"]:
+            for status_update in record_updates["status_history"]:
+                await conn.execute(
+                    """INSERT INTO book_status_history
+                       (barcode, status_type, status_value, timestamp, session_id, metadata)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        status_update.barcode,
+                        status_update.status_type,
+                        status_update.status_value,
+                        datetime.now(UTC).isoformat(),
+                        status_update.session_id,
+                        json.dumps(status_update.metadata) if status_update.metadata else None,
+                    ),
+                )
 
-    # Update books table fields (update_sync_data handles its own transaction)
-    if record_updates["books_fields"]:
-        await pipeline.db_tracker.update_sync_data(barcode, record_updates["books_fields"])
+        # Update books table fields
+        if record_updates["books_fields"]:
+            sync_data = record_updates["books_fields"]
+            await conn.execute(
+                """
+                UPDATE books SET
+                    storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
+                    last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
+                    sync_timestamp = ?, sync_error = ?,
+                    updated_at = ?
+                WHERE barcode = ?
+            """,
+                (
+                    sync_data.get("storage_type"),
+                    sync_data.get("storage_path"),
+                    sync_data.get("storage_decrypted_path"),
+                    sync_data.get("last_etag_check"),
+                    sync_data.get("encrypted_etag"),
+                    sync_data.get("is_decrypted", False),
+                    sync_data.get("sync_timestamp", now),
+                    sync_data.get("sync_error"),
+                    now,
+                    barcode,
+                ),
+            )
+
+        await conn.commit()
 
     # Clean up after commit
     del pipeline.book_record_updates[barcode]
@@ -343,7 +383,6 @@ async def process_book_pipeline(
                     )
                 )
 
-
             # Gather upload and extraction tasks in parallel
             parallel_tasks = [upload_task] + extraction_tasks
 
@@ -379,44 +418,11 @@ async def process_book_pipeline(
         # ALWAYS commit accumulated updates (success or failure)
         await commit_book_record_updates(pipeline, barcode)
 
-    # Update process summary with incremental counts for this book
-    _update_book_metrics(pipeline, results)
+    # Update process summary metrics
+    outcome = pipeline.process_summary_stage.determine_book_outcome(results)
+    pipeline.process_summary_stage.increment_by_outcome(outcome)
 
     return results
-
-
-def _update_book_metrics(pipeline: "SyncPipeline", results: dict) -> None:
-    """Update process summary stage incrementally for this book."""
-    # Import here to avoid circular imports
-    from .tasks.task_types import TaskAction, TaskType
-
-    # Determine if this book was successful overall
-    if TaskType.REQUEST_CONVERSION in results:
-        # Conversion request completed - this is a success for the "previous" queue
-        request_result = results[TaskType.REQUEST_CONVERSION]
-        if request_result.action == TaskAction.COMPLETED:
-            pipeline.process_summary_stage.increment_items(processed=1, successful=1)
-        else:
-            pipeline.process_summary_stage.increment_items(processed=1, failed=1)
-    elif TaskType.CHECK in results:
-        check_result = results[TaskType.CHECK]
-        if check_result.action == TaskAction.SKIPPED:
-            # Book was skipped (already synced/etag match) - this is successful
-            pipeline.process_summary_stage.increment_items(processed=1, successful=1)
-        elif TaskType.UPLOAD in results:
-            upload_result = results[TaskType.UPLOAD]
-            if upload_result.action == TaskAction.COMPLETED:
-                # Full sync completed successfully
-                pipeline.process_summary_stage.increment_items(processed=1, successful=1)
-            else:
-                # Upload failed - overall failure
-                pipeline.process_summary_stage.increment_items(processed=1, failed=1)
-        else:
-            # Some other failure in the pipeline
-            pipeline.process_summary_stage.increment_items(processed=1, failed=1)
-    else:
-        # No check task - probably a failure
-        pipeline.process_summary_stage.increment_items(processed=1, failed=1)
 
 
 async def process_books_with_queue(
@@ -480,9 +486,8 @@ async def process_books_with_queue(
 
                 # Show progress periodically
                 if current_completed % progress_interval == 0 or current_completed == total_books:
-                    _show_queue_progress(
-                        manager, start_time, total_books, rate_calculator,
-                        current_completed, queue.qsize()
+                    show_queue_progress(
+                        start_time, total_books, rate_calculator, current_completed, queue.qsize()
                     )
 
             except Exception as e:
@@ -540,39 +545,3 @@ async def process_books_with_queue(
     return results_dict
 
 
-def _show_queue_progress(
-    manager: "TaskManager",
-    start_time: float,
-    total_books: int,
-    rate_calculator: "SlidingWindowRateCalculator",
-    completed_count: int,
-    queue_depth: int,
-) -> None:
-    """Show progress for queue-based processing."""
-    # Skip showing progress if no books completed yet
-    if completed_count == 0:
-        return
-
-    # Calculate progress metrics
-    current_time = time.time()
-    percentage = (completed_count / total_books) * 100 if total_books > 0 else 0
-    elapsed = current_time - start_time
-
-    # Update rate calculator
-    rate_calculator.add_batch(current_time, completed_count)
-    rate = rate_calculator.get_rate(start_time, completed_count)
-
-    # Calculate ETA
-    remaining = total_books - completed_count
-    eta_text = ""
-    if rate > 0 and remaining > 0:
-        eta_seconds = remaining / rate
-        eta_text = f" (ETA: {format_duration(eta_seconds)})"
-
-    # Show progress with queue depth
-    print(
-        f"{completed_count:,}/{total_books:,} "
-        f"({percentage:.1f}%) - {rate:.1f} books/sec - "
-        f"elapsed: {format_duration(elapsed)}{eta_text} "
-        f"[queue: {queue_depth}]"
-    )

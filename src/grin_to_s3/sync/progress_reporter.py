@@ -7,6 +7,8 @@ Provides rate calculation utilities for sync operations.
 
 import time
 
+from grin_to_s3.common import format_duration
+
 
 class SlidingWindowRateCalculator:
     """
@@ -65,3 +67,40 @@ class SlidingWindowRateCalculator:
             current_time = time.time()
             overall_elapsed = current_time - fallback_start_time
             return fallback_processed_count / max(1, overall_elapsed)
+
+
+def show_queue_progress(
+    start_time: float,
+    total_books: int,
+    rate_calculator: "SlidingWindowRateCalculator",
+    completed_count: int,
+    queue_depth: int,
+) -> None:
+    """Show progress for queue-based processing."""
+    # Skip showing progress if no books completed yet
+    if completed_count == 0:
+        return
+
+    # Calculate progress metrics
+    current_time = time.time()
+    percentage = (completed_count / total_books) * 100 if total_books > 0 else 0
+    elapsed = current_time - start_time
+
+    # Update rate calculator
+    rate_calculator.add_batch(current_time, completed_count)
+    rate = rate_calculator.get_rate(start_time, completed_count)
+
+    # Calculate ETA
+    remaining = total_books - completed_count
+    eta_text = ""
+    if rate > 0 and remaining > 0:
+        eta_seconds = remaining / rate
+        eta_text = f" (ETA: {format_duration(eta_seconds)})"
+
+    # Show progress with queue depth
+    print(
+        f"{completed_count:,}/{total_books:,} "
+        f"({percentage:.1f}%) - {rate:.1f} books/sec - "
+        f"elapsed: {format_duration(elapsed)}{eta_text} "
+        f"[queue: {queue_depth}]"
+    )

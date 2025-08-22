@@ -604,7 +604,7 @@ class SyncPipeline:
 
         for task_results in book_results.values():
             # Determine the overall outcome for this book
-            book_outcome = self._determine_book_outcome(task_results)
+            book_outcome = self.process_summary_stage.determine_book_outcome(task_results)
 
             if book_outcome == "synced":
                 synced += 1
@@ -636,27 +636,3 @@ class SyncPipeline:
             self.process_summary_stage.queue_info["conversion_requests"] = self.conversion_requests_made
             self.process_summary_stage.queue_info["conversion_limit"] = self.conversion_request_limit
 
-    def _determine_book_outcome(self, task_results: dict) -> str:
-        """Determine the overall outcome for a single book based on its task results."""
-        from .tasks.task_types import TaskAction, TaskType
-
-        # Check if conversion was requested (for previous queue)
-        if TaskType.REQUEST_CONVERSION in task_results:
-            request_result = task_results[TaskType.REQUEST_CONVERSION]
-            if request_result.action == TaskAction.COMPLETED:
-                return "conversion_requested"
-
-        # Check if the book was skipped early (already synced or etag match)
-        if TaskType.CHECK in task_results:
-            check_result = task_results[TaskType.CHECK]
-            if check_result.action == TaskAction.SKIPPED:
-                return "skipped"
-
-        # Check if the full sync pipeline completed successfully
-        if TaskType.UPLOAD in task_results:
-            upload_result = task_results[TaskType.UPLOAD]
-            if upload_result.action == TaskAction.COMPLETED:
-                return "synced"
-
-        # If we got here, something failed
-        return "failed"
