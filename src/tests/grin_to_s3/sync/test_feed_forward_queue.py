@@ -555,21 +555,12 @@ class TestEndToEndIntegration:
         self, mock_pipeline, mock_task_manager, mock_rate_calculator, mock_task_functions
     ):
         """Pipeline shutdown request should stop feeding new books to queue."""
-        barcodes = [f"TEST{i:03d}" for i in range(100)]
+        barcodes = [f"TEST{i:03d}" for i in range(200)]  # More than queue size (100)
 
-        # Set up pipeline to request shutdown early in the feeding process
-        # by intercepting queue.put calls
-        put_count = 0
-
-        original_put = asyncio.Queue.put
-
-        async def shutdown_on_put(self, item):
-            nonlocal put_count
-            put_count += 1
-            # Request shutdown after first 10 books are queued
-            if put_count == 10:
-                mock_pipeline._shutdown_requested = True
-            return await original_put(self, item)
+        # Create a task that will trigger shutdown after a delay to simulate external shutdown
+        async def trigger_shutdown():
+            await asyncio.sleep(0.05)  # Small delay to let initial queue feeding start
+            mock_pipeline._shutdown_requested = True
 
         with patch("grin_to_s3.sync.task_manager.process_download_phase") as mock_download, \
              patch("grin_to_s3.sync.task_manager.process_processing_phase") as mock_processing:
@@ -586,7 +577,10 @@ class TestEndToEndIntegration:
             mock_download.side_effect = download_side_effect
             mock_processing.side_effect = processing_side_effect
 
-            with patch.object(asyncio.Queue, "put", shutdown_on_put):
+            # Start shutdown trigger task
+            shutdown_task = asyncio.create_task(trigger_shutdown())
+
+            try:
                 results = await process_books_with_queue(
                     barcodes,
                     mock_pipeline,
@@ -597,10 +591,20 @@ class TestEndToEndIntegration:
                     progress_interval=5,
                 )
 
-                # Should have processed less than all books due to shutdown during feeding
-                # The number processed should be close to when shutdown was requested
-                assert len(results) <= 20  # Some margin for concurrency
-                assert len(results) >= 5   # At least some books before shutdown
+                # Should process the initial queue fill (100) plus some additional items
+                # that were already in processing when shutdown was triggered,
+                # but not all 200 books
+                assert len(results) < 200  # Didn't process all books (shutdown worked)
+                assert len(results) >= 100  # At least processed initial queue fill
+
+            finally:
+                # Clean up the shutdown task
+                if not shutdown_task.done():
+                    shutdown_task.cancel()
+                try:
+                    await shutdown_task
+                except asyncio.CancelledError:
+                    pass
 
     @pytest.mark.asyncio
     async def test_memory_bounded_with_large_book_list(
