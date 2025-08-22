@@ -7,6 +7,8 @@ Provides rate calculation utilities for sync operations.
 
 import time
 
+from grin_to_s3.common import format_duration
+
 
 class SlidingWindowRateCalculator:
     """
@@ -65,3 +67,47 @@ class SlidingWindowRateCalculator:
             current_time = time.time()
             overall_elapsed = current_time - fallback_start_time
             return fallback_processed_count / max(1, overall_elapsed)
+
+
+def show_queue_progress(
+    start_time: float,
+    total_books: int,
+    rate_calculator: "SlidingWindowRateCalculator",
+    completed_count: int,
+    download_queue_depth: int,
+    processing_queue_depth: int,
+    active_tasks: dict[str, int],
+) -> None:
+    """Show progress for dual-queue processing."""
+    # Skip showing progress if no books completed yet
+    if completed_count == 0:
+        return
+
+    # Calculate progress metrics
+    current_time = time.time()
+    percentage = (completed_count / total_books) * 100 if total_books > 0 else 0
+    elapsed = current_time - start_time
+
+    # Update rate calculator
+    rate_calculator.add_batch(current_time, completed_count)
+    rate = rate_calculator.get_rate(start_time, completed_count)
+
+    # Calculate ETA
+    remaining = total_books - completed_count
+    eta_text = ""
+    if rate > 0 and remaining > 0:
+        eta_seconds = remaining / rate
+        eta_text = f" (ETA: {format_duration(eta_seconds)})"
+
+    # Show progress with active task breakdown
+    downloads = active_tasks.get("downloads", 0)
+    download_limit = active_tasks.get("download_limit", 5)
+    processing = active_tasks.get("processing", 0)
+
+    print(
+        f"{completed_count:,}/{total_books:,} "
+        f"({percentage:.1f}%) - {rate:.1f} books/sec - "
+        f"elapsed: {format_duration(elapsed)}{eta_text} "
+        f"[downloads: {downloads}/{download_limit}, processing: {processing}, "
+        f"waiting to download: {download_queue_depth}, waiting to be processed: {processing_queue_depth}]"
+    )

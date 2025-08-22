@@ -91,10 +91,6 @@ class ConfigBuilder:
         self._config["sync_config"]["concurrent_uploads"] = count
         return self
 
-    def with_batch_size(self, size: int):
-        """Set batch size."""
-        self._config["sync_config"]["batch_size"] = size
-        return self
 
     def with_staging_dir(self, staging_dir: str):
         """Set staging directory."""

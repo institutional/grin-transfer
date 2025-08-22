@@ -28,8 +28,8 @@ from grin_to_s3.process_summary import (
     save_process_summary,
 )
 from grin_to_s3.run_config import (
-    DEFAULT_SYNC_BATCH_SIZE,
     DEFAULT_SYNC_DISK_SPACE_THRESHOLD,
+    DEFAULT_SYNC_TASK_CHECK_CONCURRENCY,
     DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY,
     DEFAULT_SYNC_TASK_DECRYPT_CONCURRENCY,
     DEFAULT_SYNC_TASK_DOWNLOAD_CONCURRENCY,
@@ -117,6 +117,7 @@ def print_resume_command(args, run_name: str) -> None:
 def build_sync_config_from_args(args) -> dict:
     """Build sync configuration dictionary from CLI arguments."""
     return {
+        "task_check_concurrency": args.sync_task_check_concurrency,
         "task_download_concurrency": args.sync_task_download_concurrency,
         "task_decrypt_concurrency": args.sync_task_decrypt_concurrency,
         "task_upload_concurrency": args.sync_task_upload_concurrency,
@@ -125,7 +126,6 @@ def build_sync_config_from_args(args) -> dict:
         "task_extract_ocr_concurrency": args.sync_task_extract_ocr_concurrency,
         "task_export_csv_concurrency": args.sync_task_export_csv_concurrency,
         "task_cleanup_concurrency": args.sync_task_cleanup_concurrency,
-        "batch_size": args.sync_batch_size,
         "staging_dir": args.sync_staging_dir,
         "disk_space_threshold": args.sync_disk_space_threshold,
     }
@@ -227,16 +227,18 @@ Examples:
         help="Library directory name for GRIN API requests (e.g., Harvard, MIT, Yale)",
     )
 
-    # Data source options (removed - only HTML mode supported)
-
     # Pagination options
     parser.add_argument("--page-size", type=int, help="Records per page for API requests (default: 10000)")
     parser.add_argument("--max-pages", type=int, help="Maximum pages to fetch (default: 1000)")
     parser.add_argument("--start-page", type=int, help="Starting page number (default: 1)")
 
-    # Performance options (HTTP prefetching is always enabled)
-
     # Sync configuration options (stored in run config for later use)
+    parser.add_argument(
+        "--sync-task-check-concurrency",
+        type=int,
+        default=DEFAULT_SYNC_TASK_CHECK_CONCURRENCY,
+        help=f"Check/head task concurrency for sync operations (default: {DEFAULT_SYNC_TASK_CHECK_CONCURRENCY})",
+    )
     parser.add_argument(
         "--sync-task-download-concurrency",
         type=int,
@@ -284,12 +286,6 @@ Examples:
         type=int,
         default=DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY,
         help=f"Cleanup task concurrency for sync operations (default: {DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY})",
-    )
-    parser.add_argument(
-        "--sync-batch-size",
-        type=int,
-        default=DEFAULT_SYNC_BATCH_SIZE,
-        help=f"Batch size for sync operations (default: {DEFAULT_SYNC_BATCH_SIZE})",
     )
     parser.add_argument("--sync-staging-dir", help="Custom staging directory path for sync operations (default: auto)")
     parser.add_argument(

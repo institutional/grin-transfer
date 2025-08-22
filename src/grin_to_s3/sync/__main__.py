@@ -30,6 +30,7 @@ from grin_to_s3.process_summary import (
     save_process_summary,
 )
 from grin_to_s3.run_config import (
+    DEFAULT_WORKER_CONCURRENCY,
     RunConfig,
     apply_run_config_to_args,
     build_storage_config_dict,
@@ -101,11 +102,9 @@ def _apply_single_book_optimization(
         **optimized_config.config_dict.get("sync_config", {}),
         "concurrent_downloads": 1,  # Optimal for single book
         "concurrent_uploads": 1,  # Optimal for single book
-        "batch_size": 1,  # Single book batch
     }
     print("  - Concurrent downloads: 1")
     print("  - Concurrent uploads: 1")
-    print("  - Batch size: 1")
     print()
     sync_stage.add_progress_update("Single book mode optimization applied")
     return optimized_config
@@ -153,6 +152,7 @@ async def _run_sync_pipeline(args, run_config: RunConfig, sync_stage) -> None:
         download_retries=args.download_retries,
         max_sequential_failures=args.max_sequential_failures,
         task_concurrency_overrides=_collect_task_concurrency_overrides(args),
+        worker_count=args.workers,
     )
 
     # Set up signal handlers for graceful shutdown
@@ -482,6 +482,12 @@ Examples:
     )
 
     # Task concurrency options
+    pipeline_parser.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_WORKER_CONCURRENCY,
+        help=f"Total number of concurrent workers for processing. Workers are split between download and processing phases (default: {DEFAULT_WORKER_CONCURRENCY})",
+    )
     pipeline_parser.add_argument(
         "--task-check-concurrency",
         type=int,

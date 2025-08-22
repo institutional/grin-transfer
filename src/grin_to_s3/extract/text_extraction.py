@@ -220,36 +220,6 @@ def filesystem_page_generator(extracted_dir: Path):
         expected_page = page_num + 1
 
 
-def extract_ocr_to_jsonl_file(extracted_dir_path: Path, output_path: Path) -> int:
-    """
-    Extract OCR text to JSONL file using streaming from filesystem to minimize memory usage.
-
-    Uses generator to process one page at a time without loading entire files into memory.
-
-    Args:
-        extracted_dir_path: Path to extracted archive directory
-        output_path: Path to output JSONL file
-
-    Returns:
-        Number of pages processed
-
-    FIXME DEPRECATED
-    """
-    with open(output_path, "w", encoding="utf-8") as f:
-        page_count = 0
-
-        for page_num, content in filesystem_page_generator(extracted_dir_path):
-            # Write the JSON-encoded content as a single line
-            f.write(json.dumps(content, ensure_ascii=False) + "\n")
-            page_count += 1
-
-            if page_count % 100 == 0:
-                logger.debug(
-                    f"Streaming filesystem extraction progress: {page_count} pages written, last page was {page_num}"
-                )
-
-    logger.debug(f"OCR text saved to JSONL file (streaming filesystem): {output_path} ({page_count} pages)")
-    return page_count
 
 
 async def extract_ocr_pages(unpack_data: "UnpackData", jsonl_path: Path) -> int:
