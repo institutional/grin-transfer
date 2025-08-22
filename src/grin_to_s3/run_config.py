@@ -24,6 +24,9 @@ DEFAULT_SYNC_TASK_EXTRACT_OCR_CONCURRENCY = 20
 DEFAULT_SYNC_TASK_EXPORT_CSV_CONCURRENCY = 20
 DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY = 20
 
+# Worker concurrency defaults
+DEFAULT_WORKER_CONCURRENCY = 100
+
 
 class StorageConfigDict(TypedDict, total=False):
     """Inner config dict for storage configuration."""

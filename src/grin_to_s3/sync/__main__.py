@@ -30,6 +30,7 @@ from grin_to_s3.process_summary import (
     save_process_summary,
 )
 from grin_to_s3.run_config import (
+    DEFAULT_WORKER_CONCURRENCY,
     RunConfig,
     apply_run_config_to_args,
     build_storage_config_dict,
@@ -484,8 +485,8 @@ Examples:
     pipeline_parser.add_argument(
         "--workers",
         type=int,
-        default=100,
-        help="Total number of concurrent workers for processing. Workers are split between download and processing phases (default: 100)",
+        default=DEFAULT_WORKER_CONCURRENCY,
+        help=f"Total number of concurrent workers for processing. Workers are split between download and processing phases (default: {DEFAULT_WORKER_CONCURRENCY})",
     )
     pipeline_parser.add_argument(
         "--task-check-concurrency",
