@@ -17,7 +17,6 @@ from .factories import LOCAL_STORAGE_DEFAULTS
 logger = logging.getLogger(__name__)
 
 
-
 class BookManager:
     """
     Storage abstraction specifically for book archive operations.
@@ -38,9 +37,7 @@ class BookManager:
         """
         self._manager_id = str(uuid.uuid4())[:8]
 
-        logger.info(
-            f"BookManager created (manager_id={self._manager_id})"
-        )
+        logger.info(f"BookManager created (manager_id={self._manager_id})")
 
         self.storage = storage
 
@@ -88,33 +85,25 @@ class BookManager:
         filename = f"{barcode}.tar.gz"
         path = self.raw_archive_path(barcode, filename)
 
-        try:
-            # For local storage, query the database for etag
-            if self.storage.config.protocol == "file":
-                # Query database for stored encrypted_etag
-                async with connect_async(db_tracker.db_path) as db:
-                    async with db.execute("SELECT encrypted_etag FROM books WHERE barcode = ?", (barcode,)) as cursor:
-                        row = await cursor.fetchone()
-                        result = {"encrypted_etag": row[0]} if row and row[0] else {}
+        # For local storage, query the database for etag
+        if self.storage.config.protocol == "file":
+            # Query database for stored encrypted_etag
+            async with connect_async(db_tracker.db_path) as db:
+                async with db.execute("SELECT encrypted_etag FROM books WHERE barcode = ?", (barcode,)) as cursor:
+                    row = await cursor.fetchone()
+                    result = {"encrypted_etag": row[0]} if row and row[0] else {}
+        else:
+            # For S3-compatible storage, use metadata from persistent S3 client
+            s3_client = await self.storage._get_s3_client()
+
+            # Parse bucket and key from path
+            normalized_path = self.storage._normalize_path(path)
+            path_parts = normalized_path.split("/", 1)
+            if len(path_parts) == 2:
+                bucket, key = path_parts
+                response = await s3_client.head_object(Bucket=bucket, Key=key)
+                result = response.get("Metadata", {})
             else:
-                # For S3-compatible storage, use metadata from persistent S3 client
-                s3_client = await self.storage._get_s3_client()
+                result = {}
 
-                # Parse bucket and key from path
-                normalized_path = self.storage._normalize_path(path)
-                path_parts = normalized_path.split("/", 1)
-                if len(path_parts) == 2:
-                    bucket, key = path_parts
-                    response = await s3_client.head_object(Bucket=bucket, Key=key)
-                    result = response.get("Metadata", {})
-                else:
-                    result = {}
-
-            return result
-
-        except Exception as e:
-            logger.error(
-                f"Metadata operation FAILED for {barcode} - {e} "
-                f"(manager_id={self._manager_id})"
-            )
-            raise
+        return result
