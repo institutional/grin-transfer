@@ -6,16 +6,12 @@ Implements storage patterns for book data organization.
 """
 
 import logging
-from typing import TYPE_CHECKING
 
 from grin_to_s3.database import connect_async
 from grin_to_s3.run_config import StorageConfig
 
 from .base import Storage
 from .factories import LOCAL_STORAGE_DEFAULTS
-
-if TYPE_CHECKING:
-    from types_aiobotocore_s3.client import S3Client
 
 logger = logging.getLogger(__name__)
 
@@ -95,28 +91,15 @@ class BookManager:
                     else:
                         return {}
 
-        # For S3-compatible storage, use metadata
-        import aioboto3
+        # For S3-compatible storage, use metadata from persistent S3 client
+        s3_client = await self.storage._get_s3_client()
 
-        # Use the credentials from the storage config
-        session_kwargs = {
-            "aws_access_key_id": self.storage.config.options.get("key"),
-            "aws_secret_access_key": self.storage.config.options.get("secret"),
-        }
-
-        # Add endpoint URL if present
-        if self.storage.config.endpoint_url:
-            session_kwargs["endpoint_url"] = self.storage.config.endpoint_url
-
-        session = aioboto3.Session()
-        s3_client: S3Client
-        async with session.client("s3", **session_kwargs) as s3_client:
-            # Parse bucket and key from path
-            normalized_path = self.storage._normalize_path(path)
-            path_parts = normalized_path.split("/", 1)
-            if len(path_parts) == 2:
-                bucket, key = path_parts
-                response = await s3_client.head_object(Bucket=bucket, Key=key)
-                return response.get("Metadata", {})
-            else:
-                return {}
+        # Parse bucket and key from path
+        normalized_path = self.storage._normalize_path(path)
+        path_parts = normalized_path.split("/", 1)
+        if len(path_parts) == 2:
+            bucket, key = path_parts
+            response = await s3_client.head_object(Bucket=bucket, Key=key)
+            return response.get("Metadata", {})
+        else:
+            return {}

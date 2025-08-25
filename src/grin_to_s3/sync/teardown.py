@@ -184,4 +184,7 @@ async def run_teardown_operations(
     # Close database tracker
     await pipeline.db_tracker.close()
 
+    # Close storage to clean up persistent S3 client
+    await pipeline.storage.close()
+
     return results

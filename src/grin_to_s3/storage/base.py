@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from types_aiobotocore_s3.client import S3Client
+    pass
 
 import fsspec
 
@@ -79,6 +79,32 @@ class Storage:
     def __init__(self, config: BackendConfig):
         self.config = config
         self._fs = None
+        self._s3_client: Any = None  # Persistent S3 client for S3-compatible storage
+        self._s3_session: Any = None  # Keep session reference for cleanup
+
+    async def _get_s3_client(self):
+        """Get or create persistent S3 client for S3-compatible storage."""
+        if self._s3_client is None and self.is_s3_compatible():
+            import aioboto3
+
+            # Use the credentials from the storage config
+            session_kwargs = {
+                "aws_access_key_id": self.config.options.get("key"),
+                "aws_secret_access_key": self.config.options.get("secret"),
+            }
+
+            # Create session once and reuse
+            self._s3_session = aioboto3.Session()
+
+            # Create client with endpoint URL if present
+            client_kwargs = session_kwargs.copy()
+            if self.config.endpoint_url:
+                client_kwargs["endpoint_url"] = self.config.endpoint_url
+
+            # Create persistent client
+            self._s3_client = await self._s3_session.client("s3", **client_kwargs).__aenter__()
+
+        return self._s3_client
 
     def _get_fs(self) -> Any:
         """Get filesystem instance (lazy initialization)."""
@@ -145,36 +171,23 @@ class Storage:
         except FileNotFoundError:
             raise StorageNotFoundError(f"Object not found: {path}") from None
 
-
     async def write_file(self, path: str, file_path: str, metadata: dict[str, str] | None = None) -> None:
         """Stream file from filesystem to bucket."""
-        import aioboto3
-
         normalized_path = self._normalize_path(path)
 
-        # Use the credentials from the storage config
-        session_kwargs = {
-            "aws_access_key_id": self.config.options.get("key"),
-            "aws_secret_access_key": self.config.options.get("secret"),
-        }
+        # Use persistent S3 client
+        s3_client = await self._get_s3_client()
 
-        # Add endpoint URL if present
-        if self.config.endpoint_url:
-            session_kwargs["endpoint_url"] = self.config.endpoint_url
+        # Parse bucket and key from path
+        path_parts = normalized_path.split("/", 1)
+        if len(path_parts) != 2:
+            raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
 
-        session = aioboto3.Session()
-        s3_client: S3Client
-        async with session.client("s3", **session_kwargs) as s3_client:
-            # Parse bucket and key from path
-            path_parts = normalized_path.split("/", 1)
-            if len(path_parts) != 2:
-                raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
+        bucket, key = path_parts
+        logger.debug(f"Calling bucket upload with {bucket}/{key} from {file_path} with metadata {metadata}")
+        await self._multipart_upload_from_file(s3_client, bucket, key, file_path, metadata)
 
-            bucket, key = path_parts
-            logger.debug(f"Calling bucket upload with {bucket}/{key} from {file_path} with metadata {metadata}")
-            await self._multipart_upload_from_file(s3_client, bucket, key, file_path, metadata)
-
-            return
+        return
 
     async def _multipart_upload_from_file(
         self, s3_client, bucket: str, key: str, file_path: str, metadata: dict[str, str] | None = None
@@ -234,33 +247,19 @@ class Storage:
         data = text.encode(encoding)
 
         if self.config.protocol == "s3":
-            # Use aioboto3 for non-blocking S3 uploads
+            # Use persistent S3 client for non-blocking S3 uploads
             try:
-                import aioboto3
-
                 normalized_path = self._normalize_path(path)
+                s3_client = await self._get_s3_client()
 
-                # Use the credentials from the storage config
-                session_kwargs = {
-                    "aws_access_key_id": self.config.options.get("key"),
-                    "aws_secret_access_key": self.config.options.get("secret"),
-                }
+                # Parse bucket and key from path
+                path_parts = normalized_path.split("/", 1)
+                if len(path_parts) == 2:
+                    bucket, key = path_parts
 
-                # Add endpoint URL if present
-                if self.config.endpoint_url:
-                    session_kwargs["endpoint_url"] = self.config.endpoint_url
-
-                session = aioboto3.Session()
-                s3_client: S3Client
-                async with session.client("s3", **session_kwargs) as s3_client:
-                    # Parse bucket and key from path
-                    path_parts = normalized_path.split("/", 1)
-                    if len(path_parts) == 2:
-                        bucket, key = path_parts
-
-                        # Use single-part upload for bytes data
-                        await s3_client.put_object(Bucket=bucket, Key=key, Body=data)
-                        return
+                    # Use single-part upload for bytes data
+                    await s3_client.put_object(Bucket=bucket, Key=key, Body=data)
+                    return
             except Exception as e:
                 print(f"Failed to write with aioboto3, falling back to sync: {e}")
                 # Fall through to sync method
@@ -339,3 +338,16 @@ class Storage:
         normalized_path = self._normalize_path(path)
 
         await loop.run_in_executor(None, fs.rm, normalized_path)
+
+    async def close(self) -> None:
+        """Close persistent S3 client and session."""
+        if hasattr(self, "_s3_client") and self._s3_client:
+            try:
+                await self._s3_client.__aexit__(None, None, None)
+            except Exception:
+                pass  # Ignore errors during cleanup
+            self._s3_client = None
+
+        if hasattr(self, "_s3_session") and self._s3_session:
+            # Session doesn't need explicit cleanup but clear the reference
+            self._s3_session = None
