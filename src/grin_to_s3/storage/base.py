@@ -84,6 +84,7 @@ class Storage:
         self._fs = None
         self._s3_client: Any = None  # Persistent S3 client for S3-compatible storage
         self._s3_session: Any = None  # Keep session reference for cleanup
+        self._exit_stack: Any = None  # AsyncExitStack for proper resource management
         self._client_lock = asyncio.Lock()  # Thread-safe client creation
 
         # Performance tracking
@@ -102,15 +103,27 @@ class Storage:
             async with self._client_lock:
                 # Double-check pattern to prevent race condition
                 if self._s3_client is None:
+                    from contextlib import AsyncExitStack
+
                     import aioboto3
+                    import aiobotocore.config
 
                     thread_id = threading.current_thread().ident
                     start_time = time.time()
                     self._client_creation_count += 1
 
+                    # Configure connection pool for high concurrency
+                    # Set pool size to handle 100+ concurrent workers
+                    max_pool_connections = 150
+                    config = aiobotocore.config.AioConfig(
+                        max_pool_connections=max_pool_connections,
+                        retries={"max_attempts": 3, "mode": "adaptive"},
+                    )
+
                     logger.info(
                         f"Creating NEW S3 client #{self._client_creation_count} "
-                        f"(storage_id={self._instance_id}, thread={thread_id})"
+                        f"(storage_id={self._instance_id}, thread={thread_id}, "
+                        f"max_pool_connections={max_pool_connections})"
                     )
 
                     # Use the credentials from the storage config
@@ -126,14 +139,18 @@ class Storage:
                     client_kwargs = session_kwargs.copy()
                     if self.config.endpoint_url:
                         client_kwargs["endpoint_url"] = self.config.endpoint_url
+                    client_kwargs["config"] = config
 
-                    # Create persistent client
-                    self._s3_client = await self._s3_session.client("s3", **client_kwargs).__aenter__()
+                    # Create persistent client with proper async context management
+                    self._exit_stack = AsyncExitStack()
+                    self._s3_client = await self._exit_stack.enter_async_context(
+                        self._s3_session.client("s3", **client_kwargs)
+                    )
 
                     creation_time = time.time() - start_time
                     logger.info(
                         f"S3 client creation completed in {creation_time:.3f}s "
-                        f"(storage_id={self._instance_id})"
+                        f"(storage_id={self._instance_id}, pool_size={max_pool_connections})"
                     )
 
         # Log client reuse (but not too frequently to avoid spam)
@@ -432,19 +449,15 @@ class Storage:
         await loop.run_in_executor(None, fs.rm, normalized_path)
 
     async def close(self) -> None:
-        """Close persistent S3 client and session."""
-        if hasattr(self, "_s3_client") and self._s3_client:
+        """Clean up resources, especially S3 client connections."""
+        if self._exit_stack is not None:
             try:
-                logger.info(
-                    f"Closing S3 client (storage_id={self._instance_id}, "
-                    f"total_operations={self._operation_count}, "
-                    f"client_creations={self._client_creation_count})"
-                )
-                await self._s3_client.__aexit__(None, None, None)
+                await self._exit_stack.aclose()
+                logger.info(f"Storage resources closed (storage_id={self._instance_id})")
             except Exception as e:
-                logger.warning(f"Error closing S3 client (storage_id={self._instance_id}): {e}")
-            self._s3_client = None
+                logger.error(f"Error closing storage resources: {e} (storage_id={self._instance_id})")
+            finally:
+                self._exit_stack = None
+                self._s3_client = None
+                self._s3_session = None
 
-        if hasattr(self, "_s3_session") and self._s3_session:
-            # Session doesn't need explicit cleanup but clear the reference
-            self._s3_session = None
