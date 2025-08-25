@@ -42,16 +42,22 @@ class GRINClient:
         self.auth = auth or GRINAuth(secrets_dir=secrets_dir)
         self.timeout = timeout
 
-        # Always create and manage a persistent session
-        connector = aiohttp.TCPConnector(
-            limit=DEFAULT_CONNECTOR_LIMITS["limit"],
-            limit_per_host=DEFAULT_CONNECTOR_LIMITS["limit_per_host"]
-        )
-        timeout_config = aiohttp.ClientTimeout(total=self.timeout, connect=10)
-        self.session = aiohttp.ClientSession(
-            connector=connector,
-            timeout=timeout_config
-        )
+        # Session will be created lazily when first needed
+        self.session: aiohttp.ClientSession | None = None
+
+    async def _ensure_session(self) -> aiohttp.ClientSession:
+        """Ensure session exists, creating it if necessary."""
+        if self.session is None:
+            connector = aiohttp.TCPConnector(
+                limit=DEFAULT_CONNECTOR_LIMITS["limit"],
+                limit_per_host=DEFAULT_CONNECTOR_LIMITS["limit_per_host"]
+            )
+            timeout_config = aiohttp.ClientTimeout(total=self.timeout, connect=10)
+            self.session = aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout_config
+            )
+        return self.session
 
     async def get_bearer_token(self) -> str:
         """Get current bearer token for manual use."""
@@ -70,20 +76,25 @@ class GRINClient:
             str: Response text
         """
         url = f"{self.base_url}/{directory}/{resource}"
-        response = await self.auth.make_authenticated_request(self.session, url, method=method)
+        session = await self._ensure_session()
+        response = await self.auth.make_authenticated_request(session, url, method=method)
         return await response.text()
 
     async def download_archive(self, url: str) -> aiohttp.ClientResponse:
         """Download a book archive - for use by download.py."""
-        return await self.auth.make_authenticated_request(self.session, url)
+        session = await self._ensure_session()
+        return await self.auth.make_authenticated_request(session, url)
 
     async def head_archive(self, url: str) -> aiohttp.ClientResponse:
         """HEAD request for archive metadata - for use by check.py."""
-        return await self.auth.make_authenticated_request(self.session, url, method="HEAD")
+        session = await self._ensure_session()
+        return await self.auth.make_authenticated_request(session, url, method="HEAD")
 
     async def close(self):
         """Close the session. Must be called when done with client."""
-        await self.session.close()
+        if self.session is not None:
+            await self.session.close()
+            self.session = None
 
     async def stream_book_list_html_prefetch(
         self,
@@ -123,7 +134,8 @@ class GRINClient:
             else:
                 # First page - fetch normally
                 logger.debug(f"Page {page_count}: Normal fetch (no prefetch available)")
-                response = await self.auth.make_authenticated_request(self.session, current_url)
+                session = await self._ensure_session()
+                response = await self.auth.make_authenticated_request(session, current_url)
                 html = await response.text()
 
             if "Your request is unavailable" in html:
@@ -237,7 +249,8 @@ class GRINClient:
         Returns:
             tuple: (html_content, url)
         """
-        response = await self.auth.make_authenticated_request(self.session, url)
+        session = await self._ensure_session()
+        response = await self.auth.make_authenticated_request(session, url)
         html = await response.text()
         return html, url
 
