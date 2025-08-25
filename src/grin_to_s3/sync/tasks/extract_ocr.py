@@ -23,7 +23,7 @@ async def main(barcode: Barcode, unpack_data: UnpackData, pipeline: "SyncPipelin
 
     page_count = await extract_ocr_pages(unpack_data, jsonl_path)
 
-    compression_enabled = pipeline.config.sync_compression_enabled
+    compression_enabled = pipeline.config.sync_compression_full_enabled
     metadata: ArchiveOcrMetadata = {
         "barcode": barcode,
         "acquisition_date": datetime.now().isoformat(),

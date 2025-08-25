@@ -41,7 +41,7 @@ async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
 
     if pipeline.uses_block_storage:
         bucket = pipeline.config.storage_config["config"].get("bucket_meta")
-        compression_enabled = pipeline.config.sync_compression_enabled
+        compression_enabled = pipeline.config.sync_compression_meta_enabled
 
         if compression_enabled:
             async with compress_file_to_temp(csv_path) as compressed_path:
