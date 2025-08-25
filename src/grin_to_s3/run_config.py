@@ -12,6 +12,7 @@ from typing import Any, NotRequired, TypedDict, cast
 
 # Sync configuration defaults
 DEFAULT_SYNC_DISK_SPACE_THRESHOLD = 0.9
+DEFAULT_SYNC_COMPRESSION_ENABLED = True
 
 # Task concurrency defaults
 DEFAULT_SYNC_TASK_CHECK_CONCURRENCY = 2
@@ -213,6 +214,11 @@ class RunConfig:
     def sync_disk_space_threshold(self) -> float:
         """Get the disk space threshold setting for sync operations."""
         return self.sync_config.get("disk_space_threshold", DEFAULT_SYNC_DISK_SPACE_THRESHOLD)
+
+    @property
+    def sync_compression_enabled(self) -> bool:
+        """Get the compression enabled setting for sync operations."""
+        return self.sync_config.get("compression_enabled", DEFAULT_SYNC_COMPRESSION_ENABLED)
 
     def get_storage_args(self) -> dict[str, str]:
         """Get storage arguments suitable for command line scripts."""
