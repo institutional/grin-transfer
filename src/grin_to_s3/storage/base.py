@@ -13,10 +13,7 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    pass
+from typing import Any
 
 import fsspec
 
@@ -103,7 +100,6 @@ class Storage:
                     import aioboto3
                     import aiobotocore.config
 
-
                     # Configure connection pool for high concurrency
                     # Set pool size to handle 100+ concurrent workers
                     max_pool_connections = 150
@@ -138,10 +134,7 @@ class Storage:
                         self._s3_session.client("s3", **client_kwargs)
                     )
 
-                    logger.info(
-                        f"S3 client created (storage_id={self._instance_id})"
-                    )
-
+                    logger.info(f"S3 client created (storage_id={self._instance_id})")
 
         return self._s3_client
 
@@ -156,8 +149,7 @@ class Storage:
         # Always log slow operations
         if duration > 1.0:
             logger.warning(
-                f"SLOW S3 operation: {operation} for {path} took {duration:.3f}s "
-                f"(storage_id={self._instance_id})"
+                f"SLOW S3 operation: {operation} for {path} took {duration:.3f}s (storage_id={self._instance_id})"
             )
 
     def _get_fs(self) -> Any:
@@ -311,27 +303,17 @@ class Storage:
 
         if self.config.protocol == "s3":
             # Use persistent S3 client for non-blocking S3 uploads
-            start_time = self._log_operation_start("write_text", path)
-            try:
-                normalized_path = self._normalize_path(path)
-                s3_client = await self._get_s3_client()
+            normalized_path = self._normalize_path(path)
+            s3_client = await self._get_s3_client()
 
-                # Parse bucket and key from path
-                path_parts = normalized_path.split("/", 1)
-                if len(path_parts) == 2:
-                    bucket, key = path_parts
+            # Parse bucket and key from path
+            path_parts = normalized_path.split("/", 1)
+            if len(path_parts) == 2:
+                bucket, key = path_parts
 
-                    # Use single-part upload for bytes data
-                    await s3_client.put_object(Bucket=bucket, Key=key, Body=data)
-                    self._log_operation_end("write_text", path, start_time)
-                    return
-            except Exception as e:
-                duration = time.time() - start_time
-                logger.error(
-                    f"S3 operation FAILED: write_text for {path} after {duration:.3f}s - {e}, "
-                    f"falling back to sync (storage_id={self._instance_id})"
-                )
-                # Fall through to sync method
+                # Use single-part upload for bytes data
+                await s3_client.put_object(Bucket=bucket, Key=key, Body=data)
+                return
 
         # Use sync method for local filesystem or as fallback
         loop = asyncio.get_event_loop()
@@ -420,4 +402,3 @@ class Storage:
                 self._exit_stack = None
                 self._s3_client = None
                 self._s3_session = None
-
