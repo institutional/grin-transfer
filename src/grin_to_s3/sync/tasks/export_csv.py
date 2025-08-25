@@ -55,15 +55,21 @@ async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
 
                 file_extension = ".gz"
                 source_path = str(compressed_path)
+
+                # Upload to both locations
+                bucket_path = f"{bucket}/{filename}{file_extension}"
+                await pipeline.storage.write_file(bucket_path, source_path)
+                await pipeline.storage.write_file(f"{bucket}/books_{timestamp}.csv{file_extension}", source_path)
+                logger.info(f"Successfully uploaded latest CSV to {bucket_path}")
         else:
             file_extension = ""
             source_path = str(csv_path)
 
-        # Upload to both locations
-        bucket_path = f"{bucket}/{filename}{file_extension}"
-        await pipeline.storage.write_file(bucket_path, source_path)
-        await pipeline.storage.write_file(f"{bucket}/books_{timestamp}.csv{file_extension}", source_path)
-        logger.info(f"Successfully uploaded latest CSV to {bucket_path}")
+            # Upload uncompressed files
+            bucket_path = f"{bucket}/{filename}{file_extension}"
+            await pipeline.storage.write_file(bucket_path, source_path)
+            await pipeline.storage.write_file(f"{bucket}/books_{timestamp}.csv{file_extension}", source_path)
+            logger.info(f"Successfully uploaded latest CSV to {bucket_path}")
     else:
         logger.info(f"CSV exported as {csv_path}")
 

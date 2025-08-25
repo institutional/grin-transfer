@@ -55,7 +55,7 @@ async def test_main_successful_upload(mock_pipeline, sample_download_data, sampl
     assert result.action == TaskAction.COMPLETED
     assert result.data
     assert "upload_path" in result.data
-    assert str(result.data["upload_path"]) == "bucket/TEST123/TEST123.tar.gz"
+    assert str(result.data["upload_path"]) == "test-bucket/TEST123/TEST123.tar.gz"
 
 
 @pytest.mark.parametrize(
@@ -89,22 +89,22 @@ async def test_upload_with_storage_types(storage_config, expected_path):
             "http_status_code": 200,
         }
 
-        with patch("grin_to_s3.sync.tasks.upload.BookManager") as mock_book_manager_cls:
-            mock_manager = MagicMock()
-            mock_manager.raw_archive_path.return_value = expected_path
-            mock_manager.storage.write_file = AsyncMock()
-            mock_book_manager_cls.return_value = mock_manager
+        # Mock book manager directly on pipeline since we now use pipeline.book_manager
+        pipeline.book_manager = MagicMock()
+        pipeline.book_manager.raw_archive_path.return_value = expected_path
+        pipeline.book_manager.storage.write_file = AsyncMock()
+        pipeline.book_manager._manager_id = "test-mgr"
 
-            result = await upload.main("TEST123", download_data, decrypt_data, pipeline)
+        result = await upload.main("TEST123", download_data, decrypt_data, pipeline)
 
-            assert result.action == TaskAction.COMPLETED
-            assert result.data
+        assert result.action == TaskAction.COMPLETED
+        assert result.data
 
-            # For local storage, the upload_path should be the decrypted_path
-            if pipeline.uses_local_storage:
-                assert str(result.data["upload_path"]) == str(decrypt_data["decrypted_path"])
-            else:
-                assert str(result.data["upload_path"]) == expected_path
+        # For local storage, the upload_path should be the decrypted_path
+        if pipeline.uses_local_storage:
+            assert str(result.data["upload_path"]) == str(decrypt_data["decrypted_path"])
+        else:
+            assert str(result.data["upload_path"]) == expected_path
 
 
 @pytest.mark.asyncio
@@ -114,6 +114,8 @@ async def test_upload_metadata_includes_etag_and_barcode(sample_download_data, s
     pipeline = MagicMock()
     pipeline.storage = MagicMock()
     pipeline.config.storage_config = {"protocol": "s3", "config": {"bucket_raw": "test-bucket"}}
+    # Set up book_manager on the pipeline
+    pipeline.book_manager = mock_manager
     # Let uses_local_storage be a property that returns False for s3 protocol
     type(pipeline).uses_local_storage = property(lambda self: self.config.storage_config["protocol"] == "local")
 

@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -25,7 +26,13 @@ logger = logging.getLogger(__name__)
 async def main(
     barcode: Barcode, download_data: DownloadData, decrypted_data: DecryptData, pipeline: "SyncPipeline"
 ) -> UploadResult:
-    book_manager = BookManager(pipeline.storage, storage_config=pipeline.config.storage_config)
+    start_time = time.time()
+    manager_id = getattr(pipeline.book_manager, "_manager_id", "unknown")
+
+    logger.debug(
+        f"UPLOAD task started for {barcode} "
+        f"(manager_id={manager_id})"
+    )
 
     if pipeline.uses_local_storage:
         # For local storage, the LocalDirectoryManager already places the decrypted file
@@ -35,7 +42,13 @@ async def main(
         logger.debug(f"[{barcode}] Local storage: decrypted archive already at final location {final_path}")
         data: UploadData = {"upload_path": final_path}
     else:
-        data = await upload_book_from_filesystem(barcode, decrypted_data, download_data, book_manager)
+        data = await upload_book_from_filesystem(barcode, decrypted_data, download_data, pipeline.book_manager)
+
+    duration = time.time() - start_time
+    logger.debug(
+        f"UPLOAD task completed for {barcode} in {duration:.3f}s "
+        f"(manager_id={manager_id})"
+    )
 
     return UploadResult(
         barcode=barcode,

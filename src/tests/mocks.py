@@ -97,6 +97,10 @@ class MockGRINClient:
         mock_response.content.iter_chunked.return_value = [b"mock data"]
         return mock_response
 
+    async def close(self) -> None:
+        """Mock close method for compatibility with GRINClient interface."""
+        pass
+
     async def head_archive(self, url: str):
         """Mock HEAD method for compatibility."""
         from unittest.mock import AsyncMock
@@ -104,10 +108,6 @@ class MockGRINClient:
         mock_response.status = 200
         mock_response.headers = {"content-length": "1024"}
         return mock_response
-
-    async def close(self):
-        """Close method for compatibility with real GRINClient."""
-        pass
 
 
 class MockBookStorage:
@@ -140,6 +140,10 @@ class MockStorage:
 
     async def exists(self, path: str) -> bool:
         return path in self.files
+
+    async def close(self) -> None:
+        """Mock close method for compatibility with Storage interface."""
+        pass
 
 
 def get_test_data():

@@ -59,6 +59,12 @@ def mock_pipeline():
             "config": {"bucket_raw": "test-raw", "bucket_full": "test-full", "bucket_meta": "test-meta"},
         }
 
+        # Mock book manager
+        pipeline.book_manager = MagicMock()
+        pipeline.book_manager.raw_archive_path = MagicMock(return_value="test-bucket/TEST123/TEST123.tar.gz")
+        pipeline.book_manager.storage = pipeline.storage
+        pipeline.book_manager._manager_id = "test-mgr"
+
         # Add uses_local_storage property that checks protocol
         type(pipeline).uses_local_storage = property(lambda self: self.config.storage_config.get("protocol") == "local")
 

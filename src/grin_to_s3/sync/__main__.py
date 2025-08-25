@@ -21,6 +21,7 @@ from grin_to_s3.common import (
     DEFAULT_MAX_SEQUENTIAL_FAILURES,
     parse_barcode_arguments,
 )
+from grin_to_s3.constants import DEFAULT_WORKER_CONCURRENCY
 from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
     create_book_manager_for_uploads,
@@ -30,7 +31,6 @@ from grin_to_s3.process_summary import (
     save_process_summary,
 )
 from grin_to_s3.run_config import (
-    DEFAULT_WORKER_CONCURRENCY,
     RunConfig,
     apply_run_config_to_args,
     build_storage_config_dict,
@@ -485,7 +485,8 @@ Examples:
         "--barcodes", help="Comma-separated list of specific barcodes to sync (e.g., '12345,67890,abcde')"
     )
     pipeline_parser.add_argument(
-        "--barcodes-file", help="Path to a text file containing barcodes to sync (one per line, supports comments with #)"
+        "--barcodes-file",
+        help="Path to a text file containing barcodes to sync (one per line, supports comments with #)",
     )
     pipeline_parser.add_argument("--status", help="Filter books by sync status (e.g., 'failed', 'pending')")
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
@@ -512,10 +513,14 @@ Examples:
 
     # Compression options
     pipeline_parser.add_argument(
-        "--skip-compression-meta", action="store_true", help="Skip compression for CSV files in meta bucket (default: compression enabled)"
+        "--skip-compression-meta",
+        action="store_true",
+        help="Skip compression for CSV files in meta bucket (default: compression enabled)",
     )
     pipeline_parser.add_argument(
-        "--skip-compression-full", action="store_true", help="Skip compression for JSONL files in full bucket (default: compression enabled)"
+        "--skip-compression-full",
+        action="store_true",
+        help="Skip compression for JSONL files in full bucket (default: compression enabled)",
     )
 
     # GRIN options
