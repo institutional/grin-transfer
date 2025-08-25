@@ -535,7 +535,7 @@ async def process_books_with_queue(
                     barcode = next(barcode_iter)
                     if pipeline._shutdown_requested:
                         logger.info("Shutdown requested, stopping queue feeding")
-                        print("\nGraceful shutdown in progress, no new books will be processed...")
+                        print("\nGraceful shutdown in progress, only pending downloads will be synced...")
                         barcodes_exhausted = True
                         break
                     download_queue.put_nowait(barcode)
