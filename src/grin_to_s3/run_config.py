@@ -214,6 +214,16 @@ class RunConfig:
         """Get the disk space threshold setting for sync operations."""
         return self.sync_config.get("disk_space_threshold", DEFAULT_SYNC_DISK_SPACE_THRESHOLD)
 
+    @property
+    def sync_compression_meta_enabled(self) -> bool:
+        """Get the compression enabled setting for meta bucket data."""
+        return self.sync_config.get("compression_meta_enabled", True)
+
+    @property
+    def sync_compression_full_enabled(self) -> bool:
+        """Get the compression enabled setting for full bucket data."""
+        return self.sync_config.get("compression_full_enabled", True)
+
     def get_storage_args(self) -> dict[str, str]:
         """Get storage arguments suitable for command line scripts."""
         args: dict[str, str] = {}

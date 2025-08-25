@@ -17,29 +17,51 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+async def _store_ocr_file(
+    source_path: Path, barcode: Barcode, filename: str, pipeline: "SyncPipeline", metadata: ArchiveOcrMetadata
+) -> str:
+    """Store OCR file to the appropriate location based on pipeline configuration."""
+    if pipeline.uses_block_storage:
+        bucket = pipeline.config.storage_config["config"].get("bucket_full")
+        final_path = f"{bucket}/{filename}"
+        await pipeline.storage.write_file(final_path, str(source_path), cast(dict[str, str], metadata))
+    else:
+        # Local storage: move to 'full' subdirectory
+        base_path = Path(pipeline.config.storage_config["config"].get("base_path", ""))
+        final_path = base_path / "full" / barcode / filename
+        final_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(source_path, final_path)
+        final_path = str(final_path)
+
+    return final_path
+
+
 async def main(barcode: Barcode, unpack_data: UnpackData, pipeline: "SyncPipeline") -> ExtractOcrResult:
     jsonl_filename = f"{barcode}_ocr.jsonl"
     jsonl_path = pipeline.filesystem_manager.staging_path / jsonl_filename
 
     page_count = await extract_ocr_pages(unpack_data, jsonl_path)
-    async with compress_file_to_temp(jsonl_path) as compressed_path:
-        metadata: ArchiveOcrMetadata = {
-            "barcode": barcode,
-            "acquisition_date": datetime.now().isoformat(),
-            "page_count": str(page_count),
-        }
-        if pipeline.uses_block_storage:
-            bucket = pipeline.config.storage_config["config"].get("bucket_full")
 
-            # Cloud storage: upload compressed file and leave staging file for cleanup
-            jsonl_final_path = f"{bucket}/{jsonl_filename}.gz"
-            await pipeline.storage.write_file(jsonl_final_path, str(compressed_path), cast(dict[str, str], metadata))
-        else:
-            # Local storage: move to 'full' subdirectory
-            base_path = Path(pipeline.config.storage_config["config"].get("base_path", ""))
-            jsonl_final_path = base_path / "full" / barcode / f"{jsonl_filename}.gz"
-            jsonl_final_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(compressed_path, jsonl_final_path)
+    metadata: ArchiveOcrMetadata = {
+        "barcode": barcode,
+        "acquisition_date": datetime.now().isoformat(),
+        "page_count": str(page_count),
+    }
+
+    if pipeline.config.sync_compression_full_enabled:
+        async with compress_file_to_temp(jsonl_path) as compressed_path:
+            jsonl_final_path = await _store_ocr_file(
+                compressed_path, barcode, f"{jsonl_filename}.gz", pipeline, metadata
+            )
+            # For compression with local storage, clean up original file
+            if not pipeline.uses_block_storage:
+                jsonl_path.unlink()
+    else:
+        jsonl_final_path = await _store_ocr_file(
+            jsonl_path, barcode, jsonl_filename, pipeline, metadata
+        )
+        # For no compression with block storage, clean up original file
+        if pipeline.uses_block_storage:
             jsonl_path.unlink()
 
     return ExtractOcrResult(

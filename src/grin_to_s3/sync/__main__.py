@@ -239,11 +239,15 @@ async def cmd_pipeline(args) -> None:
                 run_config["storage_config"] = storage_config_dict
                 storage_config = merged_config
 
-                # Apply task concurrency overrides to run config
-                if task_concurrency_overrides:
+                # Apply task concurrency overrides and compression settings to run config
+                if task_concurrency_overrides or args.skip_compression_meta or args.skip_compression_full:
                     if "sync_config" not in run_config:
                         run_config["sync_config"] = {}
-                    run_config["sync_config"].update(task_concurrency_overrides)
+                    if task_concurrency_overrides:
+                        run_config["sync_config"].update(task_concurrency_overrides)
+                    # Set compression based on CLI flags (default True, disabled if respective --skip-compression-* flag)
+                    run_config["sync_config"]["compression_meta_enabled"] = not args.skip_compression_meta
+                    run_config["sync_config"]["compression_full_enabled"] = not args.skip_compression_full
 
                 # Write back to config file
                 with open(config_path, "w") as f:
@@ -258,16 +262,28 @@ async def cmd_pipeline(args) -> None:
                 if not args.storage:
                     args.storage = storage_type
 
-                # Still apply task concurrency overrides even if no storage args were provided
-                if task_concurrency_overrides:
+                # Still apply task concurrency overrides and compression settings even if no storage args were provided
+                if task_concurrency_overrides or args.skip_compression_meta or args.skip_compression_full:
                     if "sync_config" not in run_config:
                         run_config["sync_config"] = {}
-                    run_config["sync_config"].update(task_concurrency_overrides)
+                    if task_concurrency_overrides:
+                        run_config["sync_config"].update(task_concurrency_overrides)
+                    # Set compression based on CLI flags (default True, disabled if respective --skip-compression-* flag)
+                    run_config["sync_config"]["compression_meta_enabled"] = not args.skip_compression_meta
+                    run_config["sync_config"]["compression_full_enabled"] = not args.skip_compression_full
 
                     # Write back to config file
                     with open(config_path, "w") as f:
                         json.dump(run_config, f, indent=2)
-                    print(f"Applied task concurrency overrides: {task_concurrency_overrides}")
+
+                    messages = []
+                    if task_concurrency_overrides:
+                        messages.append(f"task concurrency overrides: {task_concurrency_overrides}")
+                    if args.skip_compression_meta:
+                        messages.append("meta compression disabled")
+                    if args.skip_compression_full:
+                        messages.append("full compression disabled")
+                    print(f"Applied {', '.join(messages)}")
 
         except (json.JSONDecodeError, OSError) as e:
             print(f"Warning: Could not read run config: {e}")
@@ -277,12 +293,26 @@ async def cmd_pipeline(args) -> None:
         print(f"Note: No run config found at {config_path}, building from args")
         storage_config = build_storage_config_dict(args)
 
-        # Create basic run config with task concurrency overrides if provided
-        if task_concurrency_overrides:
-            basic_run_config = {"sync_config": task_concurrency_overrides}
+        # Create basic run config with task concurrency overrides and compression settings if provided
+        if task_concurrency_overrides or args.skip_compression_meta or args.skip_compression_full:
+            basic_run_config: dict[str, Any] = {"sync_config": {}}
+            if task_concurrency_overrides:
+                basic_run_config["sync_config"].update(task_concurrency_overrides)
+            # Set compression based on CLI flags (default True, disabled if respective --skip-compression-* flag)
+            basic_run_config["sync_config"]["compression_meta_enabled"] = not args.skip_compression_meta
+            basic_run_config["sync_config"]["compression_full_enabled"] = not args.skip_compression_full
+
             with open(config_path, "w") as f:
                 json.dump(basic_run_config, f, indent=2)
-            print(f"Created basic run config with task concurrency overrides: {task_concurrency_overrides}")
+
+            messages = []
+            if task_concurrency_overrides:
+                messages.append(f"task concurrency overrides: {task_concurrency_overrides}")
+            if args.skip_compression_meta:
+                messages.append("meta compression disabled")
+            if args.skip_compression_full:
+                messages.append("full compression disabled")
+            print(f"Created basic run config with {', '.join(messages)}")
 
     # Set up logging - use unified log file from run config
     run_config = find_run_config(args.db_path)
@@ -474,6 +504,14 @@ Examples:
 
     pipeline_parser.add_argument(
         "--skip-csv-export", action="store_true", help="Skip automatic CSV export (default: export CSV)"
+    )
+
+    # Compression options
+    pipeline_parser.add_argument(
+        "--skip-compression-meta", action="store_true", help="Skip compression for CSV files in meta bucket (default: compression enabled)"
+    )
+    pipeline_parser.add_argument(
+        "--skip-compression-full", action="store_true", help="Skip compression for JSONL files in full bucket (default: compression enabled)"
     )
 
     # GRIN options

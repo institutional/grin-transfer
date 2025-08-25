@@ -42,19 +42,28 @@ async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
     if pipeline.uses_block_storage:
         bucket = pipeline.config.storage_config["config"].get("bucket_meta")
 
-        async with compress_file_to_temp(csv_path) as compressed_path:
-            # Get compression statistics
-            original_size = csv_path.stat().st_size
-            compressed_size = compressed_path.stat().st_size
-            compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
+        if pipeline.config.sync_compression_meta_enabled:
+            async with compress_file_to_temp(csv_path) as compressed_path:
+                # Get compression statistics
+                original_size = csv_path.stat().st_size
+                compressed_size = compressed_path.stat().st_size
+                compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
 
-            logger.debug(
-                f"CSV compression: {original_size:,} -> {compressed_size:,} bytes ({compression_ratio:.1f}% reduction)"
-            )
-            # Upload compressed file to both locations
-            await pipeline.storage.write_file(f"{bucket}/{filename}.gz", str(compressed_path))
-            await pipeline.storage.write_file(f"{bucket}/books_{timestamp}.csv.gz", str(compressed_path))
-            logger.info(f"Successfully uploaded latest compressed CSV to {bucket}/{filename}.gz")
+                logger.debug(
+                    f"CSV compression: {original_size:,} -> {compressed_size:,} bytes ({compression_ratio:.1f}% reduction)"
+                )
+
+                file_extension = ".gz"
+                source_path = str(compressed_path)
+        else:
+            file_extension = ""
+            source_path = str(csv_path)
+
+        # Upload to both locations
+        bucket_path = f"{bucket}/{filename}{file_extension}"
+        await pipeline.storage.write_file(bucket_path, source_path)
+        await pipeline.storage.write_file(f"{bucket}/books_{timestamp}.csv{file_extension}", source_path)
+        logger.info(f"Successfully uploaded latest CSV to {bucket_path}")
     else:
         logger.info(f"CSV exported as {csv_path}")
 
