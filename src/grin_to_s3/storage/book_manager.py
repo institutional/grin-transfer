@@ -6,7 +6,6 @@ Implements storage patterns for book data organization.
 """
 
 import logging
-import time
 import uuid
 
 from grin_to_s3.database import connect_async
@@ -17,8 +16,6 @@ from .factories import LOCAL_STORAGE_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
-# Class variable to track total BookManager instances
-_total_book_managers_created = 0
 
 
 class BookManager:
@@ -39,16 +36,10 @@ class BookManager:
         Raises:
             ValueError: If any bucket name is empty
         """
-        global _total_book_managers_created
-        _total_book_managers_created += 1
-
         self._manager_id = str(uuid.uuid4())[:8]
-        self._creation_time = time.time()
-        self._operations_performed = 0
 
         logger.info(
-            f"BookManager #{_total_book_managers_created} created "
-            f"(manager_id={self._manager_id}, storage_id={getattr(storage, '_instance_id', 'unknown')})"
+            f"BookManager created (manager_id={self._manager_id})"
         )
 
         self.storage = storage
@@ -93,13 +84,6 @@ class BookManager:
         db_tracker,
     ) -> dict[str, str]:
         """Get metadata from decrypted archive file."""
-        start_time = time.time()
-        self._operations_performed += 1
-
-        logger.debug(
-            f"Getting metadata operation #{self._operations_performed} for {barcode} "
-            f"(manager_id={self._manager_id})"
-        )
 
         filename = f"{barcode}.tar.gz"
         path = self.raw_archive_path(barcode, filename)
@@ -126,17 +110,11 @@ class BookManager:
                 else:
                     result = {}
 
-            duration = time.time() - start_time
-            logger.debug(
-                f"Metadata operation completed for {barcode} in {duration:.3f}s "
-                f"(manager_id={self._manager_id})"
-            )
             return result
 
         except Exception as e:
-            duration = time.time() - start_time
             logger.error(
-                f"Metadata operation FAILED for {barcode} after {duration:.3f}s - {e} "
+                f"Metadata operation FAILED for {barcode} - {e} "
                 f"(manager_id={self._manager_id})"
             )
             raise

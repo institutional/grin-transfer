@@ -9,7 +9,6 @@ import asyncio
 import logging
 import os
 import re
-import threading
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -87,12 +86,8 @@ class Storage:
         self._exit_stack: Any = None  # AsyncExitStack for proper resource management
         self._client_lock = asyncio.Lock()  # Thread-safe client creation
 
-        # Performance tracking
+        # Instance identification for logging
         self._instance_id = str(uuid.uuid4())[:8]
-        self._creation_time = time.time()
-        self._client_creation_count = 0
-        self._operation_count = 0
-        self._operation_times: list[float] = []
 
         logger.info(f"Storage instance created (id={self._instance_id}, protocol={config.protocol})")
 
@@ -108,9 +103,6 @@ class Storage:
                     import aioboto3
                     import aiobotocore.config
 
-                    thread_id = threading.current_thread().ident
-                    start_time = time.time()
-                    self._client_creation_count += 1
 
                     # Configure connection pool for high concurrency
                     # Set pool size to handle 100+ concurrent workers
@@ -121,8 +113,7 @@ class Storage:
                     )
 
                     logger.info(
-                        f"Creating NEW S3 client #{self._client_creation_count} "
-                        f"(storage_id={self._instance_id}, thread={thread_id}, "
+                        f"Creating S3 client (storage_id={self._instance_id}, "
                         f"max_pool_connections={max_pool_connections})"
                     )
 
@@ -147,56 +138,26 @@ class Storage:
                         self._s3_session.client("s3", **client_kwargs)
                     )
 
-                    creation_time = time.time() - start_time
                     logger.info(
-                        f"S3 client creation completed in {creation_time:.3f}s "
-                        f"(storage_id={self._instance_id}, pool_size={max_pool_connections})"
+                        f"S3 client created (storage_id={self._instance_id})"
                     )
 
-        # Log client reuse (but not too frequently to avoid spam)
-        if self._s3_client is not None and self._operation_count % 50 == 0:
-            age = time.time() - self._creation_time
-            logger.debug(
-                f"Reusing S3 client (storage_id={self._instance_id}, "
-                f"age={age:.1f}s, operations={self._operation_count})"
-            )
 
         return self._s3_client
 
     def _log_operation_start(self, operation: str, path: str) -> float:
         """Log the start of an S3 operation and return start time."""
-        start_time = time.time()
-        self._operation_count += 1
-        logger.debug(
-            f"S3 operation #{self._operation_count} START: {operation} for {path} "
-            f"(storage_id={self._instance_id})"
-        )
-        return start_time
+        return time.time()
 
     def _log_operation_end(self, operation: str, path: str, start_time: float) -> None:
         """Log the completion of an S3 operation."""
         duration = time.time() - start_time
-        self._operation_times.append(duration)
 
         # Always log slow operations
         if duration > 1.0:
             logger.warning(
                 f"SLOW S3 operation: {operation} for {path} took {duration:.3f}s "
                 f"(storage_id={self._instance_id})"
-            )
-        else:
-            logger.debug(
-                f"S3 operation COMPLETED: {operation} for {path} in {duration:.3f}s "
-                f"(storage_id={self._instance_id})"
-            )
-
-        # Periodic summary logging
-        if len(self._operation_times) > 0 and self._operation_count % 20 == 0:
-            avg_time = sum(self._operation_times) / len(self._operation_times)
-            max_time = max(self._operation_times)
-            logger.info(
-                f"S3 performance summary (storage_id={self._instance_id}): "
-                f"{self._operation_count} operations, avg={avg_time:.3f}s, max={max_time:.3f}s"
             )
 
     def _get_fs(self) -> Any:
@@ -280,7 +241,6 @@ class Storage:
                 raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
 
             bucket, key = path_parts
-            logger.debug(f"Calling bucket upload with {bucket}/{key} from {file_path} with metadata {metadata}")
             await self._multipart_upload_from_file(s3_client, bucket, key, file_path, metadata)
 
             self._log_operation_end("write_file", path, start_time)

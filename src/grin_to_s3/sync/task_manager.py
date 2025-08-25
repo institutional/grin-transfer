@@ -543,16 +543,10 @@ async def process_books_with_queue(
                     items_added_this_cycle += 1
                 except StopIteration:
                     barcodes_exhausted = True
-                    logger.debug(f"Queue feeding exhausted after {items_fed} items fed in {feed_cycles} cycles")
                     break
                 except asyncio.QueueFull:
                     break
 
-            if items_added_this_cycle > 0:
-                logger.debug(
-                    f"Queue feed cycle {feed_cycles}: added {items_added_this_cycle} items, "
-                    f"queue now {download_queue.qsize()}/{download_queue.maxsize}"
-                )
 
             # If we still have barcodes but queue is full, wait a bit
             if not barcodes_exhausted:
