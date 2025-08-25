@@ -12,7 +12,6 @@ from grin_to_s3.common import (
     DEFAULT_DOWNLOAD_TIMEOUT,
     DEFAULT_RETRY_WAIT_SECONDS,
     Barcode,
-    create_http_session,
 )
 from grin_to_s3.storage.staging import DirectoryManager
 from grin_to_s3.sync.tasks.task_types import DownloadData, DownloadResult, TaskAction, TaskType
@@ -75,42 +74,41 @@ async def download_book_to_filesystem(
 
     logger.info(f"[{barcode}] Starting download from {grin_url}")
 
-    async with create_http_session(timeout=download_timeout) as session:
-        response = await grin_client.auth.make_authenticated_request(session, grin_url)
+    response = await grin_client.download_archive(grin_url)
 
-        total_bytes = 0
-        last_check_bytes = 0
-        check_interval = 50 * 1024 * 1024  # 50MB
-        async with aiofiles.open(to_path, "wb") as f:
-            async for chunk in response.content.iter_chunked(1024 * 1024):
-                await f.write(chunk)
-                total_bytes += len(chunk)
+    total_bytes = 0
+    last_check_bytes = 0
+    check_interval = 50 * 1024 * 1024  # 50MB
+    async with aiofiles.open(to_path, "wb") as f:
+        async for chunk in response.content.iter_chunked(1024 * 1024):
+            await f.write(chunk)
+            total_bytes += len(chunk)
 
-                # Check disk space when we cross a 50MB boundary since last check
-                if total_bytes - last_check_bytes >= check_interval:
-                    if not filesystem_manager.check_disk_space():
-                        # Clean up partial file and wait for space
-                        to_path.unlink(missing_ok=True)
-                        logger.warning(
-                            f"[{barcode}] Disk space exhausted during download, cleaning up and waiting for space..."
-                        )
-                        await filesystem_manager.wait_for_disk_space(check_interval=60)
-                        # Retry the download with the same parameters
-                        return await download_book_to_filesystem(
-                            barcode,
-                            to_path,
-                            grin_client,
-                            library_directory,
-                            filesystem_manager,
-                            download_timeout,
-                            download_retries,
-                        )
+            # Check disk space when we cross a 50MB boundary since last check
+            if total_bytes - last_check_bytes >= check_interval:
+                if not filesystem_manager.check_disk_space():
+                    # Clean up partial file and wait for space
+                    to_path.unlink(missing_ok=True)
+                    logger.warning(
+                        f"[{barcode}] Disk space exhausted during download, cleaning up and waiting for space..."
+                    )
+                    await filesystem_manager.wait_for_disk_space(check_interval=60)
+                    # Retry the download with the same parameters
+                    return await download_book_to_filesystem(
+                        barcode,
+                        to_path,
+                        grin_client,
+                        library_directory,
+                        filesystem_manager,
+                        download_timeout,
+                        download_retries,
+                    )
 
-                    # Update the last check point
-                    last_check_bytes = total_bytes
+                # Update the last check point
+                last_check_bytes = total_bytes
 
-            # Ensure all data is flushed to disk
-            await f.flush()
+        # Ensure all data is flushed to disk
+        await f.flush()
 
         # Verify file size matches what we downloaded
         actual_size = to_path.stat().st_size

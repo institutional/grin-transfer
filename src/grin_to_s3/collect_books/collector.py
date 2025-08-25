@@ -65,7 +65,7 @@ class BookCollector:
         self.process_summary_stage = process_summary_stage
 
         # Initialize client (will be replaced with mock if in test mode)
-        self.client = GRINClient(secrets_dir=secrets_dir)
+        self.grin_client = GRINClient(secrets_dir=secrets_dir)
         self.rate_limiter = RateLimiter(self.config.rate_limit)
         self.storage_config = storage_config
         self.resume_file = Path(self.config.resume_file)
@@ -115,7 +115,7 @@ class BookCollector:
             from tests.mocks import MockBookStorage, MockGRINClient, MockStorage, get_test_data
 
             # Replace client with mock
-            self.client = MockGRINClient(get_test_data())  # type: ignore[assignment]
+            self.grin_client = MockGRINClient(get_test_data())  # type: ignore[assignment]
 
             # Replace storage with mock if storage config exists
             if self.storage_config:
@@ -203,7 +203,7 @@ class BookCollector:
         pagination_config = self.config.pagination or PaginationConfig()
 
         book_count = 0
-        async for book_row, known_barcodes in self.client.stream_book_list_html_prefetch(
+        async for book_row, known_barcodes in self.grin_client.stream_book_list_html_prefetch(
             self.directory,
             list_type="_converted",
             page_size=pagination_config.page_size,
@@ -235,7 +235,7 @@ class BookCollector:
             print(f"Resuming pagination from page {start_page}")
 
         book_count = 0
-        async for book_row, known_barcodes in self.client.stream_book_list_html_prefetch(
+        async for book_row, known_barcodes in self.grin_client.stream_book_list_html_prefetch(
             self.directory,
             list_type="_all_books",
             page_size=page_size or pagination_config.page_size,
@@ -262,7 +262,7 @@ class BookCollector:
         """Stream books from GRIN's _converted list."""
         try:
             print("Fetching converted books from GRIN...")
-            response_text = await self.client.fetch_resource(self.directory, "_converted?format=text")
+            response_text = await self.grin_client.fetch_resource(self.directory, "_converted?format=text")
             lines = response_text.strip().split("\n")
 
             converted_count = 0
@@ -426,7 +426,7 @@ class BookCollector:
         # Validate credentials before starting export
         logger.debug("Validating GRIN credentials...")
         try:
-            await self.client.auth.validate_credentials(self.directory)
+            await self.grin_client.auth.validate_credentials(self.directory)
         except Exception as e:
             print(f"Credential validation failed: {e}")
             print("Collection cannot continue without valid credentials.")
@@ -636,3 +636,8 @@ class BookCollector:
             await self.sqlite_tracker.mark_failed(barcode, str(e))
             self.recent_failed.add(barcode)
             return None
+
+    async def cleanup(self):
+        """Clean up resources."""
+        if hasattr(self, "grin_client"):
+            await self.grin_client.close()

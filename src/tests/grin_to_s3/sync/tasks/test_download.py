@@ -57,8 +57,10 @@ def setup_download_mock(mock_grin_client, response=None, error=None):
     """Helper to setup download mocks consistently."""
     if error:
         mock_grin_client.auth.make_authenticated_request = AsyncMock(side_effect=error)
+        mock_grin_client.download_archive = AsyncMock(side_effect=error)
     else:
         mock_grin_client.auth.make_authenticated_request = AsyncMock(return_value=response)
+        mock_grin_client.download_archive = AsyncMock(return_value=response)
 
 
 class TestDownloadMain:
@@ -144,7 +146,7 @@ class TestDownloadBookToFilesystem:
                 "TEST123", temp_download_path, mock_grin_client, "TestLib", filesystem_manager
             )
 
-        assert mock_grin_client.auth.make_authenticated_request.call_count == 1
+        assert mock_grin_client.download_archive.call_count == 1
 
     @pytest.mark.asyncio
     async def test_http_500_error_with_retry(self, temp_download_path, mock_grin_client, filesystem_manager):
@@ -159,7 +161,7 @@ class TestDownloadBookToFilesystem:
                 "TEST123", temp_download_path, mock_grin_client, "TestLib", filesystem_manager
             )
 
-        assert mock_grin_client.auth.make_authenticated_request.call_count == 3
+        assert mock_grin_client.download_archive.call_count == 3
 
     @pytest.mark.asyncio
     async def test_disk_space_exhaustion_recovery(self, temp_download_path, mock_grin_client, mock_response):

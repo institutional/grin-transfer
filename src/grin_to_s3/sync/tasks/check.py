@@ -6,7 +6,7 @@ from botocore.exceptions import ClientError
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.common import Barcode, create_http_session
+from grin_to_s3.common import Barcode
 from grin_to_s3.storage.book_manager import BookManager
 
 if TYPE_CHECKING:
@@ -79,21 +79,20 @@ async def grin_head_request(barcode: Barcode, grin_client: GRINClient, library_d
     grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
     logger.debug(f"[{barcode}] Checking encrypted ETag via HEAD request to {grin_url}")
 
-    async with create_http_session() as session:
-        # Make HEAD request to get headers without downloading content
-        head_response = await grin_client.auth.make_authenticated_request(session, grin_url, method="HEAD")
+    # Make HEAD request to get headers without downloading content
+    head_response = await grin_client.head_archive(grin_url)
 
-        result["http_status_code"] = head_response.status
+    result["http_status_code"] = head_response.status
 
-        # Look for ETag and Content-Length headers
-        etag = head_response.headers.get("ETag", "").strip('"')
-        content_length = head_response.headers.get("Content-Length", "")
+    # Look for ETag and Content-Length headers
+    etag = head_response.headers.get("ETag", "").strip('"')
+    content_length = head_response.headers.get("Content-Length", "")
 
-        file_size = int(content_length) if content_length else None
+    file_size = int(content_length) if content_length else None
 
-        result["etag"] = etag
-        result["file_size_bytes"] = file_size
-        return result
+    result["etag"] = etag
+    result["file_size_bytes"] = file_size
+    return result
 
 
 async def etag_matches(

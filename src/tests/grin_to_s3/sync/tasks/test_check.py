@@ -20,6 +20,7 @@ async def test_main_needs_download(mock_pipeline):
     response.status = 200
     response.headers = {"ETag": '"abc123"', "Content-Length": "1024"}
     mock_pipeline.grin_client.auth.make_authenticated_request.return_value = response
+    mock_pipeline.grin_client.head_archive.return_value = response
 
     with (
         patch("grin_to_s3.sync.tasks.check.etag_matches") as mock_etag_matches,
@@ -42,6 +43,7 @@ async def test_main_etag_match_skips(mock_pipeline):
     response.status = 200
     response.headers = {"ETag": '"abc123"', "Content-Length": "1024"}
     mock_pipeline.grin_client.auth.make_authenticated_request.return_value = response
+    mock_pipeline.grin_client.head_archive.return_value = response
 
     with (
         patch("grin_to_s3.sync.tasks.check.etag_matches") as mock_etag_matches,
@@ -62,6 +64,7 @@ async def test_main_etag_continue_if_force(mock_pipeline):
     response.status = 200
     response.headers = {"ETag": '"abc123"', "Content-Length": "1024"}
     mock_pipeline.grin_client.auth.make_authenticated_request.return_value = response
+    mock_pipeline.grin_client.head_archive.return_value = response
     mock_pipeline.force = True
     with (
         patch("grin_to_s3.sync.tasks.check.etag_matches") as mock_etag_matches,
@@ -80,6 +83,7 @@ async def test_main_404_fail(mock_pipeline):
     """Check task should fail when file not found in GRIN."""
     error_404 = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=404, message="Not Found")
     mock_pipeline.grin_client.auth.make_authenticated_request.side_effect = error_404
+    mock_pipeline.grin_client.head_archive.side_effect = error_404
 
     result = await check.main("TEST123", mock_pipeline)
 
@@ -96,13 +100,13 @@ async def test_head_request():
 
     grin_client = MagicMock()
     grin_client.auth.make_authenticated_request = AsyncMock(return_value=response)
+    grin_client.head_archive = AsyncMock(return_value=response)
 
-    with patch("grin_to_s3.sync.tasks.check.create_http_session"):
-        result = await check.grin_head_request("HEAD123", grin_client, "TestLib")
+    result = await check.grin_head_request("HEAD123", grin_client, "TestLib")
 
-        assert result["etag"] == "test-etag"
-        assert result["file_size_bytes"] == 2048
-        assert result["http_status_code"] == 200
+    assert result["etag"] == "test-etag"
+    assert result["file_size_bytes"] == 2048
+    assert result["http_status_code"] == 200
 
 
 @pytest.mark.asyncio
