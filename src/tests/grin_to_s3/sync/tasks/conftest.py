@@ -58,7 +58,7 @@ def mock_pipeline():
             "protocol": "s3",  # Default to non-local storage
             "config": {"bucket_raw": "test-raw", "bucket_full": "test-full", "bucket_meta": "test-meta"},
         }
-        
+
         # Mock book manager
         pipeline.book_manager = MagicMock()
         pipeline.book_manager.raw_archive_path = MagicMock(return_value="test-bucket/TEST123/TEST123.tar.gz")
