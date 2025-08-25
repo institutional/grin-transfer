@@ -17,6 +17,8 @@ from typing import Any
 
 import fsspec
 
+from ..constants import DEFAULT_S3_MAX_POOL_CONNECTIONS
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,7 +104,7 @@ class Storage:
 
                     # Configure connection pool for high concurrency
                     # Set pool size to handle 100+ concurrent workers
-                    max_pool_connections = 150
+                    max_pool_connections = DEFAULT_S3_MAX_POOL_CONNECTIONS
                     config = aiobotocore.config.AioConfig(
                         max_pool_connections=max_pool_connections,
                         retries={"max_attempts": 3, "mode": "adaptive"},
