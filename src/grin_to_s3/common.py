@@ -14,7 +14,6 @@ import subprocess
 import sys
 import tempfile
 import time
-from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
@@ -90,26 +89,6 @@ class SessionLock:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         self.release()
-
-
-@asynccontextmanager
-async def create_http_session(timeout: int | None = None):
-    """
-    Create properly configured aiohttp session with consistent settings.
-
-    Args:
-        timeout: Request timeout in seconds (default: 60)
-
-    Yields:
-        aiohttp.ClientSession: Configured session
-    """
-    timeout_config = aiohttp.ClientTimeout(total=timeout or DEFAULT_TIMEOUT, connect=10)
-    connector = aiohttp.TCPConnector(
-        limit=DEFAULT_CONNECTOR_LIMITS["limit"], limit_per_host=DEFAULT_CONNECTOR_LIMITS["limit_per_host"]
-    )
-
-    async with aiohttp.ClientSession(timeout=timeout_config, connector=connector) as session:
-        yield session
 
 
 def format_bytes(size_bytes: int) -> str:
@@ -657,7 +636,12 @@ async def check_minio_connectivity(storage_config: dict) -> None:
         health_url = f"{endpoint_url}/minio/health/live"
 
     try:
-        async with create_http_session(timeout=5) as session:
+        timeout_config = aiohttp.ClientTimeout(total=5, connect=10)
+        connector = aiohttp.TCPConnector(
+            limit=DEFAULT_CONNECTOR_LIMITS["limit"], limit_per_host=DEFAULT_CONNECTOR_LIMITS["limit_per_host"]
+        )
+
+        async with aiohttp.ClientSession(timeout=timeout_config, connector=connector) as session:
             async with session.get(health_url) as response:
                 if response.status == 200:
                     print(f"✅ MinIO connectivity verified: {endpoint_url}")
