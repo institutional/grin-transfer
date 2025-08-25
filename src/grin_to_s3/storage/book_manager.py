@@ -6,6 +6,8 @@ Implements storage patterns for book data organization.
 """
 
 import logging
+import time
+import uuid
 
 from grin_to_s3.database import connect_async
 from grin_to_s3.run_config import StorageConfig
@@ -14,6 +16,9 @@ from .base import Storage
 from .factories import LOCAL_STORAGE_DEFAULTS
 
 logger = logging.getLogger(__name__)
+
+# Class variable to track total BookManager instances
+_total_book_managers_created = 0
 
 
 class BookManager:
@@ -34,6 +39,17 @@ class BookManager:
         Raises:
             ValueError: If any bucket name is empty
         """
+        global _total_book_managers_created
+        _total_book_managers_created += 1
+
+        self._manager_id = str(uuid.uuid4())[:8]
+        self._creation_time = time.time()
+        self._operations_performed = 0
+
+        logger.info(
+            f"BookManager #{_total_book_managers_created} created "
+            f"(manager_id={self._manager_id}, storage_id={getattr(storage, '_instance_id', 'unknown')})"
+        )
 
         self.storage = storage
 
@@ -77,29 +93,50 @@ class BookManager:
         db_tracker,
     ) -> dict[str, str]:
         """Get metadata from decrypted archive file."""
+        start_time = time.time()
+        self._operations_performed += 1
+
+        logger.debug(
+            f"Getting metadata operation #{self._operations_performed} for {barcode} "
+            f"(manager_id={self._manager_id})"
+        )
+
         filename = f"{barcode}.tar.gz"
         path = self.raw_archive_path(barcode, filename)
 
-        # For local storage, query the database for etag
-        if self.storage.config.protocol == "file":
-            # Query database for stored encrypted_etag
-            async with connect_async(db_tracker.db_path) as db:
-                async with db.execute("SELECT encrypted_etag FROM books WHERE barcode = ?", (barcode,)) as cursor:
-                    row = await cursor.fetchone()
-                    if row and row[0]:
-                        return {"encrypted_etag": row[0]}
-                    else:
-                        return {}
+        try:
+            # For local storage, query the database for etag
+            if self.storage.config.protocol == "file":
+                # Query database for stored encrypted_etag
+                async with connect_async(db_tracker.db_path) as db:
+                    async with db.execute("SELECT encrypted_etag FROM books WHERE barcode = ?", (barcode,)) as cursor:
+                        row = await cursor.fetchone()
+                        result = {"encrypted_etag": row[0]} if row and row[0] else {}
+            else:
+                # For S3-compatible storage, use metadata from persistent S3 client
+                s3_client = await self.storage._get_s3_client()
 
-        # For S3-compatible storage, use metadata from persistent S3 client
-        s3_client = await self.storage._get_s3_client()
+                # Parse bucket and key from path
+                normalized_path = self.storage._normalize_path(path)
+                path_parts = normalized_path.split("/", 1)
+                if len(path_parts) == 2:
+                    bucket, key = path_parts
+                    response = await s3_client.head_object(Bucket=bucket, Key=key)
+                    result = response.get("Metadata", {})
+                else:
+                    result = {}
 
-        # Parse bucket and key from path
-        normalized_path = self.storage._normalize_path(path)
-        path_parts = normalized_path.split("/", 1)
-        if len(path_parts) == 2:
-            bucket, key = path_parts
-            response = await s3_client.head_object(Bucket=bucket, Key=key)
-            return response.get("Metadata", {})
-        else:
-            return {}
+            duration = time.time() - start_time
+            logger.debug(
+                f"Metadata operation completed for {barcode} in {duration:.3f}s "
+                f"(manager_id={self._manager_id})"
+            )
+            return result
+
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.error(
+                f"Metadata operation FAILED for {barcode} after {duration:.3f}s - {e} "
+                f"(manager_id={self._manager_id})"
+            )
+            raise

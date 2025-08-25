@@ -1,5 +1,6 @@
 import logging
 import shutil
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
@@ -37,6 +38,15 @@ async def _store_ocr_file(
 
 
 async def main(barcode: Barcode, unpack_data: UnpackData, pipeline: "SyncPipeline") -> ExtractOcrResult:
+    start_time = time.time()
+    manager_id = getattr(pipeline, "book_manager", {})
+    manager_id = getattr(manager_id, "_manager_id", "unknown")
+
+    logger.debug(
+        f"EXTRACT_OCR task started for {barcode} "
+        f"(manager_id={manager_id})"
+    )
+
     jsonl_filename = f"{barcode}_ocr.jsonl"
     jsonl_path = pipeline.filesystem_manager.staging_path / jsonl_filename
 
@@ -63,6 +73,12 @@ async def main(barcode: Barcode, unpack_data: UnpackData, pipeline: "SyncPipelin
         # For no compression with block storage, clean up original file
         if pipeline.uses_block_storage:
             jsonl_path.unlink()
+
+    duration = time.time() - start_time
+    logger.debug(
+        f"EXTRACT_OCR task completed for {barcode} in {duration:.3f}s "
+        f"(manager_id={manager_id})"
+    )
 
     return ExtractOcrResult(
         barcode=barcode,

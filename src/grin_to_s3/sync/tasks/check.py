@@ -46,8 +46,7 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
     assert data["etag"] is not None
 
     # Now check for our own etag
-    book_manager = BookManager(pipeline.storage, storage_config=pipeline.config.storage_config)
-    etag_match = await etag_matches(barcode, data["etag"], book_manager, pipeline.db_tracker)
+    etag_match = await etag_matches(barcode, data["etag"], pipeline.book_manager, pipeline.db_tracker)
     if etag_match["matched"]:
         if pipeline.force:
             return CheckResult(

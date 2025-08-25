@@ -9,6 +9,9 @@ import asyncio
 import logging
 import os
 import re
+import threading
+import time
+import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -81,30 +84,103 @@ class Storage:
         self._fs = None
         self._s3_client: Any = None  # Persistent S3 client for S3-compatible storage
         self._s3_session: Any = None  # Keep session reference for cleanup
+        self._client_lock = asyncio.Lock()  # Thread-safe client creation
+
+        # Performance tracking
+        self._instance_id = str(uuid.uuid4())[:8]
+        self._creation_time = time.time()
+        self._client_creation_count = 0
+        self._operation_count = 0
+        self._operation_times: list[float] = []
+
+        logger.info(f"Storage instance created (id={self._instance_id}, protocol={config.protocol})")
 
     async def _get_s3_client(self):
         """Get or create persistent S3 client for S3-compatible storage."""
+        # Check if we need to create a new client
         if self._s3_client is None and self.is_s3_compatible():
-            import aioboto3
+            async with self._client_lock:
+                # Double-check pattern to prevent race condition
+                if self._s3_client is None:
+                    import aioboto3
 
-            # Use the credentials from the storage config
-            session_kwargs = {
-                "aws_access_key_id": self.config.options.get("key"),
-                "aws_secret_access_key": self.config.options.get("secret"),
-            }
+                    thread_id = threading.current_thread().ident
+                    start_time = time.time()
+                    self._client_creation_count += 1
 
-            # Create session once and reuse
-            self._s3_session = aioboto3.Session()
+                    logger.info(
+                        f"Creating NEW S3 client #{self._client_creation_count} "
+                        f"(storage_id={self._instance_id}, thread={thread_id})"
+                    )
 
-            # Create client with endpoint URL if present
-            client_kwargs = session_kwargs.copy()
-            if self.config.endpoint_url:
-                client_kwargs["endpoint_url"] = self.config.endpoint_url
+                    # Use the credentials from the storage config
+                    session_kwargs = {
+                        "aws_access_key_id": self.config.options.get("key"),
+                        "aws_secret_access_key": self.config.options.get("secret"),
+                    }
 
-            # Create persistent client
-            self._s3_client = await self._s3_session.client("s3", **client_kwargs).__aenter__()
+                    # Create session once and reuse
+                    self._s3_session = aioboto3.Session()
+
+                    # Create client with endpoint URL if present
+                    client_kwargs = session_kwargs.copy()
+                    if self.config.endpoint_url:
+                        client_kwargs["endpoint_url"] = self.config.endpoint_url
+
+                    # Create persistent client
+                    self._s3_client = await self._s3_session.client("s3", **client_kwargs).__aenter__()
+
+                    creation_time = time.time() - start_time
+                    logger.info(
+                        f"S3 client creation completed in {creation_time:.3f}s "
+                        f"(storage_id={self._instance_id})"
+                    )
+
+        # Log client reuse (but not too frequently to avoid spam)
+        if self._s3_client is not None and self._operation_count % 50 == 0:
+            age = time.time() - self._creation_time
+            logger.debug(
+                f"Reusing S3 client (storage_id={self._instance_id}, "
+                f"age={age:.1f}s, operations={self._operation_count})"
+            )
 
         return self._s3_client
+
+    def _log_operation_start(self, operation: str, path: str) -> float:
+        """Log the start of an S3 operation and return start time."""
+        start_time = time.time()
+        self._operation_count += 1
+        logger.debug(
+            f"S3 operation #{self._operation_count} START: {operation} for {path} "
+            f"(storage_id={self._instance_id})"
+        )
+        return start_time
+
+    def _log_operation_end(self, operation: str, path: str, start_time: float) -> None:
+        """Log the completion of an S3 operation."""
+        duration = time.time() - start_time
+        self._operation_times.append(duration)
+
+        # Always log slow operations
+        if duration > 1.0:
+            logger.warning(
+                f"SLOW S3 operation: {operation} for {path} took {duration:.3f}s "
+                f"(storage_id={self._instance_id})"
+            )
+        else:
+            logger.debug(
+                f"S3 operation COMPLETED: {operation} for {path} in {duration:.3f}s "
+                f"(storage_id={self._instance_id})"
+            )
+
+        # Periodic summary logging
+        if len(self._operation_times) > 0 and self._operation_count % 20 == 0:
+            avg_time = sum(self._operation_times) / len(self._operation_times)
+            max_time = max(self._operation_times)
+            logger.info(
+                f"S3 performance summary (storage_id={self._instance_id}): "
+                f"{self._operation_count} operations, avg={avg_time:.3f}s, max={max_time:.3f}s"
+            )
 
     def _get_fs(self) -> Any:
         """Get filesystem instance (lazy initialization)."""
@@ -173,21 +249,31 @@ class Storage:
 
     async def write_file(self, path: str, file_path: str, metadata: dict[str, str] | None = None) -> None:
         """Stream file from filesystem to bucket."""
-        normalized_path = self._normalize_path(path)
+        start_time = self._log_operation_start("write_file", path)
 
-        # Use persistent S3 client
-        s3_client = await self._get_s3_client()
+        try:
+            normalized_path = self._normalize_path(path)
 
-        # Parse bucket and key from path
-        path_parts = normalized_path.split("/", 1)
-        if len(path_parts) != 2:
-            raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
+            # Use persistent S3 client
+            s3_client = await self._get_s3_client()
 
-        bucket, key = path_parts
-        logger.debug(f"Calling bucket upload with {bucket}/{key} from {file_path} with metadata {metadata}")
-        await self._multipart_upload_from_file(s3_client, bucket, key, file_path, metadata)
+            # Parse bucket and key from path
+            path_parts = normalized_path.split("/", 1)
+            if len(path_parts) != 2:
+                raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
 
-        return
+            bucket, key = path_parts
+            logger.debug(f"Calling bucket upload with {bucket}/{key} from {file_path} with metadata {metadata}")
+            await self._multipart_upload_from_file(s3_client, bucket, key, file_path, metadata)
+
+            self._log_operation_end("write_file", path, start_time)
+        except Exception as e:
+            duration = time.time() - start_time
+            logger.error(
+                f"S3 operation FAILED: write_file for {path} after {duration:.3f}s - {e} "
+                f"(storage_id={self._instance_id})"
+            )
+            raise
 
     async def _multipart_upload_from_file(
         self, s3_client, bucket: str, key: str, file_path: str, metadata: dict[str, str] | None = None
@@ -248,6 +334,7 @@ class Storage:
 
         if self.config.protocol == "s3":
             # Use persistent S3 client for non-blocking S3 uploads
+            start_time = self._log_operation_start("write_text", path)
             try:
                 normalized_path = self._normalize_path(path)
                 s3_client = await self._get_s3_client()
@@ -259,9 +346,14 @@ class Storage:
 
                     # Use single-part upload for bytes data
                     await s3_client.put_object(Bucket=bucket, Key=key, Body=data)
+                    self._log_operation_end("write_text", path, start_time)
                     return
             except Exception as e:
-                print(f"Failed to write with aioboto3, falling back to sync: {e}")
+                duration = time.time() - start_time
+                logger.error(
+                    f"S3 operation FAILED: write_text for {path} after {duration:.3f}s - {e}, "
+                    f"falling back to sync (storage_id={self._instance_id})"
+                )
                 # Fall through to sync method
 
         # Use sync method for local filesystem or as fallback
@@ -343,9 +435,14 @@ class Storage:
         """Close persistent S3 client and session."""
         if hasattr(self, "_s3_client") and self._s3_client:
             try:
+                logger.info(
+                    f"Closing S3 client (storage_id={self._instance_id}, "
+                    f"total_operations={self._operation_count}, "
+                    f"client_creations={self._client_creation_count})"
+                )
                 await self._s3_client.__aexit__(None, None, None)
-            except Exception:
-                pass  # Ignore errors during cleanup
+            except Exception as e:
+                logger.warning(f"Error closing S3 client (storage_id={self._instance_id}): {e}")
             self._s3_client = None
 
         if hasattr(self, "_s3_session") and self._s3_session:
