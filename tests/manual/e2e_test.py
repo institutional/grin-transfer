@@ -269,6 +269,21 @@ class E2ETestRunner:
             timeout=180,
         )
 
+        # Enrich with metadata (test the enrich step)
+        self._run_command(
+            [
+                self.venv_python,
+                "grin.py",
+                "enrich",
+                "--run-name",
+                local_run_name,
+                "--limit",
+                "5",
+            ],
+            cwd=repo_dir,
+            timeout=180,
+        )
+
         # Verify that archives actually exist and are not zero-byte
         self._verify_local_archives(repo_dir, storage_base, local_run_name)
 
@@ -309,6 +324,21 @@ class E2ETestRunner:
                     "converted",
                     "--limit",
                     "1",
+                ],
+                cwd=repo_dir,
+                timeout=180,
+            )
+
+            # Enrich with metadata (test the enrich step)
+            self._run_command(
+                [
+                    self.venv_python,
+                    "grin.py",
+                    "enrich",
+                    "--run-name",
+                    r2_run_name,
+                    "--limit",
+                    "5",
                 ],
                 cwd=repo_dir,
                 timeout=180,
