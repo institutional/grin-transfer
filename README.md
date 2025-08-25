@@ -61,7 +61,7 @@ Assuming Docker is running on your local or host machine:
 ./grin-docker bash 
 ```
 
-**MacOS note**: Docker on MacOS will be comparatively slow to decode encrypted archives because it does not have full access to the CPU. We  recommend that you install the application directly on Macs when running in any kind of production capacity. This limitation does not apply to running under Docker on Linux.
+**MacOS note**: Docker on MacOS will be comparatively slow to decode encrypted archives because it does not have full access to the CPU. We recommend that you install the application directly on Macs when running in any kind of production capacity. This limitation does not apply to running under Docker on Linux.
 
 ### Local installation
 

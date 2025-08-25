@@ -41,9 +41,8 @@ async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
 
     if pipeline.uses_block_storage:
         bucket = pipeline.config.storage_config["config"].get("bucket_meta")
-        compression_enabled = pipeline.config.sync_compression_meta_enabled
 
-        if compression_enabled:
+        if pipeline.config.sync_compression_meta_enabled:
             async with compress_file_to_temp(csv_path) as compressed_path:
                 # Get compression statistics
                 original_size = csv_path.stat().st_size
@@ -53,17 +52,18 @@ async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
                 logger.debug(
                     f"CSV compression: {original_size:,} -> {compressed_size:,} bytes ({compression_ratio:.1f}% reduction)"
                 )
-                # Upload compressed file to both locations
-                bucket_path = f"{bucket}/{filename}.gz"
-                await pipeline.storage.write_file(bucket_path, str(compressed_path))
-                await pipeline.storage.write_file(f"{bucket}/books_{timestamp}.csv.gz", str(compressed_path))
-                logger.info(f"Successfully uploaded latest compressed CSV to {bucket_path}")
+
+                file_extension = ".gz"
+                source_path = str(compressed_path)
         else:
-            # Upload uncompressed files
-            bucket_path = f"{bucket}/{filename}"
-            await pipeline.storage.write_file(bucket_path, str(csv_path))
-            await pipeline.storage.write_file(f"{bucket}/books_{timestamp}.csv", str(csv_path))
-            logger.info(f"Successfully uploaded latest CSV to {bucket_path}")
+            file_extension = ""
+            source_path = str(csv_path)
+
+        # Upload to both locations
+        bucket_path = f"{bucket}/{filename}{file_extension}"
+        await pipeline.storage.write_file(bucket_path, source_path)
+        await pipeline.storage.write_file(f"{bucket}/books_{timestamp}.csv{file_extension}", source_path)
+        logger.info(f"Successfully uploaded latest CSV to {bucket_path}")
     else:
         logger.info(f"CSV exported as {csv_path}")
 
