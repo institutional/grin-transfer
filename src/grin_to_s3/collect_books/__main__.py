@@ -545,6 +545,9 @@ Examples:
             raise
 
         finally:
+            # Clean up collector resources
+            if "collector" in locals():
+                await collector.cleanup()
             # Always end the stage and save summary
             run_summary.end_stage("collect")
             await save_process_summary(run_summary, book_manager)

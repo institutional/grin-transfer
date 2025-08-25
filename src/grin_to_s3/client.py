@@ -9,14 +9,15 @@ from collections.abc import AsyncGenerator, Callable
 from datetime import datetime
 from typing import Any
 
+import aiohttp
 from selectolax.lexbor import LexborHTMLParser
 from tenacity import retry, stop_after_attempt, wait_fixed
 
 from grin_to_s3.auth import GRINAuth
 from grin_to_s3.common import (
+    DEFAULT_CONNECTOR_LIMITS,
     DEFAULT_DOWNLOAD_RETRIES,
     DEFAULT_RETRY_WAIT_SECONDS,
-    create_http_session,
 )
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,23 @@ class GRINClient:
         self.auth = auth or GRINAuth(secrets_dir=secrets_dir)
         self.timeout = timeout
 
+        # Session will be created lazily when first needed
+        self.session: aiohttp.ClientSession | None = None
+
+    async def _ensure_session(self) -> aiohttp.ClientSession:
+        """Ensure session exists, creating it if necessary."""
+        if self.session is None:
+            connector = aiohttp.TCPConnector(
+                limit=DEFAULT_CONNECTOR_LIMITS["limit"],
+                limit_per_host=DEFAULT_CONNECTOR_LIMITS["limit_per_host"]
+            )
+            timeout_config = aiohttp.ClientTimeout(total=self.timeout, connect=10)
+            self.session = aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout_config
+            )
+        return self.session
+
     async def get_bearer_token(self) -> str:
         """Get current bearer token for manual use."""
         return await self.auth.get_bearer_token()
@@ -58,10 +76,25 @@ class GRINClient:
             str: Response text
         """
         url = f"{self.base_url}/{directory}/{resource}"
+        session = await self._ensure_session()
+        response = await self.auth.make_authenticated_request(session, url, method=method)
+        return await response.text()
 
-        async with create_http_session(self.timeout) as session:
-            response = await self.auth.make_authenticated_request(session, url, method=method)
-            return await response.text()
+    async def download_archive(self, url: str) -> aiohttp.ClientResponse:
+        """Download a book archive - for use by download.py."""
+        session = await self._ensure_session()
+        return await self.auth.make_authenticated_request(session, url)
+
+    async def head_archive(self, url: str) -> aiohttp.ClientResponse:
+        """HEAD request for archive metadata - for use by check.py."""
+        session = await self._ensure_session()
+        return await self.auth.make_authenticated_request(session, url, method="HEAD")
+
+    async def close(self):
+        """Close the session. Must be called when done with client."""
+        if self.session is not None:
+            await self.session.close()
+            self.session = None
 
     async def stream_book_list_html_prefetch(
         self,
@@ -101,9 +134,9 @@ class GRINClient:
             else:
                 # First page - fetch normally
                 logger.debug(f"Page {page_count}: Normal fetch (no prefetch available)")
-                async with create_http_session(300) as session:
-                    response = await self.auth.make_authenticated_request(session, current_url)
-                    html = await response.text()
+                session = await self._ensure_session()
+                response = await self.auth.make_authenticated_request(session, current_url)
+                html = await response.text()
 
             if "Your request is unavailable" in html:
                 logger.warning(f"Page {page_count}: Request unavailable, stopping")
@@ -216,30 +249,9 @@ class GRINClient:
         Returns:
             tuple: (html_content, url)
         """
-        start_time = time.time()
-        logger.debug(f"Prefetch started at {datetime.now().strftime('%H:%M:%S.%f')[:-3]} for URL: {url}")
-
-        # Time the authentication/request phase
-        auth_start = time.time()
-        async with create_http_session(300) as session:
-            auth_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-            logger.debug(f"Session created, making authenticated request at {auth_time}")
-            response = await self.auth.make_authenticated_request(session, url)
-            auth_elapsed = time.time() - auth_start
-            auth_complete_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-            logger.debug(f"Authenticated request completed in {auth_elapsed:.2f}s at {auth_complete_time}")
-
-            # Time the HTML download phase
-            download_start = time.time()
-            html = await response.text()
-            download_elapsed = time.time() - download_start
-            logger.debug(f"HTML download completed in {download_elapsed:.2f}s")
-
-        total_elapsed = time.time() - start_time
-        logger.debug(
-            f"Prefetch completed in {total_elapsed:.2f}s total "
-            f"(auth: {auth_elapsed:.2f}s, download: {download_elapsed:.2f}s)"
-        )
+        session = await self._ensure_session()
+        response = await self.auth.make_authenticated_request(session, url)
+        html = await response.text()
         return html, url
 
     def _extract_cell_texts(self, cells) -> list[str]:

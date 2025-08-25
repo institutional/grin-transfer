@@ -205,9 +205,14 @@ def mock_grin_client():
 
     mock_response.content.iter_chunked = mock_iter_chunked
     mock_response.status = 200
-    mock_response.headers = {"content-length": "20"}
+    mock_response.headers = {"content-length": "20", "ETag": '"test-etag"'}
 
     client.auth.make_authenticated_request = AsyncMock(return_value=mock_response)
     client.session = MagicMock()
     client.session.close = AsyncMock()
+    # Mock new session management methods
+    client.close = AsyncMock()
+    client.download_archive = AsyncMock(return_value=mock_response)
+    client.head_archive = AsyncMock(return_value=mock_response)
+
     return client

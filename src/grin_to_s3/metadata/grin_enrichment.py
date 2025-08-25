@@ -86,8 +86,8 @@ class GRINEnrichmentPipeline:
 
         try:
             # Close GRIN client session
-            if hasattr(self.grin_client, "session") and self.grin_client.session:
-                await self.grin_client.session.close()
+            if hasattr(self, "grin_client"):
+                await self.grin_client.close()
                 logger.debug("Closed GRIN client session")
         except Exception as e:
             logger.warning(f"Error closing GRIN client session: {e}")

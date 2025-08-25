@@ -636,3 +636,8 @@ class SyncPipeline:
         if self.conversion_handler and self.conversion_requests_made > 0:
             self.process_summary_stage.queue_info["conversion_requests"] = self.conversion_requests_made
             self.process_summary_stage.queue_info["conversion_limit"] = self.conversion_request_limit
+
+    async def cleanup(self):
+        """Clean up pipeline resources."""
+        if hasattr(self, "grin_client"):
+            await self.grin_client.close()

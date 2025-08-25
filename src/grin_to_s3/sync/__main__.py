@@ -158,10 +158,14 @@ async def _run_sync_pipeline(args, run_config: RunConfig, sync_stage) -> None:
     # Set up signal handlers for graceful shutdown
     _setup_signal_handlers(pipeline, sync_stage)
 
-    # Execute the sync pipeline
-    sync_stage.add_progress_update("Starting sync pipeline")
-    await pipeline.setup_sync_loop(queues=args.queue, limit=args.limit, specific_barcodes=specific_barcodes)
-    sync_stage.add_progress_update("Sync pipeline completed successfully")
+    try:
+        # Execute the sync pipeline
+        sync_stage.add_progress_update("Starting sync pipeline")
+        await pipeline.setup_sync_loop(queues=args.queue, limit=args.limit, specific_barcodes=specific_barcodes)
+        sync_stage.add_progress_update("Sync pipeline completed successfully")
+    finally:
+        # Clean up pipeline resources
+        await pipeline.cleanup()
 
 
 def _handle_pipeline_error(e: Exception, sync_stage) -> None:

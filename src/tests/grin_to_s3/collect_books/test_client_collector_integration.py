@@ -59,7 +59,7 @@ async def test_client_collector_integration():
             with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
                 # Create collector and replace client
                 collector = BookCollector(directory="Harvard", process_summary_stage=AsyncMock(), test_mode=True)
-                collector.client = client
+                collector.grin_client = client
                 collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
 
                 try:

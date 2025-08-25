@@ -88,8 +88,8 @@ class ProcessingClient:
     async def cleanup(self) -> None:
         """Clean up resources and close connections safely."""
         try:
-            if hasattr(self.grin_client, "session") and self.grin_client.session:
-                await self.grin_client.session.close()
+            if hasattr(self, "grin_client"):
+                await self.grin_client.close()
                 logger.debug("Closed GRIN client session")
         except Exception as e:
             logger.warning(f"Error closing GRIN client session: {e}")
@@ -691,8 +691,8 @@ class ProcessingMonitor:
     async def cleanup(self) -> None:
         """Clean up resources and close connections safely."""
         try:
-            if hasattr(self.grin_client, "session") and self.grin_client.session:
-                await self.grin_client.session.close()
+            if hasattr(self, "grin_client"):
+                await self.grin_client.close()
         except Exception as e:
             print(f"Warning: Error closing GRIN client session: {e}")
 
@@ -1436,7 +1436,8 @@ Examples:
         "--barcodes", help="Comma-separated list of specific barcodes to process (e.g., '12345,67890,abcde')"
     )
     request_parser.add_argument(
-        "--barcodes-file", help="Path to a text file containing barcodes to process (one per line, supports comments with #)"
+        "--barcodes-file",
+        help="Path to a text file containing barcodes to process (one per line, supports comments with #)",
     )
     request_parser.add_argument(
         "--status-only", action="store_true", help="Only check current status, don't make requests"

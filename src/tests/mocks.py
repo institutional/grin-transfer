@@ -90,6 +90,25 @@ class MockGRINClient:
             return "TEST005\t2023-01-01 12:00\tFailure reason"
         return ""
 
+    async def download_archive(self, url: str):
+        """Mock download method for compatibility."""
+        from unittest.mock import AsyncMock
+        mock_response = AsyncMock()
+        mock_response.content.iter_chunked.return_value = [b"mock data"]
+        return mock_response
+
+    async def head_archive(self, url: str):
+        """Mock HEAD method for compatibility."""
+        from unittest.mock import AsyncMock
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.headers = {"content-length": "1024"}
+        return mock_response
+
+    async def close(self):
+        """Close method for compatibility with real GRINClient."""
+        pass
+
 
 class MockBookStorage:
     """Mock storage for testing"""
@@ -427,8 +446,8 @@ def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
         directory="TestDirectory", process_summary_stage=mock_stage, storage_config=storage_config, config=config
     )
 
-    # Replace client with mock
-    exporter.client = MockGRINClient(test_data)
+    # Replace grin_client with mock
+    exporter.grin_client = MockGRINClient(test_data)
 
     # Mock book storage if configured
     if storage_config:
