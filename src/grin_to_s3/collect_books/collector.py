@@ -81,7 +81,6 @@ class BookCollector:
         self.recent_processed = BoundedSet(max_size=self.config.recent_cache_size)
         self.recent_failed = BoundedSet(max_size=self.config.recent_failed_cache_size)
 
-
         # Job metadata
         self.job_metadata = self._create_job_metadata(rate_limit, storage_config)
         # Initialize progress tracker after job_metadata is available
@@ -177,7 +176,6 @@ class BookCollector:
             "books_per_hour": round(books_per_hour, 1),
             "estimated_completion_hours": round(eta_hours, 1) if eta_hours else None,
         }
-
 
     # Progress file archiving moved to progress.py
 
@@ -433,7 +431,6 @@ class BookCollector:
             print_oauth_setup_instructions()
             return False
 
-
         # Archive existing progress file before starting execution
         logger.debug("Backing up progress file...")
         await self.progress_tracker.archive_progress_file()
@@ -587,13 +584,11 @@ class BookCollector:
             # Remove signal handler
             loop.remove_signal_handler(signal.SIGINT)
 
-
             # Finish progress tracking
             self.progress.finish()
 
         # Return completion status
         return completed_successfully
-
 
     async def process_book(self, grin_row: GRINRow) -> BookRecord | None:
         """Process a single GRINRow from GRIN and return its record.

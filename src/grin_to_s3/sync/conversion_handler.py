@@ -82,4 +82,3 @@ class ConversionRequestHandler:
             logger.error(f"[{barcode}] Unexpected error during conversion request: {e}")
             await mark_verified_unavailable(str(self.db_tracker.db_path), barcode, str(e))
             return "unavailable"
-

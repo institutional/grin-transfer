@@ -93,6 +93,7 @@ class MockGRINClient:
     async def download_archive(self, url: str):
         """Mock download method for compatibility."""
         from unittest.mock import AsyncMock
+
         mock_response = AsyncMock()
         mock_response.content.iter_chunked.return_value = [b"mock data"]
         return mock_response
@@ -104,6 +105,7 @@ class MockGRINClient:
     async def head_archive(self, url: str):
         """Mock HEAD method for compatibility."""
         from unittest.mock import AsyncMock
+
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.headers = {"content-length": "1024"}

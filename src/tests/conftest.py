@@ -91,7 +91,6 @@ class ConfigBuilder:
         self._config["sync_config"]["concurrent_uploads"] = count
         return self
 
-
     def with_staging_dir(self, staging_dir: str):
         """Set staging directory."""
         self._config["sync_config"]["staging_dir"] = staging_dir

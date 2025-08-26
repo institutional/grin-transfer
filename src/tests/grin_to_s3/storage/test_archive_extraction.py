@@ -53,7 +53,6 @@ class TestAtomicArchiveExtraction:
         return archive_path
 
 
-
 class TestExtractionIntegration:
     """Integration tests for the complete extraction workflow."""
 
