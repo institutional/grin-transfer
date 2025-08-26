@@ -116,7 +116,7 @@ async def test_collector_stream_all_books_integration():
                 process_summary_stage=AsyncMock(),
                 storage_config={"type": "local", "config": {"base_path": "/tmp/test"}, "prefix": "test"},
             )
-            collector.client = client
+            collector.grin_client = client
             collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
 
             try:

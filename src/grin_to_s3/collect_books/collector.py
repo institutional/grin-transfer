@@ -478,8 +478,6 @@ class BookCollector:
             f"Two-pass collection complete: {total_books:,} total books ({converted_count:,} converted + {non_converted_count:,} non-converted)"
         )
 
-
-
     async def collect_books(self, output_file: str, limit: int | None = None) -> bool:
         """
         Book collection with pagination.
