@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from tenacity import retry, stop_after_attempt, wait_exponential
+
 # Check Python version requirement
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
@@ -26,6 +28,7 @@ from grin_to_s3.common import (
 from grin_to_s3.database.connections import connect_async
 from grin_to_s3.database.database_utils import validate_database_file
 from grin_to_s3.logging_config import setup_logging
+from grin_to_s3.metadata.tsv_parser import parse_grin_tsv
 from grin_to_s3.process_summary import (
     create_process_summary,
     display_step_summary,
@@ -73,8 +76,9 @@ class GRINEnrichmentPipeline:
         # Track if pipeline is shutting down for cleanup
         self._shutdown_requested = False
 
-        # Buffer for leftover books from previous batches to improve efficiency
-        self.leftover_barcodes: list[str] = []
+    async def initialize_resources(self):
+        """Initialize async resources that require await."""
+        await self.sqlite_tracker.initialize()
 
     async def cleanup(self) -> None:
         """Clean up resources and close connections safely."""
@@ -102,363 +106,90 @@ class GRINEnrichmentPipeline:
 
         logger.info("Cleanup completed")
 
-    def _calculate_max_batch_size(self, barcodes: list[str]) -> int:
-        """Calculate maximum batch size that fits in URL length limit."""
-        if not barcodes:
-            return 1000  # Default fallback
+    def _create_url_batches(self, barcodes: list[str]) -> list[list[str]]:
+        """Split barcodes into URL-sized batches.
 
-        # Base URL components
+        Dynamically sizes batches based on actual barcode lengths
+        to maximize throughput while staying under HTTP header limits.
+        """
         base_url = f"https://books.google.com/libraries/{self.directory}/_barcode_search?execute_query=true&format=text&mode=full&barcodes="
-        max_url_length = 7500  # Conservative limit for HTTP headers
-        available_length = max_url_length - len(base_url)
+        max_url_length = 7500  # Conservative HTTP header limit
+        available = max_url_length - len(base_url)
 
-        # Build barcode string incrementally until we hit the limit
-        barcode_string = ""
-        max_batch_size = 0
+        batches: list[list[str]] = []
+        current_batch: list[str] = []
+        current_length = 0
 
-        for i, barcode in enumerate(barcodes):
-            # Add space separator if not first barcode
-            test_string = barcode_string + (" " if barcode_string else "") + barcode
+        for barcode in barcodes:
+            # +1 for space separator (except first item)
+            additional = len(barcode) + (1 if current_batch else 0)
 
-            if len(test_string) <= available_length:
-                barcode_string = test_string
-                max_batch_size = i + 1
+            if current_length + additional > available:
+                # Current batch is full, start new one
+                if current_batch:
+                    batches.append(current_batch)
+                current_batch = [barcode]
+                current_length = len(barcode)
             else:
-                break  # Would exceed URL limit
+                # Add to current batch
+                current_batch.append(barcode)
+                current_length += additional
 
-        # Ensure we have at least 1 barcode per batch
-        result = max(1, max_batch_size)
-        logger.debug(f"Calculated max batch size: {result} (total URL length: {len(base_url + barcode_string)})")
-        return result
+        # Add final batch
+        if current_batch:
+            batches.append(current_batch)
 
-    def _create_optimal_batch_composition(self, barcodes: list[str]) -> list[list[str]]:
-        """Create batches optimized for both URL capacity and concurrency.
+        # Limit concurrent batches to max_concurrent_requests
+        return batches[: self.max_concurrent_requests]
 
-        Returns batches sized to maximize concurrent request utilization while
-        staying within URL length limits.
-        """
-        if not barcodes:
-            return []
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=8), reraise=True)
+    async def _fetch_grin_batch(self, barcodes: list[str]) -> str:
+        """Fetch TSV data from GRIN with automatic retry."""
+        barcode_param = " ".join(barcodes)
+        url = f"_barcode_search?execute_query=true&format=text&mode=full&barcodes={barcode_param}"
+        return await self.grin_client.fetch_resource(self.directory, url)
 
-        # Calculate max URL capacity using a representative sample
-        sample_size = min(len(barcodes), 1000)  # Use sample to avoid expensive calculation
-        max_url_capacity = self._calculate_max_batch_size(barcodes[:sample_size])
-
-        # Calculate optimal batch composition
-        total_books = len(barcodes)
-        optimal_concurrent_batches = min(
-            self.max_concurrent_requests, (total_books + max_url_capacity - 1) // max_url_capacity
-        )
-
-        # Create batches that maximize both concurrency and per-request capacity
-        batches = []
-        remaining_barcodes = barcodes[:]
-
-        while remaining_barcodes:
-            # Create up to max_concurrent_requests batches at optimal capacity
-            current_round_batches = []
-
-            for _ in range(min(optimal_concurrent_batches, len(remaining_barcodes) // max_url_capacity + 1)):
-                if not remaining_barcodes:
-                    break
-
-                # Calculate actual capacity for this specific batch
-                actual_capacity = self._calculate_max_batch_size(remaining_barcodes)
-                batch_size = min(actual_capacity, len(remaining_barcodes))
-
-                batch = remaining_barcodes[:batch_size]
-                current_round_batches.append(batch)
-                remaining_barcodes = remaining_barcodes[batch_size:]
-
-                # If we've created max_concurrent_requests batches, process them
-                if len(current_round_batches) >= self.max_concurrent_requests:
-                    break
-
-            batches.extend(current_round_batches)
-
-        return batches
-
-    def get_optimal_batch_size_recommendation(self, sample_barcodes: list[str] | None = None) -> int:
-        """Get recommended batch size for optimal capacity utilization.
-
-        Returns a batch size that would result in exactly max_concurrent_requests
-        batches at maximum URL capacity.
-        """
-        if sample_barcodes:
-            # Use provided sample to calculate capacity
-            max_url_capacity = self._calculate_max_batch_size(sample_barcodes[:1000])
-        else:
-            # Use conservative estimate based on typical barcode lengths
-            # Typical barcode: ~15 chars, URL capacity ~492 barcodes
-            max_url_capacity = 490  # Conservative estimate
-
-        # Optimal batch size = max_concurrent_requests * max_url_capacity
-        optimal_batch_size = self.max_concurrent_requests * max_url_capacity
-
-        return optimal_batch_size
-
-    def _calculate_optimal_fetch_size(self, target_batch_size: int) -> int:
-        """Calculate optimal database fetch size accounting for existing leftovers.
-
-        Args:
-            target_batch_size: Desired total batch size for processing
+    async def _fetch_and_update(self, barcodes: list[str]) -> int:
+        """Fetch metadata and update database for a batch.
 
         Returns:
-            Number of fresh books to fetch from database
+            Number of successfully enriched books
         """
-        leftover_count = len(self.leftover_barcodes)
-
-        if leftover_count >= target_batch_size:
-            # We already have enough leftovers, don't fetch any new books
-            return 0
-
-        # Fetch just enough to reach target batch size
-        return target_batch_size - leftover_count
-
-    def _prepare_combined_batch(self, fresh_barcodes: list[str]) -> tuple[list[str], list[str]]:
-        """Combine leftover barcodes with fresh barcodes for optimal processing.
-
-        Args:
-            fresh_barcodes: Newly fetched barcodes from database
-
-        Returns:
-            Tuple of (processing_batch, new_leftovers)
-        """
-        # Combine leftovers with fresh books
-        all_barcodes = self.leftover_barcodes + fresh_barcodes
-
-        if not all_barcodes:
-            return [], []
-
-        # Calculate optimal batch composition for combined books
-        optimal_batches = self._create_optimal_batch_composition(all_barcodes)
-
-        if not optimal_batches:
-            return [], all_barcodes
-
-        # Process batches up to max_concurrent_requests, save remainder as leftovers
-        batches_to_process = min(len(optimal_batches), self.max_concurrent_requests)
-
-        processing_batches = optimal_batches[:batches_to_process]
-        leftover_batches = optimal_batches[batches_to_process:]
-
-        # Convert batches to flat lists
-        processing_barcodes = []
-        for batch in processing_batches:
-            processing_barcodes.extend(batch)
-
-        new_leftovers = []
-        for batch in leftover_batches:
-            new_leftovers.extend(batch)
-
-        return processing_barcodes, new_leftovers
-
-    async def fetch_grin_metadata_batch(self, barcodes: list[str]) -> dict[str, dict | None]:
-        """Fetch detailed GRIN metadata for a batch of barcodes."""
-        try:
-            # Use GRIN's _barcode_search endpoint with space-delimited barcodes
-            barcode_list = " ".join(barcodes)
-            search_url = f"_barcode_search?execute_query=true&format=text&mode=full&barcodes={barcode_list}"
-
-            # Check URL length and split if too long (HTTP headers have ~8KB limit)
-            base_url = f"https://books.google.com/libraries/{self.directory}/"
-            full_url = base_url + search_url
-            max_url_length = 7500  # Conservative limit to stay under 8KB header limit
-
-            if len(full_url) > max_url_length:
-                logger.warning(f"URL too long ({len(full_url)} chars) for {len(barcodes)} barcodes, splitting batch")
-                # Split the batch in half and process recursively
-                mid = len(barcodes) // 2
-                if mid == 0:
-                    # Single barcode causing issues - skip it
-                    logger.error(f"Single barcode {barcodes[0]} causes URL too long, skipping")
-                    return {barcodes[0]: None}
-
-                first_half = await self.fetch_grin_metadata_batch(barcodes[:mid])
-                second_half = await self.fetch_grin_metadata_batch(barcodes[mid:])
-
-                # Merge results
-                result = {}
-                result.update(first_half)
-                result.update(second_half)
-                return result
-
-            response_text = await self.grin_client.fetch_resource(self.directory, search_url)
-
-            # Parse TSV response
-            lines = response_text.strip().split("\n")
-            if len(lines) < 2:
-                logger.debug(f"Insufficient TSV data for batch of {len(barcodes)} barcodes")
-                return dict.fromkeys(barcodes)
-
-            headers = lines[0].split("\t")
-            results: dict[str, dict[str, str] | None] = {}
-
-            # Process each data line (skip header)
-            for i, line in enumerate(lines[1:], 1):
-                values = line.split("\t")
-
-                # Get barcode from first column
-                if not values or not values[0]:
-                    logger.debug(f"Empty barcode in line {i}")
-                    continue
-
-                barcode = values[0]
-
-                # Pad values with empty strings if there are fewer values than headers
-                if len(values) < len(headers):
-                    missing_count = len(headers) - len(values)
-                    logger.debug(
-                        f"Padding {barcode}: {len(headers)} headers, {len(values)} values - "
-                        f"adding {missing_count} empty values"
-                    )
-                    values.extend([""] * (len(headers) - len(values)))
-                elif len(values) > len(headers):
-                    # This shouldn't happen, but handle it gracefully
-                    logger.warning(
-                        f"More values than headers for {barcode}: {len(headers)} headers, "
-                        f"{len(values)} values - truncating values"
-                    )
-                    values = values[: len(headers)]
-
-                # Create mapping and extract enrichment fields using centralized TSV mapping
-                data_map = dict(zip(headers, values, strict=False))
-
-                # Use BookRecord's GRIN TSV mapping instead of hardcoded mapping
-                from grin_to_s3.collect_books.models import BookRecord
-
-                grin_tsv_mapping = BookRecord.get_grin_tsv_column_mapping()
-
-                enrichment_data = {}
-                for grin_tsv_column, field_name in grin_tsv_mapping.items():
-                    enrichment_data[field_name] = data_map.get(grin_tsv_column, "")
-
-                results[barcode] = enrichment_data
-                logger.debug(
-                    f"Enriched {barcode}: State={enrichment_data.get('grin_state')}, "
-                    f"Viewability={enrichment_data.get('grin_viewability')}"
-                )
-
-            # Ensure all requested barcodes have entries (even if None)
-            for barcode in barcodes:
-                if barcode not in results:
-                    logger.debug(f"No data returned for {barcode}")
-                    results[barcode] = None
-
-            return results
-
-        except Exception as e:
-            logger.error(f"Failed to fetch GRIN metadata for batch of {len(barcodes)} barcodes: {e}")
-            return dict.fromkeys(barcodes)
-
-    async def _fetch_batch_with_rate_limiting(self, barcodes: list[str]) -> dict[str, dict | None]:
-        """Fetch a batch with concurrent rate limiting using semaphore."""
         async with self._rate_limit_semaphore:
             # Apply rate limiting
             await self.rate_limiter.acquire()
 
-            # Fetch the batch
             try:
-                return await self.fetch_grin_metadata_batch(barcodes)
-            except Exception as e:
-                logger.error(f"Error in concurrent batch fetch: {e}")
-                return dict.fromkeys(barcodes)
+                # Fetch with automatic retry
+                tsv_data = await self._fetch_grin_batch(barcodes)
 
-    async def enrich_books_batch(self, barcodes: list[str]) -> int:
-        """Enrich a batch of books with GRIN metadata using concurrent requests."""
-        enriched_count = 0
+                # Parse response
+                metadata = parse_grin_tsv(tsv_data)
 
-        # Create optimal batch composition that maximizes both URL capacity and concurrency
-        grin_batches = self._create_optimal_batch_composition(barcodes)
+                # Update database
+                enriched_count = 0
+                for barcode, data in metadata.items():
+                    if data and await self.sqlite_tracker.update_book_enrichment(barcode, data):
+                        enriched_count += 1
+                        self.process_summary_stage.increment_items(processed=1, successful=1)
+                    else:
+                        self.process_summary_stage.increment_items(processed=1)
 
-        batch_sizes = [len(batch) for batch in grin_batches]
-        total_books = sum(batch_sizes)
-
-        if len(grin_batches) == 1 and total_books == 1:
-            # Single book case - keep it simple
-            logger.debug("  → Enriching 1 book via GRIN API")
-        else:
-            # Multiple books or batches - show details with capacity optimization info
-            avg_batch_size = sum(batch_sizes) / len(batch_sizes) if batch_sizes else 0
-            concurrent_rounds = (len(grin_batches) + self.max_concurrent_requests - 1) // self.max_concurrent_requests
-
-            split_info = (
-                f"  → Enriching {total_books} {pluralize(total_books, 'book')} via "
-                f"{len(grin_batches)} GRIN API {pluralize(len(grin_batches), 'call')} "
-                f"in {concurrent_rounds} concurrent {pluralize(concurrent_rounds, 'round')} "
-                f"(batch sizes: {batch_sizes}, avg: {avg_batch_size:.1f})"
-            )
-            logger.info(split_info)
-
-        # Process batches concurrently with rate limiting
-        batch_tasks = []
-        for grin_batch in grin_batches:
-            task = self._fetch_batch_with_rate_limiting(grin_batch)
-            batch_tasks.append((grin_batch, task))
-
-        # Execute all batch requests concurrently
-        try:
-            batch_results_list = await asyncio.gather(*[task for _, task in batch_tasks], return_exceptions=True)
-
-            # Process results from each batch
-            for (grin_batch, _), batch_results in zip(batch_tasks, batch_results_list, strict=False):
-                try:
-                    # Handle exceptions from gather
-                    if isinstance(batch_results, Exception):
-                        logger.error(f"Batch fetch failed for {len(grin_batch)} barcodes: {batch_results}")
-                        batch_results = dict.fromkeys(grin_batch)
-
-                    # Process each barcode result
-                    for barcode in grin_batch:
-                        try:
-                            enrichment_data = batch_results.get(barcode) if isinstance(batch_results, dict) else None
-
-                            if enrichment_data:
-                                # Update book record in database
-                                success = await self.sqlite_tracker.update_book_enrichment(barcode, enrichment_data)
-                                if success:
-                                    enriched_count += 1
-                                    logger.debug(f"Successfully enriched {barcode}")
-                                    self.process_summary_stage.increment_items(processed=1, successful=1)
-                                else:
-                                    logger.warning(f"⚠️ Failed to update database for {barcode}")
-                                    self.process_summary_stage.increment_items(processed=1, failed=1)
-                            else:
-                                # Still mark as processed with empty enrichment timestamp
-                                await self.sqlite_tracker.update_book_enrichment(barcode, {})
-                                logger.debug(f"No enrichment data found for {barcode}")
-                                self.process_summary_stage.increment_items(processed=1)
-
-                        except Exception as e:
-                            logger.error(f"Error processing {barcode}: {e}")
-                            # Mark as processed even if failed to avoid reprocessing
-                            try:
-                                await self.sqlite_tracker.update_book_enrichment(barcode, {})
-                            except Exception:
-                                pass
-                            self.process_summary_stage.increment_items(processed=1, failed=1)
-
-                except Exception as e:
-                    logger.error(f"Error processing batch results: {e}")
-                    # Mark all barcodes in this batch as processed (empty) to avoid reprocessing
-                    for barcode in grin_batch:
-                        try:
-                            await self.sqlite_tracker.update_book_enrichment(barcode, {})
-                        except Exception:
-                            pass
-                        self.process_summary_stage.increment_items(processed=1, failed=1)
-
-        except Exception as e:
-            logger.error(f"Critical error in concurrent batch processing: {e}")
-            # Fallback: mark all barcodes as processed to avoid infinite loops
-            for barcode in barcodes:
-                try:
+                # Mark missing barcodes as attempted
+                missing = set(barcodes) - set(metadata.keys())
+                for barcode in missing:
                     await self.sqlite_tracker.update_book_enrichment(barcode, {})
-                except Exception:
-                    pass
-                self.process_summary_stage.increment_items(processed=1, failed=1)
+                    self.process_summary_stage.increment_items(processed=1)
 
-        return enriched_count
+                return enriched_count
+
+            except Exception as e:
+                logger.error(f"Batch of {len(barcodes)} failed: {e}")
+                # Mark all as attempted to prevent infinite retries
+                for barcode in barcodes:
+                    await self.sqlite_tracker.update_book_enrichment(barcode, {})
+                    self.process_summary_stage.increment_items(processed=1, failed=1)
+                return 0
 
     async def reset_enrichment_data(self) -> int:
         """Reset enrichment data for all books in the database."""
@@ -475,7 +206,7 @@ class GRINEnrichmentPipeline:
             await conn.commit()
             return reset_count
 
-    async def run_enrichment(self, limit: int | None = None, resume: bool = True, reset: bool = False) -> None:
+    async def run_enrichment(self, limit: int | None = None, reset: bool = False) -> None:
         """Run the complete enrichment pipeline."""
         print("Starting GRIN metadata enrichment pipeline")
         logger.info("Starting GRIN metadata enrichment pipeline")
@@ -484,10 +215,7 @@ class GRINEnrichmentPipeline:
         logger.info(f"Rate limit: {self.rate_limiter.requests_per_second:.1f} requests/second")
         logger.info(f"Concurrent requests: {self.max_concurrent_requests}")
 
-        # Show optimization info
-        optimal_batch_size = self.get_optimal_batch_size_recommendation()
         logger.info(f"Database batch size: {self.batch_size:,} books")
-        logger.info(f"Optimal batch size for max concurrency: {optimal_batch_size:,} books")
         logger.info("GRIN URL batches: Dynamic sizing optimized for concurrency")
 
         if limit:
@@ -501,6 +229,9 @@ class GRINEnrichmentPipeline:
             reset_count = await self.reset_enrichment_data()
             print(f"Reset enrichment data for {reset_count:,} books")
             print()
+
+        # Initialize persistent database connection for performance optimization
+        await self.initialize_resources()
 
         # Validate credentials
         logger.debug("Validating GRIN credentials...")
@@ -528,6 +259,9 @@ class GRINEnrichmentPipeline:
             run_name = Path(self.db_path).parent.name
             print("\nNext steps:")
             print(f"  Download converted books: python grin.py sync pipeline --run-name {run_name} --queue converted")
+
+            # Clean up resources before returning
+            await self.cleanup()
             return
 
         # Start enrichment
@@ -538,70 +272,39 @@ class GRINEnrichmentPipeline:
         # Initialize sliding window rate calculator (larger window for more stable ETA)
         rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
-        # Reset leftover buffer at start of enrichment
-        self.leftover_barcodes = []
-
         logger.info(f"Starting enrichment of {remaining_books:,} books...")
 
         try:
-            while True:
+            while limit is None or processed_count < limit:
                 # Check for shutdown request
                 if self._shutdown_requested:
                     print("Shutdown requested, stopping enrichment...")
                     break
 
-                # Calculate optimal fetch size accounting for leftovers
-                if limit:
-                    remaining_limit = limit - processed_count
-                    if remaining_limit <= 0:
-                        break
-                    target_batch_size = min(self.batch_size, remaining_limit)
-                else:
-                    target_batch_size = self.batch_size
+                # Get batch from database
+                batch_size = min(self.batch_size, limit - processed_count) if limit else self.batch_size
+                barcodes = await self.sqlite_tracker.get_books_for_enrichment(batch_size)
 
-                # Calculate how many fresh books to fetch from database
-                fetch_size = self._calculate_optimal_fetch_size(target_batch_size)
-
-                # Get fresh books from database if needed
-                fresh_barcodes = []
-                if fetch_size > 0:
-                    fresh_barcodes = await self.sqlite_tracker.get_books_for_enrichment(fetch_size)
-
-                # If no fresh books and no leftovers, we're done
-                if not fresh_barcodes and not self.leftover_barcodes:
+                if not barcodes:
                     print("✅ No more books to enrich")
                     break
 
-                # Track leftovers from previous batch for logging
-                previous_leftovers_count = len(self.leftover_barcodes)
-
-                # Combine leftovers with fresh books for optimal processing
-                processing_barcodes, new_leftovers = self._prepare_combined_batch(fresh_barcodes)
-
-                # Update leftover buffer
-                self.leftover_barcodes = new_leftovers
-
-                # If no books to process in this round, continue to next iteration
-                if not processing_barcodes:
-                    continue
-
                 batch_start = time.time()
-                leftover_info = (
-                    f" (including {previous_leftovers_count} from previous batch)"
-                    if previous_leftovers_count > 0
-                    else ""
-                )
-                carryover_info = f" (+{len(new_leftovers)} carried to next batch)" if new_leftovers else ""
-                logger.info(f"Processing batch of {len(processing_barcodes)} books{leftover_info}{carryover_info}...")
+                logger.info(f"Processing batch of {len(barcodes)} books...")
 
-                # Enrich the batch
-                enriched_in_batch = await self.enrich_books_batch(processing_barcodes)
+                # Create URL-sized batches dynamically for this set
+                url_batches = self._create_url_batches(barcodes)
+
+                # Process concurrently with semaphore
+                tasks = [self._fetch_and_update(batch) for batch in url_batches]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # Update progress
+                enriched = sum(r for r in results if isinstance(r, int))
+                processed_count += len(barcodes)
+                total_enriched += enriched
 
                 batch_elapsed = time.time() - batch_start
-                # Count only fresh books that were completed (not carried over)
-                fresh_books_completed = len(fresh_barcodes) - max(0, len(new_leftovers) - previous_leftovers_count)
-                processed_count += max(0, fresh_books_completed)
-                total_enriched += enriched_in_batch
 
                 # Track batch completion for sliding window rate calculation
                 current_time = time.time()
@@ -613,38 +316,18 @@ class GRINEnrichmentPipeline:
                 # Calculate ETA if we have enough data (after 5+ batches for stable estimate)
                 eta_text = ""
                 if len(rate_calculator.batch_times) >= 5 and rate > 0:
-                    books_remaining = remaining_books - processed_count
-                    eta_seconds = books_remaining / rate
-                    eta_text = f" (ETA: {format_duration(eta_seconds)})"
+                    books_remaining = max(0, remaining_books - processed_count)
+                    eta_seconds = books_remaining / rate if books_remaining > 0 else 0
+                    eta_text = f" (ETA: {format_duration(eta_seconds)})" if books_remaining > 0 else " (Complete)"
 
-                logger.info(
-                    f"  Batch completed: {enriched_in_batch}/{len(processing_barcodes)} enriched in {batch_elapsed:.1f}s"
-                )
-                print(f"Progress: {processed_count:,}/{remaining_books:,} processed ({rate:.1f} books/sec){eta_text}")
-                progress_msg = f"  Overall progress: {processed_count:,}/{remaining_books:,} processed"
+                logger.info(f"  Batch completed: {enriched}/{len(barcodes)} enriched in {batch_elapsed:.1f}s")
+                print(f"Progress: {processed_count:,}/{total_books:,} processed ({rate:.1f} books/sec){eta_text}")
+                progress_msg = f"  Overall progress: {processed_count:,}/{total_books:,} processed"
                 rate_msg = f" ({rate:.1f} books/sec){eta_text}"
                 logger.info(progress_msg + rate_msg)
 
-                if limit and processed_count >= limit:
-                    print(f"Reached limit of {limit} books")
-                    break
-
                 # Small delay between batches
                 await asyncio.sleep(0.1)
-
-            # Process any remaining leftovers at end of stream
-            if self.leftover_barcodes and not self._shutdown_requested:
-                logger.info(f"Processing final {len(self.leftover_barcodes)} leftover books...")
-                try:
-                    enriched_leftovers = await self.enrich_books_batch(self.leftover_barcodes)
-                    processed_count += len(self.leftover_barcodes)
-                    total_enriched += enriched_leftovers
-                    logger.info(f"  Final batch completed: {enriched_leftovers}/{len(self.leftover_barcodes)} enriched")
-                    print(f"Final progress: {processed_count:,} books processed total")
-                except Exception as e:
-                    logger.error(f"Failed to process leftover books: {e}")
-                finally:
-                    self.leftover_barcodes = []
 
         except KeyboardInterrupt:
             print("\nEnrichment interrupted by user")
@@ -693,7 +376,7 @@ async def main() -> None:
     import signal
 
     # Set up signal handlers for graceful shutdown
-    def signal_handler(signum: int, frame: Any) -> None:
+    def signal_handler(signum: int, _frame: Any) -> None:
         print(f"\nReceived signal {signum}, shutting down gracefully...")
         raise KeyboardInterrupt()
 

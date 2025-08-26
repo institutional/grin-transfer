@@ -259,11 +259,7 @@ async def get_updates_for_task(result: TaskResult, previous_results: dict[TaskTy
 
 
 @retry_database_operation
-async def commit_book_record_updates(
-    pipeline: "SyncPipeline",
-    barcode: str,
-    conn: aiosqlite.Connection
-):
+async def commit_book_record_updates(pipeline: "SyncPipeline", barcode: str, conn: aiosqlite.Connection):
     """Commit all accumulated database record updates for a book.
 
     Args:
