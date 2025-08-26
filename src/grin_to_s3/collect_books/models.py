@@ -508,10 +508,14 @@ class SQLiteProgressTracker:
             placeholders = ",".join("?" * len(keep_session_ids))
 
             # Delete old processed records
-            await self._execute_query(f"DELETE FROM processed WHERE session_id NOT IN ({placeholders})", tuple(keep_session_ids))
+            await self._execute_query(
+                f"DELETE FROM processed WHERE session_id NOT IN ({placeholders})", tuple(keep_session_ids)
+            )
 
             # Delete old failed records
-            await self._execute_query(f"DELETE FROM failed WHERE session_id NOT IN ({placeholders})", tuple(keep_session_ids))
+            await self._execute_query(
+                f"DELETE FROM failed WHERE session_id NOT IN ({placeholders})", tuple(keep_session_ids)
+            )
 
             # Commit the changes
             await self.initialize()
@@ -531,7 +535,6 @@ class SQLiteProgressTracker:
             except Exception:
                 pass
             self._persistent_conn = None
-
 
     async def save_book(self, book: BookRecord) -> None:
         """Save or update a book record in the database."""

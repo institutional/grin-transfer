@@ -111,7 +111,12 @@ class BookCollector:
         """Set up test mode with mock data and clients"""
         # Import mocks locally to avoid dependency issues when not in test mode
         try:
-            from tests.mocks import MockBookStorage, MockGRINClient, MockStorage, get_test_data
+            from tests.mocks import (
+                MockBookStorage,
+                MockGRINClient,
+                MockStorage,
+                get_test_data,
+            )
 
             # Replace client with mock
             self.grin_client = MockGRINClient(get_test_data())  # type: ignore[assignment]
@@ -134,7 +139,12 @@ class BookCollector:
 
         # Create configuration hash for detecting parameter changes
         config_str = json.dumps(
-            {"directory": self.directory, "rate_limit": rate_limit, "storage_config": storage_config}, sort_keys=True
+            {
+                "directory": self.directory,
+                "rate_limit": rate_limit,
+                "storage_config": storage_config,
+            },
+            sort_keys=True,
         )
         config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
 
@@ -193,7 +203,9 @@ class BookCollector:
         # Update local state for backward compatibility
         self.pagination_state.update(pagination_state)
 
-    async def get_converted_books_html(self) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
+    async def get_converted_books_html(
+        self,
+    ) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
         """Stream converted books from GRIN using HTML pagination with full metadata."""
         logger.info("Streaming converted books from GRIN...")
 
@@ -201,7 +213,10 @@ class BookCollector:
         pagination_config = self.config.pagination or PaginationConfig()
 
         book_count = 0
-        async for book_row, known_barcodes in self.grin_client.stream_book_list_html_prefetch(
+        async for (
+            book_row,
+            known_barcodes,
+        ) in self.grin_client.stream_book_list_html_prefetch(
             self.directory,
             list_type="_converted",
             page_size=pagination_config.page_size,
@@ -216,7 +231,9 @@ class BookCollector:
             if book_count % 1000 == 0:
                 logger.info(f"Streamed {book_count:,} converted {pluralize(book_count, 'book')}...")
 
-    async def get_all_books_html(self) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
+    async def get_all_books_html(
+        self,
+    ) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
         """Stream non-converted books from GRIN using HTML pagination with large page sizes.
 
         Note: _all_books endpoint actually returns 'all books except converted', not truly all books.
@@ -233,7 +250,10 @@ class BookCollector:
             print(f"Resuming pagination from page {start_page}")
 
         book_count = 0
-        async for book_row, known_barcodes in self.grin_client.stream_book_list_html_prefetch(
+        async for (
+            book_row,
+            known_barcodes,
+        ) in self.grin_client.stream_book_list_html_prefetch(
             self.directory,
             list_type="_all_books",
             page_size=page_size or pagination_config.page_size,
@@ -420,6 +440,8 @@ class BookCollector:
         print(f"Starting book collection to {output_file}")
         if limit:
             print(f"Limit: {limit:,} {pluralize(limit, 'book')}")
+            print("\n⚠️  WARNING: Using --limit will result in an incomplete collection only suitable for quick tests.")
+            print("   For production sync, a full collect (without --limit) is recommended.\n")
 
         # Validate credentials before starting export
         logger.debug("Validating GRIN credentials...")

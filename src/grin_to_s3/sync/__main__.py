@@ -497,7 +497,7 @@ Examples:
         "--grin-library-directory", help="GRIN library directory name (auto-detected from run config if not specified)"
     )
 
-# OCR extraction options
+    # OCR extraction options
     pipeline_parser.add_argument(
         "--skip-extract-ocr", action="store_true", help="Skip OCR text extraction (default: extract OCR)"
     )
