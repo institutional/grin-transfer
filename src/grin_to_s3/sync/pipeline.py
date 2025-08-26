@@ -512,7 +512,7 @@ class SyncPipeline:
             print(f"Pipeline failed: {e}")
             logger.error(f"Pipeline failed: {e}", exc_info=True)
         finally:
-            print("Starting teardown and final cleanup...")
+            print("Running teardown and final cleanup...")
             await run_teardown_operations(self)
 
     def _should_exit_for_failure_limit(self) -> bool:

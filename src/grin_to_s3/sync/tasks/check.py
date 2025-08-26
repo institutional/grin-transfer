@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, cast
 
 import aiohttp
 from botocore.exceptions import ClientError
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import before_sleep_log, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
@@ -84,6 +84,7 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
         asyncio.TimeoutError,
         aiohttp.ClientError,
     )),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True
 )
 async def grin_head_request(barcode: Barcode, grin_client: GRINClient, library_directory: str) -> CheckData:

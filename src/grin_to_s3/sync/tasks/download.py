@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import aiofiles
 import aiohttp
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
@@ -60,6 +60,7 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> DownloadResult:
         )
     ),
     wait=wait_exponential(multiplier=2, min=4, max=120),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
 async def download_book_to_filesystem(

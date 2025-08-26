@@ -14,6 +14,7 @@ from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any, cast
 
 from grin_to_s3.common import Barcode
+from grin_to_s3.process_summary import ProcessStageMetrics
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator, show_queue_progress
 
 from .db_updates import StatusUpdate, commit_book_record_updates, get_updates_for_task
@@ -405,7 +406,7 @@ async def process_books_with_queue(
     total_books = len(barcodes)
 
     # Create two separate queues for different phases
-    download_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=100)
+    download_queue: asyncio.Queue[str | None] = asyncio.Queue(maxsize=10)
     processing_queue: asyncio.Queue[tuple[str, dict[TaskType, TaskResult]] | None] = asyncio.Queue(maxsize=50)
 
     # Thread-safe counters for progress reporting
@@ -472,6 +473,17 @@ async def process_books_with_queue(
                     results_dict[barcode] = final_results
                     completed_count += 1
                     current_completed = completed_count
+
+                    # Track sequential failures for pipeline exit logic
+                    book_outcome = ProcessStageMetrics.determine_book_outcome(final_results)
+
+                    if book_outcome == "failed":
+                        if pipeline._handle_failure(barcode, "Book processing failed"):
+                            # Set shutdown flag to stop feeding new books to queue
+                            pipeline._shutdown_requested = True
+                    else:
+                        # Reset failure counter on success (inline, no new function needed)
+                        pipeline._sequential_failures = 0
 
                 # Show progress periodically
                 if current_completed % progress_interval == 0 or current_completed == total_books:
@@ -546,7 +558,6 @@ async def process_books_with_queue(
                     break
                 except asyncio.QueueFull:
                     break
-
 
             # If we still have barcodes but queue is full, wait a bit
             if not barcodes_exhausted:

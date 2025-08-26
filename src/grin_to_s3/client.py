@@ -11,7 +11,7 @@ from typing import Any
 
 import aiohttp
 from selectolax.lexbor import LexborHTMLParser
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import before_sleep_log, retry, stop_after_attempt, wait_fixed
 
 from grin_to_s3.auth import GRINAuth
 from grin_to_s3.common import (
@@ -240,6 +240,7 @@ class GRINClient:
     @retry(
         stop=stop_after_attempt(DEFAULT_DOWNLOAD_RETRIES + 1),
         wait=wait_fixed(DEFAULT_RETRY_WAIT_SECONDS),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,
     )
     async def _prefetch_page(self, url: str) -> tuple[str, str]:
