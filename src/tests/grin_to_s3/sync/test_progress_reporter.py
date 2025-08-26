@@ -138,10 +138,10 @@ class TestSlidingWindowRateCalculator:
 
         # Simulate processing batches over time
         batches = [
-            (1010.0, 100),   # First 100 items in 10 seconds
-            (1025.0, 250),   # Next 150 items in 15 seconds
-            (1040.0, 400),   # Next 150 items in 15 seconds
-            (1050.0, 500),   # Next 100 items in 10 seconds
+            (1010.0, 100),  # First 100 items in 10 seconds
+            (1025.0, 250),  # Next 150 items in 15 seconds
+            (1040.0, 400),  # Next 150 items in 15 seconds
+            (1050.0, 500),  # Next 100 items in 10 seconds
         ]
 
         for timestamp, count in batches:

@@ -49,14 +49,10 @@ class GRINClient:
         """Ensure session exists, creating it if necessary."""
         if self.session is None:
             connector = aiohttp.TCPConnector(
-                limit=DEFAULT_CONNECTOR_LIMITS["limit"],
-                limit_per_host=DEFAULT_CONNECTOR_LIMITS["limit_per_host"]
+                limit=DEFAULT_CONNECTOR_LIMITS["limit"], limit_per_host=DEFAULT_CONNECTOR_LIMITS["limit_per_host"]
             )
             timeout_config = aiohttp.ClientTimeout(total=self.timeout, connect=10)
-            self.session = aiohttp.ClientSession(
-                connector=connector,
-                timeout=timeout_config
-            )
+            self.session = aiohttp.ClientSession(connector=connector, timeout=timeout_config)
         return self.session
 
     async def get_bearer_token(self) -> str:

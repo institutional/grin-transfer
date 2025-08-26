@@ -220,8 +220,6 @@ def filesystem_page_generator(extracted_dir: Path):
         expected_page = page_num + 1
 
 
-
-
 async def extract_ocr_pages(unpack_data: "UnpackData", jsonl_path: Path) -> int:
     """
     Extract OCR text from unpacked archive to JSONL file.

@@ -29,10 +29,7 @@ async def main(
     start_time = time.time()
     manager_id = getattr(pipeline.book_manager, "_manager_id", "unknown")
 
-    logger.debug(
-        f"UPLOAD task started for {barcode} "
-        f"(manager_id={manager_id})"
-    )
+    logger.debug(f"UPLOAD task started for {barcode} (manager_id={manager_id})")
 
     if pipeline.uses_local_storage:
         # For local storage, the LocalDirectoryManager already places the decrypted file
@@ -45,10 +42,7 @@ async def main(
         data = await upload_book_from_filesystem(barcode, decrypted_data, download_data, pipeline.book_manager)
 
     duration = time.time() - start_time
-    logger.debug(
-        f"UPLOAD task completed for {barcode} in {duration:.3f}s "
-        f"(manager_id={manager_id})"
-    )
+    logger.debug(f"UPLOAD task completed for {barcode} in {duration:.3f}s (manager_id={manager_id})")
 
     return UploadResult(
         barcode=barcode,

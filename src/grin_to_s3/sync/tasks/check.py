@@ -79,13 +79,15 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
 @retry(
     stop=stop_after_attempt(5),
     wait=wait_exponential(multiplier=2, min=4, max=120),
-    retry=retry_if_exception_type((
-        ConnectionError,
-        asyncio.TimeoutError,
-        aiohttp.ClientError,
-    )),
+    retry=retry_if_exception_type(
+        (
+            ConnectionError,
+            asyncio.TimeoutError,
+            aiohttp.ClientError,
+        )
+    ),
     before_sleep=before_sleep_log(logger, logging.WARNING),
-    reraise=True
+    reraise=True,
 )
 async def grin_head_request(barcode: Barcode, grin_client: GRINClient, library_directory: str) -> CheckData:
     """Make HEAD request to get encrypted file's ETag and file size before downloading."""

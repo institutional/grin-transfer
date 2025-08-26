@@ -115,7 +115,9 @@ class ProgressTracker:
                 # Load pagination state if available
                 if "pagination_state" in progress_data:
                     self.pagination_state = progress_data["pagination_state"]
-                    print(f"  Pagination: Resume from page {self.pagination_state.get('current_page', 1)} (Phase 2: non-converted books)")
+                    print(
+                        f"  Pagination: Resume from page {self.pagination_state.get('current_page', 1)} (Phase 2: non-converted books)"
+                    )
 
                 # Get current counts from SQLite
                 processed_count = await self.sqlite_tracker.get_processed_count()
