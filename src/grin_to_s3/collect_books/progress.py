@@ -91,15 +91,6 @@ class ProgressTracker:
                 if "job_metadata" in progress_data:
                     existing_metadata = progress_data["job_metadata"]
 
-                    # Check for configuration changes
-                    existing_config_hash = existing_metadata.get("export_parameters", {}).get("config_hash")
-                    current_config_hash = self.job_metadata["export_parameters"]["config_hash"]
-
-                    if existing_config_hash != current_config_hash:
-                        print(f"""Warning: Export configuration has changed since last run
-  Previous: {existing_config_hash}
-  Current:  {current_config_hash}""")
-
                     # Preserve original job start time and user
                     self.job_metadata["job_started"] = existing_metadata.get(
                         "job_started", self.job_metadata["job_started"]
@@ -135,7 +126,7 @@ class ProgressTracker:
                         except Exception:
                             pass
 
-                print(f"Resumed export (attempt #{self.resume_count})")
+                print(f"Resumed (attempt #{self.resume_count})")
                 print(f"  Progress: {processed_count} processed, {failed_count} failed")
                 print(f"  Running time: {elapsed_time}")
                 if "job_metadata" in progress_data:

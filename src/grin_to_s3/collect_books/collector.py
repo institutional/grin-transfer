@@ -23,12 +23,12 @@ import aiofiles
 
 from grin_to_s3.client import GRINClient, GRINRow
 from grin_to_s3.common import (
-    ProgressReporter,
     RateLimiter,
     pluralize,
     print_oauth_setup_instructions,
 )
 from grin_to_s3.storage import BookManager, create_storage_from_config
+from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator, show_progress
 
 from .config import ExportConfig, PaginationConfig
 from .models import BookRecord, BoundedSet, SQLiteProgressTracker
@@ -37,6 +37,8 @@ from .progress import PaginationState, ProgressTracker
 # Set up module logger
 logger = logging.getLogger(__name__)
 
+# Progress display frequency (books per progress update)
+PROGRESS_UPDATE_FREQUENCY = 2000
 
 # PaginationState moved to progress.py
 
@@ -75,7 +77,8 @@ class BookCollector:
             self._setup_test_mode()
 
         # Progress tracking
-        self.progress = ProgressReporter("Book Collection")
+        self.rate_calculator = SlidingWindowRateCalculator(window_size=5)
+        self.start_time: float | None = None
         self.sqlite_tracker = SQLiteProgressTracker(self.config.sqlite_db_path)
         # Keep small in-memory sets for recent items only (performance optimization)
         self.recent_processed = BoundedSet(max_size=self.config.recent_cache_size)
@@ -213,6 +216,9 @@ class BookCollector:
         pagination_config = self.config.pagination or PaginationConfig()
 
         book_count = 0
+        phase1_start_time = time.time()
+        phase1_rate_calculator = SlidingWindowRateCalculator(window_size=5)
+
         async for (
             book_row,
             known_barcodes,
@@ -228,8 +234,17 @@ class BookCollector:
             yield book_row, known_barcodes
             book_count += 1
 
-            if book_count % 1000 == 0:
-                logger.info(f"Streamed {book_count:,} converted {pluralize(book_count, 'book')}...")
+            # Show progress every N items to match main collection frequency
+            if book_count % PROGRESS_UPDATE_FREQUENCY == 0:
+                extra_info = {"current": book_row.barcode} if hasattr(book_row, "barcode") else None
+                show_progress(
+                    start_time=phase1_start_time,
+                    total_items=None,  # Unknown total for converted books
+                    rate_calculator=phase1_rate_calculator,
+                    completed_count=book_count,
+                    operation_name="barcode records",
+                    extra_info=extra_info,
+                )
 
     async def get_all_books_html(
         self,
@@ -507,7 +522,7 @@ class BookCollector:
                     await f.write(header_line)
 
                 # Start progress tracking
-                self.progress.start()
+                self.start_time = time.time()
                 processed_count = 0
 
                 # Process books one by one using configured data mode
@@ -570,7 +585,18 @@ class BookCollector:
                                 logger.warning(f"Slow CSV I/O: {io_elapsed:.2f}s at {io_time}")
 
                             processed_count += 1
-                            self.progress.increment(1, record_id=record.barcode)
+
+                            # Show progress every N items
+                            if processed_count % PROGRESS_UPDATE_FREQUENCY == 0:
+                                extra_info = {"current": record.barcode} if record else None
+                                show_progress(
+                                    start_time=self.start_time,
+                                    total_items=self.progress_tracker.total_books_estimate,
+                                    rate_calculator=self.rate_calculator,
+                                    completed_count=processed_count,
+                                    operation_name="barcode records",
+                                    extra_info=extra_info,
+                                )
 
                             # Track in process summary
                             self.process_summary_stage.increment_items(processed=1, successful=1)
@@ -606,8 +632,15 @@ class BookCollector:
             # Remove signal handler
             loop.remove_signal_handler(signal.SIGINT)
 
-            # Finish progress tracking
-            self.progress.finish()
+            # Show final progress summary
+            if self.start_time and processed_count > 0:
+                elapsed = time.time() - self.start_time
+                rate = processed_count / elapsed if elapsed > 0 else 0
+                print(
+                    f"✓ Completed Book Collection: {processed_count:,} barcode records - {rate:.1f} records/sec - total time: {elapsed / 60:.1f}min"
+                )
+            else:
+                print("✓ Completed Book Collection")
 
         # Return completion status
         return completed_successfully
