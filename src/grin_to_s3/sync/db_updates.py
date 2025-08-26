@@ -7,6 +7,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, NamedTuple
 
+import aiosqlite
+
 from grin_to_s3.database import connect_async
 from grin_to_s3.database.database_utils import retry_database_operation
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
@@ -258,58 +260,84 @@ async def get_updates_for_task(result: TaskResult, previous_results: dict[TaskTy
 
 
 @retry_database_operation
-async def commit_book_record_updates(pipeline: "SyncPipeline", barcode: str):
-    """Commit all accumulated database record updates for a book."""
+async def commit_book_record_updates(
+    pipeline: "SyncPipeline",
+    barcode: str,
+    conn: aiosqlite.Connection | None = None
+):
+    """Commit all accumulated database record updates for a book.
+
+    Args:
+        pipeline: The sync pipeline instance
+        barcode: Book barcode to commit updates for
+        conn: Optional persistent connection to reuse
+    """
     record_updates = pipeline.book_record_updates.get(barcode)
     if not record_updates:
         return
 
     now = datetime.now(UTC).isoformat()
-    async with connect_async(str(pipeline.db_tracker.db_path)) as conn:
-        # Write all status history records
-        if record_updates["status_history"]:
-            for status_update in record_updates["status_history"]:
-                await conn.execute(
-                    """INSERT INTO book_status_history
-                       (barcode, status_type, status_value, timestamp, session_id, metadata)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (
-                        status_update.barcode,
-                        status_update.status_type,
-                        status_update.status_value,
-                        datetime.now(UTC).isoformat(),
-                        status_update.session_id,
-                        json.dumps(status_update.metadata) if status_update.metadata else None,
-                    ),
-                )
 
-        # Update books table fields
-        if record_updates["books_fields"]:
-            sync_data = record_updates["books_fields"]
+    # Use provided connection or create a new one
+    if conn is not None:
+        try:
+            await _execute_updates(conn, record_updates, barcode, now)
+            await conn.commit()
+        finally:
+            # Clean up after commit
+            del pipeline.book_record_updates[barcode]
+    else:
+        # Fallback: create new connection (for backwards compatibility)
+        async with connect_async(str(pipeline.db_tracker.db_path)) as new_conn:
+            try:
+                await _execute_updates(new_conn, record_updates, barcode, now)
+                await new_conn.commit()
+            finally:
+                # Clean up after commit
+                del pipeline.book_record_updates[barcode]
+
+
+async def _execute_updates(conn, record_updates, barcode, now):
+    """Helper to execute the actual database updates."""
+    # Write all status history records
+    if record_updates["status_history"]:
+        for status_update in record_updates["status_history"]:
             await conn.execute(
-                """
-                UPDATE books SET
-                    storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
-                    last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
-                    sync_timestamp = ?, sync_error = ?,
-                    updated_at = ?
-                WHERE barcode = ?
-            """,
+                """INSERT INTO book_status_history
+                   (barcode, status_type, status_value, timestamp, session_id, metadata)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
                 (
-                    sync_data.get("storage_type"),
-                    sync_data.get("storage_path"),
-                    sync_data.get("storage_decrypted_path"),
-                    sync_data.get("last_etag_check"),
-                    sync_data.get("encrypted_etag"),
-                    sync_data.get("is_decrypted", False),
-                    sync_data.get("sync_timestamp", now),
-                    sync_data.get("sync_error"),
-                    now,
-                    barcode,
+                    status_update.barcode,
+                    status_update.status_type,
+                    status_update.status_value,
+                    datetime.now(UTC).isoformat(),
+                    status_update.session_id,
+                    json.dumps(status_update.metadata) if status_update.metadata else None,
                 ),
             )
 
-        await conn.commit()
-
-    # Clean up after commit
-    del pipeline.book_record_updates[barcode]
+    # Update books table fields
+    if record_updates["books_fields"]:
+        sync_data = record_updates["books_fields"]
+        await conn.execute(
+            """
+            UPDATE books SET
+                storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
+                last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
+                sync_timestamp = ?, sync_error = ?,
+                updated_at = ?
+            WHERE barcode = ?
+            """,
+            (
+                sync_data.get("storage_type"),
+                sync_data.get("storage_path"),
+                sync_data.get("storage_decrypted_path"),
+                sync_data.get("last_etag_check"),
+                sync_data.get("encrypted_etag"),
+                sync_data.get("is_decrypted", False),
+                sync_data.get("sync_timestamp", now),
+                sync_data.get("sync_error"),
+                now,
+                barcode,
+            ),
+        )
