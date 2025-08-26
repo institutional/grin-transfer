@@ -82,7 +82,7 @@ async def commit_book_record_updates(
     Args:
         pipeline: The sync pipeline instance
         barcode: Book barcode to commit updates for
-        connection: Optional persistent connection to reuse
+        conn: Persistent connection to reuse
     """
     record_updates = pipeline.book_record_updates.get(barcode)
     if not record_updates:
