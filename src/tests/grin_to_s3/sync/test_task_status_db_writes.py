@@ -256,7 +256,8 @@ class TestRealDatabaseIntegration:
         await task_manager.run_task(TaskType.UPLOAD, "TEST123", mock_upload_task, real_db_pipeline, previous_results)
 
         # Commit accumulated updates to the real database
-        await commit_book_record_updates(real_db_pipeline, "TEST123")
+        conn = await real_db_pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
 
         # Verify status was written to database
         async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
@@ -299,7 +300,8 @@ class TestRealDatabaseIntegration:
         await task_manager.run_task(TaskType.UPLOAD, "TEST123", mock_upload_task, real_db_pipeline, previous_results)
 
         # Commit accumulated updates to the real database
-        await commit_book_record_updates(real_db_pipeline, "TEST123")
+        conn = await real_db_pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
 
         # Verify sync data was updated in books table
         async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
@@ -334,7 +336,8 @@ class TestRealDatabaseIntegration:
         )
 
         # Commit accumulated updates to the real database
-        await commit_book_record_updates(real_db_pipeline, "TEST123")
+        conn = await real_db_pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
 
         # Verify error was captured in database
         async with connect_async(real_db_pipeline.db_tracker.db_path) as db:

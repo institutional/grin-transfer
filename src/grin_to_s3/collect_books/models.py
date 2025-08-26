@@ -327,6 +327,16 @@ class SQLiteProgressTracker:
         await self._persistent_conn.commit()
         return cursor
 
+    async def get_connection(self) -> aiosqlite.Connection:
+        """Get the persistent connection for reuse by utility functions.
+
+        Returns:
+            The persistent database connection, initialized if needed.
+        """
+        await self._ensure_connection()
+        assert self._persistent_conn is not None
+        return self._persistent_conn
+
     async def init_db(self) -> None:
         """Initialize database schema if not exists."""
         if self._initialized:

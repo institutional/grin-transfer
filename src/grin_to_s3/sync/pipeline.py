@@ -257,6 +257,10 @@ class SyncPipeline:
             self.storage, storage_config=self.config.storage_config, base_prefix=self.base_prefix
         )
 
+    async def initialize_resources(self):
+        """Initialize async resources that require await."""
+        await self.db_tracker.initialize()
+
     def _build_task_concurrency_limits(
         self, config: RunConfig, overrides: dict[str, int] | None = None
     ) -> dict[TaskType, int]:
@@ -387,6 +391,9 @@ class SyncPipeline:
 
         # Reset bucket cache at start of sync
         reset_bucket_cache()
+
+        # Initialize persistent database connection for performance optimization
+        await self.initialize_resources()
 
         # Run preflight operations (including database backup)
         preflight_results = await run_preflight_operations(self)

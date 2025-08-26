@@ -215,7 +215,9 @@ async def process_download_phase(
 
     finally:
         # ALWAYS commit accumulated updates (success or failure)
-        await commit_book_record_updates(pipeline, barcode)
+        # Get persistent connection from db_tracker to avoid creating a new one
+        conn = await pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(pipeline, barcode, conn)
 
     return results
 
@@ -365,7 +367,9 @@ async def process_processing_phase(
 
     finally:
         # ALWAYS commit accumulated updates (success or failure)
-        await commit_book_record_updates(pipeline, barcode)
+        # Get persistent connection from db_tracker to avoid creating a new one
+        conn = await pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(pipeline, barcode, conn)
 
     # Update process summary metrics
     outcome = pipeline.process_summary_stage.determine_book_outcome(results)
