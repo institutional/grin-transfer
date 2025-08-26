@@ -7,7 +7,6 @@ Contains the BookCollector class responsible for coordinating the entire book co
 
 import asyncio
 import csv
-import hashlib
 import json
 import logging
 import os
@@ -114,17 +113,6 @@ class BookCollector:
         """Create comprehensive job metadata for progress tracking."""
         now = datetime.now(UTC)
 
-        # Create configuration hash for detecting parameter changes
-        config_str = json.dumps(
-            {
-                "directory": self.directory,
-                "rate_limit": rate_limit,
-                "storage_config": storage_config,
-            },
-            sort_keys=True,
-        )
-        config_hash = hashlib.md5(config_str.encode()).hexdigest()[:8]
-
         return {
             "job_started": now.isoformat(),
             "started_by_user": os.getenv("USER") or os.getenv("USERNAME") or "unknown",
@@ -135,7 +123,6 @@ class BookCollector:
                 "directory": self.directory,
                 "rate_limit": rate_limit,
                 "storage_config": storage_config,
-                "config_hash": config_hash,
             },
             "system_info": {"platform": sys.platform, "pid": os.getpid()},
         }
