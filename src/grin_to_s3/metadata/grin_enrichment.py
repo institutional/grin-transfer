@@ -664,7 +664,7 @@ class GRINEnrichmentPipeline:
             # Final statistics (get database count before cleanup)
             total_elapsed = time.time() - start_time
             final_enriched = await self.sqlite_tracker.get_enriched_book_count()
-            
+
             # Clean up resources
             await self.cleanup()
 
