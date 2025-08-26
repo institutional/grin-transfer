@@ -62,7 +62,6 @@ async def test_client_collector_integration():
                     directory="Harvard",
                     process_summary_stage=AsyncMock(),
                     storage_config={"type": "local", "config": {"base_path": "/tmp/test"}, "prefix": "test"},
-                    test_mode=True,
                 )
                 collector.grin_client = client
                 collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
@@ -116,7 +115,6 @@ async def test_collector_stream_all_books_integration():
                 directory="Harvard",
                 process_summary_stage=AsyncMock(),
                 storage_config={"type": "local", "config": {"base_path": "/tmp/test"}, "prefix": "test"},
-                test_mode=True,
             )
             collector.client = client
             collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)

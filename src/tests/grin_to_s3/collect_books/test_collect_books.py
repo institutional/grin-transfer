@@ -534,7 +534,12 @@ class TestBookCollector:
                 library_directory="TestLibrary", resume_file=str(progress_file), sqlite_db_path=str(test_db_path)
             )
 
-            exporter = BookCollector(directory="TestLibrary", process_summary_stage=mock_process_stage, storage_config={"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"}, config=config)
+            exporter = BookCollector(
+                directory="TestLibrary",
+                process_summary_stage=mock_process_stage,
+                storage_config={"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"},
+                config=config,
+            )
 
             # Add some processed items via SQLite tracker
             await exporter.sqlite_tracker.mark_processed("TEST001")
@@ -550,7 +555,12 @@ class TestBookCollector:
             config2 = ExportConfig(
                 library_directory="TestLibrary", resume_file=str(progress_file), sqlite_db_path=str(test_db_path)
             )
-            exporter2 = BookCollector(directory="TestLibrary", process_summary_stage=mock_process_stage, storage_config={"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"}, config=config2)
+            exporter2 = BookCollector(
+                directory="TestLibrary",
+                process_summary_stage=mock_process_stage,
+                storage_config={"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"},
+                config=config2,
+            )
             await exporter2.load_progress()
 
             # Check that progress was loaded via SQLite

@@ -82,9 +82,6 @@ def print_resume_command(args, run_name: str) -> None:
     if args.rate_limit != 5.0:  # Only if not default
         cmd_parts.append(f"--rate-limit {args.rate_limit}")
 
-    if args.test_mode:
-        cmd_parts.append("--test-mode")
-
     if args.storage:
         cmd_parts.append(f"--storage {args.storage}")
         if args.bucket_raw:
@@ -168,7 +165,6 @@ Examples:
     # Export options
     parser.add_argument("--limit", type=int, help="Limit number of books to process (for testing)")
     parser.add_argument("--rate-limit", type=float, default=5.0, help="API requests per second (default: 5.0)")
-    parser.add_argument("--test-mode", action="store_true", help="Use mock data for testing (no network calls)")
 
     # Logging options
     parser.add_argument(
@@ -440,7 +436,6 @@ Examples:
         collect_stage = get_current_stage(run_summary, "collect")
         collect_stage.set_command_arg("library_directory", args.library_directory)
         collect_stage.set_command_arg("storage_type", args.storage)
-        collect_stage.set_command_arg("test_mode", args.test_mode)
         if args.limit:
             collect_stage.set_command_arg("limit", args.limit)
 
@@ -460,13 +455,12 @@ Examples:
             # Validate required storage configuration
             if not storage_config:
                 raise ValueError("Storage configuration is required. Provide --storage option.")
-                
+
             # Create book collector with configuration
             collector = BookCollector(
                 directory=args.library_directory,
                 process_summary_stage=collect_stage,
                 storage_config=storage_config,
-                test_mode=args.test_mode,
                 config=config,
                 secrets_dir=args.secrets_dir,
             )

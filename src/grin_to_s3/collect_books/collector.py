@@ -61,7 +61,6 @@ class BookCollector:
         storage_config: dict,
         rate_limit: float = 1.0,
         resume_file: str = "output/default/progress.json",
-        test_mode: bool = False,
         config: ExportConfig | None = None,
         secrets_dir: str | None = None,
     ):
@@ -71,18 +70,13 @@ class BookCollector:
         )
 
         self.directory = self.config.library_directory
-        self.test_mode = test_mode
         self.process_summary_stage = process_summary_stage
 
-        # Initialize client (will be replaced with mock if in test mode)
+        # Initialize client
         self.grin_client = GRINClient(secrets_dir=secrets_dir)
         self.rate_limiter = RateLimiter(self.config.rate_limit)
         self.storage_config = storage_config
         self.resume_file = Path(self.config.resume_file)
-
-        # Set up test mode if requested
-        if test_mode:
-            self._setup_test_mode()
 
         # Progress tracking
         self.rate_calculator = SlidingWindowRateCalculator(window_size=5)
@@ -115,32 +109,6 @@ class BookCollector:
         storage = create_storage_from_config(storage_config)
         prefix = storage_config.get("prefix", "")
         self.book_manager: BookManager = BookManager(storage, storage_config=storage_config, base_prefix=prefix)
-
-    def _setup_test_mode(self):
-        """Set up test mode with mock data and clients"""
-        # Import mocks locally to avoid dependency issues when not in test mode
-        try:
-            from tests.mocks import (
-                MockBookStorage,
-                MockGRINClient,
-                MockStorage,
-                get_test_data,
-            )
-
-            # Replace client with mock
-            self.grin_client = MockGRINClient(get_test_data())  # type: ignore[assignment]
-
-            # Replace storage with mock if storage config exists
-            if self.storage_config:
-                mock_book_manager = MockBookStorage()
-                mock_book_manager.storage = MockStorage()  # type: ignore[attr-defined]
-                self.book_manager = mock_book_manager  # type: ignore[assignment]
-
-            logger.info("Test mode enabled - using mock data (no network calls)")
-
-        except ImportError:
-            logger.warning("Test mode requested but mocks not available")
-            logger.warning("Falling back to regular mode")
 
     def _create_job_metadata(self, rate_limit: float, storage_config: dict | None) -> dict:
         """Create comprehensive job metadata for progress tracking."""
