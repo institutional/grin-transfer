@@ -149,7 +149,7 @@ class Storage:
         duration = time.time() - start_time
 
         # Always log slow operations
-        if duration > 60.0:
+        if duration > 60.0 * 3:
             logger.warning(
                 f"SLOW S3 operation: {operation} for {path} took {duration:.3f}s (storage_id={self._instance_id})"
             )

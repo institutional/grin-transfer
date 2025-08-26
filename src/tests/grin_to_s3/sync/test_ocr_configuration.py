@@ -193,47 +193,44 @@ class TestOCRConfiguration:
                 .build()
             )
 
-            # Create pipeline with both skip flags enabled
-            pipeline = SyncPipeline.from_run_config(
+            # Create mock task functions to avoid heavy imports
+            mock_check = Mock()
+            mock_cleanup = Mock()
+            mock_decrypt = Mock()
+            mock_download = Mock()
+            mock_extract_marc = Mock()
+            mock_extract_ocr = Mock()
+            mock_request_conversion = Mock()
+            mock_unpack = Mock()
+            mock_upload = Mock()
+
+            # Test with both skip flags enabled
+            pipeline_skipped = SyncPipeline.from_run_config(
                 config=config,
                 process_summary_stage=mock_process_stage,
                 skip_extract_ocr=True,
                 skip_extract_marc=True,
             )
 
-            # Mock the task function creation logic by calling the same code
-            # that creates task_funcs in the run_sync method
-            from grin_to_s3.sync.tasks import (
-                check,
-                cleanup,
-                decrypt,
-                download,
-                extract_marc,
-                extract_ocr,
-                request_conversion,
-                unpack,
-                upload,
-            )
-
-            task_funcs = {
-                TaskType.CHECK: check.main,
-                TaskType.REQUEST_CONVERSION: request_conversion.main,
-                TaskType.DOWNLOAD: download.main,
-                TaskType.DECRYPT: decrypt.main,
-                TaskType.UPLOAD: upload.main,
-                TaskType.UNPACK: unpack.main,
-                TaskType.CLEANUP: cleanup.main,
+            # Build task dictionary with conditional logic (mimics pipeline behavior)
+            task_funcs_skipped = {
+                TaskType.CHECK: mock_check,
+                TaskType.REQUEST_CONVERSION: mock_request_conversion,
+                TaskType.DOWNLOAD: mock_download,
+                TaskType.DECRYPT: mock_decrypt,
+                TaskType.UPLOAD: mock_upload,
+                TaskType.UNPACK: mock_unpack,
+                TaskType.CLEANUP: mock_cleanup,
             }
 
-            # Apply the same conditional logic as the fix
-            if not pipeline.skip_extract_marc:
-                task_funcs[TaskType.EXTRACT_MARC] = extract_marc.main
-            if not pipeline.skip_extract_ocr:
-                task_funcs[TaskType.EXTRACT_OCR] = extract_ocr.main
+            if not pipeline_skipped.skip_extract_marc:
+                task_funcs_skipped[TaskType.EXTRACT_MARC] = mock_extract_marc
+            if not pipeline_skipped.skip_extract_ocr:
+                task_funcs_skipped[TaskType.EXTRACT_OCR] = mock_extract_ocr
 
             # Verify that extraction tasks are NOT in task_funcs when skipped
-            assert TaskType.EXTRACT_OCR not in task_funcs, "OCR extraction task should be skipped"
-            assert TaskType.EXTRACT_MARC not in task_funcs, "MARC extraction task should be skipped"
+            assert TaskType.EXTRACT_OCR not in task_funcs_skipped, "OCR extraction task should be skipped"
+            assert TaskType.EXTRACT_MARC not in task_funcs_skipped, "MARC extraction task should be skipped"
 
             # Test with flags disabled (default behavior)
             pipeline_enabled = SyncPipeline.from_run_config(
@@ -244,19 +241,19 @@ class TestOCRConfiguration:
             )
 
             task_funcs_enabled = {
-                TaskType.CHECK: check.main,
-                TaskType.REQUEST_CONVERSION: request_conversion.main,
-                TaskType.DOWNLOAD: download.main,
-                TaskType.DECRYPT: decrypt.main,
-                TaskType.UPLOAD: upload.main,
-                TaskType.UNPACK: unpack.main,
-                TaskType.CLEANUP: cleanup.main,
+                TaskType.CHECK: mock_check,
+                TaskType.REQUEST_CONVERSION: mock_request_conversion,
+                TaskType.DOWNLOAD: mock_download,
+                TaskType.DECRYPT: mock_decrypt,
+                TaskType.UPLOAD: mock_upload,
+                TaskType.UNPACK: mock_unpack,
+                TaskType.CLEANUP: mock_cleanup,
             }
 
             if not pipeline_enabled.skip_extract_marc:
-                task_funcs_enabled[TaskType.EXTRACT_MARC] = extract_marc.main
+                task_funcs_enabled[TaskType.EXTRACT_MARC] = mock_extract_marc
             if not pipeline_enabled.skip_extract_ocr:
-                task_funcs_enabled[TaskType.EXTRACT_OCR] = extract_ocr.main
+                task_funcs_enabled[TaskType.EXTRACT_OCR] = mock_extract_ocr
 
             # Verify that extraction tasks ARE in task_funcs when not skipped
             assert TaskType.EXTRACT_OCR in task_funcs_enabled, "OCR extraction task should be included"
