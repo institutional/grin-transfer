@@ -555,7 +555,7 @@ class TestEndToEndIntegration:
         self, mock_pipeline, mock_task_manager, mock_rate_calculator, mock_task_functions
     ):
         """Pipeline shutdown request should stop feeding new books to queue."""
-        barcodes = [f"TEST{i:03d}" for i in range(200)]  # More than queue size (100)
+        barcodes = [f"TEST{i:03d}" for i in range(200)]  # More than queue size (10)
 
         # Create a task that will trigger shutdown after a delay to simulate external shutdown
         async def trigger_shutdown():
@@ -591,11 +591,11 @@ class TestEndToEndIntegration:
                     progress_interval=5,
                 )
 
-                # Should process the initial queue fill (100) plus some additional items
+                # Should process the initial queue fill (10) plus some additional items
                 # that were already in processing when shutdown was triggered,
                 # but not all 200 books
                 assert len(results) < 200  # Didn't process all books (shutdown worked)
-                assert len(results) >= 100  # At least processed initial queue fill
+                assert len(results) >= 10  # At least processed initial queue fill
 
             finally:
                 # Clean up the shutdown task

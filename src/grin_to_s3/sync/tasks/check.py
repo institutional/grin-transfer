@@ -1,8 +1,10 @@
+import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
 import aiohttp
 from botocore.exceptions import ClientError
+from tenacity import before_sleep_log, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
@@ -72,6 +74,19 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
     )
 
 
+# Retry HEAD requests with exponential backoff to handle GRIN rate limiting
+# Retry schedule: immediate, 4s, 8s, 16s, 32s (total ~60s across 5 attempts)
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=4, max=120),
+    retry=retry_if_exception_type((
+        ConnectionError,
+        asyncio.TimeoutError,
+        aiohttp.ClientError,
+    )),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True
+)
 async def grin_head_request(barcode: Barcode, grin_client: GRINClient, library_directory: str) -> CheckData:
     """Make HEAD request to get encrypted file's ETag and file size before downloading."""
     result: CheckData = {"etag": None, "file_size_bytes": None, "http_status_code": None}

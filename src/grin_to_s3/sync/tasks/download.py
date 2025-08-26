@@ -4,13 +4,12 @@ from typing import TYPE_CHECKING
 
 import aiofiles
 import aiohttp
-from tenacity import retry, stop_after_attempt, wait_fixed
+from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
     DEFAULT_DOWNLOAD_RETRIES,
     DEFAULT_DOWNLOAD_TIMEOUT,
-    DEFAULT_RETRY_WAIT_SECONDS,
     Barcode,
 )
 from grin_to_s3.storage.staging import DirectoryManager
@@ -47,6 +46,9 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> DownloadResult:
     )
 
 
+# Retry downloads with exponential backoff to handle GRIN rate limiting
+# Retry schedule: immediate, 4s, 8s (total ~12s across 3 attempts)
+# Note: 404 errors are excluded from retry as they indicate missing files
 @retry(
     stop=stop_after_attempt(DEFAULT_DOWNLOAD_RETRIES + 1),
     retry=lambda retry_state: bool(
@@ -57,7 +59,8 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> DownloadResult:
             and getattr(retry_state.outcome.exception(), "status", None) == 404
         )
     ),
-    wait=wait_fixed(DEFAULT_RETRY_WAIT_SECONDS),
+    wait=wait_exponential(multiplier=2, min=4, max=120),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
 async def download_book_to_filesystem(
