@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 import aiosqlite
 
-from grin_to_s3.database import connect_async
 from grin_to_s3.database.database_utils import retry_database_operation
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
 
@@ -263,14 +262,14 @@ async def get_updates_for_task(result: TaskResult, previous_results: dict[TaskTy
 async def commit_book_record_updates(
     pipeline: "SyncPipeline",
     barcode: str,
-    conn: aiosqlite.Connection | None = None
+    conn: aiosqlite.Connection
 ):
     """Commit all accumulated database record updates for a book.
 
     Args:
         pipeline: The sync pipeline instance
         barcode: Book barcode to commit updates for
-        conn: Optional persistent connection to reuse
+        conn: Persistent connection to reuse
     """
     record_updates = pipeline.book_record_updates.get(barcode)
     if not record_updates:
@@ -278,23 +277,12 @@ async def commit_book_record_updates(
 
     now = datetime.now(UTC).isoformat()
 
-    # Use provided connection or create a new one
-    if conn is not None:
-        try:
-            await _execute_updates(conn, record_updates, barcode, now)
-            await conn.commit()
-        finally:
-            # Clean up after commit
-            del pipeline.book_record_updates[barcode]
-    else:
-        # Fallback: create new connection (for backwards compatibility)
-        async with connect_async(str(pipeline.db_tracker.db_path)) as new_conn:
-            try:
-                await _execute_updates(new_conn, record_updates, barcode, now)
-                await new_conn.commit()
-            finally:
-                # Clean up after commit
-                del pipeline.book_record_updates[barcode]
+    try:
+        await _execute_updates(conn, record_updates, barcode, now)
+        await conn.commit()
+    finally:
+        # Clean up after commit
+        del pipeline.book_record_updates[barcode]
 
 
 async def _execute_updates(conn, record_updates, barcode, now):
