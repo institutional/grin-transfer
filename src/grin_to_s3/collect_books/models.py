@@ -15,7 +15,7 @@ from typing import Any
 
 import aiosqlite
 
-from ..database import connect_async
+# Database connection utilities no longer needed - using persistent connections
 from ..database.database_utils import retry_database_operation
 
 logger = logging.getLogger(__name__)
@@ -277,7 +277,55 @@ class SQLiteProgressTracker:
         # Small LRU cache to avoid repeated SQLite queries for same barcodes
         self._known_cache = BoundedSet(max_size=cache_size)
         self._unknown_cache = BoundedSet(max_size=cache_size)
-        self._db_connections: set[aiosqlite.Connection] = set()  # Track connections for cleanup
+        self._persistent_conn: aiosqlite.Connection | None = None
+
+    async def initialize(self):
+        """Initialize persistent connection for optimized database operations."""
+        if self._persistent_conn is None:
+            self._persistent_conn = await aiosqlite.connect(str(self.db_path))
+            await self._configure_connection_for_large_db()
+
+    async def __aenter__(self):
+        """Context manager support - ensure connection is initialized."""
+        await self.initialize()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Clean up persistent connection."""
+        await self.close()
+
+    async def _configure_connection_for_large_db(self):
+        """Configure connection optimized for large databases."""
+        if not self._persistent_conn:
+            return
+
+        await self._persistent_conn.execute("PRAGMA journal_mode=WAL")
+        await self._persistent_conn.execute("PRAGMA synchronous=NORMAL")
+        await self._persistent_conn.execute("PRAGMA cache_size=50000")  # ~200MB cache
+        await self._persistent_conn.execute("PRAGMA temp_store=memory")
+        await self._persistent_conn.execute("PRAGMA busy_timeout=5000")
+        await self._persistent_conn.execute("PRAGMA mmap_size=268435456")  # 256MB mmap
+        await self._persistent_conn.execute("PRAGMA page_size=8192")  # Requires VACUUM to apply
+
+    async def _ensure_connection(self):
+        """Ensure persistent connection is initialized and ready."""
+        await self.initialize()
+        if not self._persistent_conn:
+            raise RuntimeError("Failed to initialize database connection")
+
+    async def _execute_query(self, query: str, params: tuple = ()):
+        """Execute query using persistent connection."""
+        await self._ensure_connection()
+        assert self._persistent_conn is not None  # _ensure_connection guarantees this
+        return await self._persistent_conn.execute(query, params)
+
+    async def _execute_query_with_commit(self, query: str, params: tuple = ()):
+        """Execute query with commit using persistent connection."""
+        await self._ensure_connection()
+        assert self._persistent_conn is not None  # _ensure_connection guarantees this
+        cursor = await self._persistent_conn.execute(query, params)
+        await self._persistent_conn.commit()
+        return cursor
 
     async def init_db(self) -> None:
         """Initialize database schema if not exists."""
@@ -294,16 +342,20 @@ class SQLiteProgressTracker:
 
         schema_sql = schema_file.read_text(encoding="utf-8")
 
-        async with connect_async(self.db_path) as db:
-            # Execute the complete schema
-            # Split by semicolon and execute each statement separately
-            statements = [stmt.strip() for stmt in schema_sql.split(";") if stmt.strip()]
+        await self.initialize()
 
-            for statement in statements:
-                if statement.strip():
-                    await db.execute(statement)
+        if not self._persistent_conn:
+            raise RuntimeError("Failed to initialize database connection")
 
-            await db.commit()
+        # Execute the complete schema
+        # Split by semicolon and execute each statement separately
+        statements = [stmt.strip() for stmt in schema_sql.split(";") if stmt.strip()]
+
+        for statement in statements:
+            if statement.strip():
+                await self._persistent_conn.execute(statement)
+
+        await self._persistent_conn.commit()
 
         self._initialized = True
 
@@ -311,23 +363,19 @@ class SQLiteProgressTracker:
         """Mark barcode as successfully processed."""
         await self.init_db()
 
-        async with connect_async(self.db_path) as db:
-            await db.execute(
-                "INSERT OR REPLACE INTO processed (barcode, timestamp, session_id) VALUES (?, ?, ?)",
-                (barcode, datetime.now(UTC).isoformat(), self.session_id),
-            )
-            await db.commit()
+        await self._execute_query_with_commit(
+            "INSERT OR REPLACE INTO processed (barcode, timestamp, session_id) VALUES (?, ?, ?)",
+            (barcode, datetime.now(UTC).isoformat(), self.session_id),
+        )
 
     async def mark_failed(self, barcode: str, error_message: str = "") -> None:
         """Mark barcode as failed with optional error message."""
         await self.init_db()
 
-        async with connect_async(self.db_path) as db:
-            await db.execute(
-                "INSERT OR REPLACE INTO failed (barcode, timestamp, session_id, error_message) VALUES (?, ?, ?, ?)",
-                (barcode, datetime.now(UTC).isoformat(), self.session_id, error_message),
-            )
-            await db.commit()
+        await self._execute_query_with_commit(
+            "INSERT OR REPLACE INTO failed (barcode, timestamp, session_id, error_message) VALUES (?, ?, ?, ?)",
+            (barcode, datetime.now(UTC).isoformat(), self.session_id, error_message),
+        )
 
     async def is_processed(self, barcode: str) -> bool:
         """Check if barcode was successfully processed."""
@@ -382,30 +430,29 @@ class SQLiteProgressTracker:
 
         # Query database for uncached barcodes if any
         if uncached_barcodes:
-            async with connect_async(self.db_path) as db:
-                # Create placeholders for IN clause
-                placeholders = ",".join("?" * len(uncached_barcodes))
-                uncached_list = list(uncached_barcodes)
+            # Create placeholders for IN clause
+            placeholders = ",".join("?" * len(uncached_barcodes))
+            uncached_list = list(uncached_barcodes)
 
-                # Query both processed and failed tables
-                query = f"""
-                    SELECT DISTINCT barcode FROM (
-                        SELECT barcode FROM processed WHERE barcode IN ({placeholders})
-                        UNION
-                        SELECT barcode FROM failed WHERE barcode IN ({placeholders})
-                    )
-                """
+            # Query both processed and failed tables
+            query = f"""
+                SELECT DISTINCT barcode FROM (
+                    SELECT barcode FROM processed WHERE barcode IN ({placeholders})
+                    UNION
+                    SELECT barcode FROM failed WHERE barcode IN ({placeholders})
+                )
+            """
 
-                cursor = await db.execute(query, uncached_list + uncached_list)
-                db_known = {row[0] for row in await cursor.fetchall()}
+            cursor = await self._execute_query(query, tuple(uncached_list + uncached_list))
+            db_known = {row[0] for row in await cursor.fetchall()}
 
-                # Update caches and results
-                for barcode in uncached_barcodes:
-                    if barcode in db_known:
-                        self._known_cache.add(barcode)
-                        known_barcodes.add(barcode)
-                    else:
-                        self._unknown_cache.add(barcode)
+            # Update caches and results
+            for barcode in uncached_barcodes:
+                if barcode in db_known:
+                    self._known_cache.add(barcode)
+                    known_barcodes.add(barcode)
+                else:
+                    self._unknown_cache.add(barcode)
 
         return known_barcodes
 
@@ -443,31 +490,33 @@ class SQLiteProgressTracker:
         """Remove data from old sessions, keeping only the most recent N sessions."""
         await self.init_db()
 
-        async with connect_async(self.db_path) as db:
-            # Get session IDs to keep (most recent N)
-            cursor = await db.execute(
-                """
-                SELECT DISTINCT session_id FROM (
-                    SELECT session_id FROM processed
-                    UNION
-                    SELECT session_id FROM failed
-                ) ORDER BY session_id DESC LIMIT ?
-            """,
-                (keep_sessions,),
-            )
+        # Get session IDs to keep (most recent N)
+        cursor = await self._execute_query(
+            """
+            SELECT DISTINCT session_id FROM (
+                SELECT session_id FROM processed
+                UNION
+                SELECT session_id FROM failed
+            ) ORDER BY session_id DESC LIMIT ?
+        """,
+            (keep_sessions,),
+        )
 
-            keep_session_ids = [row[0] for row in await cursor.fetchall()]
+        keep_session_ids = [row[0] for row in await cursor.fetchall()]
 
-            if keep_session_ids:
-                placeholders = ",".join("?" * len(keep_session_ids))
+        if keep_session_ids:
+            placeholders = ",".join("?" * len(keep_session_ids))
 
-                # Delete old processed records
-                await db.execute(f"DELETE FROM processed WHERE session_id NOT IN ({placeholders})", keep_session_ids)
+            # Delete old processed records
+            await self._execute_query(f"DELETE FROM processed WHERE session_id NOT IN ({placeholders})", tuple(keep_session_ids))
 
-                # Delete old failed records
-                await db.execute(f"DELETE FROM failed WHERE session_id NOT IN ({placeholders})", keep_session_ids)
+            # Delete old failed records
+            await self._execute_query(f"DELETE FROM failed WHERE session_id NOT IN ({placeholders})", tuple(keep_session_ids))
 
-                await db.commit()
+            # Commit the changes
+            await self.initialize()
+            if self._persistent_conn:
+                await self._persistent_conn.commit()
 
     async def close(self) -> None:
         """Close any open database connections and clean up resources."""
@@ -475,13 +524,14 @@ class SQLiteProgressTracker:
         self._known_cache.clear()
         self._unknown_cache.clear()
 
-        # Close any tracked connections
-        for conn in list(self._db_connections):
+        # Close persistent connection
+        if self._persistent_conn:
             try:
-                await conn.close()
+                await self._persistent_conn.close()
             except Exception:
                 pass
-        self._db_connections.clear()
+            self._persistent_conn = None
+
 
     async def save_book(self, book: BookRecord) -> None:
         """Save or update a book record in the database."""
@@ -494,24 +544,20 @@ class SQLiteProgressTracker:
             book.created_at = now
         book.updated_at = now
 
-        async with connect_async(self.db_path) as db:
-            await db.execute(BookRecord.build_insert_sql(), book.to_tuple())
-            await db.commit()
+        await self._execute_query_with_commit(BookRecord.build_insert_sql(), book.to_tuple())
 
     async def get_book(self, barcode: str) -> BookRecord | None:
         """Retrieve a book record from the database."""
         await self.init_db()
 
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(
-                f"{BookRecord.build_select_sql()} WHERE barcode = ?",
-                (barcode,),
-            )
-
-            row = await cursor.fetchone()
-            if row:
-                return BookRecord(*row)
-            return None
+        cursor = await self._execute_query(
+            f"{BookRecord.build_select_sql()} WHERE barcode = ?",
+            (barcode,),
+        )
+        row = await cursor.fetchone()
+        if row:
+            return BookRecord(*row)
+        return None
 
     @retry_database_operation
     async def update_book_enrichment(self, barcode: str, enrichment_data: dict) -> bool:
@@ -528,11 +574,9 @@ class SQLiteProgressTracker:
         # Add barcode for WHERE clause
         values.append(barcode)
 
-        async with connect_async(self.db_path) as db:
-            await db.execute(BookRecord.build_update_enrichment_sql(), values)
-            rows_affected = db.total_changes
-            await db.commit()
-            return rows_affected > 0
+        await self._execute_query_with_commit(BookRecord.build_update_enrichment_sql(), tuple(values))
+        assert self._persistent_conn is not None  # Guaranteed by _execute_query_with_commit
+        return self._persistent_conn.total_changes > 0
 
     @retry_database_operation
     async def update_book_marc_metadata(self, barcode: str, marc_data: dict) -> bool:
@@ -549,38 +593,33 @@ class SQLiteProgressTracker:
         # Add barcode for WHERE clause
         values.append(barcode)
 
-        async with connect_async(self.db_path) as db:
-            await db.execute(BookRecord.build_update_marc_sql(), values)
-            rows_affected = db.total_changes
-            await db.commit()
-            return rows_affected > 0
+        await self._execute_query_with_commit(BookRecord.build_update_marc_sql(), tuple(values))
+        assert self._persistent_conn is not None  # Guaranteed by _execute_query_with_commit
+        return self._persistent_conn.total_changes > 0
 
     async def get_books_for_enrichment(self, limit: int = 1000) -> list[str]:
         """Get barcodes for books that need enrichment (no enrichment_timestamp)."""
         await self.init_db()
 
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(
-                """
-                SELECT barcode FROM books
-                WHERE enrichment_timestamp IS NULL
-                ORDER BY created_at
-                LIMIT ?
-            """,
-                (limit,),
-            )
-
-            rows = await cursor.fetchall()
-            return [row[0] for row in rows]
+        cursor = await self._execute_query(
+            """
+            SELECT barcode FROM books
+            WHERE enrichment_timestamp IS NULL
+            ORDER BY created_at
+            LIMIT ?
+        """,
+            (limit,),
+        )
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
 
     async def get_all_books_csv_data(self) -> list[BookRecord]:
         """Get all book records for CSV export."""
         await self.init_db()
 
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(f"{BookRecord.build_select_sql()} ORDER BY barcode")
-            rows = await cursor.fetchall()
-            return [BookRecord(*row) for row in rows]
+        cursor = await self._execute_query(f"{BookRecord.build_select_sql()} ORDER BY barcode")
+        rows = await cursor.fetchall()
+        return [BookRecord(*row) for row in rows]
 
     async def get_book_count(self) -> int:
         """Get total number of books in database."""
@@ -597,33 +636,30 @@ class SQLiteProgressTracker:
 
         now = datetime.now(UTC).isoformat()
 
-        async with connect_async(self.db_path) as db:
-            await db.execute(
-                """
-                UPDATE books SET
-                    storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
-                    last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
-                    sync_timestamp = ?, sync_error = ?,
-                    updated_at = ?
-                WHERE barcode = ?
-            """,
-                (
-                    sync_data.get("storage_type"),
-                    sync_data.get("storage_path"),
-                    sync_data.get("storage_decrypted_path"),
-                    sync_data.get("last_etag_check"),
-                    sync_data.get("encrypted_etag"),
-                    sync_data.get("is_decrypted", False),
-                    sync_data.get("sync_timestamp", now),
-                    sync_data.get("sync_error"),
-                    now,
-                    barcode,
-                ),
-            )
+        query = """
+            UPDATE books SET
+                storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
+                last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
+                sync_timestamp = ?, sync_error = ?,
+                updated_at = ?
+            WHERE barcode = ?
+        """
+        params = (
+            sync_data.get("storage_type"),
+            sync_data.get("storage_path"),
+            sync_data.get("storage_decrypted_path"),
+            sync_data.get("last_etag_check"),
+            sync_data.get("encrypted_etag"),
+            sync_data.get("is_decrypted", False),
+            sync_data.get("sync_timestamp", now),
+            sync_data.get("sync_error"),
+            now,
+            barcode,
+        )
 
-            rows_affected = db.total_changes
-            await db.commit()
-            return rows_affected > 0
+        await self._execute_query_with_commit(query, params)
+        assert self._persistent_conn is not None  # Guaranteed by _execute_query_with_commit
+        return self._persistent_conn.total_changes > 0
 
     async def get_books_for_sync(
         self,
@@ -726,10 +762,9 @@ class SQLiteProgressTracker:
             base_query += " LIMIT ?"
             params.append(limit)
 
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(base_query, params)
-            rows = await cursor.fetchall()
-            return [row[0] for row in rows]
+        cursor = await self._execute_query(base_query, tuple(params))
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
 
     async def get_sync_stats(self, storage_type: str | None = None) -> dict:
         """Get sync statistics for books using atomic status history.
@@ -1022,15 +1057,14 @@ class SQLiteProgressTracker:
             tuple: (status_value, metadata_dict) or (None, None) if no status found
         """
         await self.init_db()
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(
-                "SELECT status_value, metadata FROM book_status_history "
-                "WHERE barcode = ? AND status_type = ? ORDER BY timestamp DESC, id DESC LIMIT 1",
-                (barcode, status_type),
-            )
-            if row := await cursor.fetchone():
-                return row[0], json.loads(row[1]) if row[1] else None
-            return None, None
+        cursor = await self._execute_query(
+            "SELECT status_value, metadata FROM book_status_history "
+            "WHERE barcode = ? AND status_type = ? ORDER BY timestamp DESC, id DESC LIMIT 1",
+            (barcode, status_type),
+        )
+        if row := await cursor.fetchone():
+            return row[0], json.loads(row[1]) if row[1] else None
+        return None, None
 
     async def get_books_with_latest_status(
         self, status_type: str, status_values: list[str] | None = None, limit: int | None = None
@@ -1075,10 +1109,9 @@ class SQLiteProgressTracker:
             base_query += " LIMIT ?"
             params.append(str(limit))
 
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(base_query, params)
-            rows = await cursor.fetchall()
-            return [(row[0], row[1]) for row in rows]
+        cursor = await self._execute_query(base_query, tuple(params))
+        rows = await cursor.fetchall()
+        return [(row[0], row[1]) for row in rows]
 
     async def _execute_barcode_query(self, query: str, params: tuple) -> set[str]:
         """Execute a SQL query and return a set of barcodes.
@@ -1091,11 +1124,9 @@ class SQLiteProgressTracker:
             Set of barcodes from query results
         """
         await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(query, params)
-            rows = await cursor.fetchall()
-            return {row[0] for row in rows}
+        cursor = await self._execute_query(query, params)
+        rows = await cursor.fetchall()
+        return {row[0] for row in rows}
 
     async def _execute_single_value_query(self, query: str, params: tuple, default_value=None):
         """Execute a SQL query and return the first column of the first row.
@@ -1109,11 +1140,9 @@ class SQLiteProgressTracker:
             First column value of first row, or default_value if no row found
         """
         await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(query, params)
-            row = await cursor.fetchone()
-            return row[0] if row else default_value
+        cursor = await self._execute_query(query, params)
+        row = await cursor.fetchone()
+        return row[0] if row else default_value
 
     async def _execute_count_query(self, query: str, params: tuple) -> int:
         """Execute a COUNT query and return the result as integer.
@@ -1139,10 +1168,8 @@ class SQLiteProgressTracker:
             True if at least one row exists, False otherwise
         """
         await self.init_db()
-
-        async with connect_async(self.db_path) as db:
-            cursor = await db.execute(query, params)
-            return await cursor.fetchone() is not None
+        cursor = await self._execute_query(query, params)
+        return await cursor.fetchone() is not None
 
     async def get_books_by_grin_state(self, grin_state: str) -> set[str]:
         """Get barcodes for books with specific GRIN state.

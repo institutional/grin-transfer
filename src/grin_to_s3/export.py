@@ -54,6 +54,9 @@ async def export_csv(db_path: str, output_file: str) -> None:
         print(f"❌ CSV export failed: {e}")
         logger.error(f"CSV export failed: {e}", exc_info=True)
         raise
+    finally:
+        # Clean up database connections
+        await sqlite_tracker.close()
 
 
 def create_parser() -> argparse.ArgumentParser:

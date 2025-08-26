@@ -124,7 +124,6 @@ def _setup_signal_handlers(pipeline, sync_stage) -> None:
         print("Press Control-C again to force immediate exit")
         sync_stage.add_progress_update("Graceful shutdown requested")
         pipeline._shutdown_requested = True
-        raise KeyboardInterrupt()
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -498,7 +497,7 @@ Examples:
         "--grin-library-directory", help="GRIN library directory name (auto-detected from run config if not specified)"
     )
 
-    # OCR extraction options
+# OCR extraction options
     pipeline_parser.add_argument(
         "--skip-extract-ocr", action="store_true", help="Skip OCR text extraction (default: extract OCR)"
     )

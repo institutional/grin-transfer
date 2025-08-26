@@ -339,85 +339,6 @@ Examples:
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
     Path(progress_file).parent.mkdir(parents=True, exist_ok=True)
 
-    # Handle write-config option
-    if args.write_config:
-        # Build storage configuration
-        storage_config = None
-        if args.storage:
-            storage_dict: dict[str, str] = {}
-
-            # Add bucket names if provided
-            if args.bucket_raw:
-                storage_dict["bucket_raw"] = args.bucket_raw
-            if args.bucket_meta:
-                storage_dict["bucket_meta"] = args.bucket_meta
-            if args.bucket_full:
-                storage_dict["bucket_full"] = args.bucket_full
-
-            # Add additional storage config
-            if args.storage_config:
-                for item in args.storage_config:
-                    if "=" in item:
-                        key, value = item.split("=", 1)
-                        storage_dict[key] = value
-
-            storage_config = {"type": args.storage, "config": storage_dict, "prefix": ""}
-
-        # Load configuration with CLI overrides
-        config = ConfigManager.load_config(
-            config_file=args.config_file,
-            library_directory=args.library_directory,
-            rate_limit=args.rate_limit,
-            resume_file=progress_file,
-            pagination_page_size=args.page_size,
-            pagination_max_pages=args.max_pages,
-            pagination_start_page=args.start_page,
-            sqlite_db_path=sqlite_db,
-        )
-
-        # Build sync configuration from CLI arguments
-        sync_config = build_sync_config_from_args(args)
-
-        # Create enhanced config dict with storage and runtime info
-        config_dict = config.to_dict()
-        config_dict.update(
-            {
-                "run_name": run_name,
-                "run_identifier": run_identifier,
-                "output_directory": f"output/{run_name}",
-                "sqlite_db_path": sqlite_db,
-                "progress_file": progress_file,
-                "log_file": log_file,
-                "storage_config": storage_config,
-                "sync_config": sync_config,
-                "secrets_dir": args.secrets_dir,
-            }
-        )
-
-        # Write config to run directory
-        config_path = Path(f"output/{run_name}/run_config.json")
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-
-        with open(config_path, "w") as f:
-            import json
-
-            json.dump(config_dict, f, indent=2)
-
-        print(f"Configuration written to {config_path}")
-        print(f"Run directory: output/{run_name}/")
-        print(f"Database: {sqlite_db}")
-        return 0
-
-    # Initialize logging
-    setup_logging(level=args.log_level, log_file=log_file, append=False)
-
-    logger = logging.getLogger(__name__)
-    limit_info = f" limit={args.limit}" if args.limit else ""
-    logger.info(
-        f"COLLECTION PIPELINE STARTED - run={run_name} storage={args.storage} rate_limit={args.rate_limit}{limit_info}"
-    )
-    logger.info(f"Command: {' '.join(sys.argv)}")
-
     # Build storage configuration using centralized function
     storage_config = None
     if args.storage:
@@ -451,6 +372,63 @@ Examples:
         else:
             print(f"Configured with {args.storage} cloud storage")
 
+    # Load configuration with CLI overrides
+    config = ConfigManager.load_config(
+        config_file=args.config_file,
+        library_directory=args.library_directory,
+        rate_limit=args.rate_limit,
+        resume_file=progress_file,
+        pagination_page_size=args.page_size,
+        pagination_max_pages=args.max_pages,
+        pagination_start_page=args.start_page,
+        sqlite_db_path=sqlite_db,
+    )
+
+    # Build sync configuration from CLI arguments
+    sync_config = build_sync_config_from_args(args)
+
+    # Create enhanced config dict with storage and runtime info
+    config_dict = config.to_dict()
+    config_dict.update(
+        {
+            "run_name": run_name,
+            "run_identifier": run_identifier,
+            "output_directory": f"output/{run_name}",
+            "sqlite_db_path": sqlite_db,
+            "progress_file": progress_file,
+            "log_file": log_file,
+            "storage_config": storage_config,
+            "sync_config": sync_config,
+            "secrets_dir": args.secrets_dir,
+        }
+    )
+
+    # Handle write-config option
+    if args.write_config:
+        # Write config to run directory
+        config_path = Path(f"output/{run_name}/run_config.json")
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with open(config_path, "w") as f:
+            import json
+
+            json.dump(config_dict, f, indent=2)
+
+        print(f"Configuration written to {config_path}")
+        print(f"Run directory: output/{run_name}/")
+        print(f"Database: {sqlite_db}")
+        return 0
+
+    # Initialize logging
+    setup_logging(level=args.log_level, log_file=log_file, append=False)
+
+    logger = logging.getLogger(__name__)
+    limit_info = f" limit={args.limit}" if args.limit else ""
+    logger.info(
+        f"COLLECTION PIPELINE STARTED - run={run_name} storage={args.storage} rate_limit={args.rate_limit}{limit_info}"
+    )
+    logger.info(f"Command: {' '.join(sys.argv)}")
+
     try:
         # Create book storage for process summary uploads
         from grin_to_s3.process_summary import create_book_manager_for_uploads
@@ -467,37 +445,7 @@ Examples:
             collect_stage.set_command_arg("limit", args.limit)
 
         try:
-            # Load configuration with CLI overrides
-            config = ConfigManager.load_config(
-                config_file=args.config_file,
-                library_directory=args.library_directory,
-                rate_limit=args.rate_limit,
-                resume_file=progress_file,  # Use generated progress file
-                pagination_page_size=args.page_size,
-                pagination_max_pages=args.max_pages,
-                pagination_start_page=args.start_page,
-                sqlite_db_path=sqlite_db,  # Use generated SQLite path
-            )
-
-            # Build sync configuration from CLI arguments
-            sync_config = build_sync_config_from_args(args)
-
-            # Write run configuration to run directory
-            config_dict = config.to_dict()
-            config_dict.update(
-                {
-                    "run_name": run_name,
-                    "run_identifier": run_identifier,
-                    "output_directory": f"output/{run_name}",
-                    "sqlite_db_path": sqlite_db,
-                    "progress_file": progress_file,
-                    "log_file": log_file,
-                    "storage_config": storage_config,
-                    "sync_config": sync_config,
-                    "secrets_dir": args.secrets_dir,
-                }
-            )
-
+            # Write run configuration to run directory (for normal execution)
             config_path = Path(f"output/{run_name}/run_config.json")
             config_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -552,6 +500,10 @@ Examples:
             run_summary.end_stage("collect")
             await save_process_summary(run_summary, book_manager)
 
+            # Clean up book manager storage resources
+            if "book_manager" in locals() and book_manager and hasattr(book_manager, "storage"):
+                await book_manager.storage.close()
+
             # Display completion summary
             display_step_summary(run_summary, "collect")
 
@@ -569,4 +521,5 @@ Examples:
 
 
 if __name__ == "__main__":
-    exit(asyncio.run(main()))
+    with asyncio.Runner() as runner:
+        exit(runner.run(main()))

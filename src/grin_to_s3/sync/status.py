@@ -225,8 +225,7 @@ async def show_sync_status(db_path: str, storage_type: str | None = None) -> Non
     finally:
         # Clean up database connections
         try:
-            if hasattr(tracker, "_db") and tracker._db:
-                await tracker._db.close()
+            await tracker.close()
         except Exception:
             pass
 
@@ -303,8 +302,7 @@ async def get_sync_statistics(db_path: str, storage_type: str | None = None) -> 
     finally:
         # Clean up database connections
         try:
-            if hasattr(tracker, "_db") and tracker._db:
-                await tracker._db.close()
+            await tracker.close()
         except Exception:
             pass
 

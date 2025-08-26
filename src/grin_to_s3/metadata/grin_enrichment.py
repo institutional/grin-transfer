@@ -94,8 +94,8 @@ class GRINEnrichmentPipeline:
 
         try:
             # Close SQLite tracker connections
-            if hasattr(self.sqlite_tracker, "_db") and self.sqlite_tracker._db:
-                await self.sqlite_tracker._db.close()
+            if hasattr(self, "sqlite_tracker"):
+                await self.sqlite_tracker.close()
                 logger.debug("Closed SQLite database connection")
         except Exception as e:
             logger.warning(f"Error closing database connection: {e}")
@@ -661,12 +661,12 @@ class GRINEnrichmentPipeline:
             logger.error("Full traceback:", exc_info=True)
 
         finally:
-            # Clean up resources
-            await self.cleanup()
-
-            # Final statistics
+            # Final statistics (get database count before cleanup)
             total_elapsed = time.time() - start_time
             final_enriched = await self.sqlite_tracker.get_enriched_book_count()
+
+            # Clean up resources
+            await self.cleanup()
 
             completion_msg = f"\nCompleted: {processed_count:,} processed, {total_enriched:,} enriched"
             rate = processed_count / max(1, total_elapsed)
@@ -782,6 +782,7 @@ Examples:
     run_summary = None
     enrich_stage = None
     book_manager = None
+    pipeline = None
     if args.command == "enrich":
         # Create book storage for process summary uploads
         from grin_to_s3.process_summary import create_book_manager_for_uploads
@@ -830,7 +831,15 @@ Examples:
             print(f"Operation failed: {e}")
             sys.exit(1)
 
+
     finally:
+        # Clean up book manager storage resources if created
+        if book_manager:
+            try:
+                await book_manager.storage.close()
+            except Exception as e:
+                logger.warning(f"Error during book manager storage cleanup: {e}")
+
         # Always end the stage and save summary for enrich command
         if run_summary:
             run_summary.end_stage("enrich")
@@ -838,6 +847,8 @@ Examples:
 
             # Display completion summary
             display_step_summary(run_summary, "enrich")
+
+
 
 
 async def enrich_main():

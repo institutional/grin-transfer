@@ -62,6 +62,7 @@ class TestCSVExport:
         """Create a mock SQLiteProgressTracker."""
         mock_tracker = MagicMock()
         mock_tracker.get_all_books_csv_data = AsyncMock()
+        mock_tracker.close = AsyncMock()
         return mock_tracker
 
     def test_marc_fields_in_csv_headers(self):
