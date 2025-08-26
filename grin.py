@@ -89,7 +89,7 @@ For more help on each command, use: python grin.py <command> --help
     collect_parser = subparsers.add_parser("collect", help="Collect book metadata from GRIN")
     process_parser = subparsers.add_parser("process", help="Request and monitor book processing")
     sync_parser = subparsers.add_parser("sync", help="Sync converted books from GRIN to storage")
-    storage_parser = subparsers.add_parser("storage", help="Manage storage buckets and data (ls, rm)")
+    storage_parser = subparsers.add_parser("storage", help="Manage storage buckets and data (ls, rm, cp)")
     extract_parser = subparsers.add_parser("extract", help="Extract OCR text from decrypted book archives")
     enrich_parser = subparsers.add_parser("enrich", help="Enrich books with GRIN metadata")
     export_parser = subparsers.add_parser("export", help="Export ALL books in collection to CSV")

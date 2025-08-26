@@ -13,7 +13,10 @@ import logging
 import sys
 from pathlib import Path
 
+import boto3
+
 from grin_to_s3.storage import get_storage_protocol
+from grin_to_s3.storage.factories import create_storage_from_config
 
 from ..run_config import (
     apply_run_config_to_args,
@@ -27,8 +30,7 @@ logger = logging.getLogger(__name__)
 
 def list_bucket_files(storage, bucket: str, prefix: str = "") -> list[tuple[str, int]]:  # type: ignore
     """List all files in bucket with sizes."""
-    import boto3
-    from botocore.exceptions import ClientError
+
 
     s3_client = boto3.client(
         "s3",
@@ -44,19 +46,13 @@ def list_bucket_files(storage, bucket: str, prefix: str = "") -> list[tuple[str,
     paginator = s3_client.get_paginator("list_objects_v2")
     files = []
 
-    try:
-        for page in paginator.paginate(**list_kwargs):  # type: ignore
-            contents = page.get("Contents", [])
-            for obj in contents:
-                key = obj.get("Key")
-                size = obj.get("Size")
-                if key is not None and size is not None:
-                    files.append((key, size))
-    except ClientError as e:
-        if e.response.get("Error", {}).get("Code") == "NoSuchBucket":
-            return []
-        raise
-
+    for page in paginator.paginate(**list_kwargs):  # type: ignore
+        contents = page.get("Contents", [])
+        for obj in contents:
+            key = obj.get("Key")
+            size = obj.get("Size")
+            if key is not None and size is not None:
+                files.append((key, size))
     return files
 
 
@@ -71,7 +67,6 @@ def delete_bucket_contents(
     storage, bucket: str, prefix: str = "", files_to_delete: list[tuple[str, int]] | None = None
 ) -> tuple[int, int]:
     """Delete all contents from bucket with prefix."""
-    import boto3
 
     s3_client = boto3.client(
         "s3",
@@ -137,7 +132,6 @@ def format_size(size_bytes: int) -> str:
 
 async def cmd_ls(args) -> None:
     """List contents of all storage buckets."""
-    from ..storage.factories import create_storage_from_config
 
     # Set up database path and apply run configuration
     db_path = setup_run_database_path(args, args.run_name)
@@ -166,9 +160,8 @@ async def cmd_ls(args) -> None:
         storage_type = storage_config_dict["type"]
 
         # Build full storage config with credentials
-        from argparse import Namespace
 
-        temp_args = Namespace(
+        temp_args = argparse.Namespace(
             storage=storage_type,
             secrets_dir=run_config.get("secrets_dir"),
             bucket_raw=None,
@@ -198,15 +191,17 @@ async def cmd_ls(args) -> None:
 
         # Summarize each bucket
         buckets = {
-            "Raw Data": storage_config.get("bucket_raw"),
-            "Metadata": storage_config.get("bucket_meta"),
-            "Full Text": storage_config.get("bucket_full"),
+            "raw": storage_config.get("bucket_raw"),
+            "meta": storage_config.get("bucket_meta"),
+            "full": storage_config.get("bucket_full"),
         }
 
         total_files = 0
         total_size = 0
 
         for bucket_name, bucket in buckets.items():
+            if args.bucket_name and bucket_name != args.bucket_name:
+                continue
             if not bucket:
                 print(f"{bucket_name} Bucket: Not configured")
                 continue
@@ -273,8 +268,7 @@ async def cmd_ls(args) -> None:
 
 
 async def cmd_cp(args) -> None:
-    """Copy a file from raw storage bucket to local directory."""
-    from ..storage.factories import create_storage_from_config
+    """Copy a file from named storage bucket to local directory."""
 
     # Set up database path and apply run configuration
     db_path = setup_run_database_path(args, args.run_name)
@@ -303,9 +297,8 @@ async def cmd_cp(args) -> None:
         storage_type = storage_config_dict["type"]
 
         # Build full storage config with credentials
-        from argparse import Namespace
 
-        temp_args = Namespace(
+        temp_args = argparse.Namespace(
             storage=storage_type,
             secrets_dir=run_config.get("secrets_dir"),
             bucket_raw=None,
@@ -318,18 +311,20 @@ async def cmd_cp(args) -> None:
         storage_config = credentials_config.copy()
         storage_config.update(storage_config_dict.get("config", {}))
 
+        buckets = {
+            "raw": storage_config.get("bucket_raw"),
+            "meta": storage_config.get("bucket_meta"),
+            "full": storage_config.get("bucket_full"),
+        }
         # Get raw bucket
-        raw_bucket = storage_config.get("bucket_raw")
-        if not raw_bucket:
-            print("❌ Error: Raw bucket is not configured")
-            sys.exit(1)
+        cp_bucket = buckets[args.bucket_name]
 
         prefix = str(storage_config_dict.get("prefix", "") or "")
 
         print(f"\nStorage Copy for {args.run_name}")
         print("=" * 60)
         print(f"Storage Type: {storage_type}")
-        print(f"Source Bucket: {raw_bucket} (raw)")
+        print(f"Source Bucket: {cp_bucket}")
         print(f"Source File: {args.filename}")
         print(f"Destination: {args.local_dir}")
         if prefix:
@@ -353,11 +348,11 @@ async def cmd_cp(args) -> None:
         filename_only = Path(args.filename).name
         local_file_path = local_dir / filename_only
 
-        print(f"Downloading {source_path} from {raw_bucket}...")
+        print(f"Downloading {source_path} from {cp_bucket}...")
 
         try:
             # Download the file - include bucket in path like BookStorage does
-            file_data = await storage.read_bytes(f"{raw_bucket}/{source_path}")
+            file_data = await storage.read_bytes(f"{cp_bucket}/{source_path}")
 
             # Write to local file
             with open(local_file_path, "wb") as f:
@@ -382,7 +377,6 @@ async def cmd_cp(args) -> None:
 
 async def cmd_rm(args) -> None:
     """Remove all contents from a storage bucket."""
-    from ..storage.factories import create_storage_from_config
 
     # Set up database path and apply run configuration
     db_path = setup_run_database_path(args, args.run_name)
@@ -411,9 +405,8 @@ async def cmd_rm(args) -> None:
         storage_type = storage_config_dict["type"]
 
         # Build full storage config with credentials
-        from argparse import Namespace
 
-        temp_args = Namespace(
+        temp_args = argparse.Namespace(
             storage=storage_type,
             secrets_dir=run_config.get("secrets_dir"),
             bucket_raw=None,
@@ -440,9 +433,7 @@ async def cmd_rm(args) -> None:
             sys.exit(1)
 
         bucket = buckets[bucket_name]
-        if not bucket:
-            print(f"❌ Error: Bucket '{bucket_name}' is not configured")
-            sys.exit(1)
+        assert bucket
 
         prefix = str(storage_config_dict.get("prefix", "") or "")
 
@@ -569,14 +560,17 @@ Examples:
     ls_parser.add_argument(
         "-l", "--long", action="store_true", help="Use long listing format with recursive file listing"
     )
+    ls_parser.add_argument("--bucket-name", choices=["raw", "meta", "full"], help="Bucket to list (raw, meta, or full)")
+
 
     # Copy command
     cp_parser = subparsers.add_parser(
         "cp",
-        help="Copy a file from raw storage bucket to local directory",
+        help="Copy a file from a storage bucket to local directory",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    cp_parser.add_argument("filename", help="Name of file to download from raw bucket")
+    cp_parser.add_argument("bucket_name", choices=["raw", "meta", "full"], help="Bucket to copy from (raw, meta, or full)")
+    cp_parser.add_argument("filename", help="Name of file to download from bucket")
     cp_parser.add_argument("local_dir", help="Local directory to save the file to")
     cp_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
 
