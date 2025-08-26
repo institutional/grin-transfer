@@ -831,7 +831,6 @@ Examples:
             print(f"Operation failed: {e}")
             sys.exit(1)
 
-
     finally:
         # Clean up book manager storage resources if created
         if book_manager:
@@ -847,8 +846,6 @@ Examples:
 
             # Display completion summary
             display_step_summary(run_summary, "enrich")
-
-
 
 
 async def enrich_main():

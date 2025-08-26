@@ -145,6 +145,7 @@ class StagingDirectoryManager(DirectoryManager):
                 f"(threshold: {self.capacity_threshold:.1%}). "
                 f"Used: {used_bytes / (1024**3):.1f}GB / {total_bytes / (1024**3):.1f}GB"
             )
+            print("⚠️ Disk space limit reached ({usage_ratio:.1%} used) — new downloads paused until space freed")
             return False
 
         # Log disk usage occasionally

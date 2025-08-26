@@ -31,7 +31,6 @@ logger = logging.getLogger(__name__)
 def list_bucket_files(storage, bucket: str, prefix: str = "") -> list[tuple[str, int]]:  # type: ignore
     """List all files in bucket with sizes."""
 
-
     s3_client = boto3.client(
         "s3",
         aws_access_key_id=storage.config.options.get("key"),
@@ -562,14 +561,15 @@ Examples:
     )
     ls_parser.add_argument("--bucket-name", choices=["raw", "meta", "full"], help="Bucket to list (raw, meta, or full)")
 
-
     # Copy command
     cp_parser = subparsers.add_parser(
         "cp",
         help="Copy a file from a storage bucket to local directory",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    cp_parser.add_argument("bucket_name", choices=["raw", "meta", "full"], help="Bucket to copy from (raw, meta, or full)")
+    cp_parser.add_argument(
+        "bucket_name", choices=["raw", "meta", "full"], help="Bucket to copy from (raw, meta, or full)"
+    )
     cp_parser.add_argument("filename", help="Name of file to download from bucket")
     cp_parser.add_argument("local_dir", help="Local directory to save the file to")
     cp_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
