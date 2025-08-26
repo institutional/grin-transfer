@@ -641,3 +641,5 @@ class BookCollector:
         """Clean up resources."""
         if hasattr(self, "grin_client"):
             await self.grin_client.close()
+        if hasattr(self, "sqlite_tracker"):
+            await self.sqlite_tracker.close()

@@ -277,7 +277,6 @@ class SQLiteProgressTracker:
         # Small LRU cache to avoid repeated SQLite queries for same barcodes
         self._known_cache = BoundedSet(max_size=cache_size)
         self._unknown_cache = BoundedSet(max_size=cache_size)
-        self._db_connections: set[aiosqlite.Connection] = set()  # Track connections for cleanup
         self._persistent_conn: aiosqlite.Connection | None = None
 
     async def initialize(self):
@@ -308,18 +307,22 @@ class SQLiteProgressTracker:
         await self._persistent_conn.execute("PRAGMA mmap_size=268435456")  # 256MB mmap
         await self._persistent_conn.execute("PRAGMA page_size=8192")  # Requires VACUUM to apply
 
-    async def _execute_query(self, query: str, params: tuple = ()):
-        """Execute query using persistent connection."""
+    async def _ensure_connection(self):
+        """Ensure persistent connection is initialized and ready."""
         await self.initialize()
         if not self._persistent_conn:
             raise RuntimeError("Failed to initialize database connection")
+
+    async def _execute_query(self, query: str, params: tuple = ()):
+        """Execute query using persistent connection."""
+        await self._ensure_connection()
+        assert self._persistent_conn is not None  # _ensure_connection guarantees this
         return await self._persistent_conn.execute(query, params)
 
     async def _execute_query_with_commit(self, query: str, params: tuple = ()):
         """Execute query with commit using persistent connection."""
-        await self.initialize()
-        if not self._persistent_conn:
-            raise RuntimeError("Failed to initialize database connection")
+        await self._ensure_connection()
+        assert self._persistent_conn is not None  # _ensure_connection guarantees this
         cursor = await self._persistent_conn.execute(query, params)
         await self._persistent_conn.commit()
         return cursor
@@ -529,13 +532,6 @@ class SQLiteProgressTracker:
                 pass
             self._persistent_conn = None
 
-        # Close any tracked connections
-        for conn in list(self._db_connections):
-            try:
-                await conn.close()
-            except Exception:
-                pass
-        self._db_connections.clear()
 
     async def save_book(self, book: BookRecord) -> None:
         """Save or update a book record in the database."""
@@ -578,14 +574,9 @@ class SQLiteProgressTracker:
         # Add barcode for WHERE clause
         values.append(barcode)
 
-        await self.initialize()
-        if not self._persistent_conn:
-            raise RuntimeError("Failed to initialize database connection")
-
-        await self._persistent_conn.execute(BookRecord.build_update_enrichment_sql(), values)
-        rows_affected = self._persistent_conn.total_changes
-        await self._persistent_conn.commit()
-        return rows_affected > 0
+        await self._execute_query_with_commit(BookRecord.build_update_enrichment_sql(), tuple(values))
+        assert self._persistent_conn is not None  # Guaranteed by _execute_query_with_commit
+        return self._persistent_conn.total_changes > 0
 
     @retry_database_operation
     async def update_book_marc_metadata(self, barcode: str, marc_data: dict) -> bool:
@@ -602,14 +593,9 @@ class SQLiteProgressTracker:
         # Add barcode for WHERE clause
         values.append(barcode)
 
-        await self.initialize()
-        if not self._persistent_conn:
-            raise RuntimeError("Failed to initialize database connection")
-
-        await self._persistent_conn.execute(BookRecord.build_update_marc_sql(), values)
-        rows_affected = self._persistent_conn.total_changes
-        await self._persistent_conn.commit()
-        return rows_affected > 0
+        await self._execute_query_with_commit(BookRecord.build_update_marc_sql(), tuple(values))
+        assert self._persistent_conn is not None  # Guaranteed by _execute_query_with_commit
+        return self._persistent_conn.total_changes > 0
 
     async def get_books_for_enrichment(self, limit: int = 1000) -> list[str]:
         """Get barcodes for books that need enrichment (no enrichment_timestamp)."""
@@ -650,36 +636,30 @@ class SQLiteProgressTracker:
 
         now = datetime.now(UTC).isoformat()
 
-        await self.initialize()
-        if not self._persistent_conn:
-            raise RuntimeError("Failed to initialize database connection")
-
-        await self._persistent_conn.execute(
-            """
+        query = """
             UPDATE books SET
                 storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
                 last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
                 sync_timestamp = ?, sync_error = ?,
                 updated_at = ?
             WHERE barcode = ?
-        """,
-            (
-                sync_data.get("storage_type"),
-                sync_data.get("storage_path"),
-                sync_data.get("storage_decrypted_path"),
-                sync_data.get("last_etag_check"),
-                sync_data.get("encrypted_etag"),
-                sync_data.get("is_decrypted", False),
-                sync_data.get("sync_timestamp", now),
-                sync_data.get("sync_error"),
-                now,
-                barcode,
-            ),
+        """
+        params = (
+            sync_data.get("storage_type"),
+            sync_data.get("storage_path"),
+            sync_data.get("storage_decrypted_path"),
+            sync_data.get("last_etag_check"),
+            sync_data.get("encrypted_etag"),
+            sync_data.get("is_decrypted", False),
+            sync_data.get("sync_timestamp", now),
+            sync_data.get("sync_error"),
+            now,
+            barcode,
         )
 
-        rows_affected = self._persistent_conn.total_changes
-        await self._persistent_conn.commit()
-        return rows_affected > 0
+        await self._execute_query_with_commit(query, params)
+        assert self._persistent_conn is not None  # Guaranteed by _execute_query_with_commit
+        return self._persistent_conn.total_changes > 0
 
     async def get_books_for_sync(
         self,

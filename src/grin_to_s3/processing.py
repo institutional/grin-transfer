@@ -244,8 +244,8 @@ class ProcessingPipeline:
         """Clean up resources and close connections safely."""
         await self.processing_client.cleanup()
         try:
-            if hasattr(self.db_tracker, "_db") and self.db_tracker._db:
-                await self.db_tracker._db.close()
+            if hasattr(self, "db_tracker"):
+                await self.db_tracker.close()
         except Exception as e:
             logger.warning(f"Error closing database connection: {e}")
 

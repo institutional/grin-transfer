@@ -641,3 +641,5 @@ class SyncPipeline:
         """Clean up pipeline resources."""
         if hasattr(self, "grin_client"):
             await self.grin_client.close()
+        if hasattr(self, "db_tracker"):
+            await self.db_tracker.close()

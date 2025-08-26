@@ -500,6 +500,10 @@ Examples:
             run_summary.end_stage("collect")
             await save_process_summary(run_summary, book_manager)
 
+            # Clean up book manager storage resources
+            if "book_manager" in locals() and book_manager and hasattr(book_manager, "storage"):
+                await book_manager.storage.close()
+
             # Display completion summary
             display_step_summary(run_summary, "collect")
 
@@ -517,4 +521,5 @@ Examples:
 
 
 if __name__ == "__main__":
-    exit(asyncio.run(main()))
+    with asyncio.Runner() as runner:
+        exit(runner.run(main()))
