@@ -457,6 +457,10 @@ Examples:
             logger.info(f"Configuration written to {config_path}")
             collect_stage.add_progress_update("Configuration written, starting collection")
 
+            # Validate required storage configuration
+            if not storage_config:
+                raise ValueError("Storage configuration is required. Provide --storage option.")
+                
             # Create book collector with configuration
             collector = BookCollector(
                 directory=args.library_directory,

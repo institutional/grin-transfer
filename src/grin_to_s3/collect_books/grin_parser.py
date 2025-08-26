@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Pure functions for parsing GRIN row data.
+Functions for parsing GRIN row data.
 
-Extracted from collector.py to separate data parsing concerns from I/O and business logic.
 """
 
 from datetime import datetime

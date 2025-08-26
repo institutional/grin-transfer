@@ -433,6 +433,9 @@ def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
     if test_data is None:
         test_data = get_test_data()
 
+    if storage_config is None:
+        storage_config = {"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"}
+
     resume_file = Path(temp_dir) / "test_progress.json"
     sqlite_db_path = Path(temp_dir) / "test_progress.db"  # Unique database per test
 

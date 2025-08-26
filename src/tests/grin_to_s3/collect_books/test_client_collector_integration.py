@@ -58,7 +58,12 @@ async def test_client_collector_integration():
             # Create a temporary database for real SQLiteProgressTracker
             with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
                 # Create collector and replace client
-                collector = BookCollector(directory="Harvard", process_summary_stage=AsyncMock(), test_mode=True)
+                collector = BookCollector(
+                    directory="Harvard",
+                    process_summary_stage=AsyncMock(),
+                    storage_config={"type": "local", "config": {"base_path": "/tmp/test"}, "prefix": "test"},
+                    test_mode=True,
+                )
                 collector.grin_client = client
                 collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
 
@@ -107,7 +112,12 @@ async def test_collector_stream_all_books_integration():
 
         # Create a temporary database for real SQLiteProgressTracker
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
-            collector = BookCollector(directory="Harvard", process_summary_stage=AsyncMock(), test_mode=True)
+            collector = BookCollector(
+                directory="Harvard",
+                process_summary_stage=AsyncMock(),
+                storage_config={"type": "local", "config": {"base_path": "/tmp/test"}, "prefix": "test"},
+                test_mode=True,
+            )
             collector.client = client
             collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
 
