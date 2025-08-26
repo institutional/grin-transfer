@@ -611,7 +611,7 @@ class SQLiteProgressTracker:
         return self._persistent_conn.total_changes > 0
 
     async def get_books_for_enrichment(self, limit: int = 1000) -> list[str]:
-        """Get barcodes for books that need enrichment (no enrichment_timestamp)."""
+        """Get barcodes for books that need enrichment (have no enrichment_timestamp)."""
         await self.init_db()
 
         cursor = await self._execute_query(

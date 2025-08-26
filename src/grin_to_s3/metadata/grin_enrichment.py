@@ -17,9 +17,8 @@ from typing import Any
 
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-# Check Python version requirement
 from grin_to_s3.client import GRINClient
-from grin_to_s3.collect_books.models import SQLiteProgressTracker
+from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.common import (
     RateLimiter,
     format_duration,
@@ -30,12 +29,13 @@ from grin_to_s3.database.database_utils import validate_database_file
 from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.metadata.tsv_parser import parse_grin_tsv
 from grin_to_s3.process_summary import (
+    create_book_manager_for_uploads,
     create_process_summary,
     display_step_summary,
     get_current_stage,
     save_process_summary,
 )
-from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
+from grin_to_s3.run_config import apply_run_config_to_args, find_run_config, setup_run_database_path
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 
 logger = logging.getLogger(__name__)
@@ -88,23 +88,10 @@ class GRINEnrichmentPipeline:
         self._shutdown_requested = True
         logger.info("Shutting down enrichment pipeline...")
 
-        try:
-            # Close GRIN client session
-            if hasattr(self, "grin_client"):
-                await self.grin_client.close()
-                logger.debug("Closed GRIN client session")
-        except Exception as e:
-            logger.warning(f"Error closing GRIN client session: {e}")
-
-        try:
-            # Close SQLite tracker connections
-            if hasattr(self, "sqlite_tracker"):
-                await self.sqlite_tracker.close()
-                logger.debug("Closed SQLite database connection")
-        except Exception as e:
-            logger.warning(f"Error closing database connection: {e}")
-
-        logger.info("Cleanup completed")
+        if hasattr(self, "grin_client"):
+            await self.grin_client.close()
+        if hasattr(self, "sqlite_tracker"):
+            await self.sqlite_tracker.close()
 
     def _create_url_batches(self, barcodes: list[str]) -> list[list[str]]:
         """Split barcodes into URL-sized batches.
@@ -193,7 +180,6 @@ class GRINEnrichmentPipeline:
 
     async def reset_enrichment_data(self) -> int:
         """Reset enrichment data for all books in the database."""
-        from grin_to_s3.collect_books.models import BookRecord
 
         async with connect_async(self.db_path) as conn:
             # Reset enrichment fields to NULL using generated SQL
@@ -269,7 +255,7 @@ class GRINEnrichmentPipeline:
         processed_count = 0
         total_enriched = 0
 
-        # Initialize sliding window rate calculator (larger window for more stable ETA)
+        # Initialize sliding window rate calculator
         rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
         logger.info(f"Starting enrichment of {remaining_books:,} books...")
@@ -444,8 +430,6 @@ Examples:
 
     # Set up logging - use unified log file from run config
     if args.command == "enrich":
-        from grin_to_s3.run_config import find_run_config
-
         run_config = find_run_config(args.db_path)
         if run_config is None:
             print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
@@ -468,8 +452,6 @@ Examples:
     pipeline = None
     if args.command == "enrich":
         # Create book storage for process summary uploads
-        from grin_to_s3.process_summary import create_book_manager_for_uploads
-
         book_manager = await create_book_manager_for_uploads(args.run_name)
 
         run_summary = await create_process_summary(args.run_name, "enrich", book_manager)
