@@ -32,6 +32,7 @@ from grin_to_s3.storage import BookManager, create_storage_from_config
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator, show_progress
 
 from .config import ExportConfig, PaginationConfig
+from .grin_parser import parse_grin_row
 from .models import BookRecord, BoundedSet, SQLiteProgressTracker
 
 
@@ -477,97 +478,7 @@ class BookCollector:
             f"Two-pass collection complete: {total_books:,} total books ({converted_count:,} converted + {non_converted_count:,} non-converted)"
         )
 
-    def _looks_like_date(self, text: str) -> bool:
-        """Check if text looks like a date string."""
-        if not text:
-            return False
-        # Check for common date patterns
-        return (
-            ("/" in text and any(c.isdigit() for c in text))
-            or ("-" in text and any(c.isdigit() for c in text))
-            or text.lower().startswith("http")
-        )  # URLs are not dates
 
-    def _parse_grin_date(self, date_str: str) -> str | None:
-        """Parse a date string from GRIN format to ISO format."""
-        if not date_str:
-            return None
-        try:
-            # GRIN format: YYYY/MM/DD HH:MM
-            dt = datetime.strptime(date_str, "%Y/%m/%d %H:%M")
-            return dt.isoformat()
-        except ValueError:
-            return date_str  # Return as-is if parsing fails
-
-    def _get_field_or_none(self, fields: list[str], index: int) -> str | None:
-        """Get field at index or None if index is out of bounds or field is empty."""
-        if index < len(fields) and fields[index]:
-            return fields[index]
-        return None
-
-    def _parse_date_field(self, fields: list[str], index: int) -> str | None:
-        """Parse date field at index or return None if missing/empty."""
-        field = self._get_field_or_none(fields, index)
-        return self._parse_grin_date(field) if field else None
-
-    def process_grin_row(self, row: GRINRow) -> dict:
-        """Process a GRINRow dict from the client and map to BookRecord field names.
-
-        Args:
-            row: GRINRow dict from client with unstructured field names from HTML
-        """
-        if not row or not row.get("barcode"):
-            return {}
-
-        barcode = row.get("barcode", "unknown")
-
-        # Create result with standard BookRecord field names
-        result = {
-            "barcode": barcode,
-            "title": "",
-            "scanned_date": None,
-            "converted_date": None,
-            "downloaded_date": None,
-            "processed_date": None,
-            "analyzed_date": None,
-            "ocr_date": None,
-            "google_books_link": "",
-            "grin_state": None,
-        }
-
-        # Map unstructured field names to standard ones
-        # Try different possible field names that might contain title
-        for key, value in row.items():
-            if not value:
-                continue
-
-            key_lower = key.lower()
-
-            # Map title field (usually first column after barcode)
-            if "title" in key_lower:
-                result["title"] = str(value).strip()
-            # Map various date fields
-            elif "scanned" in key_lower:
-                result["scanned_date"] = self._parse_date_field([value], 0)
-            elif "converted" in key_lower:
-                result["converted_date"] = self._parse_date_field([value], 0)
-            elif "downloaded" in key_lower:
-                result["downloaded_date"] = self._parse_date_field([value], 0)
-            elif "processed" in key_lower:
-                result["processed_date"] = self._parse_date_field([value], 0)
-            elif "analyzed" in key_lower:
-                result["analyzed_date"] = self._parse_date_field([value], 0)
-            elif "ocr" in key_lower:
-                result["ocr_date"] = self._parse_date_field([value], 0)
-            # Map Google Books link
-            elif "google" in key_lower or "books" in key_lower:
-                if "http" in str(value):
-                    result["google_books_link"] = str(value).strip()
-            # Map state field
-            elif "state" in key_lower or "status" in key_lower:
-                result["grin_state"] = str(value).strip()
-
-        return result
 
     async def collect_books(self, output_file: str, limit: int | None = None) -> bool:
         """
@@ -769,7 +680,7 @@ class BookCollector:
         """
 
         # Process GRIN data directly from the row
-        parsed_data = self.process_grin_row(grin_row)
+        parsed_data = parse_grin_row(grin_row)
         if not parsed_data or not parsed_data.get("barcode"):
             return None
 
