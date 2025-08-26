@@ -124,6 +124,7 @@ def _setup_signal_handlers(pipeline, sync_stage) -> None:
         print("Press Control-C again to force immediate exit")
         sync_stage.add_progress_update("Graceful shutdown requested")
         pipeline._shutdown_requested = True
+        raise KeyboardInterrupt()
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
