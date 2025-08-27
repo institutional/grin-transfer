@@ -27,7 +27,6 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
         logger.info(f"[{barcode}] HEAD request returned HTTP {e.status}")
         # If the HEAD response was a 404, this is always a failure
         if e.status == 404:
-            logger.info(f"[{barcode}] Archive not found (404)")
             return CheckResult(
                 barcode=barcode,
                 task_type=TaskType.CHECK,
