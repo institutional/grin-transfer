@@ -69,6 +69,50 @@ class SlidingWindowRateCalculator:
             return fallback_processed_count / max(1, overall_elapsed)
 
 
+def show_progress(
+    start_time: float,
+    total_items: int | None,
+    rate_calculator: "SlidingWindowRateCalculator",
+    completed_count: int,
+    operation_name: str = "items",
+    extra_info: dict[str, str] | None = None,
+) -> None:
+    """Show generic progress with ETA calculation."""
+    # Skip showing progress if no items completed yet
+    if completed_count == 0:
+        return
+
+    current_time = time.time()
+    percentage = (completed_count / total_items) * 100 if total_items and total_items > 0 else None
+    elapsed = current_time - start_time
+
+    # Update rate calculator
+    rate_calculator.add_batch(current_time, completed_count)
+    rate = rate_calculator.get_rate(start_time, completed_count)
+
+    # Calculate ETA
+    eta_text = ""
+    if rate > 0 and total_items and total_items > completed_count:
+        remaining = total_items - completed_count
+        eta_seconds = remaining / rate
+        eta_text = f" (ETA: {format_duration(eta_seconds)})"
+
+    # Build progress display
+    if percentage is not None:
+        progress_part = f"{completed_count:,}/{total_items:,} ({percentage:.1f}%)"
+    else:
+        progress_part = f"{completed_count:,} {operation_name}"
+
+    base_info = f"{progress_part} - {rate:.1f} {operation_name}/sec - elapsed: {format_duration(elapsed)}{eta_text}"
+
+    # Add extra info (queue depths for sync, current record for collect)
+    if extra_info:
+        extra_parts = [f"{k}: {v}" for k, v in extra_info.items()]
+        print(f"{base_info} [{', '.join(extra_parts)}]")
+    else:
+        print(base_info)
+
+
 def show_queue_progress(
     start_time: float,
     total_books: int,
@@ -79,35 +123,22 @@ def show_queue_progress(
     active_tasks: dict[str, int],
 ) -> None:
     """Show progress for dual-queue processing."""
-    # Skip showing progress if no books completed yet
-    if completed_count == 0:
-        return
-
-    # Calculate progress metrics
-    current_time = time.time()
-    percentage = (completed_count / total_books) * 100 if total_books > 0 else 0
-    elapsed = current_time - start_time
-
-    # Update rate calculator
-    rate_calculator.add_batch(current_time, completed_count)
-    rate = rate_calculator.get_rate(start_time, completed_count)
-
-    # Calculate ETA
-    remaining = total_books - completed_count
-    eta_text = ""
-    if rate > 0 and remaining > 0:
-        eta_seconds = remaining / rate
-        eta_text = f" (ETA: {format_duration(eta_seconds)})"
-
-    # Show progress with active task breakdown
     downloads = active_tasks.get("downloads", 0)
     download_limit = active_tasks.get("download_limit", 5)
     processing = active_tasks.get("processing", 0)
 
-    print(
-        f"{completed_count:,}/{total_books:,} "
-        f"({percentage:.1f}%) - {rate:.1f} books/sec - "
-        f"elapsed: {format_duration(elapsed)}{eta_text} "
-        f"[downloads: {downloads}/{download_limit}, processing: {processing}, "
-        f"waiting to download: {download_queue_depth}, waiting to be processed: {processing_queue_depth}]"
+    extra_info = {
+        "downloads": f"{downloads}/{download_limit}",
+        "processing": str(processing),
+        "waiting to download": str(download_queue_depth),
+        "waiting to be processed": str(processing_queue_depth),
+    }
+
+    show_progress(
+        start_time=start_time,
+        total_items=total_books,
+        rate_calculator=rate_calculator,
+        completed_count=completed_count,
+        operation_name="books",
+        extra_info=extra_info,
     )

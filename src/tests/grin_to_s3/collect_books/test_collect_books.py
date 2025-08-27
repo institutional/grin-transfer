@@ -358,169 +358,6 @@ class TestBookCollector:
         # Remove temporary directory
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def test_process_grin_row(self):
-        """Test GRINRow dict processing."""
-        grin_row = {
-            "barcode": "TEST123",
-            "title": "Test Title",
-            "scanned_date": "2024/01/01 10:00",
-            "processed_date": "2024/01/02 11:00",
-            "analyzed_date": "2024/01/03 12:00",
-            "google_books_link": "https://books.google.com/books?id=test",
-        }
-
-        parsed = self.exporter.process_grin_row(grin_row)
-
-        assert parsed["barcode"] == "TEST123"
-        assert parsed["title"] == "Test Title"
-        assert parsed["scanned_date"] == "2024-01-01T10:00:00"
-        assert parsed["processed_date"] == "2024-01-02T11:00:00"
-        assert parsed["analyzed_date"] == "2024-01-03T12:00:00"
-        assert parsed["google_books_link"] == "https://books.google.com/books?id=test"
-
-    def test_process_grin_row_with_missing_fields(self):
-        """Test GRINRow processing with missing fields."""
-        grin_row = {"barcode": "TEST456", "processed_date": "2024/01/02 11:00"}
-
-        parsed = self.exporter.process_grin_row(grin_row)
-
-        assert parsed["barcode"] == "TEST456"
-        assert parsed["title"] == ""
-        assert parsed["scanned_date"] is None
-        assert parsed["processed_date"] == "2024-01-02T11:00:00"
-        assert parsed["analyzed_date"] is None
-
-    def test_process_grin_row_invalid_format(self):
-        """Test GRINRow processing with invalid format."""
-        grin_row = {}  # Empty dict
-
-        parsed = self.exporter.process_grin_row(grin_row)
-
-        assert parsed == {}
-
-    def test_process_grin_row_minimal_valid(self):
-        """Test GRINRow processing with minimal valid data."""
-        grin_row = {"barcode": "MINIMAL"}  # Just barcode
-
-        parsed = self.exporter.process_grin_row(grin_row)
-
-        assert parsed["barcode"] == "MINIMAL"
-        assert parsed["scanned_date"] is None
-        assert parsed["google_books_link"] == ""
-
-    def test_process_grin_row_with_all_fields(self):
-        """Test GRINRow processing with all fields from HTML tables."""
-        grin_row = {
-            "barcode": "RSMD7D",
-            "title": "Those Preston Twins",
-            "status": "AVAILABLE",
-            "scanned_date": "2008/04/17",
-            "analyzed_date": "2024/11/18",
-            "converted_date": "2025/01/17",
-            "downloaded_date": "2023/09/18",
-            "processed_date": "2024/01/01",
-            "ocr_date": "2024/02/01",
-        }
-
-        parsed = self.exporter.process_grin_row(grin_row)
-
-        assert parsed["barcode"] == "RSMD7D"
-        assert parsed["title"] == "Those Preston Twins"
-        assert parsed["grin_state"] == "AVAILABLE"
-        assert parsed["scanned_date"] == "2008/04/17"
-        assert parsed["analyzed_date"] == "2024/11/18"
-        assert parsed["converted_date"] == "2025/01/17"
-        assert parsed["downloaded_date"] == "2023/09/18"
-        assert parsed["processed_date"] == "2024/01/01"
-        assert parsed["ocr_date"] == "2024/02/01"
-
-    def test_process_grin_row_with_date_conversion(self):
-        """Test GRINRow processing with proper date conversion."""
-        grin_row = {
-            "barcode": "TEST789",
-            "title": "Example Book Title",
-            "status": "AVAILABLE",
-            "scanned_date": "2024/06/15 14:30",
-            "analyzed_date": "2024/06/16 09:15",
-            "converted_date": "2024/06/17 16:45",
-            "downloaded_date": "2024/06/18 11:20",
-        }
-
-        parsed = self.exporter.process_grin_row(grin_row)
-
-        assert parsed["barcode"] == "TEST789"
-        assert parsed["title"] == "Example Book Title"
-        assert parsed["grin_state"] == "AVAILABLE"
-        assert parsed["scanned_date"] == "2024-06-15T14:30:00"
-        assert parsed["analyzed_date"] == "2024-06-16T09:15:00"
-        assert parsed["converted_date"] == "2024-06-17T16:45:00"
-        assert parsed["downloaded_date"] == "2024-06-18T11:20:00"
-
-    def test_process_grin_row_missing_date_fields(self):
-        """Test GRINRow processing with missing date fields."""
-        grin_row = {
-            "barcode": "INCOMPLETE",
-            "title": "Incomplete Book",
-            "status": "AVAILABLE",
-            "analyzed_date": "2024/05/01 10:00",
-            "downloaded_date": "2024/05/03 15:30",
-        }
-
-        parsed = self.exporter.process_grin_row(grin_row)
-
-        assert parsed["barcode"] == "INCOMPLETE"
-        assert parsed["title"] == "Incomplete Book"
-        assert parsed["grin_state"] == "AVAILABLE"
-        assert parsed["scanned_date"] is None  # Not in dict
-        assert parsed["analyzed_date"] == "2024-05-01T10:00:00"
-        assert parsed["converted_date"] is None  # Not in dict
-        assert parsed["downloaded_date"] == "2024-05-03T15:30:00"
-
-    def test_process_grin_row_different_field_formats(self):
-        """Test GRINRow processing with different field formats."""
-        # Test title in named field vs column position
-        named_field_row = {"barcode": "CONV001", "title": "Converted Book Title", "scanned_date": "2024/01/01 10:00"}
-        named_parsed = self.exporter.process_grin_row(named_field_row)
-
-        # Test title in different named field
-        alt_title_row = {
-            "barcode": "ALL001",
-            "book_title": "All Books Title",  # Title with different name containing "title"
-            "status": "AVAILABLE",
-            "scanned_date": "2024/01/01 10:00",
-        }
-        alt_parsed = self.exporter.process_grin_row(alt_title_row)
-
-        # Named field parsing
-        assert named_parsed["barcode"] == "CONV001"
-        assert named_parsed["title"] == "Converted Book Title"
-        assert named_parsed["scanned_date"] == "2024-01-01T10:00:00"
-
-        # Alternative title field parsing
-        assert alt_parsed["barcode"] == "ALL001"
-        assert alt_parsed["title"] == "All Books Title"
-        assert alt_parsed["grin_state"] == "AVAILABLE"
-
-    def test_process_grin_row_edge_cases(self):
-        """Test GRINRow processing edge cases."""
-        # Minimal data
-        short_row = {"barcode": "SHORT", "title": "Title Only", "status": "AVAILABLE"}
-        parsed_short = self.exporter.process_grin_row(short_row)
-
-        assert parsed_short["barcode"] == "SHORT"
-        assert parsed_short["title"] == "Title Only"
-        assert parsed_short["grin_state"] == "AVAILABLE"
-        assert parsed_short["scanned_date"] is None
-        assert parsed_short["converted_date"] is None
-
-        # Numeric title
-        numeric_row = {"barcode": "NUM123", "title": "12345 Main Street Guide", "status": "AVAILABLE"}
-        parsed_numeric = self.exporter.process_grin_row(numeric_row)
-
-        assert parsed_numeric["barcode"] == "NUM123"
-        assert parsed_numeric["title"] == "12345 Main Street Guide"
-        assert parsed_numeric["grin_state"] == "AVAILABLE"
-
     @pytest.mark.asyncio
     async def test_progress_save_and_load(self, mock_process_stage):
         """Test progress tracking functionality."""
@@ -534,7 +371,12 @@ class TestBookCollector:
                 library_directory="TestLibrary", resume_file=str(progress_file), sqlite_db_path=str(test_db_path)
             )
 
-            exporter = BookCollector(directory="TestLibrary", process_summary_stage=mock_process_stage, config=config)
+            exporter = BookCollector(
+                directory="TestLibrary",
+                process_summary_stage=mock_process_stage,
+                storage_config={"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"},
+                config=config,
+            )
 
             # Add some processed items via SQLite tracker
             await exporter.sqlite_tracker.mark_processed("TEST001")
@@ -550,7 +392,12 @@ class TestBookCollector:
             config2 = ExportConfig(
                 library_directory="TestLibrary", resume_file=str(progress_file), sqlite_db_path=str(test_db_path)
             )
-            exporter2 = BookCollector(directory="TestLibrary", process_summary_stage=mock_process_stage, config=config2)
+            exporter2 = BookCollector(
+                directory="TestLibrary",
+                process_summary_stage=mock_process_stage,
+                storage_config={"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"},
+                config=config2,
+            )
             await exporter2.load_progress()
 
             # Check that progress was loaded via SQLite
@@ -722,71 +569,6 @@ class TestBookCollectionIntegration:
             assert collector.book_manager.bucket_meta == "test-meta"
             assert collector.book_manager.bucket_full == "test-full"
             assert collector.book_manager.base_prefix == "test-prefix"
-
-    def test_process_grin_row_title_with_special_chars(self):
-        """Test GRINRow processing with special characters in title."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            exporter = setup_mock_exporter(temp_dir)
-            grin_row = {
-                "barcode": "TITLE001",
-                "title": "Converted Book Title With Special Chars & Symbols",
-                "scanned_date": "2024/01/01 10:00",
-                "processed_date": "2024/01/02 11:00",
-            }
-
-            parsed = exporter.process_grin_row(grin_row)
-
-            assert parsed["barcode"] == "TITLE001"
-            assert parsed["title"] == "Converted Book Title With Special Chars & Symbols"
-            assert parsed["scanned_date"] == "2024-01-01T10:00:00"
-
-    def test_process_grin_row_comprehensive_guide_title(self):
-        """Test GRINRow processing with comprehensive title and status."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            exporter = setup_mock_exporter(temp_dir)
-            grin_row = {
-                "barcode": "TITLE002",
-                "title": "All Books Title: A Comprehensive Guide",
-                "status": "AVAILABLE",
-                "scanned_date": "2024/01/01 10:00",
-                "processed_date": "2024/01/02 11:00",
-            }
-
-            parsed = exporter.process_grin_row(grin_row)
-
-            assert parsed["barcode"] == "TITLE002"
-            assert parsed["title"] == "All Books Title: A Comprehensive Guide"
-            assert parsed["grin_state"] == "AVAILABLE"
-            assert parsed["scanned_date"] == "2024-01-01T10:00:00"
-
-    def test_process_grin_row_empty_title_variations(self):
-        """Test handling of empty titles in GRINRow data."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            exporter = setup_mock_exporter(temp_dir)
-
-            # Row with no title field
-            empty_row = {
-                "barcode": "EMPTY001",
-                "scanned_date": "2024/01/01 10:00",
-                "processed_date": "2024/01/02 11:00",
-            }
-            parsed1 = exporter.process_grin_row(empty_row)
-
-            assert parsed1["barcode"] == "EMPTY001"
-            assert parsed1["title"] == ""
-
-            # Row with explicit empty title
-            explicit_empty_row = {
-                "barcode": "EMPTY002",
-                "title": "",
-                "status": "AVAILABLE",
-                "scanned_date": "2024/01/01 10:00",
-            }
-            parsed2 = exporter.process_grin_row(explicit_empty_row)
-
-            assert parsed2["barcode"] == "EMPTY002"
-            assert parsed2["title"] == ""
-            assert parsed2["grin_state"] == "AVAILABLE"
 
 
 # Pytest configuration for async tests

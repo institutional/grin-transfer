@@ -5,7 +5,7 @@ Async GRIN API client using aiohttp
 import asyncio
 import logging
 import time
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 
@@ -100,7 +100,6 @@ class GRINClient:
         max_pages: int = 1000,
         start_page: int = 1,
         start_url: str | None = None,
-        pagination_callback: Callable | None = None,
         sqlite_tracker: Any = None,
     ) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
         """
@@ -197,20 +196,6 @@ class GRINClient:
 
             # Clean up books list
             del books
-
-            # Save pagination state if callback provided
-            if pagination_callback:
-                callback_start = time.time()
-                pagination_state = {"current_page": page_count + 1, "next_url": next_url, "page_size": page_size}
-                save_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                logger.debug(f"Page {page_count}: Saving pagination state at {save_time}")
-                await pagination_callback(pagination_state)
-                callback_elapsed = time.time() - callback_start
-                logger.debug(f"Page {page_count}: Pagination callback completed in {callback_elapsed:.2f}s")
-
-                # Log slow pagination saves
-                if callback_elapsed > 1.0:
-                    logger.warning(f"Slow pagination save: {callback_elapsed:.2f}s on page {page_count}")
 
             # Move to next page
             current_url = next_url
