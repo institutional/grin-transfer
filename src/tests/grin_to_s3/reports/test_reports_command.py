@@ -38,13 +38,20 @@ class TestReportsCommand:
             "total_error_count": 3,
             "overall_success_rate_percent": 95.0,
             "is_completed": True,
+            "completed_stages": ["collect", "sync"],
+            "active_stages": [],
+            "run_start_time": "2025-08-27T20:00:00+00:00",
             "stages": {
                 "collect": {
-                    "items_processed": 60,
+                    "books_collected": 60,
+                    "collection_failed": 0,
                     "is_completed": True,
                 },
                 "sync": {
-                    "items_processed": 40,
+                    "books_synced": 35,
+                    "sync_skipped": 3,
+                    "sync_failed": 2,
+                    "conversions_requested_during_sync": 0,
                     "is_completed": True,
                 },
             },
@@ -137,5 +144,8 @@ class TestReportsCommand:
             assert "Run: test_logs_run" in captured.out
             assert "Total Items Processed: 100" in captured.out
             assert "Success Rate: 95.0%" in captured.out
-            assert "collect: 60 items" in captured.out
-            assert "sync: 40 items" in captured.out
+            assert "Status: Last stage: sync" in captured.out
+            assert "collect: 60 items" in captured.out  # books_collected=60 + collection_failed=0
+            assert (
+                "sync: 40 items" in captured.out
+            )  # books_synced=35 + sync_skipped=3 + sync_failed=2 + conversions_requested_during_sync=0
