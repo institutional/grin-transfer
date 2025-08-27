@@ -352,7 +352,7 @@ class BookCollector:
             if book_count % 5000 == 0:
                 logger.info(f"Streamed {book_count:,} non-converted {pluralize(book_count, 'book')}...")
 
-    async def get_all_books(self) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
+    async def get_all_books(self, limit: int | None = None) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
         """Stream all book data from GRIN using two-pass collection with full metadata.
 
         First pass: Collect converted books with full metadata from _converted endpoint
@@ -360,28 +360,41 @@ class BookCollector:
 
         Note: _all_books endpoint actually returns 'all books except converted', not truly all books.
 
+        Args:
+            limit: Maximum number of books to yield across both phases
+
         Yields:
             tuple[GRINRow, set[str]]: (book_row, known_barcodes)
         """
+        total_yielded = 0
         # First pass: Get converted books with full metadata
         print("Phase 1: Collecting converted books with full metadata...")
         converted_count = 0
         async for book_row, known_barcodes in self.get_converted_books_html():
+            if limit and total_yielded >= limit:
+                break
             yield book_row, known_barcodes
             converted_count += 1
+            total_yielded += 1
 
         if converted_count > 0:
             print(f"Phase 1 complete: {converted_count:,} converted books collected")
 
-        # Second pass: Get non-converted books from _all_books
-        print("Phase 2: Collecting non-converted books...")
-        non_converted_count = 0
-        async for book_row, known_barcodes in self.get_all_books_html():
-            yield book_row, known_barcodes
-            non_converted_count += 1
+        # Second pass: Get non-converted books from _all_books (only if limit not reached)
+        if not limit or total_yielded < limit:
+            print("Phase 2: Collecting non-converted books...")
+            non_converted_count = 0
+            async for book_row, known_barcodes in self.get_all_books_html():
+                if limit and total_yielded >= limit:
+                    break
+                yield book_row, known_barcodes
+                non_converted_count += 1
+                total_yielded += 1
 
-        if non_converted_count > 0:
-            print(f"Phase 2 complete: {non_converted_count:,} non-converted books collected")
+            if non_converted_count > 0:
+                print(f"Phase 2 complete: {non_converted_count:,} non-converted books collected")
+        else:
+            non_converted_count = 0
 
         total_books = converted_count + non_converted_count
         print(
@@ -444,7 +457,7 @@ class BookCollector:
             # Process books one by one using configured data mode
             last_book_time = time.time()
             book_count_in_loop = 0
-            async for grin_row, known_barcodes_on_page in self.get_all_books():
+            async for grin_row, known_barcodes_on_page in self.get_all_books(limit=limit):
                 current_time = time.time()
                 time_since_last = current_time - last_book_time
                 book_count_in_loop += 1
@@ -468,10 +481,6 @@ class BookCollector:
                 if stop_event.is_set():
                     print("Collection interrupted - saving progress...")
                     completed_successfully = False
-                    break
-
-                if limit and processed_count >= limit:
-                    print(f"Reached limit of {limit} books")
                     break
 
                 # Extract barcode for checking
