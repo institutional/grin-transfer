@@ -293,7 +293,8 @@ class TestProcessingPipelineBarcodeFunctionality:
 
         # Mock the process summary stage
         mock_stage = Mock()
-        mock_stage.increment_items = Mock()
+        mock_stage.conversion_requests_made = 0
+        mock_stage.conversion_requests_failed = 0
         mock_stage.add_progress_update = Mock()
         mock_stage.add_error = Mock()
 

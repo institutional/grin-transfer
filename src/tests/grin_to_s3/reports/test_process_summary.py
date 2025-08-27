@@ -105,10 +105,11 @@ class TestRunSummary:
         """Test getting summary dict."""
         summary = RunSummary(run_name="test_run")
 
-        # Add a stage with some data
-        stage = summary.start_stage("test_stage")
-        stage.increment_items(processed=10, successful=8, failed=2)
-        summary.end_stage("test_stage")
+        # Add a collect stage with some data
+        stage = summary.start_stage("collect")
+        stage.books_collected = 8
+        stage.collection_failed = 2
+        summary.end_stage("collect")
         summary.end_run()
 
         summary_dict = summary.get_summary_dict()
@@ -121,9 +122,10 @@ class TestRunSummary:
         assert summary_dict["is_completed"] is True
 
         # Check stage data
-        assert "test_stage" in summary_dict["stages"]
-        stage_data = summary_dict["stages"]["test_stage"]
-        assert stage_data["items_processed"] == 10
+        assert "collect" in summary_dict["stages"]
+        stage_data = summary_dict["stages"]["collect"]
+        assert stage_data["books_collected"] == 8
+        assert stage_data["collection_failed"] == 2
         assert stage_data["is_completed"] is True
 
 
@@ -160,8 +162,8 @@ class TestProcessSummaryFunctions:
             os.chdir(temp_dir)
 
             summary = RunSummary(run_name="test_run")
-            stage = summary.start_stage("test_stage")
-            stage.increment_items(processed=5, successful=5)
+            stage = summary.start_stage("collect")
+            stage.books_collected = 5
 
             # This should not raise an exception
             await save_process_summary(summary)

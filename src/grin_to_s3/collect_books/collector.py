@@ -317,11 +317,11 @@ class BookCollector:
                             )
 
                         # Track in process summary
-                        self.process_summary_stage.increment_items(processed=1, successful=1)
+                        self.process_summary_stage.books_collected += 1
 
                     else:
                         # Book was processed but no record created (already exists, etc.)
-                        self.process_summary_stage.increment_items(processed=1)
+                        self.process_summary_stage.books_collected += 1
 
                 except Exception as e:
                     print(f"Error processing {barcode}: {e}")
@@ -329,7 +329,7 @@ class BookCollector:
                     self.recent_failed.add(barcode)
 
                     # Track failed item in process summary
-                    self.process_summary_stage.increment_items(processed=1, failed=1)
+                    self.process_summary_stage.collection_failed += 1
                     continue
 
             print(f"Processed {processed_count} new books")

@@ -489,24 +489,24 @@ class ProcessingPipeline:
                             successful += 1
                             successfully_requested_books.append(barcode)
                             logger.info(f"Successfully requested processing for {barcode}")
-                            self.process_summary_stage.increment_items(processed=1, successful=1)
+                            self.process_summary_stage.conversion_requests_made += 1
                         elif status == "Already available for download":
                             successful += 1  # Count as successful since book is ready
                             successfully_requested_books.append(barcode)  # Still track as requested
                             logger.warning(f"Book {barcode} already processed: {status}")
-                            self.process_summary_stage.increment_items(processed=1, successful=1)
+                            self.process_summary_stage.conversion_requests_made += 1
                         else:
                             failed += 1
                             error_msg = f"Failed to request processing for {barcode}: {status}"
                             logger.error(error_msg)
                             print(f"❌ {error_msg}")
-                            self.process_summary_stage.increment_items(processed=1, failed=1)
+                            self.process_summary_stage.conversion_requests_failed += 1
                     else:
                         failed += 1
                         error_msg = f"No result returned for {barcode}"
                         logger.error(error_msg)
                         print(f"❌ {error_msg}")
-                        self.process_summary_stage.increment_items(processed=1, failed=1)
+                        self.process_summary_stage.conversion_requests_failed += 1
 
                 batch_elapsed = time.time() - batch_start
                 rate = batch_size / batch_elapsed if batch_elapsed > 0 else 0
