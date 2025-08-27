@@ -1,14 +1,13 @@
-import asyncio
 import logging
 from typing import TYPE_CHECKING, cast
 
 import aiohttp
 from botocore.exceptions import ClientError
-from tenacity import before_sleep_log, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.common import Barcode
+from grin_to_s3.common import DEFAULT_DOWNLOAD_RETRIES, Barcode
 from grin_to_s3.storage.book_manager import BookManager
 
 if TYPE_CHECKING:
@@ -74,18 +73,20 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
     )
 
 
-# Retry HEAD requests with exponential backoff to handle GRIN rate limiting
-# Retry schedule: immediate, 4s, 8s, 16s, 32s (total ~60s across 5 attempts)
+# Retry downloads with exponential backoff to handle GRIN rate limiting
+# Retry schedule: immediate, 4s, 8s (total ~12s across 3 attempts)
+# Note: 404 errors are excluded from retry as they indicate missing files
 @retry(
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=2, min=4, max=120),
-    retry=retry_if_exception_type(
-        (
-            ConnectionError,
-            asyncio.TimeoutError,
-            aiohttp.ClientError,
+    stop=stop_after_attempt(DEFAULT_DOWNLOAD_RETRIES + 1),
+    retry=lambda retry_state: bool(
+        retry_state.outcome
+        and retry_state.outcome.failed
+        and not (
+            isinstance(retry_state.outcome.exception(), aiohttp.ClientResponseError)
+            and getattr(retry_state.outcome.exception(), "status", None) == 404
         )
     ),
+    wait=wait_exponential(multiplier=2, min=4, max=120),
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
