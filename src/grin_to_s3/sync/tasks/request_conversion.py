@@ -6,8 +6,10 @@ Handles conversion requests for missing archives during sync operations.
 """
 
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from grin_to_s3.database import connect_async
 from grin_to_s3.processing import request_conversion
 
 if TYPE_CHECKING:
@@ -41,6 +43,17 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
 
     if result_lower == "success":
         logger.info(f"[{barcode}] Conversion requested successfully")
+
+        # Update processing_request_timestamp to prevent duplicate requests
+        current_timestamp = datetime.now(UTC).isoformat()
+        async with connect_async(pipeline.db_path) as db:
+            await db.execute(
+                "UPDATE books SET processing_request_timestamp = ? WHERE barcode = ?",
+                (current_timestamp, barcode),
+            )
+            await db.commit()
+        logger.debug(f"[{barcode}] Updated processing_request_timestamp to {current_timestamp}")
+
         return RequestConversionResult(
             barcode=barcode,
             task_type=TaskType.REQUEST_CONVERSION,
