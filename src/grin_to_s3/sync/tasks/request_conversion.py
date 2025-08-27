@@ -32,16 +32,16 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
             reason="skip_conversion_limit_reached",
         )
 
-    # Request conversion - let exceptions propagate
-    logger.debug(f"[{barcode}] Requesting conversion for missing archive")
+    logger.info(f"[{barcode}] Requesting conversion for missing archive")
     result = await request_conversion(barcode, pipeline.library_directory, pipeline.secrets_dir)
     pipeline.conversion_requests_made += 1
 
-    # Process result string (case-insensitive)
+    # Process result string
     result_lower = result.lower()
 
     if result_lower == "success":
-        logger.debug(f"[{barcode}] Conversion requested successfully")
+        logger.info(f"[{barcode}] Conversion requested successfully")
+
         return RequestConversionResult(
             barcode=barcode,
             task_type=TaskType.REQUEST_CONVERSION,
@@ -50,7 +50,7 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
             reason="skip_conversion_requested",
         )
     elif "already" in result_lower and "process" in result_lower:
-        logger.debug(f"[{barcode}] Already being processed: {result}")
+        logger.warning(f"[{barcode}] GRIN reports title is already being processed: {result}")
         return RequestConversionResult(
             barcode=barcode,
             task_type=TaskType.REQUEST_CONVERSION,
@@ -60,7 +60,7 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
         )
     else:
         # Any other response from GRIN means the book can't be converted
-        logger.warning(f"[{barcode}] Conversion request failed: {result}")
+        logger.error(f"[{barcode}] Conversion request failed: {result}")
         return RequestConversionResult(
             barcode=barcode,
             task_type=TaskType.REQUEST_CONVERSION,
