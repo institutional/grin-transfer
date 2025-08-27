@@ -1220,3 +1220,263 @@ class SQLiteProgressTracker:
             """,
             (),
         )
+
+    async def get_collection_stats(self) -> dict:
+        """Get collection phase statistics."""
+        await self.init_db()
+
+        # Total collected books
+        total_collected = await self.get_processed_count()
+
+        # Total failed collections
+        total_failed = await self.get_failed_count()
+
+        # Get last collection timestamp
+        last_collection_time = await self._execute_single_value_query("SELECT MAX(timestamp) FROM processed", ())
+
+        # Calculate collection rate (books per hour in last 24 hours)
+        cutoff_time = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
+        recent_collected = await self._execute_count_query(
+            "SELECT COUNT(*) FROM processed WHERE timestamp >= ?",
+            (cutoff_time,),
+        )
+        collection_rate_per_hour = recent_collected  # Already per 24 hours, so divide by 24 later
+
+        return {
+            "total_collected": total_collected,
+            "total_failed": total_failed,
+            "collection_rate_per_hour": collection_rate_per_hour / 24.0,
+            "last_collection_time": last_collection_time,
+        }
+
+    async def get_conversion_stats(self) -> dict:
+        """Get conversion request statistics from book_status_history."""
+        await self.init_db()
+
+        # Get latest status for each book in processing_request type
+        status_counts = {}
+        cursor = await self._execute_query(
+            """
+            SELECT h1.status_value, COUNT(*) as count, MAX(h1.timestamp) as last_update
+            FROM book_status_history h1
+            INNER JOIN (
+                SELECT barcode, MAX(timestamp) as max_timestamp, MAX(id) as max_id
+                FROM book_status_history
+                WHERE status_type = 'processing_request'
+                GROUP BY barcode
+            ) h2 ON h1.barcode = h2.barcode
+                AND h1.timestamp = h2.max_timestamp
+                AND h1.id = h2.max_id
+            WHERE h1.status_type = 'processing_request'
+            GROUP BY h1.status_value
+            """,
+            (),
+        )
+        rows = await cursor.fetchall()
+
+        for row in rows:
+            status_counts[row[0]] = {"count": row[1], "last_update": row[2]}
+
+        # Calculate totals and rates
+        total_requested = sum(data["count"] for data in status_counts.values())
+        total_in_queue = status_counts.get("queued", {}).get("count", 0)
+        total_completed = status_counts.get("completed", {}).get("count", 0)
+        total_failed = status_counts.get("failed", {}).get("count", 0)
+
+        # Calculate request and completion rates (last 24 hours)
+        cutoff_time = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
+
+        requests_in_24h = await self._execute_count_query(
+            """
+            SELECT COUNT(*) FROM book_status_history
+            WHERE status_type = 'processing_request' AND status_value = 'requested'
+            AND timestamp >= ?
+            """,
+            (cutoff_time,),
+        )
+
+        completions_in_24h = await self._execute_count_query(
+            """
+            SELECT COUNT(*) FROM book_status_history
+            WHERE status_type = 'processing_request' AND status_value = 'completed'
+            AND timestamp >= ?
+            """,
+            (cutoff_time,),
+        )
+
+        # Get last request timestamp
+        last_request_time = await self._execute_single_value_query(
+            """
+            SELECT MAX(timestamp) FROM book_status_history
+            WHERE status_type = 'processing_request' AND status_value = 'requested'
+            """,
+            (),
+        )
+
+        # Queue capacity estimation (assuming 50K default limit)
+        max_queue_capacity = 50000
+        estimated_completion_hours = total_in_queue / max(1, completions_in_24h / 24.0) if total_in_queue > 0 else 0
+
+        return {
+            "total_requested": total_requested,
+            "total_in_queue": total_in_queue,
+            "total_completed": total_completed,
+            "total_failed": total_failed,
+            "conversion_request_rate_per_hour": requests_in_24h / 24.0,
+            "conversion_completion_rate_per_hour": completions_in_24h / 24.0,
+            "last_request_time": last_request_time,
+            "queue_status": {
+                "current_queue_size": total_in_queue,
+                "max_queue_capacity": max_queue_capacity,
+                "estimated_queue_completion_hours": round(estimated_completion_hours, 1),
+            },
+        }
+
+    async def get_enhanced_sync_stats(self) -> dict:
+        """Get enhanced sync/upload statistics from book_status_history."""
+        await self.init_db()
+
+        # Get latest sync status for each book
+        status_counts = {}
+        cursor = await self._execute_query(
+            """
+            SELECT h1.status_value, COUNT(*) as count, MAX(h1.timestamp) as last_update
+            FROM book_status_history h1
+            INNER JOIN (
+                SELECT barcode, MAX(timestamp) as max_timestamp, MAX(id) as max_id
+                FROM book_status_history
+                WHERE status_type = 'sync'
+                GROUP BY barcode
+            ) h2 ON h1.barcode = h2.barcode
+                AND h1.timestamp = h2.max_timestamp
+                AND h1.id = h2.max_id
+            WHERE h1.status_type = 'sync'
+            GROUP BY h1.status_value
+            """,
+            (),
+        )
+        rows = await cursor.fetchall()
+
+        for row in rows:
+            status_counts[row[0]] = {"count": row[1], "last_update": row[2]}
+
+        # Calculate totals
+        total_attempted = sum(data["count"] for data in status_counts.values())
+        total_uploaded = status_counts.get("completed", {}).get("count", 0)
+        total_failed = status_counts.get("failed", {}).get("count", 0)
+        total_skipped = status_counts.get("skipped", {}).get("count", 0)
+
+        # Calculate upload rate (last 24 hours)
+        cutoff_time = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
+        uploads_in_24h = await self._execute_count_query(
+            """
+            SELECT COUNT(*) FROM book_status_history
+            WHERE status_type = 'sync' AND status_value = 'completed'
+            AND timestamp >= ?
+            """,
+            (cutoff_time,),
+        )
+
+        # Get last sync timestamp
+        last_sync_time = await self._execute_single_value_query(
+            """
+            SELECT MAX(timestamp) FROM book_status_history
+            WHERE status_type = 'sync' AND status_value = 'completed'
+            """,
+            (),
+        )
+
+        # Storage breakdown by type
+        storage_breakdown = {}
+        cursor = await self._execute_query(
+            """
+            SELECT storage_type, COUNT(*) as count
+            FROM books
+            WHERE storage_type IS NOT NULL
+            GROUP BY storage_type
+            """,
+            (),
+        )
+        storage_rows = await cursor.fetchall()
+        for row in storage_rows:
+            storage_breakdown[row[0]] = row[1]
+
+        return {
+            "total_attempted": total_attempted,
+            "total_uploaded": total_uploaded,
+            "total_failed": total_failed,
+            "total_skipped": total_skipped,
+            "sync_upload_rate_per_hour": uploads_in_24h / 24.0,
+            "last_sync_time": last_sync_time,
+            "storage_breakdown": storage_breakdown,
+        }
+
+    async def get_pipeline_summary(self) -> dict:
+        """Get overall pipeline health and completion statistics."""
+        await self.init_db()
+
+        # Get total books in collection
+        total_books = await self.get_book_count()
+
+        # Get books that completed all phases (collected -> converted -> synced)
+        fully_completed = await self._execute_count_query(
+            """
+            SELECT COUNT(DISTINCT b.barcode)
+            FROM books b
+            JOIN book_status_history sync_hist ON b.barcode = sync_hist.barcode
+            WHERE sync_hist.status_type = 'sync'
+            AND sync_hist.status_value = 'completed'
+            AND sync_hist.timestamp = (
+                SELECT MAX(timestamp)
+                FROM book_status_history sync_h2
+                WHERE sync_h2.barcode = sync_hist.barcode AND sync_h2.status_type = 'sync'
+            )
+            """,
+            (),
+        )
+
+        # Calculate completion percentage
+        completion_percentage = (fully_completed / max(1, total_books)) * 100
+
+        # Determine bottleneck stage by comparing queue sizes
+        conversion_stats = await self.get_conversion_stats()
+        sync_stats = await self.get_enhanced_sync_stats()
+
+        # Simple bottleneck detection
+        conversion_queue_size = conversion_stats.get("total_in_queue", 0)
+        pending_sync = total_books - sync_stats.get("total_attempted", 0)
+
+        if conversion_queue_size > pending_sync:
+            bottleneck_stage = "conversion_queue"
+        elif pending_sync > conversion_queue_size:
+            bottleneck_stage = "sync_pipeline"
+        else:
+            bottleneck_stage = "balanced"
+
+        # Estimate completion time based on bottleneck
+        conversion_rate = conversion_stats.get("conversion_completion_rate_per_hour", 0)
+        sync_rate = sync_stats.get("sync_upload_rate_per_hour", 0)
+
+        remaining_work = total_books - fully_completed
+        if bottleneck_stage == "conversion_queue" and conversion_rate > 0:
+            estimated_completion_hours = remaining_work / conversion_rate
+        elif bottleneck_stage == "sync_pipeline" and sync_rate > 0:
+            estimated_completion_hours = remaining_work / sync_rate
+        else:
+            # Use the slower of the two rates
+            min_rate = (
+                min(conversion_rate, sync_rate)
+                if conversion_rate > 0 and sync_rate > 0
+                else max(conversion_rate, sync_rate)
+            )
+            estimated_completion_hours = remaining_work / max(1, min_rate)
+
+        estimated_completion_days = estimated_completion_hours / 24.0
+
+        return {
+            "total_books": total_books,
+            "fully_completed": fully_completed,
+            "completion_percentage": round(completion_percentage, 1),
+            "bottleneck_stage": bottleneck_stage,
+            "estimated_total_completion_days": round(estimated_completion_days, 1),
+        }

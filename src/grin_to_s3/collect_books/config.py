@@ -44,10 +44,6 @@ class ExportConfig:
     # Pagination settings
     pagination: PaginationConfig | None = None
 
-    # Progress tracking
-    resume_file: str = "output/default/progress.json"
-    progress_backup_interval: int = 100  # Backup progress every N records
-
     # SQLite database settings
     sqlite_db_path: str = "output/default/books.db"
     sqlite_cleanup_sessions: int = 5  # Keep only N most recent sessions

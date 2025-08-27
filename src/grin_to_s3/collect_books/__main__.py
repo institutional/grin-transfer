@@ -326,14 +326,13 @@ Examples:
     else:
         output_file = f"output/{run_name}/books_{timestamp}.csv"
 
-    # Generate file paths - resume files stay consistent, outputs get timestamped
+    # Generate file paths - outputs get timestamped
     log_file = f"{args.log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
-    progress_file = f"output/{run_name}/progress.json"  # No timestamp for resume
     sqlite_db = f"output/{run_name}/books.db"  # No timestamp for resume
 
     # Create directories
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
-    Path(progress_file).parent.mkdir(parents=True, exist_ok=True)
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
 
     # Build storage configuration using centralized function
     storage_config = None
@@ -373,7 +372,6 @@ Examples:
         config_file=args.config_file,
         library_directory=args.library_directory,
         rate_limit=args.rate_limit,
-        resume_file=progress_file,
         pagination_page_size=args.page_size,
         pagination_max_pages=args.max_pages,
         pagination_start_page=args.start_page,
@@ -391,7 +389,6 @@ Examples:
             "run_identifier": run_identifier,
             "output_directory": f"output/{run_name}",
             "sqlite_db_path": sqlite_db,
-            "progress_file": progress_file,
             "log_file": log_file,
             "storage_config": storage_config,
             "sync_config": sync_config,

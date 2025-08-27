@@ -359,17 +359,12 @@ class TestBookCollector:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     @pytest.mark.asyncio
-    async def test_progress_save_and_load(self, mock_process_stage):
-        """Test progress tracking functionality."""
+    async def test_sqlite_tracker_functionality(self, mock_process_stage):
+        """Test SQLite tracker functionality for progress tracking."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            progress_file = Path(temp_dir) / "test_progress.json"
             test_db_path = Path(temp_dir) / "test_books.db"
 
-            # Create config with test database path
-
-            config = ExportConfig(
-                library_directory="TestLibrary", resume_file=str(progress_file), sqlite_db_path=str(test_db_path)
-            )
+            config = ExportConfig(library_directory="TestLibrary", sqlite_db_path=str(test_db_path))
 
             exporter = BookCollector(
                 directory="TestLibrary",
@@ -378,29 +373,22 @@ class TestBookCollector:
                 config=config,
             )
 
-            # Add some processed items via SQLite tracker
+            # Initialize SQLite tracker and test persistence
+            await exporter.sqlite_tracker.init_db()
             await exporter.sqlite_tracker.mark_processed("TEST001")
             await exporter.sqlite_tracker.mark_processed("TEST002")
             await exporter.sqlite_tracker.mark_failed("FAILED001", "Test error")
 
-            # Save progress
-            await exporter.save_progress()
-
-            assert progress_file.exists()
-
-            # Create new exporter and load progress
-            config2 = ExportConfig(
-                library_directory="TestLibrary", resume_file=str(progress_file), sqlite_db_path=str(test_db_path)
-            )
+            # Create new exporter with same database to test persistence
             exporter2 = BookCollector(
                 directory="TestLibrary",
                 process_summary_stage=mock_process_stage,
                 storage_config={"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"},
-                config=config2,
+                config=config,
             )
-            await exporter2.load_progress()
+            await exporter2.sqlite_tracker.init_db()
 
-            # Check that progress was loaded via SQLite
+            # Check that data persisted across instances
             assert await exporter2.sqlite_tracker.is_processed("TEST001")
             assert await exporter2.sqlite_tracker.is_processed("TEST002")
             assert await exporter2.sqlite_tracker.is_failed("FAILED001")
