@@ -605,30 +605,18 @@ class SyncPipeline:
     ) -> None:
         """Update process summary stage with book-level outcome metrics."""
         # Analyze book results to determine outcomes
-        synced = 0
-        skipped = 0
-        failed = 0
-        conversion_requested = 0
-
+        # Count book outcomes and update stage-specific counters
         for task_results in book_results.values():
-            # Determine the overall outcome for this book
+            # Determine the overall outcome for this book and increment appropriate counter
             book_outcome = self.process_summary_stage.determine_book_outcome(task_results)
+            self.process_summary_stage.increment_by_outcome(book_outcome)
 
-            if book_outcome == "synced":
-                synced += 1
-            elif book_outcome == "skipped":
-                skipped += 1
-            elif book_outcome == "conversion_requested":
-                conversion_requested += 1
-            else:
-                failed += 1
-
-        # Store book outcomes
+        # Store legacy book outcomes for display compatibility
         self.process_summary_stage.book_outcomes = {
-            "synced": synced,
-            "skipped": skipped,
-            "failed": failed,
-            "conversion_requested": conversion_requested,
+            "synced": self.process_summary_stage.books_synced,
+            "skipped": self.process_summary_stage.sync_skipped,
+            "failed": self.process_summary_stage.sync_failed,
+            "conversion_requested": self.process_summary_stage.conversions_requested_during_sync,
         }
 
         # Store queue information

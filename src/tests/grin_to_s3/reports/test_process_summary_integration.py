@@ -152,14 +152,12 @@ class TestProcessSummaryIntegration:
             sync_stage.add_progress_update("Starting sync pipeline")
             sync_stage.books_synced = 48
             sync_stage.sync_failed = 2
-            sync_stage.bytes_processed = 1048576
             sync_stage.add_progress_update("Sync pipeline completed successfully")
             summary.end_stage("sync")
 
             # Verify metrics
             summary_dict = summary.get_summary_dict()
             assert summary_dict["total_items_processed"] == 50
-            assert summary_dict["total_bytes_processed"] == 1048576
 
     @pytest.mark.asyncio
     async def test_process_command_integration(self, temp_dir, mock_run_name):

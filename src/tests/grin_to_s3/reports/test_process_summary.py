@@ -4,6 +4,7 @@ Unit tests for process summary infrastructure.
 
 import tempfile
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -25,7 +26,8 @@ class TestRunSummary:
 
         assert summary.run_name == "test_run"
         assert summary.session_id > 0
-        assert summary.run_start_time > 0
+        # Check that run_start_time is a valid UTC ISO timestamp
+        datetime.fromisoformat(summary.run_start_time.replace("Z", "+00:00"))
         assert summary.run_end_time is None
         assert summary.total_duration_seconds is None
         assert summary.interruption_count == 0
@@ -85,7 +87,8 @@ class TestRunSummary:
     def test_detect_interruption_with_interruption(self):
         """Test interruption detection when interruption occurred."""
         summary = RunSummary(run_name="test_run")
-        summary.last_checkpoint_time = time.perf_counter() - 400  # 400 seconds ago
+        summary._last_checkpoint_perf_time = time.perf_counter() - 400  # 400 seconds ago
+        summary.last_checkpoint_time = datetime.now(UTC).isoformat()  # Set a UTC timestamp
 
         # Should detect interruption
         assert summary.detect_interruption()

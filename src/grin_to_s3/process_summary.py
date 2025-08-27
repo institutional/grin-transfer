@@ -29,9 +29,10 @@ class ProcessStageMetrics:
     """Metrics for a single pipeline stage (collect, process, sync, enrich)."""
 
     stage_name: str
-    start_time: float | None = None
-    end_time: float | None = None
+    start_time: str | None = None  # UTC ISO timestamp
+    end_time: str | None = None  # UTC ISO timestamp
     duration_seconds: float | None = None
+    _start_perf_time: float | None = field(default=None, init=False, repr=False)  # Internal timing
 
     # Collection stage metrics
     books_collected: int = 0
@@ -57,11 +58,10 @@ class ProcessStageMetrics:
     enrichment_rate_per_hour: float = 0.0
 
     # Common fields retained for all stages
-    bytes_processed: int = 0
     error_count: int = 0
     error_types: dict[str, int] = field(default_factory=dict)
     last_error_message: str | None = None
-    last_error_time: float | None = None
+    last_error_time: str | None = None  # UTC ISO timestamp
     last_operation_time: str | None = None
 
     # Command-line arguments and configuration
@@ -80,31 +80,31 @@ class ProcessStageMetrics:
 
     def start_stage(self) -> None:
         """Start timing this stage."""
-        self.start_time = time.perf_counter()
+        self._start_perf_time = time.perf_counter()
+        self.start_time = datetime.now(UTC).isoformat()
         logger.info(f"Started {self.stage_name} stage")
 
     def end_stage(self) -> None:
         """End timing this stage."""
-        if self.start_time is not None and self.end_time is None:
-            self.end_time = time.perf_counter()
-            self.duration_seconds = self.end_time - self.start_time
+        if self._start_perf_time is not None and self.end_time is None:
+            end_perf_time = time.perf_counter()
+            self.end_time = datetime.now(UTC).isoformat()
+            self.duration_seconds = end_perf_time - self._start_perf_time
             logger.info(f"Ended {self.stage_name} stage after {self.duration_seconds:.1f}s")
 
     def add_progress_update(self, message: str, **kwargs) -> None:
-        """Add a progress update with timestamp."""
+        """Add a progress update with timestamp and stage-specific metrics."""
         current_time = time.perf_counter()
-        elapsed = current_time - self.start_time if self.start_time else 0
+        elapsed = current_time - self._start_perf_time if self._start_perf_time else 0
 
-        # Get current stage totals
-        items_processed, items_successful, items_failed = self.get_stage_totals()
+        # Get stage-specific progress metrics
+        stage_metrics = self.get_stage_progress_metrics()
 
         update = {
-            "timestamp": current_time,
+            "timestamp": datetime.now(UTC).isoformat(),
             "elapsed_seconds": elapsed,
             "message": message,
-            "items_processed": items_processed,
-            "items_successful": items_successful,
-            "items_failed": items_failed,
+            **stage_metrics,
             **kwargs,
         }
 
@@ -134,12 +134,47 @@ class ProcessStageMetrics:
 
         return total, successful, failed
 
+    def get_stage_progress_metrics(self) -> dict[str, int]:
+        """Get stage-specific progress metrics for progress updates."""
+        if self.stage_name == "collect":
+            return {
+                "books_collected": self.books_collected,
+                "collection_failed": self.collection_failed,
+                "total_books_processed": self.books_collected + self.collection_failed,
+            }
+        elif self.stage_name == "process":
+            return {
+                "conversion_requests_made": self.conversion_requests_made,
+                "conversion_requests_failed": self.conversion_requests_failed,
+                "total_requests_processed": self.conversion_requests_made + self.conversion_requests_failed,
+            }
+        elif self.stage_name == "sync":
+            return {
+                "books_synced": self.books_synced,
+                "sync_skipped": self.sync_skipped,
+                "sync_failed": self.sync_failed,
+                "conversions_requested_during_sync": self.conversions_requested_during_sync,
+                "total_books_processed": self.books_synced
+                + self.sync_skipped
+                + self.sync_failed
+                + self.conversions_requested_during_sync,
+            }
+        elif self.stage_name == "enrich":
+            return {
+                "books_enriched": self.books_enriched,
+                "enrichment_skipped": self.enrichment_skipped,
+                "enrichment_failed": self.enrichment_failed,
+                "total_books_processed": self.books_enriched + self.enrichment_skipped + self.enrichment_failed,
+            }
+        else:
+            return {"total_items_processed": 0, "total_successful": 0, "total_failed": 0}
+
     def add_error(self, error_type: str, error_message: str) -> None:
         """Record an error occurrence."""
         self.error_count += 1
         self.error_types[error_type] = self.error_types.get(error_type, 0) + 1
         self.last_error_message = error_message
-        self.last_error_time = time.perf_counter()
+        self.last_error_time = datetime.now(UTC).isoformat()
         logger.debug(f"{self.stage_name} error: {error_type} - {error_message}")
 
     def set_command_arg(self, key: str, value: Any) -> None:
@@ -194,16 +229,19 @@ class RunSummary:
     """
 
     run_name: str
-    run_start_time: float = field(default_factory=time.perf_counter)
-    run_end_time: float | None = None
+    run_start_time: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    run_end_time: str | None = None
     total_duration_seconds: float | None = None
+    _run_start_perf_time: float = field(default_factory=time.perf_counter, init=False, repr=False)  # Internal timing
+    _run_end_perf_time: float | None = field(default=None, init=False, repr=False)  # Internal timing
 
     # Per-stage metrics
     stages: dict[str, ProcessStageMetrics] = field(default_factory=dict)
 
     # Overall run tracking
     interruption_count: int = 0
-    last_checkpoint_time: float | None = None
+    last_checkpoint_time: str | None = None  # UTC ISO timestamp
+    _last_checkpoint_perf_time: float | None = field(default=None, init=False, repr=False)  # Internal timing
 
     # Run-level metadata
     session_id: int = field(default_factory=lambda: int(datetime.now(UTC).timestamp()))
@@ -231,17 +269,18 @@ class RunSummary:
     def end_run(self) -> None:
         """End the entire run."""
         if self.run_end_time is None:
-            self.run_end_time = time.perf_counter()
-            self.total_duration_seconds = self.run_end_time - self.run_start_time
+            self._run_end_perf_time = time.perf_counter()
+            self.run_end_time = datetime.now(UTC).isoformat()
+            self.total_duration_seconds = self._run_end_perf_time - self._run_start_perf_time
             logger.info(f"Ended run {self.run_name} after {self.total_duration_seconds:.1f}s")
 
     def detect_interruption(self) -> bool:
         """Detect if the run was interrupted and restarted."""
-        if self.last_checkpoint_time is None:
+        if self._last_checkpoint_perf_time is None:
             return False
 
         current_time = time.perf_counter()
-        time_gap = current_time - self.last_checkpoint_time
+        time_gap = current_time - self._last_checkpoint_perf_time
 
         # If more than 5 minutes have passed without a checkpoint, consider it an interruption
         if time_gap > 300:  # 5 minutes
@@ -253,7 +292,8 @@ class RunSummary:
 
     def checkpoint(self) -> None:
         """Update checkpoint time to track for interruptions."""
-        self.last_checkpoint_time = time.perf_counter()
+        self._last_checkpoint_perf_time = time.perf_counter()
+        self.last_checkpoint_time = datetime.now(UTC).isoformat()
 
     def get_summary_dict(self) -> dict[str, Any]:
         """Get a dictionary representation of the run summary."""
@@ -267,7 +307,7 @@ class RunSummary:
             total_items_successful += stage_successful
             total_items_failed += stage_failed
 
-        total_bytes_processed = sum(stage.bytes_processed for stage in self.stages.values())
+        total_errors = sum(stage.error_count for stage in self.stages.values())
         total_errors = sum(stage.error_count for stage in self.stages.values())
 
         # Calculate success rate
@@ -276,12 +316,12 @@ class RunSummary:
         )
 
         # Calculate processing rate
-        if self.total_duration_seconds is None and self.run_end_time is not None:
-            self.total_duration_seconds = self.run_end_time - self.run_start_time
+        if self.total_duration_seconds is None and self._run_end_perf_time is not None:
+            self.total_duration_seconds = self._run_end_perf_time - self._run_start_perf_time
         elif self.total_duration_seconds is None:
             # Run is still active
             current_time = time.perf_counter()
-            elapsed = current_time - self.run_start_time
+            elapsed = current_time - self._run_start_perf_time
             processing_rate = total_items_processed / elapsed if elapsed > 0 else 0
         else:
             processing_rate = (
@@ -339,7 +379,6 @@ class RunSummary:
                     else {}
                 ),
                 # Common fields
-                "bytes_processed": stage.bytes_processed,
                 "error_count": stage.error_count,
                 "error_types": stage.error_types,
                 "last_error_message": stage.last_error_message,
@@ -368,7 +407,6 @@ class RunSummary:
             "total_items_processed": total_items_processed,
             "total_items_successful": total_items_successful,
             "total_items_failed": total_items_failed,
-            "total_bytes_processed": total_bytes_processed,
             "total_error_count": total_errors,
             "overall_success_rate_percent": success_rate,
             "overall_processing_rate_per_second": processing_rate,
@@ -497,6 +535,15 @@ class RunSummaryManager:
             last_checkpoint_time=data.get("last_checkpoint_time"),
         )
 
+        # Initialize perf counters for ongoing operations
+        summary._run_start_perf_time = time.perf_counter()
+
+        if data.get("total_duration_seconds"):
+            summary._run_end_perf_time = summary._run_start_perf_time + data["total_duration_seconds"]
+
+        if data.get("last_checkpoint_time"):
+            summary._last_checkpoint_perf_time = summary._run_start_perf_time
+
         # Reconstruct stages with new stage-specific fields
         for stage_name, stage_data in data.get("stages", {}).items():
             stage = ProcessStageMetrics(
@@ -524,7 +571,6 @@ class RunSummaryManager:
                 enrichment_failed=stage_data.get("enrichment_failed", 0),
                 enrichment_rate_per_hour=stage_data.get("enrichment_rate_per_hour", 0.0),
                 # Common fields
-                bytes_processed=stage_data.get("bytes_processed", 0),
                 error_count=stage_data.get("error_count", 0),
                 error_types=stage_data.get("error_types", {}),
                 last_error_message=stage_data.get("last_error_message"),
@@ -538,6 +584,11 @@ class RunSummaryManager:
                 queue_info=stage_data.get("queue_info", {}),
                 error_breakdown=stage_data.get("error_breakdown", {}),
             )
+
+            # Initialize perf counter for ongoing operations if stage not completed
+            if stage_data.get("start_time") and not stage_data.get("end_time"):
+                stage._start_perf_time = time.perf_counter()
+
             summary.stages[stage_name] = stage
 
         return summary
@@ -745,10 +796,7 @@ def _display_sync_details(step: ProcessStageMetrics) -> None:
         if failed > 0:
             print(f"    ✗ Failed: {failed:,} books")
 
-    # Display bytes processed
-    if step.bytes_processed > 0:
-        bytes_str = _format_bytes(step.bytes_processed)
-        print(f"  {bytes_str} transferred")
+    # Additional metrics display could be added here if needed
 
 
 def _format_bytes(bytes_count: int) -> str:

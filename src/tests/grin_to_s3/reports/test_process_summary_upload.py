@@ -266,7 +266,6 @@ class TestProcessSummaryUpload:
             sync_stage = summary.start_stage("sync")
             sync_stage.set_command_arg("force_mode", False)
             sync_stage.books_synced = 50
-            sync_stage.bytes_processed = 1048576
             sync_stage.add_progress_update("Sync completed")
             summary.end_stage("sync")
 
@@ -303,6 +302,5 @@ class TestProcessSummaryUpload:
 
             sync_data = content["stages"]["sync"]
             assert sync_data["books_synced"] == 50
-            assert sync_data["bytes_processed"] == 1048576
             assert sync_data["command_args"]["force_mode"] is False
             assert sync_data["is_completed"] is True
