@@ -20,7 +20,7 @@ from grin_to_s3.sync.db_updates import (
     upload_completed,
 )
 from grin_to_s3.sync.task_manager import TaskManager
-from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
+from grin_to_s3.sync.tasks.task_types import RequestConversionResult, TaskAction, TaskResult, TaskType
 
 
 @pytest.fixture
@@ -354,3 +354,81 @@ class TestRealDatabaseIntegration:
             # Verify error message in metadata
             metadata = json.loads(row[2]) if row[2] else {}
             assert metadata.get("error") == "Connection refused after 3 retries"
+
+    @pytest.mark.asyncio
+    async def test_request_conversion_updates_processing_timestamp(self, real_db_pipeline):
+        """Request conversion should update processing_request_timestamp in books table via batching."""
+        # Create a request conversion result for successful conversion request
+        result = RequestConversionResult(
+            barcode="TEST123",
+            task_type=TaskType.REQUEST_CONVERSION,
+            action=TaskAction.SKIPPED,
+            data={"conversion_status": "requested", "request_count": 1},
+            reason="skip_conversion_requested",
+        )
+
+        # Get the database updates that would be applied
+        updates = await get_updates_for_task(result, {})
+
+        # Verify that processing_request_timestamp is included in books table updates
+        assert "books" in updates
+        books_updates = updates["books"]
+        assert "processing_request_timestamp" in books_updates
+
+        # Verify timestamp is a valid ISO format
+        timestamp = books_updates["processing_request_timestamp"]
+        parsed_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        assert parsed_time is not None
+
+        # Verify timestamp is recent (within last minute)
+        now = datetime.now(UTC)
+        time_diff = abs((now - parsed_time).total_seconds())
+        assert time_diff < 60, f"Timestamp should be recent, but was {time_diff} seconds ago"
+
+        # Simulate the batching process - accumulate updates
+        barcode = "TEST123"
+        if barcode not in real_db_pipeline.book_record_updates:
+            real_db_pipeline.book_record_updates[barcode] = {"status_history": [], "books_fields": {}}
+
+        # Add status update if present
+        if updates.get("status"):
+            from grin_to_s3.sync.db_updates import StatusUpdate
+
+            status_type, status_value, metadata = updates["status"]
+            status_record = StatusUpdate(barcode, status_type, status_value, metadata)
+            real_db_pipeline.book_record_updates[barcode]["status_history"].append(status_record)
+
+        # Add books table field updates
+        if updates.get("books"):
+            real_db_pipeline.book_record_updates[barcode]["books_fields"].update(updates["books"])
+
+        # Commit accumulated updates to the real database
+        conn = await real_db_pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(real_db_pipeline, barcode, conn)
+
+        # Verify the processing_request_timestamp was updated in the database
+        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
+            cursor = await db.execute("SELECT processing_request_timestamp FROM books WHERE barcode = ?", ("TEST123",))
+            row = await cursor.fetchone()
+
+            assert row is not None
+            db_timestamp = row[0]
+            assert db_timestamp is not None
+            assert db_timestamp == timestamp  # Should match the generated timestamp
+
+            # Also verify status was recorded
+            cursor = await db.execute(
+                "SELECT status_type, status_value, metadata FROM book_status_history WHERE barcode = ? AND status_type = ?",
+                ("TEST123", "conversion"),
+            )
+            status_row = await cursor.fetchone()
+
+            assert status_row is not None
+            assert status_row[0] == "conversion"  # status_type
+            assert status_row[1] == "requested"  # status_value
+
+            # Verify metadata contains conversion details
+            metadata = json.loads(status_row[2]) if status_row[2] else {}
+            assert metadata.get("conversion_status") == "requested"
+            assert metadata.get("request_count") == 1
+            assert metadata.get("reason") == "skip_conversion_requested"

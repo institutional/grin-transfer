@@ -117,7 +117,12 @@ async def request_conversion_skipped(result: TaskResult, previous_results: dict[
     # Different status based on skip reason
     match result.reason:
         case "skip_conversion_requested":
-            return {"status": ("conversion", "requested", metadata), "books": {}}
+            # Update processing_request_timestamp to prevent duplicate requests
+            current_timestamp = datetime.now(UTC).isoformat()
+            return {
+                "status": ("conversion", "requested", metadata),
+                "books": {"processing_request_timestamp": current_timestamp},
+            }
         case "skip_already_in_process":
             return {"status": ("conversion", "in_process", metadata), "books": {}}
         case "skip_verified_unavailable":
@@ -308,7 +313,7 @@ async def _execute_updates(conn, record_updates, barcode, now):
             UPDATE books SET
                 storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
                 last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
-                sync_timestamp = ?, sync_error = ?,
+                sync_timestamp = ?, sync_error = ?, processing_request_timestamp = ?,
                 updated_at = ?
             WHERE barcode = ?
             """,
@@ -321,6 +326,7 @@ async def _execute_updates(conn, record_updates, barcode, now):
                 sync_data.get("is_decrypted", False),
                 sync_data.get("sync_timestamp", now),
                 sync_data.get("sync_error"),
+                sync_data.get("processing_request_timestamp"),
                 now,
                 barcode,
             ),
