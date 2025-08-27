@@ -91,7 +91,6 @@ class BookCollector:
 
         # Progress tracking state (moved from ProgressTracker)
         self.resume_count = 0
-        self.total_books_estimate: int | None = None
         self.accumulated_runtime = 0.0
         self.session_start_time: datetime | None = None
 
@@ -185,7 +184,6 @@ class BookCollector:
 
                 # Load resume count and increment
                 self.resume_count = progress_data.get("resume_count", 0) + 1
-                self.total_books_estimate = progress_data.get("total_books_estimate")
 
                 # Load pagination state if available
                 if "pagination_state" in progress_data:
@@ -262,7 +260,6 @@ class BookCollector:
             # Enhanced metadata
             "job_metadata": self.job_metadata,
             "resume_count": self.resume_count,
-            "total_books_estimate": self.total_books_estimate,
             # Current status
             "current_status": {
                 "total_processed": total_processed,
@@ -280,12 +277,8 @@ class BookCollector:
             },
             # Progress tracking
             "progress_tracking": {
-                "completion_percentage": round(
-                    total_processed / max(1, self.total_books_estimate or total_processed) * 100, 2
-                )
-                if self.total_books_estimate and self.total_books_estimate > total_processed
-                else None,
-                "total_estimate_method": "streaming" if self.total_books_estimate else "unknown",
+                "completion_percentage": None,
+                "total_estimate_method": "unknown",
             },
             # Runtime tracking
             "runtime_tracking": {
@@ -322,10 +315,6 @@ class BookCollector:
     def start_session(self):
         """Mark the start of a new session."""
         self.session_start_time = datetime.now(UTC)
-
-    def update_total_books_estimate(self, estimate: int):
-        """Update the total books estimate."""
-        self.total_books_estimate = estimate
 
     async def get_converted_books_html(
         self,
@@ -406,15 +395,8 @@ class BookCollector:
             yield book_row, known_barcodes
             book_count += 1
 
-            # Update total estimate as we stream
-            if not self.total_books_estimate or book_count > self.total_books_estimate:
-                self.update_total_books_estimate(book_count + 50000)  # Conservative estimate
-
             if book_count % 5000 == 0:
                 logger.info(f"Streamed {book_count:,} non-converted {pluralize(book_count, 'book')}...")
-                # Update total estimate more aggressively during large streams
-                if book_count > 50000:
-                    self.update_total_books_estimate(book_count + 100000)
 
     async def get_all_books(self) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
         """Stream all book data from GRIN using two-pass collection with full metadata.
@@ -558,7 +540,7 @@ class BookCollector:
                             extra_info = {"current": record.barcode} if record else None
                             show_progress(
                                 start_time=self.start_time,
-                                total_items=self.total_books_estimate,
+                                total_items=None,
                                 rate_calculator=self.rate_calculator,
                                 completed_count=processed_count,
                                 operation_name="barcode records",
