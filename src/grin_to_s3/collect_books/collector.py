@@ -273,8 +273,6 @@ class BookCollector:
                 "wall_clock_elapsed_formatted": format_duration(wall_clock_elapsed),
                 "last_update": now.isoformat(),
             },
-            # Performance metrics (empty now since we removed the calculator)
-            "performance_metrics": {},
             # Error summary
             "error_summary": {
                 "failure_rate_percent": round(total_failed / max(1, total_processed + total_failed) * 100, 2),
@@ -417,30 +415,6 @@ class BookCollector:
                 # Update total estimate more aggressively during large streams
                 if book_count > 50000:
                     self.update_total_books_estimate(book_count + 100000)
-
-    async def get_converted_books(self) -> AsyncGenerator[tuple[str, set[str]], None]:
-        """Stream books from GRIN's _converted list."""
-        try:
-            print("Fetching converted books from GRIN...")
-            response_text = await self.grin_client.fetch_resource(self.directory, "_converted?format=text")
-            lines = response_text.strip().split("\n")
-
-            converted_count = 0
-            for line in lines:
-                if line.strip() and ".tar.gz.gpg" in line:
-                    barcode = line.strip().replace(".tar.gz.gpg", "")
-                    if barcode:
-                        # Create a minimal GRIN line format - just the barcode
-                        # The process_book method will enrich this with metadata
-                        grin_line = barcode
-                        converted_count += 1
-                        yield grin_line, set()
-
-            print(f"Found {converted_count:,} converted books from GRIN")
-
-        except Exception as e:
-            print(f"Warning: Could not fetch converted books: {e}")
-            # Continue without converted books rather than failing
 
     async def get_all_books(self) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
         """Stream all book data from GRIN using two-pass collection with full metadata.
@@ -598,11 +572,6 @@ class BookCollector:
                         if processed_count % 100 == 0:
                             await self.save_progress()
 
-                        # Force garbage collection periodically to prevent memory buildup
-                        if processed_count % 10000 == 0:
-                            import gc
-
-                            gc.collect()
                     else:
                         # Book was processed but no record created (already exists, etc.)
                         self.process_summary_stage.increment_items(processed=1)
