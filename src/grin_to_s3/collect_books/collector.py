@@ -17,7 +17,6 @@ import time
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypedDict
 
 import aiofiles
 
@@ -34,15 +33,6 @@ from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator, show_
 from .config import ExportConfig, PaginationConfig
 from .grin_parser import parse_grin_row
 from .models import BookRecord, BoundedSet, SQLiteProgressTracker
-
-
-class PaginationState(TypedDict):
-    """Type for pagination state dictionary."""
-
-    current_page: int
-    next_url: str | None
-    page_size: int
-
 
 # Set up module logger
 logger = logging.getLogger(__name__)
@@ -93,14 +83,6 @@ class BookCollector:
         self.resume_count = 0
         self.accumulated_runtime = 0.0
         self.session_start_time: datetime | None = None
-
-        # Initialize pagination state
-        pagination_config = self.config.pagination or PaginationConfig()
-        self.pagination_state: PaginationState = {
-            "current_page": pagination_config.start_page,
-            "next_url": None,
-            "page_size": pagination_config.page_size,
-        }
 
         # Storage (required)
         if not storage_config:
@@ -184,13 +166,6 @@ class BookCollector:
 
                 # Load resume count and increment
                 self.resume_count = progress_data.get("resume_count", 0) + 1
-
-                # Load pagination state if available
-                if "pagination_state" in progress_data:
-                    self.pagination_state = progress_data["pagination_state"]
-                    print(
-                        f"  Pagination: Resume from page {self.pagination_state.get('current_page', 1)} (Phase 2: non-converted books)"
-                    )
 
                 # Get current counts from SQLite
                 processed_count = await self.sqlite_tracker.get_processed_count()
@@ -290,8 +265,6 @@ class BookCollector:
                     "wall_clock tracks time since first start"
                 ),
             },
-            # Pagination state for resume functionality
-            "pagination_state": self.pagination_state,
             # SQLite database info
             "sqlite_info": {
                 "database_path": str(self.sqlite_tracker.db_path),
@@ -305,12 +278,6 @@ class BookCollector:
 
         async with aiofiles.open(self.resume_file, "w") as f:
             await f.write(json.dumps(progress_data, indent=2))
-
-    async def save_pagination_state(self, pagination_state: PaginationState):
-        """Save pagination state for resume functionality."""
-        self.pagination_state.update(pagination_state)
-        # Save progress immediately to persist pagination state
-        await self.save_progress()
 
     def start_session(self):
         """Mark the start of a new session."""
@@ -338,7 +305,6 @@ class BookCollector:
             page_size=pagination_config.page_size,
             max_pages=pagination_config.max_pages,
             start_page=1,
-            pagination_callback=None,  # Don't save pagination state for converted books
             sqlite_tracker=self.sqlite_tracker,
         ):
             yield book_row, known_barcodes
@@ -362,36 +328,24 @@ class BookCollector:
         """Stream non-converted books from GRIN using HTML pagination with large page sizes.
 
         Note: _all_books endpoint actually returns 'all books except converted', not truly all books.
+        Always starts from page 1 for idempotent collection.
         """
         logger.info("Streaming non-converted books from GRIN...")
 
-        # Determine starting point for pagination
-        start_page = self.pagination_state.get("current_page", 1)
-        start_url = self.pagination_state.get("next_url")
         pagination_config = self.config.pagination or PaginationConfig()
-        page_size = self.pagination_state.get("page_size", pagination_config.page_size)
-
-        if start_page is not None and start_page > 1:
-            print(f"Resuming pagination from page {start_page}")
-
         book_count = 0
-        # Explicitly handle the start_url parameter to satisfy type checking
-        kwargs = {
-            "directory": self.directory,
-            "list_type": "_all_books",
-            "page_size": page_size or pagination_config.page_size,
-            "max_pages": pagination_config.max_pages,
-            "start_page": start_page or 1,
-            "pagination_callback": self.save_pagination_state,
-            "sqlite_tracker": self.sqlite_tracker,
-        }
-        if start_url is not None:
-            kwargs["start_url"] = start_url
 
         async for (
             book_row,
             known_barcodes,
-        ) in self.grin_client.stream_book_list_html_prefetch(**kwargs):
+        ) in self.grin_client.stream_book_list_html_prefetch(
+            directory=self.directory,
+            list_type="_all_books",
+            page_size=pagination_config.page_size,
+            max_pages=pagination_config.max_pages,
+            start_page=1,
+            sqlite_tracker=self.sqlite_tracker,
+        ):
             yield book_row, known_barcodes
             book_count += 1
 
