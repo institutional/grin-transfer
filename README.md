@@ -212,8 +212,8 @@ python grin.py storage rm full --run-name harvard_2024 --dry-run
 Each run creates organized output in `output/{run_name}/`:
 - `books.db` - SQLite database with all book records and sync status
 - `books_{timestamp}.csv` - Timestamped CSV export
-- `progress.json` - Collection progress for resume capability
-- `run_config.json` - Configuration for other scripts to auto-detect settings
+- `process_summary.json` - Previous run history, counts, and timestamps
+- `run_config.json` - Configuration file (generated as part of the collect step)
 
 
 ### Storage Backends

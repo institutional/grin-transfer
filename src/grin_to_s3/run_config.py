@@ -94,11 +94,6 @@ class RunConfig:
         return self.config_dict.get("sqlite_db_path", f"{self.output_directory}/books.db")
 
     @property
-    def progress_file(self) -> str:
-        """Get the progress file path."""
-        return self.config_dict.get("progress_file", f"{self.output_directory}/progress.json")
-
-    @property
     def library_directory(self) -> str:
         """Get the GRIN library directory."""
         return self.config_dict.get("library_directory", "")

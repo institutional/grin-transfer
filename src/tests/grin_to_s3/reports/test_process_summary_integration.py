@@ -37,7 +37,8 @@ class TestProcessSummaryIntegration:
             # Create first summary
             summary1 = await create_process_summary(mock_run_name, "collect")
             collect_stage = summary1.stages["collect"]
-            collect_stage.increment_items(processed=100, successful=95, failed=5)
+            collect_stage.books_collected = 95
+            collect_stage.collection_failed = 5
             await save_process_summary(summary1)
 
             # Simulate interruption by creating a new summary with the same name
@@ -75,7 +76,8 @@ class TestProcessSummaryIntegration:
                 }
             )
 
-            sync_stage.increment_items(processed=50, successful=48, failed=2)
+            sync_stage.books_synced = 48
+            sync_stage.sync_failed = 2
             sync_stage.add_progress_update("Sync pipeline completed")
             summary.end_stage("sync")
 
@@ -120,7 +122,8 @@ class TestProcessSummaryIntegration:
             assert summary.run_name == mock_run_name
 
             collect_stage = summary.stages["collect"]
-            collect_stage.increment_items(processed=200, successful=195, failed=5)
+            collect_stage.books_collected = 195
+            collect_stage.collection_failed = 5
             collect_stage.add_progress_update("Collection completed successfully")
             summary.end_stage("collect")
 
@@ -147,14 +150,14 @@ class TestProcessSummaryIntegration:
             sync_stage.command_args.update({"storage_type": "r2", "concurrent_downloads": 5, "force_mode": False})
 
             sync_stage.add_progress_update("Starting sync pipeline")
-            sync_stage.increment_items(processed=50, successful=48, failed=2, bytes_count=1048576)
+            sync_stage.books_synced = 48
+            sync_stage.sync_failed = 2
             sync_stage.add_progress_update("Sync pipeline completed successfully")
             summary.end_stage("sync")
 
             # Verify metrics
             summary_dict = summary.get_summary_dict()
             assert summary_dict["total_items_processed"] == 50
-            assert summary_dict["total_bytes_processed"] == 1048576
 
     @pytest.mark.asyncio
     async def test_process_command_integration(self, temp_dir, mock_run_name):
@@ -175,14 +178,14 @@ class TestProcessSummaryIntegration:
             )
 
             process_stage.add_progress_update("Starting processing requests")
-            process_stage.increment_items(processed=500, successful=495, failed=5, retried=3)
+            process_stage.conversion_requests_made = 495
+            process_stage.conversion_requests_failed = 5
             process_stage.add_progress_update("Processing requests completed")
             summary.end_stage("process")
 
             # Verify metrics
             summary_dict = summary.get_summary_dict()
             assert summary_dict["total_items_processed"] == 500
-            assert summary_dict["total_items_retried"] == 3
             assert summary_dict["overall_success_rate_percent"] == 99.0
 
     @pytest.mark.asyncio
@@ -204,7 +207,8 @@ class TestProcessSummaryIntegration:
             )
 
             enrich_stage.add_progress_update("Starting enrichment")
-            enrich_stage.increment_items(processed=300, successful=298, failed=2)
+            enrich_stage.books_enriched = 298
+            enrich_stage.enrichment_failed = 2
             enrich_stage.add_progress_update("Enrichment completed")
             summary.end_stage("enrich")
 

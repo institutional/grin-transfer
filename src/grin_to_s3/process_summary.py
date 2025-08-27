@@ -29,22 +29,40 @@ class ProcessStageMetrics:
     """Metrics for a single pipeline stage (collect, process, sync, enrich)."""
 
     stage_name: str
-    start_time: float | None = None
-    end_time: float | None = None
+    start_time: str | None = None  # UTC ISO timestamp
+    end_time: str | None = None  # UTC ISO timestamp
     duration_seconds: float | None = None
+    _start_perf_time: float | None = field(default=None, init=False, repr=False)  # Internal timing
 
-    # Operation counters
-    items_processed: int = 0
-    items_successful: int = 0
-    items_failed: int = 0
-    items_retried: int = 0
-    bytes_processed: int = 0
+    # Collection stage metrics
+    books_collected: int = 0
+    collection_failed: int = 0
+    collection_rate_per_hour: float = 0.0
 
-    # Error tracking
+    # Processing (conversion request) stage metrics
+    conversion_requests_made: int = 0
+    conversion_requests_failed: int = 0
+    conversion_request_rate_per_hour: float = 0.0
+
+    # Sync stage metrics
+    books_synced: int = 0
+    sync_skipped: int = 0  # Already synced/etag match
+    sync_failed: int = 0
+    conversions_requested_during_sync: int = 0  # Sent for conversion
+    sync_rate_per_hour: float = 0.0
+
+    # Enrichment stage metrics
+    books_enriched: int = 0
+    enrichment_skipped: int = 0
+    enrichment_failed: int = 0
+    enrichment_rate_per_hour: float = 0.0
+
+    # Common fields retained for all stages
     error_count: int = 0
     error_types: dict[str, int] = field(default_factory=dict)
     last_error_message: str | None = None
-    last_error_time: float | None = None
+    last_error_time: str | None = None  # UTC ISO timestamp
+    last_operation_time: str | None = None
 
     # Command-line arguments and configuration
     command_args: dict[str, Any] = field(default_factory=dict)
@@ -52,57 +70,111 @@ class ProcessStageMetrics:
     # Progress tracking
     progress_updates: list[dict[str, Any]] = field(default_factory=list)
 
-    # Detailed sync-specific metrics
+    # Stage-specific detailed metrics (varies by stage)
+    stage_details: dict[str, Any] = field(default_factory=dict)
+
+    # Legacy sync metrics for compatibility during transition
     book_outcomes: dict[str, int] = field(default_factory=dict)  # Book-level outcomes (synced, skipped, failed, etc.)
     queue_info: dict[str, Any] = field(default_factory=dict)  # Queue details from command args
     error_breakdown: dict[str, int] = field(default_factory=dict)  # Error counts by type
 
     def start_stage(self) -> None:
         """Start timing this stage."""
-        self.start_time = time.perf_counter()
+        self._start_perf_time = time.perf_counter()
+        self.start_time = datetime.now(UTC).isoformat()
         logger.info(f"Started {self.stage_name} stage")
 
     def end_stage(self) -> None:
         """End timing this stage."""
-        if self.start_time is not None and self.end_time is None:
-            self.end_time = time.perf_counter()
-            self.duration_seconds = self.end_time - self.start_time
+        if self._start_perf_time is not None and self.end_time is None:
+            end_perf_time = time.perf_counter()
+            self.end_time = datetime.now(UTC).isoformat()
+            self.duration_seconds = end_perf_time - self._start_perf_time
             logger.info(f"Ended {self.stage_name} stage after {self.duration_seconds:.1f}s")
 
     def add_progress_update(self, message: str, **kwargs) -> None:
-        """Add a progress update with timestamp."""
+        """Add a progress update with timestamp and stage-specific metrics."""
         current_time = time.perf_counter()
-        elapsed = current_time - self.start_time if self.start_time else 0
+        elapsed = current_time - self._start_perf_time if self._start_perf_time else 0
+
+        # Get stage-specific progress metrics
+        stage_metrics = self.get_stage_progress_metrics()
 
         update = {
-            "timestamp": current_time,
+            "timestamp": datetime.now(UTC).isoformat(),
             "elapsed_seconds": elapsed,
             "message": message,
-            "items_processed": self.items_processed,
-            "items_successful": self.items_successful,
-            "items_failed": self.items_failed,
+            **stage_metrics,
             **kwargs,
         }
 
         self.progress_updates.append(update)
         logger.debug(f"{self.stage_name} progress: {message} (elapsed: {elapsed:.1f}s)")
 
-    def increment_items(
-        self, processed: int = 0, successful: int = 0, failed: int = 0, retried: int = 0, bytes_count: int = 0
-    ) -> None:
-        """Increment item counters."""
-        self.items_processed += processed
-        self.items_successful += successful
-        self.items_failed += failed
-        self.items_retried += retried
-        self.bytes_processed += bytes_count
+    def get_stage_totals(self) -> tuple[int, int, int]:
+        """Get total processed, successful, failed for this stage."""
+        if self.stage_name == "collect":
+            total = self.books_collected + self.collection_failed
+            successful = self.books_collected
+            failed = self.collection_failed
+        elif self.stage_name == "process":
+            total = self.conversion_requests_made + self.conversion_requests_failed
+            successful = self.conversion_requests_made
+            failed = self.conversion_requests_failed
+        elif self.stage_name == "sync":
+            total = self.books_synced + self.sync_skipped + self.sync_failed + self.conversions_requested_during_sync
+            successful = self.books_synced + self.sync_skipped + self.conversions_requested_during_sync
+            failed = self.sync_failed
+        elif self.stage_name == "enrich":
+            total = self.books_enriched + self.enrichment_skipped + self.enrichment_failed
+            successful = self.books_enriched + self.enrichment_skipped
+            failed = self.enrichment_failed
+        else:
+            total = successful = failed = 0
+
+        return total, successful, failed
+
+    def get_stage_progress_metrics(self) -> dict[str, int]:
+        """Get stage-specific progress metrics for progress updates."""
+        if self.stage_name == "collect":
+            return {
+                "books_collected": self.books_collected,
+                "collection_failed": self.collection_failed,
+                "total_books_processed": self.books_collected + self.collection_failed,
+            }
+        elif self.stage_name == "process":
+            return {
+                "conversion_requests_made": self.conversion_requests_made,
+                "conversion_requests_failed": self.conversion_requests_failed,
+                "total_requests_processed": self.conversion_requests_made + self.conversion_requests_failed,
+            }
+        elif self.stage_name == "sync":
+            return {
+                "books_synced": self.books_synced,
+                "sync_skipped": self.sync_skipped,
+                "sync_failed": self.sync_failed,
+                "conversions_requested_during_sync": self.conversions_requested_during_sync,
+                "total_books_processed": self.books_synced
+                + self.sync_skipped
+                + self.sync_failed
+                + self.conversions_requested_during_sync,
+            }
+        elif self.stage_name == "enrich":
+            return {
+                "books_enriched": self.books_enriched,
+                "enrichment_skipped": self.enrichment_skipped,
+                "enrichment_failed": self.enrichment_failed,
+                "total_books_processed": self.books_enriched + self.enrichment_skipped + self.enrichment_failed,
+            }
+        else:
+            return {"total_items_processed": 0, "total_successful": 0, "total_failed": 0}
 
     def add_error(self, error_type: str, error_message: str) -> None:
         """Record an error occurrence."""
         self.error_count += 1
         self.error_types[error_type] = self.error_types.get(error_type, 0) + 1
         self.last_error_message = error_message
-        self.last_error_time = time.perf_counter()
+        self.last_error_time = datetime.now(UTC).isoformat()
         logger.debug(f"{self.stage_name} error: {error_type} - {error_message}")
 
     def set_command_arg(self, key: str, value: Any) -> None:
@@ -136,12 +208,15 @@ class ProcessStageMetrics:
         return "failed"
 
     def increment_by_outcome(self, outcome: BookOutcome) -> None:
-        """Increment counters based on book outcome."""
-        self.items_processed += 1
-        if outcome in ["synced", "skipped", "conversion_requested"]:
-            self.items_successful += 1
-        else:
-            self.items_failed += 1
+        """Increment counters based on book outcome (for sync stage)."""
+        if outcome == "synced":
+            self.books_synced += 1
+        elif outcome == "skipped":
+            self.sync_skipped += 1
+        elif outcome == "conversion_requested":
+            self.conversions_requested_during_sync += 1
+        elif outcome == "failed":
+            self.sync_failed += 1
 
 
 @dataclass
@@ -154,16 +229,19 @@ class RunSummary:
     """
 
     run_name: str
-    run_start_time: float = field(default_factory=time.perf_counter)
-    run_end_time: float | None = None
+    run_start_time: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    run_end_time: str | None = None
     total_duration_seconds: float | None = None
+    _run_start_perf_time: float = field(default_factory=time.perf_counter, init=False, repr=False)  # Internal timing
+    _run_end_perf_time: float | None = field(default=None, init=False, repr=False)  # Internal timing
 
     # Per-stage metrics
     stages: dict[str, ProcessStageMetrics] = field(default_factory=dict)
 
     # Overall run tracking
     interruption_count: int = 0
-    last_checkpoint_time: float | None = None
+    last_checkpoint_time: str | None = None  # UTC ISO timestamp
+    _last_checkpoint_perf_time: float | None = field(default=None, init=False, repr=False)  # Internal timing
 
     # Run-level metadata
     session_id: int = field(default_factory=lambda: int(datetime.now(UTC).timestamp()))
@@ -191,17 +269,18 @@ class RunSummary:
     def end_run(self) -> None:
         """End the entire run."""
         if self.run_end_time is None:
-            self.run_end_time = time.perf_counter()
-            self.total_duration_seconds = self.run_end_time - self.run_start_time
+            self._run_end_perf_time = time.perf_counter()
+            self.run_end_time = datetime.now(UTC).isoformat()
+            self.total_duration_seconds = self._run_end_perf_time - self._run_start_perf_time
             logger.info(f"Ended run {self.run_name} after {self.total_duration_seconds:.1f}s")
 
     def detect_interruption(self) -> bool:
         """Detect if the run was interrupted and restarted."""
-        if self.last_checkpoint_time is None:
+        if self._last_checkpoint_perf_time is None:
             return False
 
         current_time = time.perf_counter()
-        time_gap = current_time - self.last_checkpoint_time
+        time_gap = current_time - self._last_checkpoint_perf_time
 
         # If more than 5 minutes have passed without a checkpoint, consider it an interruption
         if time_gap > 300:  # 5 minutes
@@ -213,16 +292,22 @@ class RunSummary:
 
     def checkpoint(self) -> None:
         """Update checkpoint time to track for interruptions."""
-        self.last_checkpoint_time = time.perf_counter()
+        self._last_checkpoint_perf_time = time.perf_counter()
+        self.last_checkpoint_time = datetime.now(UTC).isoformat()
 
     def get_summary_dict(self) -> dict[str, Any]:
         """Get a dictionary representation of the run summary."""
-        # Calculate totals across all stages
-        total_items_processed = sum(stage.items_processed for stage in self.stages.values())
-        total_items_successful = sum(stage.items_successful for stage in self.stages.values())
-        total_items_failed = sum(stage.items_failed for stage in self.stages.values())
-        total_items_retried = sum(stage.items_retried for stage in self.stages.values())
-        total_bytes_processed = sum(stage.bytes_processed for stage in self.stages.values())
+        # Calculate totals across all stages using new stage-specific totals
+        total_items_processed = 0
+        total_items_successful = 0
+        total_items_failed = 0
+        for stage in self.stages.values():
+            stage_total, stage_successful, stage_failed = stage.get_stage_totals()
+            total_items_processed += stage_total
+            total_items_successful += stage_successful
+            total_items_failed += stage_failed
+
+        total_errors = sum(stage.error_count for stage in self.stages.values())
         total_errors = sum(stage.error_count for stage in self.stages.values())
 
         # Calculate success rate
@@ -231,41 +316,80 @@ class RunSummary:
         )
 
         # Calculate processing rate
-        if self.total_duration_seconds is None and self.run_end_time is not None:
-            self.total_duration_seconds = self.run_end_time - self.run_start_time
+        if self.total_duration_seconds is None and self._run_end_perf_time is not None:
+            self.total_duration_seconds = self._run_end_perf_time - self._run_start_perf_time
         elif self.total_duration_seconds is None:
             # Run is still active
             current_time = time.perf_counter()
-            elapsed = current_time - self.run_start_time
+            elapsed = current_time - self._run_start_perf_time
             processing_rate = total_items_processed / elapsed if elapsed > 0 else 0
         else:
             processing_rate = (
                 total_items_processed / self.total_duration_seconds if self.total_duration_seconds > 0 else 0
             )
 
-        # Convert stages to dict
+        # Convert stages to dict with stage-specific counters
         stages_dict = {}
         for stage_name, stage in self.stages.items():
+            # Get stage totals for success rate calculation
+            stage_total, stage_successful, stage_failed = stage.get_stage_totals()
+
             stages_dict[stage_name] = {
                 "start_time": stage.start_time,
                 "end_time": stage.end_time,
                 "duration_seconds": stage.duration_seconds,
-                "items_processed": stage.items_processed,
-                "items_successful": stage.items_successful,
-                "items_failed": stage.items_failed,
-                "items_retried": stage.items_retried,
-                "bytes_processed": stage.bytes_processed,
+                # Stage-specific counters based on stage type
+                **(
+                    {
+                        "books_collected": stage.books_collected,
+                        "collection_failed": stage.collection_failed,
+                        "collection_rate_per_hour": stage.collection_rate_per_hour,
+                    }
+                    if stage_name == "collect"
+                    else {}
+                ),
+                **(
+                    {
+                        "conversion_requests_made": stage.conversion_requests_made,
+                        "conversion_requests_failed": stage.conversion_requests_failed,
+                        "conversion_request_rate_per_hour": stage.conversion_request_rate_per_hour,
+                    }
+                    if stage_name == "process"
+                    else {}
+                ),
+                **(
+                    {
+                        "books_synced": stage.books_synced,
+                        "sync_skipped": stage.sync_skipped,
+                        "sync_failed": stage.sync_failed,
+                        "conversions_requested_during_sync": stage.conversions_requested_during_sync,
+                        "sync_rate_per_hour": stage.sync_rate_per_hour,
+                    }
+                    if stage_name == "sync"
+                    else {}
+                ),
+                **(
+                    {
+                        "books_enriched": stage.books_enriched,
+                        "enrichment_skipped": stage.enrichment_skipped,
+                        "enrichment_failed": stage.enrichment_failed,
+                        "enrichment_rate_per_hour": stage.enrichment_rate_per_hour,
+                    }
+                    if stage_name == "enrich"
+                    else {}
+                ),
+                # Common fields
                 "error_count": stage.error_count,
                 "error_types": stage.error_types,
                 "last_error_message": stage.last_error_message,
                 "last_error_time": stage.last_error_time,
+                "last_operation_time": stage.last_operation_time,
                 "command_args": stage.command_args,
                 "progress_updates": stage.progress_updates,
                 "is_completed": stage.end_time is not None,
-                "success_rate_percent": (
-                    (stage.items_successful / max(1, stage.items_processed)) * 100 if stage.items_processed > 0 else 0
-                ),
-                # Detailed sync-specific metrics
+                "success_rate_percent": ((stage_successful / max(1, stage_total)) * 100 if stage_total > 0 else 0),
+                "stage_details": stage.stage_details,
+                # Legacy sync metrics for compatibility during transition
                 "book_outcomes": stage.book_outcomes,
                 "queue_info": stage.queue_info,
                 "error_breakdown": stage.error_breakdown,
@@ -283,8 +407,6 @@ class RunSummary:
             "total_items_processed": total_items_processed,
             "total_items_successful": total_items_successful,
             "total_items_failed": total_items_failed,
-            "total_items_retried": total_items_retried,
-            "total_bytes_processed": total_bytes_processed,
             "total_error_count": total_errors,
             "overall_success_rate_percent": success_rate,
             "overall_processing_rate_per_second": processing_rate,
@@ -413,25 +535,60 @@ class RunSummaryManager:
             last_checkpoint_time=data.get("last_checkpoint_time"),
         )
 
-        # Reconstruct stages
+        # Initialize perf counters for ongoing operations
+        summary._run_start_perf_time = time.perf_counter()
+
+        if data.get("total_duration_seconds"):
+            summary._run_end_perf_time = summary._run_start_perf_time + data["total_duration_seconds"]
+
+        if data.get("last_checkpoint_time"):
+            summary._last_checkpoint_perf_time = summary._run_start_perf_time
+
+        # Reconstruct stages with new stage-specific fields
         for stage_name, stage_data in data.get("stages", {}).items():
             stage = ProcessStageMetrics(
                 stage_name=stage_name,
                 start_time=stage_data.get("start_time"),
                 end_time=stage_data.get("end_time"),
                 duration_seconds=stage_data.get("duration_seconds"),
-                items_processed=stage_data.get("items_processed", 0),
-                items_successful=stage_data.get("items_successful", 0),
-                items_failed=stage_data.get("items_failed", 0),
-                items_retried=stage_data.get("items_retried", 0),
-                bytes_processed=stage_data.get("bytes_processed", 0),
+                # Collection stage metrics
+                books_collected=stage_data.get("books_collected", 0),
+                collection_failed=stage_data.get("collection_failed", 0),
+                collection_rate_per_hour=stage_data.get("collection_rate_per_hour", 0.0),
+                # Processing stage metrics
+                conversion_requests_made=stage_data.get("conversion_requests_made", 0),
+                conversion_requests_failed=stage_data.get("conversion_requests_failed", 0),
+                conversion_request_rate_per_hour=stage_data.get("conversion_request_rate_per_hour", 0.0),
+                # Sync stage metrics
+                books_synced=stage_data.get("books_synced", 0),
+                sync_skipped=stage_data.get("sync_skipped", 0),
+                sync_failed=stage_data.get("sync_failed", 0),
+                conversions_requested_during_sync=stage_data.get("conversions_requested_during_sync", 0),
+                sync_rate_per_hour=stage_data.get("sync_rate_per_hour", 0.0),
+                # Enrichment stage metrics
+                books_enriched=stage_data.get("books_enriched", 0),
+                enrichment_skipped=stage_data.get("enrichment_skipped", 0),
+                enrichment_failed=stage_data.get("enrichment_failed", 0),
+                enrichment_rate_per_hour=stage_data.get("enrichment_rate_per_hour", 0.0),
+                # Common fields
                 error_count=stage_data.get("error_count", 0),
                 error_types=stage_data.get("error_types", {}),
                 last_error_message=stage_data.get("last_error_message"),
                 last_error_time=stage_data.get("last_error_time"),
+                last_operation_time=stage_data.get("last_operation_time"),
                 command_args=stage_data.get("command_args", {}),
                 progress_updates=stage_data.get("progress_updates", []),
+                stage_details=stage_data.get("stage_details", {}),
+                # Legacy sync metrics for compatibility
+                book_outcomes=stage_data.get("book_outcomes", {}),
+                queue_info=stage_data.get("queue_info", {}),
+                error_breakdown=stage_data.get("error_breakdown", {}),
             )
+
+            # Initialize perf counter for ongoing operations if stage not completed
+            if stage_data.get("start_time") and not stage_data.get("end_time"):
+                stage._start_perf_time = time.perf_counter()
+
             summary.stages[stage_name] = stage
 
         return summary
@@ -513,7 +670,7 @@ async def create_book_manager_for_uploads(run_name: str):
 
 
 def display_step_summary(summary: RunSummary, step_name: str) -> None:
-    """Display a detailed summary of the step that just completed and overall run state.
+    """Display stage-specific summary with appropriate terminology.
 
     Args:
         summary: The run summary containing step data
@@ -528,47 +685,50 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
     if step.end_time is None or step.duration_seconds is None:
         return
 
-    # Determine step display name and next command
-    step_display_map = {
-        "collect": ("Collected", "python grin.py sync pipeline --queue converted"),
-        "process": ("Requested processing for", "python grin.py process monitor"),
-        "sync": ("Synced (cumulative)", None),
-        "enrich": ("Enriched", "python grin.py export-csv"),
-    }
-
-    action_text, next_command = step_display_map.get(step_name, (step_name.title(), None))
-
-    # Format duration and rate
+    # Format duration
     duration_str = format_duration(step.duration_seconds)
 
-    # Calculate rate if we have items processed
-    rate_str = ""
-    if step.items_processed > 0 and step.duration_seconds > 0:
-        rate = step.items_processed / step.duration_seconds
-        if rate >= 1:
-            rate_str = f" ({rate:.1f} books/s)"
-        else:
-            rate_str = f" ({60 * rate:.1f} books/min)"
+    # Display stage-specific metrics with appropriate terminology
+    if step_name == "collect":
+        print(f"\n✓ Collected {step.books_collected:,} books in {duration_str}")
+        if step.collection_failed > 0:
+            print(f"  Failed: {step.collection_failed:,}")
+        next_command = "python grin.py sync pipeline --queue converted"
 
-    # Build main summary line for current step
-    items_text = f"{step.items_processed:,} books" if step.items_processed > 0 else "operation"
+    elif step_name == "process":
+        print(f"\n✓ Requested conversion for {step.conversion_requests_made:,} books in {duration_str}")
+        if step.conversion_requests_failed > 0:
+            print(f"  Failed: {step.conversion_requests_failed:,}")
+        next_command = "python grin.py process monitor"
 
-    print(f"\n✓ {action_text} {items_text} in {duration_str}{rate_str}")
-
-    # Show detailed results for current step
-    if step_name == "sync" and step.items_processed > 0:
-        failed = step.items_failed
-        successful = step.items_successful
-        skipped = step.items_processed - successful - failed
-        if skipped > 0:
-            print(f"  Success: {successful:,} | Failed: {failed:,} | Skipped: {skipped:,}")
-        elif failed > 0:
-            print(f"  Success: {successful:,} | Failed: {failed:,}")
+    elif step_name == "sync":
+        print(f"\n✓ Synced {step.books_synced:,} books in {duration_str}")
+        if step.sync_skipped > 0:
+            print(f"  Skipped (already synced): {step.sync_skipped:,}")
+        if step.conversions_requested_during_sync > 0:
+            print(f"  Sent for conversion: {step.conversions_requested_during_sync:,}")
+        if step.sync_failed > 0:
+            print(f"  Failed: {step.sync_failed:,}")
 
         # Display detailed sync metrics
         _display_sync_details(step)
-    elif step.items_failed > 0 and step.items_processed > 0:
-        print(f"  Success: {step.items_successful:,} | Failed: {step.items_failed:,}")
+        next_command = None
+
+    elif step_name == "enrich":
+        print(f"\n✓ Enriched {step.books_enriched:,} books in {duration_str}")
+        if step.enrichment_skipped > 0:
+            print(f"  Skipped: {step.enrichment_skipped:,}")
+        if step.enrichment_failed > 0:
+            print(f"  Failed: {step.enrichment_failed:,}")
+        next_command = "python grin.py export-csv"
+
+    else:
+        # Fallback for unknown stage names
+        stage_total, stage_successful, stage_failed = step.get_stage_totals()
+        print(f"\n✓ {step_name.title()} completed {stage_total:,} items in {duration_str}")
+        if stage_failed > 0:
+            print(f"  Failed: {stage_failed:,}")
+        next_command = None
 
     # Show brief collection overview if we have multiple steps
     if len(summary.stages) > 1:
@@ -578,8 +738,9 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
         for s in step_order:
             if s in summary.stages and summary.stages[s].end_time is not None:
                 step_data = summary.stages[s]
-                if step_data.items_processed > 0:
-                    completed_steps.append(f"{s}:{step_data.items_processed:,}")
+                stage_total, _, _ = step_data.get_stage_totals()
+                if stage_total > 0:
+                    completed_steps.append(f"{s}:{stage_total:,}")
 
         if completed_steps:
             print(f"  Collection: {' | '.join(completed_steps)} books")
@@ -635,10 +796,7 @@ def _display_sync_details(step: ProcessStageMetrics) -> None:
         if failed > 0:
             print(f"    ✗ Failed: {failed:,} books")
 
-    # Display bytes processed
-    if step.bytes_processed > 0:
-        bytes_str = _format_bytes(step.bytes_processed)
-        print(f"  {bytes_str} transferred")
+    # Additional metrics display could be added here if needed
 
 
 def _format_bytes(bytes_count: int) -> str:

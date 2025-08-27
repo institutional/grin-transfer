@@ -56,10 +56,11 @@ class TestProcessSummaryUpload:
 
             # Create a test summary
             summary = RunSummary(run_name=mock_run_name)
-            stage = summary.start_stage("test_stage")
-            stage.increment_items(processed=10, successful=9, failed=1)
+            stage = summary.start_stage("collect")
+            stage.books_collected = 9
+            stage.collection_failed = 1
             stage.add_progress_update("Test progress")
-            summary.end_stage("test_stage")
+            summary.end_stage("collect")
 
             # Save summary (should trigger upload)
             await manager.save_summary(summary)
@@ -122,8 +123,8 @@ class TestProcessSummaryUpload:
 
             # Create summary
             summary = RunSummary(run_name=mock_run_name)
-            stage = summary.start_stage("test_stage")
-            stage.increment_items(processed=5, successful=5)
+            stage = summary.start_stage("collect")
+            stage.books_collected = 5
 
             # Save with storage
             await save_process_summary(summary, mock_book_manager)
@@ -255,7 +256,8 @@ class TestProcessSummaryUpload:
             collect_stage = summary.start_stage("collect")
             collect_stage.set_command_arg("storage_type", "s3")
             collect_stage.set_command_arg("limit", 1000)
-            collect_stage.increment_items(processed=100, successful=98, failed=2)
+            collect_stage.books_collected = 98
+            collect_stage.collection_failed = 2
             collect_stage.add_progress_update("Collection started")
             collect_stage.add_error("NetworkError", "Connection timeout")
             summary.end_stage("collect")
@@ -263,7 +265,7 @@ class TestProcessSummaryUpload:
             # Add sync stage
             sync_stage = summary.start_stage("sync")
             sync_stage.set_command_arg("force_mode", False)
-            sync_stage.increment_items(processed=50, successful=50, bytes_count=1048576)
+            sync_stage.books_synced = 50
             sync_stage.add_progress_update("Sync completed")
             summary.end_stage("sync")
 
@@ -291,14 +293,14 @@ class TestProcessSummaryUpload:
             assert "sync" in content["stages"]
 
             collect_data = content["stages"]["collect"]
-            assert collect_data["items_processed"] == 100
+            assert collect_data["books_collected"] == 98
+            assert collect_data["collection_failed"] == 2
             assert collect_data["error_count"] == 1
             assert collect_data["command_args"]["storage_type"] == "s3"
             assert collect_data["command_args"]["limit"] == 1000
             assert collect_data["is_completed"] is True
 
             sync_data = content["stages"]["sync"]
-            assert sync_data["items_processed"] == 50
-            assert sync_data["bytes_processed"] == 1048576
+            assert sync_data["books_synced"] == 50
             assert sync_data["command_args"]["force_mode"] is False
             assert sync_data["is_completed"] is True

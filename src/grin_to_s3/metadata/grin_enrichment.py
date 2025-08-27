@@ -158,15 +158,15 @@ class GRINEnrichmentPipeline:
                 for barcode, data in metadata.items():
                     if data and await self.sqlite_tracker.update_book_enrichment(barcode, data):
                         enriched_count += 1
-                        self.process_summary_stage.increment_items(processed=1, successful=1)
+                        self.process_summary_stage.books_enriched += 1
                     else:
-                        self.process_summary_stage.increment_items(processed=1)
+                        self.process_summary_stage.enrichment_skipped += 1
 
                 # Mark missing barcodes as attempted
                 missing = set(barcodes) - set(metadata.keys())
                 for barcode in missing:
                     await self.sqlite_tracker.update_book_enrichment(barcode, {})
-                    self.process_summary_stage.increment_items(processed=1)
+                    self.process_summary_stage.enrichment_skipped += 1
 
                 return enriched_count
 
@@ -175,7 +175,7 @@ class GRINEnrichmentPipeline:
                 # Mark all as attempted to prevent infinite retries
                 for barcode in barcodes:
                     await self.sqlite_tracker.update_book_enrichment(barcode, {})
-                    self.process_summary_stage.increment_items(processed=1, failed=1)
+                    self.process_summary_stage.enrichment_failed += 1
                 return 0
 
     async def reset_enrichment_data(self) -> int:
