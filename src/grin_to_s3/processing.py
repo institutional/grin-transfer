@@ -183,7 +183,7 @@ class ProcessingClient:
             raise ProcessingRequestError(f"No result returned for {barcode}")
 
         status = results[barcode]
-        if status != "Success":
+        if status not in ("Success", "Already available for download"):
             raise ProcessingRequestError(f"Processing request failed for {barcode}: {status}")
 
         return status

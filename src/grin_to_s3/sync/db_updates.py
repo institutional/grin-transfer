@@ -127,8 +127,6 @@ async def request_conversion_skipped(result: TaskResult, previous_results: dict[
             return {"status": ("conversion", "in_process", metadata), "books": {}}
         case "skip_verified_unavailable":
             return {"status": ("conversion", "unavailable", metadata), "books": {"verified_unavailable": 1}}
-        case "skip_conversion_limit_reached":
-            return {"status": ("conversion", "limit_reached", metadata), "books": {}}
         case _:
             return {"status": ("conversion", "skipped", metadata), "books": {}}
 

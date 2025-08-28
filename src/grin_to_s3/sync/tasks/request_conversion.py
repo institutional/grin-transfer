@@ -38,15 +38,25 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
                 data={"conversion_status": "requested", "request_count": pipeline.conversion_requests_made},
                 reason="skip_conversion_requested",
             )
-        elif "already" in result_lower and "process" in result_lower:
-            logger.warning(f"[{barcode}] GRIN reports title is already being processed: {result}")
-            return RequestConversionResult(
-                barcode=barcode,
-                task_type=TaskType.REQUEST_CONVERSION,
-                action=TaskAction.SKIPPED,
-                data={"conversion_status": "in_process", "request_count": pipeline.conversion_requests_made},
-                reason="skip_already_in_process",
-            )
+        elif "already" in result_lower and ("process" in result_lower or "available for download" in result_lower):
+            if "available for download" in result_lower:
+                logger.info(f"[{barcode}] Book already converted and available for download")
+                return RequestConversionResult(
+                    barcode=barcode,
+                    task_type=TaskType.REQUEST_CONVERSION,
+                    action=TaskAction.SKIPPED,
+                    data={"conversion_status": "already_available", "request_count": pipeline.conversion_requests_made},
+                    reason="skip_already_available",
+                )
+            else:
+                logger.warning(f"[{barcode}] GRIN reports title is already being processed: {result}")
+                return RequestConversionResult(
+                    barcode=barcode,
+                    task_type=TaskType.REQUEST_CONVERSION,
+                    action=TaskAction.SKIPPED,
+                    data={"conversion_status": "in_process", "request_count": pipeline.conversion_requests_made},
+                    reason="skip_already_in_process",
+                )
         else:
             # Any other response from GRIN means the book can't be converted
             logger.error(f"[{barcode}] Conversion request failed: {result}")
