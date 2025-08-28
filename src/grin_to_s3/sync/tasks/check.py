@@ -7,7 +7,7 @@ from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponenti
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.common import DEFAULT_DOWNLOAD_RETRIES, Barcode
+from grin_to_s3.common import Barcode
 from grin_to_s3.storage.book_manager import BookManager
 
 if TYPE_CHECKING:
@@ -16,6 +16,12 @@ if TYPE_CHECKING:
 from .task_types import ArchiveMetadata, CheckData, CheckResult, ETagMatchResult, TaskAction, TaskType
 
 logger = logging.getLogger(__name__)
+
+# Retry configuration for CHECK operations
+CHECK_MAX_RETRIES = 5  # Total of 6 attempts
+CHECK_BACKOFF_MIN = 1  # Start at 1 second for proper exponential growth
+CHECK_BACKOFF_MAX = 120  # Cap at 2 minutes
+CHECK_BACKOFF_MULTIPLIER = 2
 
 
 async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
@@ -72,11 +78,11 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
     )
 
 
-# Retry downloads with exponential backoff to handle GRIN rate limiting
-# Retry schedule: immediate, 4s, 8s (total ~12s across 3 attempts)
+# Retry check requests with exponential backoff to handle GRIN rate limiting
+# Retry schedule: immediate, 1s, 2s, 4s, 8s, 16s (total ~31s across 6 attempts)
 # Note: 404 errors are excluded from retry as they indicate missing files
 @retry(
-    stop=stop_after_attempt(DEFAULT_DOWNLOAD_RETRIES + 1),
+    stop=stop_after_attempt(CHECK_MAX_RETRIES + 1),
     retry=lambda retry_state: bool(
         retry_state.outcome
         and retry_state.outcome.failed
@@ -85,7 +91,7 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
             and getattr(retry_state.outcome.exception(), "status", None) == 404
         )
     ),
-    wait=wait_exponential(multiplier=2, min=4, max=120),
+    wait=wait_exponential(multiplier=CHECK_BACKOFF_MULTIPLIER, min=CHECK_BACKOFF_MIN, max=CHECK_BACKOFF_MAX),
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )

@@ -8,7 +8,6 @@ from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponenti
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.common import (
-    DEFAULT_DOWNLOAD_RETRIES,
     DEFAULT_DOWNLOAD_TIMEOUT,
     Barcode,
 )
@@ -20,6 +19,12 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+# Retry configuration for DOWNLOAD operations
+DOWNLOAD_MAX_RETRIES = 5  # Total of 6 attempts
+DOWNLOAD_BACKOFF_MIN = 1  # Start at 1 second for proper exponential growth
+DOWNLOAD_BACKOFF_MAX = 120  # Cap at 2 minutes
+DOWNLOAD_BACKOFF_MULTIPLIER = 2
 
 
 async def main(barcode: Barcode, pipeline: "SyncPipeline") -> DownloadResult:
@@ -47,10 +52,10 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> DownloadResult:
 
 
 # Retry downloads with exponential backoff to handle GRIN rate limiting
-# Retry schedule: immediate, 4s, 8s (total ~12s across 3 attempts)
+# Retry schedule: immediate, 1s, 2s, 4s, 8s, 16s (total ~31s across 6 attempts)
 # Note: 404 errors are excluded from retry as they indicate missing files
 @retry(
-    stop=stop_after_attempt(DEFAULT_DOWNLOAD_RETRIES + 1),
+    stop=stop_after_attempt(DOWNLOAD_MAX_RETRIES + 1),
     retry=lambda retry_state: bool(
         retry_state.outcome
         and retry_state.outcome.failed
@@ -59,7 +64,7 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> DownloadResult:
             and getattr(retry_state.outcome.exception(), "status", None) == 404
         )
     ),
-    wait=wait_exponential(multiplier=2, min=4, max=120),
+    wait=wait_exponential(multiplier=DOWNLOAD_BACKOFF_MULTIPLIER, min=DOWNLOAD_BACKOFF_MIN, max=DOWNLOAD_BACKOFF_MAX),
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
@@ -70,7 +75,7 @@ async def download_book_to_filesystem(
     library_directory: str,
     filesystem_manager: DirectoryManager,
     download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
-    download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
+    download_retries: int = DOWNLOAD_MAX_RETRIES,
 ) -> DownloadData:
     """Download book archive with retry logic, excluding 404 errors from retries."""
     grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
