@@ -772,8 +772,8 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
             print(f"  Failed: {stage_failed:,}")
         next_command = None
 
-    # Show brief collection overview if we have multiple steps
-    if len(summary.stages) > 1:
+    # Show brief collection overview if we have multiple steps (skip for sync to avoid confusion)
+    if len(summary.stages) > 1 and step_name != "sync":
         step_order = ["collect", "process", "sync", "enrich"]
         completed_steps = []
 
@@ -813,9 +813,9 @@ def _display_sync_details(step: ProcessStageMetrics, was_interrupted: bool = Fal
         conversion_requests = step.queue_info.get("conversion_requests")
 
         if limit:
-            print(f"  Limit: {limit:,} books")
+            print(f"  Limit: {limit:,}")
         elif specific_barcodes:
-            print(f"  Specific barcodes: {specific_barcodes} books")
+            print(f"  Specific barcodes: {specific_barcodes}")
 
         if conversion_requests:
             print(f"  Conversion requests: {conversion_requests:,}")
@@ -824,13 +824,13 @@ def _display_sync_details(step: ProcessStageMetrics, was_interrupted: bool = Fal
     # Show cumulative totals first
     print("  Cumulative totals:")
     if step.books_synced > 0:
-        print(f"    ✓ Total synced: {step.books_synced:,} books")
+        print(f"    ✓ Total synced: {step.books_synced:,}")
     if step.conversions_requested_during_sync > 0:
-        print(f"    → Total sent for conversion: {step.conversions_requested_during_sync:,} books")
+        print(f"    → Total sent for conversion: {step.conversions_requested_during_sync:,}")
     if step.sync_skipped > 0:
-        print(f"    ⊘ Total skipped (already synced): {step.sync_skipped:,} books")
+        print(f"    ⊘ Total skipped (already synced): {step.sync_skipped:,}")
     if step.sync_failed > 0:
-        print(f"    ✗ Total failed: {step.sync_failed:,} books")
+        print(f"    ✗ Total failed: {step.sync_failed:,}")
 
     # Show current session data if there were any operations in this session
     session_total = (
@@ -843,13 +843,13 @@ def _display_sync_details(step: ProcessStageMetrics, was_interrupted: bool = Fal
     if session_total > 0:
         print("  This session:")
         if step.session_books_synced > 0:
-            print(f"    ✓ Successfully synced: {step.session_books_synced:,} books")
+            print(f"    ✓ Successfully synced: {step.session_books_synced:,}")
         if step.session_conversions_requested > 0:
-            print(f"    → Conversion requested: {step.session_conversions_requested:,} books")
+            print(f"    → Conversion requested: {step.session_conversions_requested:,}")
         if step.session_sync_skipped > 0:
-            print(f"    ⊘ Skipped (already synced): {step.session_sync_skipped:,} books")
+            print(f"    ⊘ Skipped (already synced): {step.session_sync_skipped:,}")
         if step.session_sync_failed > 0:
-            print(f"    ✗ Failed: {step.session_sync_failed:,} books")
+            print(f"    ✗ Failed: {step.session_sync_failed:,}")
 
     # Additional metrics display could be added here if needed
 
