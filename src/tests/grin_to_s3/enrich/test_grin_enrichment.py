@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Simplified unit tests for refactored GRIN enrichment functionality
+GRIN enrichment tests
 """
 
 import os
@@ -243,6 +243,7 @@ class TestGRINEnrichmentPipeline:
         assert total_long == len(long_barcodes)
 
     @pytest.mark.asyncio
+    @pytest.mark.slow
     async def test_retry_on_failure(self, mock_process_stage):
         """Test retry logic for GRIN API failures"""
         mock_client = MockGRINEnrichmentClient()

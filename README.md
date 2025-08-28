@@ -287,8 +287,8 @@ ruff check --fix && ruff format
 # Run type checking
 mypy src/grin_to_s3 --explicit-package-bases
 
-# Run tests
+# Run fast tests (recommended for development)
+python -m pytest -m "not slow"
+
+# Run all tests (including slower integration tests)
 python -m pytest
-```
-
-

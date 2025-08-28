@@ -34,6 +34,9 @@ async def test_fetch_resource():
         print(f"✗ Resource fetch failed: {e}")
         return False
 
+    finally:
+        await client.close()
+
 
 async def test_streaming():
     """Test streaming functionality."""
@@ -68,6 +71,9 @@ async def test_streaming():
         print(f"✗ Streaming failed: {e}")
         return False
 
+    finally:
+        await client.close()
+
 
 async def test_bearer_token():
     """Test bearer token functionality."""
@@ -83,6 +89,9 @@ async def test_bearer_token():
     except Exception as e:
         print(f"✗ Bearer token failed: {e}")
         return False
+
+    finally:
+        await client.close()
 
 
 async def main():
