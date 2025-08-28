@@ -15,13 +15,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from grin_to_s3.common import (
-    DEFAULT_DOWNLOAD_RETRIES,
-    DEFAULT_DOWNLOAD_TIMEOUT,
-    DEFAULT_MAX_SEQUENTIAL_FAILURES,
-    parse_barcode_arguments,
-)
-from grin_to_s3.constants import DEFAULT_WORKER_CONCURRENCY
+from grin_to_s3.common import parse_barcode_arguments
+from grin_to_s3.constants import DEFAULT_MAX_SEQUENTIAL_FAILURES, DEFAULT_WORKER_CONCURRENCY
 from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
     create_book_manager_for_uploads,
@@ -148,8 +143,6 @@ async def _run_sync_pipeline(args, run_config: RunConfig, sync_stage) -> None:
         skip_csv_export=args.skip_csv_export,
         skip_staging_cleanup=args.skip_staging_cleanup,
         skip_database_backup=args.skip_database_backup,
-        download_timeout=args.download_timeout,
-        download_retries=args.download_retries,
         max_sequential_failures=args.max_sequential_failures,
         task_concurrency_overrides=_collect_task_concurrency_overrides(args),
         worker_count=args.workers,
@@ -581,19 +574,6 @@ Examples:
         help="Maximum concurrent cleanup tasks",
     )
 
-    # Download options
-    pipeline_parser.add_argument(
-        "--download-timeout",
-        type=int,
-        default=DEFAULT_DOWNLOAD_TIMEOUT,
-        help=f"Timeout for book downloads in seconds (default: {DEFAULT_DOWNLOAD_TIMEOUT}, separate from HTML requests)",
-    )
-    pipeline_parser.add_argument(
-        "--download-retries",
-        type=int,
-        default=DEFAULT_DOWNLOAD_RETRIES,
-        help=f"Number of retry attempts for failed downloads (default: {DEFAULT_DOWNLOAD_RETRIES})",
-    )
     pipeline_parser.add_argument(
         "--max-sequential-failures",
         type=int,

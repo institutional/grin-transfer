@@ -13,13 +13,8 @@ from typing import Any
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.common import (
-    DEFAULT_DOWNLOAD_RETRIES,
-    DEFAULT_DOWNLOAD_TIMEOUT,
-    DEFAULT_MAX_SEQUENTIAL_FAILURES,
-    pluralize,
-)
-from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT
+from grin_to_s3.common import pluralize
+from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT, DEFAULT_MAX_SEQUENTIAL_FAILURES
 from grin_to_s3.queue_utils import get_converted_books, get_in_process_set
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config
@@ -112,8 +107,6 @@ class SyncPipeline:
         skip_csv_export: bool = False,
         skip_staging_cleanup: bool = False,
         skip_database_backup: bool = False,
-        download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
-        download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
         max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
         task_concurrency_overrides: dict[str, int] | None = None,
         worker_count: int = 20,
@@ -131,8 +124,6 @@ class SyncPipeline:
             skip_csv_export: Skip CSV export after sync
             skip_staging_cleanup: Skip deletion of files in staging directory
             skip_database_backup: Skip database backup and upload
-            download_timeout: Timeout for book downloads in seconds
-            download_retries: Number of retry attempts for failed downloads
             max_sequential_failures: Exit pipeline after this many consecutive failures
             task_concurrency_overrides: Override task concurrency limits from CLI
             worker_count: Number of concurrent workers for book processing (default 20)
@@ -151,8 +142,6 @@ class SyncPipeline:
             skip_csv_export=skip_csv_export,
             skip_staging_cleanup=skip_staging_cleanup,
             skip_database_backup=skip_database_backup,
-            download_timeout=download_timeout,
-            download_retries=download_retries,
             max_sequential_failures=max_sequential_failures,
             task_concurrency_overrides=task_concurrency_overrides,
             worker_count=worker_count,
@@ -170,8 +159,6 @@ class SyncPipeline:
         skip_csv_export: bool = False,
         skip_staging_cleanup: bool = False,
         skip_database_backup: bool = False,
-        download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
-        download_retries: int = DEFAULT_DOWNLOAD_RETRIES,
         max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
         task_concurrency_overrides: dict[str, int] | None = None,
         worker_count: int = 100,
@@ -186,8 +173,6 @@ class SyncPipeline:
         self.skip_csv_export = skip_csv_export
         self.skip_staging_cleanup = skip_staging_cleanup
         self.skip_database_backup = skip_database_backup
-        self.download_timeout = download_timeout
-        self.download_retries = download_retries
         self.max_sequential_failures = max_sequential_failures
         self.process_summary_stage = process_summary_stage
         self.worker_count = worker_count

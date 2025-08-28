@@ -35,13 +35,6 @@ type BarcodeSet = set[str]
 
 # HTTP Client Configuration
 DEFAULT_TIMEOUT = 60
-DEFAULT_CONNECTOR_LIMITS = {"limit": 10, "limit_per_host": 5}
-
-# Download and Retry Configuration
-DEFAULT_DOWNLOAD_TIMEOUT = 300
-DEFAULT_DOWNLOAD_RETRIES = 2
-DEFAULT_MAX_SEQUENTIAL_FAILURES = 10
-DEFAULT_RETRY_WAIT_SECONDS = 2
 
 DEFAULT_COMPRESSION_LEVEL = 1  # Fastest
 
@@ -637,11 +630,8 @@ async def check_minio_connectivity(storage_config: dict) -> None:
 
     try:
         timeout_config = aiohttp.ClientTimeout(total=5, connect=10)
-        connector = aiohttp.TCPConnector(
-            limit=DEFAULT_CONNECTOR_LIMITS["limit"], limit_per_host=DEFAULT_CONNECTOR_LIMITS["limit_per_host"]
-        )
 
-        async with aiohttp.ClientSession(timeout=timeout_config, connector=connector) as session:
+        async with aiohttp.ClientSession(timeout=timeout_config) as session:
             async with session.get(health_url) as response:
                 if response.status == 200:
                     print(f"✅ MinIO connectivity verified: {endpoint_url}")

@@ -14,13 +14,11 @@ from selectolax.lexbor import LexborHTMLParser
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_fixed
 
 from grin_to_s3.auth import GRINAuth
-from grin_to_s3.common import (
-    DEFAULT_CONNECTOR_LIMITS,
-    DEFAULT_DOWNLOAD_RETRIES,
-    DEFAULT_RETRY_WAIT_SECONDS,
-)
 
 logger = logging.getLogger(__name__)
+
+# HTTP connection pool limits for GRIN client
+HTTP_CONNECTION_POOL_LIMITS = {"limit": 10, "limit_per_host": 5}
 
 ALL_BOOKS_ENDPOINT = "_all_books"
 
@@ -49,7 +47,7 @@ class GRINClient:
         """Ensure session exists, creating it if necessary."""
         if self.session is None:
             connector = aiohttp.TCPConnector(
-                limit=DEFAULT_CONNECTOR_LIMITS["limit"], limit_per_host=DEFAULT_CONNECTOR_LIMITS["limit_per_host"]
+                limit=HTTP_CONNECTION_POOL_LIMITS["limit"], limit_per_host=HTTP_CONNECTION_POOL_LIMITS["limit_per_host"]
             )
             timeout_config = aiohttp.ClientTimeout(total=self.timeout, connect=10)
             self.session = aiohttp.ClientSession(connector=connector, timeout=timeout_config)
@@ -219,8 +217,8 @@ class GRINClient:
             prefetch_task.cancel()
 
     @retry(
-        stop=stop_after_attempt(DEFAULT_DOWNLOAD_RETRIES + 1),
-        wait=wait_fixed(DEFAULT_RETRY_WAIT_SECONDS),
+        stop=stop_after_attempt(3),  # 3 total attempts for HTML page prefetching
+        wait=wait_fixed(2),  # 2 second fixed delay for HTML prefetch retries
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,
     )
