@@ -979,8 +979,8 @@ async def cmd_request(args) -> None:
     )
     logger.info(f"Command: {' '.join(sys.argv)}")
 
-    # Extract run name from database path
-    run_name = Path(args.db_path).parent.name
+    # Get run name from run config
+    run_name = run_config.run_name
 
     # Create book storage for process summary uploads
     book_manager = await create_book_manager_for_uploads(run_name)
