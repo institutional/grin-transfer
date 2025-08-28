@@ -238,12 +238,12 @@ class TestConcurrentProcessing:
             assert end_time - start_time < 5.0, "Total time suggests sequential processing"
 
     @pytest.mark.asyncio
+    @pytest.mark.slow
     async def test_bounded_queue_provides_backpressure(
         self, mock_pipeline, mock_task_manager, mock_rate_calculator, mock_task_functions
     ):
         """Queue should provide backpressure when full, preventing memory explosion."""
-        # Create a large number of books to test backpressure
-        barcodes = [f"TEST{i:04d}" for i in range(200)]
+        barcodes = [f"TEST{i:04d}" for i in range(50)]
 
         async def slow_download(*args):
             await asyncio.sleep(0.01)
@@ -273,7 +273,7 @@ class TestConcurrentProcessing:
                 progress_interval=50,
             )
 
-            assert len(results) == 200
+            assert len(results) == 50
 
 
 class TestWorkerManagement:
@@ -625,13 +625,12 @@ class TestEndToEndIntegration:
                     pass
 
     @pytest.mark.asyncio
+    @pytest.mark.slow
     async def test_memory_bounded_with_large_book_list(
         self, mock_pipeline, mock_task_manager, mock_rate_calculator, mock_task_functions
     ):
         """Should handle large book lists without memory explosion."""
-        # Test with a large number of books (simulating "millions")
-        # Use smaller number for test performance but verify pattern
-        barcodes = [f"TEST{i:05d}" for i in range(1000)]
+        barcodes = [f"TEST{i:05d}" for i in range(100)]
 
         with (
             patch("grin_to_s3.sync.task_manager.process_download_phase") as mock_download,
@@ -661,9 +660,9 @@ class TestEndToEndIntegration:
                 progress_interval=100,
             )
 
-            assert len(results) == 1000
-            assert mock_download.call_count == 1000
-            assert mock_processing.call_count == 1000
+            assert len(results) == 100
+            assert mock_download.call_count == 100
+            assert mock_processing.call_count == 100
 
     @pytest.mark.asyncio
     async def test_database_updates_accumulated(

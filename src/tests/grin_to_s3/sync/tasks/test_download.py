@@ -149,7 +149,10 @@ class TestDownloadBookToFilesystem:
         assert mock_grin_client.download_archive.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_http_500_error_with_retry(self, temp_download_path, mock_grin_client, filesystem_manager):
+    @pytest.mark.slow
+    async def test_http_500_error_with_retry(
+        self, temp_download_path, mock_grin_client, filesystem_manager, fast_retry_download
+    ):
         """500 errors should be retried with exponential backoff."""
         error_500 = aiohttp.ClientResponseError(
             request_info=MagicMock(), history=(), status=500, message="Internal Server Error"
@@ -205,8 +208,9 @@ class TestDownloadBookToFilesystem:
         filesystem_manager.wait_for_disk_space.assert_called_once_with(check_interval=60)
 
     @pytest.mark.asyncio
+    @pytest.mark.slow
     async def test_file_size_verification(
-        self, temp_download_path, mock_grin_client, filesystem_manager, mock_response
+        self, temp_download_path, mock_grin_client, filesystem_manager, mock_response, fast_retry_download
     ):
         """Download should verify file size matches bytes written and clean up on mismatch."""
         setup_download_mock(mock_grin_client, mock_response())
@@ -246,7 +250,10 @@ class TestDownloadBookToFilesystem:
         assert result["etag"] == "unquoted-etag"
 
     @pytest.mark.asyncio
-    async def test_missing_etag_header(self, temp_download_path, mock_grin_client, filesystem_manager, mock_response):
+    @pytest.mark.slow
+    async def test_missing_etag_header(
+        self, temp_download_path, mock_grin_client, filesystem_manager, mock_response, fast_retry_download
+    ):
         """Downloads should raise exception when ETag header is missing."""
         setup_download_mock(mock_grin_client, mock_response(etag=None))
 
