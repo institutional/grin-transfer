@@ -750,7 +750,25 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
         if was_interrupted:
             print(f"\n⚠ Sync interrupted after {duration_str}")
         else:
-            print(f"\n✓ Synced {step.books_synced:,} books in {duration_str}")
+            # Determine completion message based on session results
+            session_total = (
+                step.session_books_synced
+                + step.session_sync_skipped
+                + step.session_sync_failed
+                + step.session_conversions_requested
+            )
+            if step.session_books_synced > 0:
+                # Books were actually synced this session
+                print(f"\n✓ Synced {step.session_books_synced:,} in {duration_str}")
+            elif session_total == 0:
+                # No books processed this session
+                print(f"\n✓ Process completed in {duration_str}")
+            elif step.session_sync_failed > 0:
+                # Had errors this session
+                print(f"\n⚠ Process completed with errors in {duration_str}")
+            else:
+                # Other outcomes (skipped, conversion requests)
+                print(f"\n✓ Process completed in {duration_str}")
 
         # Display detailed sync metrics
         _display_sync_details(step, was_interrupted)
