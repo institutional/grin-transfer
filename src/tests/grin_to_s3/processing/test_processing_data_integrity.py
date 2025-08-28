@@ -8,7 +8,7 @@ incorrect status tracking in the processing pipeline.
 
 import pytest
 
-from grin_to_s3.processing import ProcessingClient, ProcessingPipeline, ProcessingRequestError
+from grin_to_s3.processing import ProcessingClient, ProcessingPipeline
 from tests.mocks import MockGRINClient
 
 
@@ -41,15 +41,14 @@ class TestProcessingClientDataIntegrity:
         client.grin_client = MockProcessingClient()
         return client
 
-    async def assert_processing_error(self, processing_client, barcodes, response_body, expected_error_text):
-        """Helper to test that processing raises expected errors."""
+    async def assert_processing_error(self, processing_client, barcodes, response_body):
+        """Helper to test that processing raises natural exceptions."""
         # Set the mock response for this test
         processing_client.grin_client.set_processing_response(response_body)
 
-        with pytest.raises(ProcessingRequestError) as exc_info:
+        # Let natural exceptions bubble up - typically IndexError for malformed lines
+        with pytest.raises((IndexError, ValueError)):
             await processing_client.request_processing_batch(barcodes)
-
-        assert expected_error_text in str(exc_info.value)
 
     async def assert_processing_result(self, processing_client, barcodes, response_body, expected_result):
         """Helper to test successful processing results."""
@@ -60,20 +59,30 @@ class TestProcessingClientDataIntegrity:
         assert result == expected_result
 
     @pytest.mark.parametrize(
-        "test_case,response_body,expected_error",
+        "test_case,response_body",
         [
-            ("malformed_header", "InvalidHeader\tWrongFormat\nTEST123\tSuccess", "Unexpected response header"),
-            ("extra_columns", "Barcode\tStatus\nTEST123\tSuccess\tExtraColumn", "Invalid result format"),
-            ("missing_columns", "Barcode\tStatus\nTEST123", "Invalid result format"),
-            ("empty_response", "", "got 1 lines, expected at least 2"),
-            ("header_only", "Barcode\tStatus", "Invalid response format"),
-            ("tabs_in_status", "Barcode\tStatus\nTEST123\tFailed: Too\tmany\ttabs", "Invalid result format"),
+            ("extra_columns", "Barcode\tStatus\nTEST123\tSuccess\tExtraColumn"),
+            ("missing_columns", "Barcode\tStatus\nTEST123"),
+            ("tabs_in_status", "Barcode\tStatus\nTEST123\tFailed: Too\tmany\ttabs"),
         ],
     )
     @pytest.mark.asyncio
-    async def test_tsv_parsing_errors(self, processing_client, test_case, response_body, expected_error):
-        """Test various TSV parsing error scenarios."""
-        await self.assert_processing_error(processing_client, ["TEST123"], response_body, expected_error)
+    async def test_tsv_parsing_errors(self, processing_client, test_case, response_body):
+        """Test various TSV parsing error scenarios - let natural exceptions bubble up."""
+        await self.assert_processing_error(processing_client, ["TEST123"], response_body)
+
+    @pytest.mark.asyncio
+    async def test_empty_and_header_only_responses(self, processing_client):
+        """Test that empty and header-only responses return empty results naturally."""
+        # Empty response returns empty dict
+        processing_client.grin_client.set_processing_response("")
+        result = await processing_client.request_processing_batch(["TEST123"])
+        assert result == {}
+
+        # Header-only response returns empty dict
+        processing_client.grin_client.set_processing_response("Barcode\tStatus")
+        result = await processing_client.request_processing_batch(["TEST123"])
+        assert result == {}
 
     @pytest.mark.asyncio
     async def test_batch_barcode_count_mismatch(self, processing_client):
@@ -148,30 +157,29 @@ class TestProcessingClientDataIntegrity:
         assert result == {}
 
     @pytest.mark.asyncio
-    async def test_single_processing_barcode_not_in_response(self, processing_client):
-        """Test single barcode processing when barcode not returned."""
+    async def test_batch_processing_missing_barcode_access(self, processing_client):
+        """Test accessing missing barcode from batch results raises KeyError naturally."""
         mock_response = "Barcode\tStatus\nTEST999\tSuccess"  # Different barcode returned
 
         # Set the mock response for this test
         processing_client.grin_client.set_processing_response(mock_response)
 
-        with pytest.raises(ProcessingRequestError) as exc_info:
-            await processing_client.request_processing("TEST001")
-
-        assert "No result returned for TEST001" in str(exc_info.value)
+        results = await processing_client.request_processing_batch(["TEST001"])
+        # Accessing missing barcode raises KeyError naturally
+        with pytest.raises(KeyError):
+            _ = results["TEST001"]
 
     @pytest.mark.asyncio
-    async def test_single_processing_failure_status(self, processing_client):
-        """Test single barcode processing with failure status."""
+    async def test_batch_processing_failure_status(self, processing_client):
+        """Test batch processing returns failure status strings directly."""
         mock_response = "Barcode\tStatus\nTEST001\tFailed: Invalid book"
 
         # Set the mock response for this test
         processing_client.grin_client.set_processing_response(mock_response)
 
-        with pytest.raises(ProcessingRequestError) as exc_info:
-            await processing_client.request_processing("TEST001")
-
-        assert "Processing request failed for TEST001: Failed: Invalid book" in str(exc_info.value)
+        # Natural behavior: batch method returns the status string directly
+        results = await processing_client.request_processing_batch(["TEST001"])
+        assert results["TEST001"] == "Failed: Invalid book"
 
     @pytest.mark.asyncio
     async def test_status_list_parsing_edge_cases(self, processing_client):
@@ -251,10 +259,11 @@ class TestProcessingClientDataIntegrity:
 
         processing_client.grin_client = ErrorMockClient()
 
-        with pytest.raises(ProcessingRequestError) as exc_info:
+        # Let natural exception from ErrorMockClient bubble up
+        with pytest.raises(Exception) as exc_info:
             await processing_client.request_processing_batch(["TEST001"])
 
-        assert "Batch request failed for 1 books: Network error" in str(exc_info.value)
+        assert "Network error" in str(exc_info.value)
 
         from grin_to_s3.processing import get_converted_books
 

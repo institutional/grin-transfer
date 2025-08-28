@@ -35,7 +35,7 @@ class ConversionRequestHandler:
             - "unavailable": Cannot be converted
         """
         try:
-            from grin_to_s3.processing import ProcessingRequestError, request_conversion
+            from grin_to_s3.processing import request_conversion
 
             logger.info(f"[{barcode}] Requesting conversion for missing archive")
             result = await request_conversion(barcode, self.library_directory, self.secrets_dir)
@@ -58,20 +58,7 @@ class ConversionRequestHandler:
                 await mark_verified_unavailable(str(self.db_tracker.db_path), barcode, result)
                 return "unavailable"
 
-        except ProcessingRequestError as e:
-            error_msg = str(e).lower()
-            if (
-                "already being converted" in error_msg
-                or "already in process" in error_msg
-                or "already available" in error_msg
-            ):
-                logger.info(f"[{barcode}] Already being processed: {e}")
-                return "in_process"
-            else:
-                logger.error(f"[{barcode}] Conversion request failed: {e}")
-                await mark_verified_unavailable(str(self.db_tracker.db_path), barcode, str(e))
-                return "unavailable"
         except Exception as e:
-            logger.error(f"[{barcode}] Unexpected error during conversion request: {e}")
+            logger.error(f"[{barcode}] Conversion request failed: {e}")
             await mark_verified_unavailable(str(self.db_tracker.db_path), barcode, str(e))
             return "unavailable"

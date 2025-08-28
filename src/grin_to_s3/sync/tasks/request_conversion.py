@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 import aiohttp
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 
-from grin_to_s3.processing import ProcessingRequestError, request_conversion
+from grin_to_s3.processing import request_conversion
 
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
@@ -30,15 +30,8 @@ logger = logging.getLogger(__name__)
         retry_state.outcome
         and retry_state.outcome.failed
         and not (
-            (
-                isinstance(retry_state.outcome.exception(), aiohttp.ClientResponseError)
-                and getattr(retry_state.outcome.exception(), "status", None) == 429
-            )
-            or (
-                isinstance(retry_state.outcome.exception(), ProcessingRequestError)
-                and "429" in str(retry_state.outcome.exception())
-                and "Too Many Requests" in str(retry_state.outcome.exception())
-            )
+            isinstance(retry_state.outcome.exception(), aiohttp.ClientResponseError)
+            and getattr(retry_state.outcome.exception(), "status", None) == 429
         )
     ),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -111,18 +104,4 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
             # Re-raise other HTTP errors for task failure
             raise
 
-    except ProcessingRequestError as e:
-        # Handle ProcessingRequestError that wraps 429 errors
-        if "429" in str(e) and "Too Many Requests" in str(e):
-            logger.warning(f"[{barcode}] GRIN queue limit reached (429 Too Many Requests)")
-            return RequestConversionResult(
-                barcode=barcode,
-                task_type=TaskType.REQUEST_CONVERSION,
-                action=TaskAction.FAILED,  # FAILED triggers sequential failure counter
-                data={"conversion_status": "queue_limit_reached", "request_count": pipeline.conversion_requests_made},
-                reason="fail_queue_limit_reached",
-            )
-        else:
-            # Re-raise other ProcessingRequestError for task failure
-            raise
-
+    # All other exceptions bubble up naturally
