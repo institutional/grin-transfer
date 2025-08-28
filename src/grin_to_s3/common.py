@@ -35,7 +35,7 @@ type BarcodeSet = set[str]
 
 # HTTP Client Configuration
 DEFAULT_TIMEOUT = 60
-DEFAULT_CONNECTOR_LIMITS = {"limit": 10, "limit_per_host": 5}
+HTTP_CONNECTION_POOL_LIMITS = {"limit": 10, "limit_per_host": 5}
 
 DEFAULT_COMPRESSION_LEVEL = 1  # Fastest
 
@@ -632,7 +632,7 @@ async def check_minio_connectivity(storage_config: dict) -> None:
     try:
         timeout_config = aiohttp.ClientTimeout(total=5, connect=10)
         connector = aiohttp.TCPConnector(
-            limit=DEFAULT_CONNECTOR_LIMITS["limit"], limit_per_host=DEFAULT_CONNECTOR_LIMITS["limit_per_host"]
+            limit=HTTP_CONNECTION_POOL_LIMITS["limit"], limit_per_host=HTTP_CONNECTION_POOL_LIMITS["limit_per_host"]
         )
 
         async with aiohttp.ClientSession(timeout=timeout_config, connector=connector) as session:

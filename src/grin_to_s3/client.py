@@ -14,7 +14,7 @@ from selectolax.lexbor import LexborHTMLParser
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_fixed
 
 from grin_to_s3.auth import GRINAuth
-from grin_to_s3.common import DEFAULT_CONNECTOR_LIMITS
+from grin_to_s3.common import HTTP_CONNECTION_POOL_LIMITS
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class GRINClient:
         """Ensure session exists, creating it if necessary."""
         if self.session is None:
             connector = aiohttp.TCPConnector(
-                limit=DEFAULT_CONNECTOR_LIMITS["limit"], limit_per_host=DEFAULT_CONNECTOR_LIMITS["limit_per_host"]
+                limit=HTTP_CONNECTION_POOL_LIMITS["limit"], limit_per_host=HTTP_CONNECTION_POOL_LIMITS["limit_per_host"]
             )
             timeout_config = aiohttp.ClientTimeout(total=self.timeout, connect=10)
             self.session = aiohttp.ClientSession(connector=connector, timeout=timeout_config)
