@@ -8,6 +8,9 @@ Handles conversion requests for missing archives during sync operations.
 import logging
 from typing import TYPE_CHECKING
 
+import aiohttp
+from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
+
 from grin_to_s3.processing import ProcessingRequestError, request_conversion
 
 if TYPE_CHECKING:
@@ -18,10 +21,35 @@ from .task_types import RequestConversionResult, TaskAction, TaskType
 logger = logging.getLogger(__name__)
 
 
+# Retry conversion requests with exponential backoff for transient failures
+# Retry schedule: immediate, 2s, 4s (total ~6s across 3 attempts)
+# Note: 429 errors are excluded from retry as they indicate queue is full
+@retry(
+    stop=stop_after_attempt(3),
+    retry=lambda retry_state: bool(
+        retry_state.outcome
+        and retry_state.outcome.failed
+        and not (
+            (
+                isinstance(retry_state.outcome.exception(), aiohttp.ClientResponseError)
+                and getattr(retry_state.outcome.exception(), "status", None) == 429
+            )
+            or (
+                isinstance(retry_state.outcome.exception(), ProcessingRequestError)
+                and "429" in str(retry_state.outcome.exception())
+                and "Too Many Requests" in str(retry_state.outcome.exception())
+            )
+        )
+    ),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
 async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResult:
     """Request conversion for a missing archive."""
 
     logger.info(f"[{barcode}] Requesting conversion for missing archive")
+
     try:
         result = await request_conversion(barcode, pipeline.library_directory, pipeline.secrets_dir)
         pipeline.conversion_requests_made += 1
@@ -67,8 +95,24 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
                 data={"conversion_status": "unavailable", "request_count": pipeline.conversion_requests_made},
                 reason="skip_verified_unavailable",
             )
+
+    except aiohttp.ClientResponseError as e:
+        # Handle 429 errors after retries are exhausted
+        if e.status == 429:
+            logger.warning(f"[{barcode}] GRIN queue limit reached (429 Too Many Requests)")
+            return RequestConversionResult(
+                barcode=barcode,
+                task_type=TaskType.REQUEST_CONVERSION,
+                action=TaskAction.FAILED,  # FAILED triggers sequential failure counter
+                data={"conversion_status": "queue_limit_reached", "request_count": pipeline.conversion_requests_made},
+                reason="fail_queue_limit_reached",
+            )
+        else:
+            # Re-raise other HTTP errors for task failure
+            raise
+
     except ProcessingRequestError as e:
-        # Check if this is a 429 "Too Many Requests" error
+        # Handle ProcessingRequestError that wraps 429 errors
         if "429" in str(e) and "Too Many Requests" in str(e):
             logger.warning(f"[{barcode}] GRIN queue limit reached (429 Too Many Requests)")
             return RequestConversionResult(
@@ -81,3 +125,4 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
         else:
             # Re-raise other ProcessingRequestError for task failure
             raise
+
