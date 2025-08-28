@@ -313,8 +313,6 @@ class TestDownloadStorageParametrization:
         pipeline = MagicMock()
         pipeline.grin_client = mock_grin_client
         pipeline.library_directory = "TestLib"
-        pipeline.download_timeout = 300
-        pipeline.download_retries = 3
         pipeline.filesystem_manager = filesystem_manager
 
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -27,10 +27,6 @@ def mock_pipeline():
         pipeline.start_time = 1234567890
         pipeline.force = False  # Default to False for normal skip behavior
 
-        # Download/upload settings
-        pipeline.download_timeout = 300
-        pipeline.download_retries = 3
-
         # Mock grin client with auth
         pipeline.grin_client = MagicMock(spec=GRINClient)
         pipeline.grin_client.auth = MagicMock()
