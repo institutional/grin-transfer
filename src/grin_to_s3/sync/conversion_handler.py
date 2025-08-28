@@ -22,27 +22,20 @@ class ConversionRequestHandler:
         self.secrets_dir = secrets_dir
         self.requests_made = 0
 
-    async def handle_missing_archive(self, barcode: str, request_limit: int) -> str:
+    async def handle_missing_archive(self, barcode: str) -> str:
         """Handle archive that returned 404.
 
         Args:
             barcode: Book barcode that returned 404
-            request_limit: Maximum number of conversion requests allowed
 
         Returns:
             Status string:
             - "requested": Conversion requested successfully
             - "in_process": Already being processed
             - "unavailable": Cannot be converted
-            - "limit_reached": At request limit
         """
-        # Check if under request limit
-        if self.requests_made >= request_limit:
-            logger.info(f"[{barcode}] Conversion request limit reached ({request_limit})")
-            return "limit_reached"
-
         try:
-            from grin_to_s3.processing import ProcessingRequestError, request_conversion
+            from grin_to_s3.processing import request_conversion
 
             logger.info(f"[{barcode}] Requesting conversion for missing archive")
             result = await request_conversion(barcode, self.library_directory, self.secrets_dir)
@@ -65,20 +58,7 @@ class ConversionRequestHandler:
                 await mark_verified_unavailable(str(self.db_tracker.db_path), barcode, result)
                 return "unavailable"
 
-        except ProcessingRequestError as e:
-            error_msg = str(e).lower()
-            if (
-                "already being converted" in error_msg
-                or "already in process" in error_msg
-                or "already available" in error_msg
-            ):
-                logger.info(f"[{barcode}] Already being processed: {e}")
-                return "in_process"
-            else:
-                logger.error(f"[{barcode}] Conversion request failed: {e}")
-                await mark_verified_unavailable(str(self.db_tracker.db_path), barcode, str(e))
-                return "unavailable"
         except Exception as e:
-            logger.error(f"[{barcode}] Unexpected error during conversion request: {e}")
+            logger.error(f"[{barcode}] Conversion request failed: {e}")
             await mark_verified_unavailable(str(self.db_tracker.db_path), barcode, str(e))
             return "unavailable"

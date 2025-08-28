@@ -126,11 +126,25 @@ async def request_conversion_skipped(result: TaskResult, previous_results: dict[
         case "skip_already_in_process":
             return {"status": ("conversion", "in_process", metadata), "books": {}}
         case "skip_verified_unavailable":
-            return {"status": ("conversion", "unavailable", metadata), "books": {"verified_unavailable": 1}}
-        case "skip_conversion_limit_reached":
-            return {"status": ("conversion", "limit_reached", metadata), "books": {}}
+            return {"status": ("conversion", "unavailable", metadata), "books": {}}
         case _:
             return {"status": ("conversion", "skipped", metadata), "books": {}}
+
+
+@on(TaskType.REQUEST_CONVERSION, TaskAction.FAILED)
+async def request_conversion_failed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    metadata = {}
+    if result.data:
+        metadata.update(result.data)
+    if result.reason:
+        metadata["reason"] = result.reason
+
+    # Different status based on failure reason
+    match result.reason:
+        case "fail_queue_limit_reached":
+            return {"status": ("conversion", "limit_reached", metadata), "books": {}}
+        case _:
+            return {"status": ("conversion", "failed", metadata), "books": {}}
 
 
 @on(TaskType.DOWNLOAD, TaskAction.COMPLETED, status_value="downloading")

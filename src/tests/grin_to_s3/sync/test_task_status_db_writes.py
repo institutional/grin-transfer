@@ -432,3 +432,154 @@ class TestRealDatabaseIntegration:
             assert metadata.get("conversion_status") == "requested"
             assert metadata.get("request_count") == 1
             assert metadata.get("reason") == "skip_conversion_requested"
+
+    @pytest.mark.asyncio
+    async def test_request_conversion_429_limit_reached_database_tracking(self, real_db_pipeline):
+        """429 responses from GRIN should be tracked as conversion limit_reached in database."""
+        task_manager = TaskManager({TaskType.REQUEST_CONVERSION: 1})
+
+        async def mock_429_request_conversion():
+            """Simulate 429 response from GRIN queue limit."""
+            from grin_to_s3.sync.tasks.task_types import RequestConversionResult
+
+            return RequestConversionResult(
+                barcode="TEST123",
+                task_type=TaskType.REQUEST_CONVERSION,
+                action=TaskAction.FAILED,  # FAILED increments sequential failure counter
+                data={"conversion_status": "queue_limit_reached", "request_count": 50},
+                reason="fail_queue_limit_reached",  # This is the key reason for 429 responses
+            )
+
+        previous_results = {}
+        await task_manager.run_task(
+            TaskType.REQUEST_CONVERSION, "TEST123", mock_429_request_conversion, real_db_pipeline, previous_results
+        )
+
+        # Commit accumulated updates to the real database
+        conn = await real_db_pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
+
+        # Verify 429 limit reached status was recorded in database
+        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
+            cursor = await db.execute(
+                "SELECT barcode, status_type, status_value, metadata FROM book_status_history WHERE barcode = ? AND status_type = ?",
+                ("TEST123", "conversion"),
+            )
+            row = await cursor.fetchone()
+
+            assert row is not None
+            assert row[0] == "TEST123"  # barcode
+            assert row[1] == "conversion"  # status_type
+            assert row[2] == "limit_reached"  # status_value - this is what we're testing!
+
+            # Verify metadata contains GRIN limit details
+            metadata = json.loads(row[3]) if row[3] else {}
+            assert metadata.get("conversion_status") == "queue_limit_reached"
+            assert metadata.get("request_count") == 50
+            assert metadata.get("reason") == "fail_queue_limit_reached"
+
+        # Also verify that no books table fields were updated (FAILED tasks shouldn't update processing timestamp)
+        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
+            cursor = await db.execute("SELECT processing_request_timestamp FROM books WHERE barcode = ?", ("TEST123",))
+            row = await cursor.fetchone()
+
+            assert row is not None
+            # processing_request_timestamp should remain NULL for failed conversion requests
+            assert row[0] is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "reason,expected_status,expected_books_updates,test_description",
+        [
+            (
+                "skip_already_in_process",
+                ("conversion", "in_process"),
+                {},
+                "Books already being processed should have in_process status with no books table updates",
+            ),
+            (
+                "skip_verified_unavailable",
+                ("conversion", "unavailable"),
+                {},
+                "Unavailable books should have unavailable status with no books table updates",
+            ),
+            (
+                "skip_already_available",
+                ("conversion", "skipped"),
+                {},
+                "Books already available should have skipped status with no books table updates",
+            ),
+            (
+                "fail_generic_error",
+                ("conversion", "failed"),
+                {},
+                "Generic conversion failures should have failed status with no books table updates",
+            ),
+        ],
+    )
+    async def test_request_conversion_database_write_cases(
+        self, real_db_pipeline, reason, expected_status, expected_books_updates, test_description
+    ):
+        """Test all REQUEST_CONVERSION database write cases with different reasons."""
+        task_manager = TaskManager({TaskType.REQUEST_CONVERSION: 1})
+
+        async def mock_request_conversion():
+            """Create REQUEST_CONVERSION result based on the test case."""
+            from grin_to_s3.sync.tasks.task_types import RequestConversionResult
+
+            # Determine action based on reason
+            action = TaskAction.FAILED if reason.startswith("fail_") else TaskAction.SKIPPED
+
+            return RequestConversionResult(
+                barcode="TEST123",
+                task_type=TaskType.REQUEST_CONVERSION,
+                action=action,
+                data={"conversion_status": reason.replace("skip_", "").replace("fail_", ""), "request_count": 25},
+                reason=reason,
+            )
+
+        previous_results = {}
+        await task_manager.run_task(
+            TaskType.REQUEST_CONVERSION, "TEST123", mock_request_conversion, real_db_pipeline, previous_results
+        )
+
+        # Commit accumulated updates to the real database
+        conn = await real_db_pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
+
+        # Verify expected status was recorded in database
+        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
+            cursor = await db.execute(
+                "SELECT barcode, status_type, status_value, metadata FROM book_status_history WHERE barcode = ? AND status_type = ?",
+                ("TEST123", "conversion"),
+            )
+            row = await cursor.fetchone()
+
+            assert row is not None, f"Status record not found for {reason}"
+            assert row[0] == "TEST123"  # barcode
+            assert row[1] == expected_status[0]  # status_type
+            assert row[2] == expected_status[1]  # status_value
+
+            # Verify metadata contains the reason
+            metadata = json.loads(row[3]) if row[3] else {}
+            assert metadata.get("reason") == reason
+
+        # Verify books table updates match expectations
+        if expected_books_updates:
+            async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
+                for field_name, expected_value in expected_books_updates.items():
+                    cursor = await db.execute(f"SELECT {field_name} FROM books WHERE barcode = ?", ("TEST123",))
+                    row = await cursor.fetchone()
+
+                    assert row is not None, f"Book record not found for {reason}"
+                    assert row[0] == expected_value, f"{field_name} should be {expected_value} for {reason}"
+        else:
+            # Verify no unexpected books table updates (processing_request_timestamp should remain NULL)
+            async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
+                cursor = await db.execute(
+                    "SELECT processing_request_timestamp FROM books WHERE barcode = ?", ("TEST123",)
+                )
+                row = await cursor.fetchone()
+
+                assert row is not None, f"Book record not found for {reason}"
+                assert row[0] is None, f"processing_request_timestamp should remain NULL for {reason}"

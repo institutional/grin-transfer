@@ -36,7 +36,7 @@ from grin_to_s3.process_summary import (
 )
 from grin_to_s3.run_config import apply_run_config_to_args, find_run_config, setup_run_database_path
 
-from .constants import DEFAULT_CONVERSION_REQUEST_LIMIT, GRIN_RATE_LIMIT_DELAY
+from .constants import GRIN_RATE_LIMIT_DELAY
 from .database import connect_async, connect_sync
 from .queue_utils import get_converted_books, get_in_process_set
 
@@ -59,10 +59,6 @@ async def parse_failed_books_response(grin_client, library_directory: str) -> Ba
     response_text = await grin_client.fetch_resource(library_directory, "_failed?format=text")
     lines = response_text.strip().split("\n")
     return {line.strip() for line in lines if line.strip()}
-
-
-class ProcessingRequestError(Exception):
-    """Raised when book processing request fails."""
 
 
 class ProcessingClient:
@@ -112,81 +108,38 @@ class ProcessingClient:
 
         await self.rate_limiter.acquire()
 
-        try:
-            # Use GRIN's _process endpoint with comma-separated barcodes
-            barcodes_param = ",".join(barcodes)
-            process_url = f"_process?barcodes={barcodes_param}"
-            response_text = await self.grin_client.fetch_resource(self.directory, process_url)
+        # Use GRIN's _process endpoint with comma-separated barcodes
+        barcodes_param = ",".join(barcodes)
+        process_url = f"_process?barcodes={barcodes_param}"
+        response_text = await self.grin_client.fetch_resource(self.directory, process_url)
 
-            # Log full GRIN response for debugging
-            logger.debug(f"Full GRIN response for {len(barcodes)} barcodes:\n{response_text}")
+        # Log full GRIN response for debugging
+        logger.debug(f"Full GRIN response for {len(barcodes)} barcodes:\n{response_text}")
 
-            # Parse TSV response (should be "Barcode\tStatus" format)
-            lines = response_text.strip().split("\n")
-            if len(lines) < 2:
-                raise ProcessingRequestError(f"Invalid response format: got {len(lines)} lines, expected at least 2")
+        # Parse TSV response ("Barcode\tStatus" format)
+        lines = response_text.strip().split("\n")
+        result_lines = lines[1:]  # Skip header
 
-            # Check header
-            header = lines[0]
-            expected_header = "Barcode\tStatus"
-            if header != expected_header:
-                raise ProcessingRequestError(f"Unexpected response header: '{header}', expected '{expected_header}'")
+        if len(result_lines) != len(barcodes):
+            logger.warning(f"Expected {len(barcodes)} result lines, got {len(result_lines)}")
 
-            # Parse results for all barcodes
-            results = {}
-            result_lines = lines[1:]
+        results = {}
+        for line in result_lines:
+            if not line.strip():
+                continue
 
-            if len(result_lines) != len(barcodes):
-                logger.warning(f"Expected {len(barcodes)} result lines, got {len(result_lines)}")
+            parts = line.split("\t")
+            returned_barcode, status = parts  # Let IndexError bubble up for malformed lines
+            # Strip whitespace from barcode - barcodes should be clean identifiers
+            returned_barcode = returned_barcode.strip()
+            results[returned_barcode] = status
 
-            for line in result_lines:
-                if not line.strip():
-                    continue
-
-                parts = line.split("\t")
-                if len(parts) != 2:
-                    raise ProcessingRequestError(f"Invalid result format: '{line}'")
-
-                returned_barcode, status = parts
-                # Strip whitespace from barcode - barcodes should be clean identifiers
-                returned_barcode = returned_barcode.strip()
-                results[returned_barcode] = status
-
-                if status == "Success":
-                    logger.debug(f"Successfully requested processing for {returned_barcode}")
-                else:
-                    logger.warning(f"Processing request failed for {returned_barcode}: {status}")
-
-            return results
-
-        except Exception as e:
-            if isinstance(e, ProcessingRequestError):
-                raise
+            if status == "Success":
+                logger.debug(f"Successfully requested processing for {returned_barcode}")
             else:
-                raise ProcessingRequestError(f"Batch request failed for {len(barcodes)} books: {e}") from e
+                logger.warning(f"Processing request failed for {returned_barcode}: {status}")
 
-    async def request_processing(self, barcode: str) -> str:
-        """
-        Request processing for a single book (wrapper around batch method).
-
-        Args:
-            barcode: Book barcode to request processing for
-
-        Returns:
-            Success status message
-
-        Raises:
-            ProcessingRequestError: If the request fails
-        """
-        results = await self.request_processing_batch([barcode])
-        if barcode not in results:
-            raise ProcessingRequestError(f"No result returned for {barcode}")
-
-        status = results[barcode]
-        if status != "Success":
-            raise ProcessingRequestError(f"Processing request failed for {barcode}: {status}")
-
-        return status
+        return results
 
     async def get_in_process_books(self) -> BarcodeSet:
         """Get list of books currently in processing queue."""
@@ -528,7 +481,7 @@ class ProcessingPipeline:
                     "elapsed": batch_elapsed,
                 }
 
-            except ProcessingRequestError as e:
+            except Exception as e:
                 batch_elapsed = time.time() - batch_start
                 logger.error(f"Batch {batch_num} processing request failed: {e}")
                 print(f"❌ Batch {batch_num} failed: {e}")
@@ -764,7 +717,6 @@ class ProcessingMonitor:
         # Calculate totals
         our_total_processed = len(our_converted) + len(our_in_process) + len(our_failed)
         all_total_processed = len(all_converted) + len(all_in_process) + len(all_failed)
-        queue_space = DEFAULT_CONVERSION_REQUEST_LIMIT - len(all_in_process)
 
         print("Books from this run:")
         print(f"  Converted (ready for download): {len(our_converted):>8,}")
@@ -777,7 +729,6 @@ class ProcessingMonitor:
         print(f"  In process (being converted):   {len(all_in_process):>8,}")
         print(f"  Failed (conversion failed):     {len(all_failed):>8,}")
         print(f"  Total processed:                {all_total_processed:>8,}")
-        print(f"  Queue space available:          {queue_space:>8,}")
 
     async def show_converted_books(self, limit: int = 50) -> None:
         """Show list of converted books ready for download."""
@@ -1028,8 +979,8 @@ async def cmd_request(args) -> None:
     )
     logger.info(f"Command: {' '.join(sys.argv)}")
 
-    # Extract run name from database path
-    run_name = Path(args.db_path).parent.name
+    # Get run name from run config
+    run_name = run_config.run_name
 
     # Create book storage for process summary uploads
     book_manager = await create_book_manager_for_uploads(run_name)
@@ -1348,12 +1299,15 @@ async def request_conversion(barcode: str, library_directory: str, secrets_dir: 
         Status message from GRIN
 
     Raises:
-        ProcessingRequestError: If the request fails
+        KeyError: If barcode not found in results
+        aiohttp.ClientResponseError: For HTTP errors (including 429 Too Many Requests)
+        IndexError: For malformed response format
     """
     processing_client = _create_processing_client(library_directory, secrets_dir)
 
     try:
-        return await processing_client.request_processing(barcode)
+        results = await processing_client.request_processing_batch([barcode])
+        return results[barcode]  # Let KeyError bubble up if barcode missing
     finally:
         await processing_client.cleanup()
 
@@ -1372,7 +1326,8 @@ async def request_conversions_batch(
         Dict mapping barcode to status message
 
     Raises:
-        ProcessingRequestError: If the request fails
+        aiohttp.ClientResponseError: For HTTP errors (including 429 Too Many Requests)
+        IndexError: For malformed response format
     """
     processing_client = _create_processing_client(library_directory, secrets_dir)
 

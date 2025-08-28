@@ -108,7 +108,7 @@ class ExportCsvData(TypedDict):
 class RequestConversionData(TypedDict):
     """Data from REQUEST_CONVERSION task."""
 
-    conversion_status: Literal["requested", "in_process", "unavailable", "limit_reached"]
+    conversion_status: Literal["requested", "in_process", "unavailable", "queue_limit_reached", "already_available"]
     request_count: int
 
 
@@ -173,11 +173,11 @@ REASONS = Literal[
     "completed_match_with_force",
     "fail_archive_missing",
     "fail_no_marc_metadata",
+    "fail_queue_limit_reached",
     "fail_unexpected_http_status_code",
+    "skip_already_available",
     "skip_already_in_process",
-    "skip_already_in_progress",
     "skip_archive_missing_from_grin",
-    "skip_conversion_limit_reached",
     "skip_conversion_requested",
     "skip_csv_export",
     "skip_database_backup_flag",
