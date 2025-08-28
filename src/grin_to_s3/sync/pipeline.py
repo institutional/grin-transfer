@@ -14,7 +14,7 @@ from typing import Any
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import pluralize
-from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT
+from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT, DEFAULT_MAX_SEQUENTIAL_FAILURES
 from grin_to_s3.queue_utils import get_converted_books, get_in_process_set
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config
@@ -107,7 +107,7 @@ class SyncPipeline:
         skip_csv_export: bool = False,
         skip_staging_cleanup: bool = False,
         skip_database_backup: bool = False,
-        max_sequential_failures: int = 10,
+        max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
         task_concurrency_overrides: dict[str, int] | None = None,
         worker_count: int = 20,
         progress_interval: int = 20,
@@ -159,7 +159,7 @@ class SyncPipeline:
         skip_csv_export: bool = False,
         skip_staging_cleanup: bool = False,
         skip_database_backup: bool = False,
-        max_sequential_failures: int = 10,
+        max_sequential_failures: int = DEFAULT_MAX_SEQUENTIAL_FAILURES,
         task_concurrency_overrides: dict[str, int] | None = None,
         worker_count: int = 100,
         progress_interval: int = 20,
