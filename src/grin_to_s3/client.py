@@ -14,9 +14,11 @@ from selectolax.lexbor import LexborHTMLParser
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_fixed
 
 from grin_to_s3.auth import GRINAuth
-from grin_to_s3.common import HTTP_CONNECTION_POOL_LIMITS
 
 logger = logging.getLogger(__name__)
+
+# HTTP connection pool limits for GRIN client
+HTTP_CONNECTION_POOL_LIMITS = {"limit": 10, "limit_per_host": 5}
 
 ALL_BOOKS_ENDPOINT = "_all_books"
 
