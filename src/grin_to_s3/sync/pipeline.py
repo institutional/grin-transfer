@@ -13,8 +13,10 @@ from typing import Any
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.common import pluralize
-from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT, DEFAULT_MAX_SEQUENTIAL_FAILURES
+from grin_to_s3.common import (
+    pluralize,
+)
+from grin_to_s3.constants import DEFAULT_MAX_SEQUENTIAL_FAILURES
 from grin_to_s3.queue_utils import get_converted_books, get_in_process_set
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config
@@ -236,7 +238,6 @@ class SyncPipeline:
         # Conversion request handling for previous queue
         self.current_queues: list[str] = []  # Track which queues are being processed
         self.conversion_handler: ConversionRequestHandler | None = None  # Lazy initialization
-        self.conversion_request_limit = DEFAULT_CONVERSION_REQUEST_LIMIT
         self.conversion_requests_made = 0
         self.book_manager = BookManager(
             self.storage, storage_config=self.config.storage_config, base_prefix=self.base_prefix
@@ -613,9 +614,7 @@ class SyncPipeline:
             self.process_summary_stage.queue_info["specific_barcodes"] = len(specific_barcodes)
 
         # Store conversion request statistics if available
-        if self.conversion_handler and self.conversion_requests_made > 0:
-            self.process_summary_stage.queue_info["conversion_requests"] = self.conversion_requests_made
-            self.process_summary_stage.queue_info["conversion_limit"] = self.conversion_request_limit
+        self.process_summary_stage.queue_info["conversion_requests"] = self.conversion_requests_made
 
     async def cleanup(self):
         """Clean up pipeline resources."""

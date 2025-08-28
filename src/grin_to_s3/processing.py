@@ -36,7 +36,7 @@ from grin_to_s3.process_summary import (
 )
 from grin_to_s3.run_config import apply_run_config_to_args, find_run_config, setup_run_database_path
 
-from .constants import DEFAULT_CONVERSION_REQUEST_LIMIT, GRIN_RATE_LIMIT_DELAY
+from .constants import GRIN_RATE_LIMIT_DELAY
 from .database import connect_async, connect_sync
 from .queue_utils import get_converted_books, get_in_process_set
 
@@ -764,7 +764,6 @@ class ProcessingMonitor:
         # Calculate totals
         our_total_processed = len(our_converted) + len(our_in_process) + len(our_failed)
         all_total_processed = len(all_converted) + len(all_in_process) + len(all_failed)
-        queue_space = DEFAULT_CONVERSION_REQUEST_LIMIT - len(all_in_process)
 
         print("Books from this run:")
         print(f"  Converted (ready for download): {len(our_converted):>8,}")
@@ -777,7 +776,6 @@ class ProcessingMonitor:
         print(f"  In process (being converted):   {len(all_in_process):>8,}")
         print(f"  Failed (conversion failed):     {len(all_failed):>8,}")
         print(f"  Total processed:                {all_total_processed:>8,}")
-        print(f"  Queue space available:          {queue_space:>8,}")
 
     async def show_converted_books(self, limit: int = 50) -> None:
         """Show list of converted books ready for download."""

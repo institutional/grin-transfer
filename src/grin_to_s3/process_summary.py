@@ -769,15 +769,14 @@ def _display_sync_details(step: ProcessStageMetrics) -> None:
         limit = step.queue_info.get("limit")
         specific_barcodes = step.queue_info.get("specific_barcodes")
         conversion_requests = step.queue_info.get("conversion_requests")
-        conversion_limit = step.queue_info.get("conversion_limit")
 
         if limit:
             print(f"  Limit: {limit:,} books")
         elif specific_barcodes:
             print(f"  Specific barcodes: {specific_barcodes} books")
 
-        if conversion_requests and conversion_limit:
-            print(f"  Conversion requests: {conversion_requests:,}/{conversion_limit:,}")
+        if conversion_requests:
+            print(f"  Conversion requests: {conversion_requests:,}")
 
     # Display book outcomes
     if step.book_outcomes:

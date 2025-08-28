@@ -22,25 +22,18 @@ class ConversionRequestHandler:
         self.secrets_dir = secrets_dir
         self.requests_made = 0
 
-    async def handle_missing_archive(self, barcode: str, request_limit: int) -> str:
+    async def handle_missing_archive(self, barcode: str) -> str:
         """Handle archive that returned 404.
 
         Args:
             barcode: Book barcode that returned 404
-            request_limit: Maximum number of conversion requests allowed
 
         Returns:
             Status string:
             - "requested": Conversion requested successfully
             - "in_process": Already being processed
             - "unavailable": Cannot be converted
-            - "limit_reached": At request limit
         """
-        # Check if under request limit
-        if self.requests_made >= request_limit:
-            logger.info(f"[{barcode}] Conversion request limit reached ({request_limit})")
-            return "limit_reached"
-
         try:
             from grin_to_s3.processing import ProcessingRequestError, request_conversion
 
