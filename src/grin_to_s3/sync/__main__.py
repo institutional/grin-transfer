@@ -124,43 +124,6 @@ def _setup_signal_handlers(pipeline, sync_stage) -> None:
     signal.signal(signal.SIGTERM, signal_handler)
 
 
-async def _run_sync_pipeline(args, run_config: RunConfig, sync_stage) -> None:
-    """Execute the main sync pipeline logic."""
-    # Parse and validate barcodes
-    specific_barcodes = _parse_and_validate_barcodes(args, sync_stage)
-
-    # Apply single-book optimization if needed
-    run_config = _apply_single_book_optimization(run_config, specific_barcodes, sync_stage)
-
-    # Create pipeline with final configuration
-    pipeline = SyncPipeline.from_run_config(
-        config=run_config,
-        process_summary_stage=sync_stage,
-        force=args.force,
-        dry_run=args.dry_run,
-        skip_extract_ocr=args.skip_extract_ocr,
-        skip_extract_marc=args.skip_extract_marc,
-        skip_csv_export=args.skip_csv_export,
-        skip_staging_cleanup=args.skip_staging_cleanup,
-        skip_database_backup=args.skip_database_backup,
-        max_sequential_failures=args.max_sequential_failures,
-        task_concurrency_overrides=_collect_task_concurrency_overrides(args),
-        worker_count=args.workers,
-    )
-
-    # Set up signal handlers for graceful shutdown
-    _setup_signal_handlers(pipeline, sync_stage)
-
-    try:
-        # Execute the sync pipeline
-        sync_stage.add_progress_update("Starting sync pipeline")
-        await pipeline.setup_sync_loop(queues=args.queue, limit=args.limit, specific_barcodes=specific_barcodes)
-        sync_stage.add_progress_update("Sync pipeline completed successfully")
-    finally:
-        # Clean up pipeline resources
-        await pipeline.cleanup()
-
-
 def _handle_pipeline_error(e: Exception, sync_stage) -> None:
     """Handle pipeline execution errors."""
     if isinstance(e, KeyboardInterrupt):
@@ -352,8 +315,39 @@ async def cmd_pipeline(args) -> None:
                 "prefix": "",
             }
 
-        # Execute the main sync pipeline
-        await _run_sync_pipeline(args, run_config, sync_stage)
+        # Parse and validate barcodes
+        specific_barcodes = _parse_and_validate_barcodes(args, sync_stage)
+
+        # Apply single-book optimization if needed
+        run_config = _apply_single_book_optimization(run_config, specific_barcodes, sync_stage)
+
+        # Create pipeline with final configuration
+        pipeline = SyncPipeline.from_run_config(
+            config=run_config,
+            process_summary_stage=sync_stage,
+            force=args.force,
+            dry_run=args.dry_run,
+            skip_extract_ocr=args.skip_extract_ocr,
+            skip_extract_marc=args.skip_extract_marc,
+            skip_csv_export=args.skip_csv_export,
+            skip_staging_cleanup=args.skip_staging_cleanup,
+            skip_database_backup=args.skip_database_backup,
+            max_sequential_failures=args.max_sequential_failures,
+            task_concurrency_overrides=task_concurrency_overrides,
+            worker_count=args.workers,
+        )
+
+        # Set up signal handlers for graceful shutdown
+        _setup_signal_handlers(pipeline, sync_stage)
+
+        try:
+            # Execute the sync pipeline
+            sync_stage.add_progress_update("Starting sync pipeline")
+            await pipeline.setup_sync_loop(queues=args.queue, limit=args.limit, specific_barcodes=specific_barcodes)
+            sync_stage.add_progress_update("Sync pipeline completed successfully")
+        finally:
+            # Clean up pipeline resources
+            await pipeline.cleanup()
 
     except Exception as e:
         # Handle all pipeline errors with appropriate error recording

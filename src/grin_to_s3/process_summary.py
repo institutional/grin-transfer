@@ -44,12 +44,18 @@ class ProcessStageMetrics:
     conversion_requests_failed: int = 0
     conversion_request_rate_per_hour: float = 0.0
 
-    # Sync stage metrics
+    # Sync stage metrics (cumulative)
     books_synced: int = 0
     sync_skipped: int = 0  # Already synced/etag match
     sync_failed: int = 0
     conversions_requested_during_sync: int = 0  # Sent for conversion
     sync_rate_per_hour: float = 0.0
+
+    # Current session sync metrics (reset each pipeline run)
+    session_books_synced: int = 0
+    session_sync_skipped: int = 0
+    session_sync_failed: int = 0
+    session_conversions_requested: int = 0
 
     # Enrichment stage metrics
     books_enriched: int = 0
@@ -211,12 +217,24 @@ class ProcessStageMetrics:
         """Increment counters based on book outcome (for sync stage)."""
         if outcome == "synced":
             self.books_synced += 1
+            self.session_books_synced += 1
         elif outcome == "skipped":
             self.sync_skipped += 1
+            self.session_sync_skipped += 1
         elif outcome == "conversion_requested":
             self.conversions_requested_during_sync += 1
+            self.session_conversions_requested += 1
         elif outcome == "failed":
             self.sync_failed += 1
+            self.session_sync_failed += 1
+
+    def reset_session_metrics(self) -> None:
+        """Reset session-specific metrics at the start of a new pipeline run."""
+        if self.stage_name == "sync":
+            self.session_books_synced = 0
+            self.session_sync_skipped = 0
+            self.session_sync_failed = 0
+            self.session_conversions_requested = 0
 
 
 @dataclass
@@ -364,6 +382,10 @@ class RunSummary:
                         "sync_failed": stage.sync_failed,
                         "conversions_requested_during_sync": stage.conversions_requested_during_sync,
                         "sync_rate_per_hour": stage.sync_rate_per_hour,
+                        "session_books_synced": stage.session_books_synced,
+                        "session_sync_skipped": stage.session_sync_skipped,
+                        "session_sync_failed": stage.session_sync_failed,
+                        "session_conversions_requested": stage.session_conversions_requested,
                     }
                     if stage_name == "sync"
                     else {}
@@ -559,12 +581,17 @@ class RunSummaryManager:
                 conversion_requests_made=stage_data.get("conversion_requests_made", 0),
                 conversion_requests_failed=stage_data.get("conversion_requests_failed", 0),
                 conversion_request_rate_per_hour=stage_data.get("conversion_request_rate_per_hour", 0.0),
-                # Sync stage metrics
+                # Sync stage metrics (cumulative)
                 books_synced=stage_data.get("books_synced", 0),
                 sync_skipped=stage_data.get("sync_skipped", 0),
                 sync_failed=stage_data.get("sync_failed", 0),
                 conversions_requested_during_sync=stage_data.get("conversions_requested_during_sync", 0),
                 sync_rate_per_hour=stage_data.get("sync_rate_per_hour", 0.0),
+                # Session sync metrics (reset each run)
+                session_books_synced=stage_data.get("session_books_synced", 0),
+                session_sync_skipped=stage_data.get("session_sync_skipped", 0),
+                session_sync_failed=stage_data.get("session_sync_failed", 0),
+                session_conversions_requested=stage_data.get("session_conversions_requested", 0),
                 # Enrichment stage metrics
                 books_enriched=stage_data.get("books_enriched", 0),
                 enrichment_skipped=stage_data.get("enrichment_skipped", 0),
@@ -606,7 +633,10 @@ async def create_process_summary(run_name: str, process_name: str, book_manager=
     summary = await manager.load_or_create_summary()
 
     # Start the requested stage
-    summary.start_stage(process_name)
+    stage = summary.start_stage(process_name)
+
+    # Reset session metrics for a fresh start
+    stage.reset_session_metrics()
 
     return summary
 
@@ -681,12 +711,27 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
 
     step = summary.stages[step_name]
 
-    # Skip if step hasn't completed
-    if step.end_time is None or step.duration_seconds is None:
+    # Check if step was interrupted (started but not completed)
+    was_interrupted = step.start_time is not None and step.end_time is None
+
+    # Skip display if step hasn't started
+    if step.start_time is None:
         return
 
+    # Determine duration to use
+    if was_interrupted and step.duration_seconds is None:
+        # Calculate duration up to now for interrupted steps
+        if step._start_perf_time is not None:
+            effective_duration = time.perf_counter() - step._start_perf_time
+        else:
+            return  # Can't calculate duration, skip display
+    elif step.duration_seconds is not None:
+        effective_duration = step.duration_seconds
+    else:
+        return  # No timing info available
+
     # Format duration
-    duration_str = format_duration(step.duration_seconds)
+    duration_str = format_duration(effective_duration)
 
     # Display stage-specific metrics with appropriate terminology
     if step_name == "collect":
@@ -702,16 +747,13 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
         next_command = "python grin.py process monitor"
 
     elif step_name == "sync":
-        print(f"\n✓ Synced {step.books_synced:,} books in {duration_str}")
-        if step.sync_skipped > 0:
-            print(f"  Skipped (already synced): {step.sync_skipped:,}")
-        if step.conversions_requested_during_sync > 0:
-            print(f"  Sent for conversion: {step.conversions_requested_during_sync:,}")
-        if step.sync_failed > 0:
-            print(f"  Failed: {step.sync_failed:,}")
+        if was_interrupted:
+            print(f"\n⚠ Sync interrupted after {duration_str}")
+        else:
+            print(f"\n✓ Synced {step.books_synced:,} books in {duration_str}")
 
         # Display detailed sync metrics
-        _display_sync_details(step)
+        _display_sync_details(step, was_interrupted)
         next_command = None
 
     elif step_name == "enrich":
@@ -753,7 +795,7 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
     print()  # Add blank line for spacing
 
 
-def _display_sync_details(step: ProcessStageMetrics) -> None:
+def _display_sync_details(step: ProcessStageMetrics, was_interrupted: bool = False) -> None:
     """Display detailed sync metrics for the sync stage focused on user outcomes."""
     # Display queue information
     if step.queue_info:
@@ -778,22 +820,36 @@ def _display_sync_details(step: ProcessStageMetrics) -> None:
         if conversion_requests:
             print(f"  Conversion requests: {conversion_requests:,}")
 
-    # Display book outcomes
-    if step.book_outcomes:
-        print("  This session:")
-        synced = step.book_outcomes.get("synced", 0)
-        skipped = step.book_outcomes.get("skipped", 0)
-        failed = step.book_outcomes.get("failed", 0)
-        conversion_requested = step.book_outcomes.get("conversion_requested", 0)
+    # Display both cumulative totals and current session data
+    # Show cumulative totals first
+    print("  Cumulative totals:")
+    if step.books_synced > 0:
+        print(f"    ✓ Total synced: {step.books_synced:,} books")
+    if step.conversions_requested_during_sync > 0:
+        print(f"    → Total sent for conversion: {step.conversions_requested_during_sync:,} books")
+    if step.sync_skipped > 0:
+        print(f"    ⊘ Total skipped (already synced): {step.sync_skipped:,} books")
+    if step.sync_failed > 0:
+        print(f"    ✗ Total failed: {step.sync_failed:,} books")
 
-        if synced > 0:
-            print(f"    ✓ Successfully synced: {synced:,} books")
-        if conversion_requested > 0:
-            print(f"    → Conversion requested: {conversion_requested:,} books")
-        if skipped > 0:
-            print(f"    ⊘ Skipped (already synced): {skipped:,} books")
-        if failed > 0:
-            print(f"    ✗ Failed: {failed:,} books")
+    # Show current session data if there were any operations in this session
+    session_total = (
+        step.session_books_synced
+        + step.session_sync_skipped
+        + step.session_sync_failed
+        + step.session_conversions_requested
+    )
+
+    if session_total > 0:
+        print("  This session:")
+        if step.session_books_synced > 0:
+            print(f"    ✓ Successfully synced: {step.session_books_synced:,} books")
+        if step.session_conversions_requested > 0:
+            print(f"    → Conversion requested: {step.session_conversions_requested:,} books")
+        if step.session_sync_skipped > 0:
+            print(f"    ⊘ Skipped (already synced): {step.session_sync_skipped:,} books")
+        if step.session_sync_failed > 0:
+            print(f"    ✗ Failed: {step.session_sync_failed:,} books")
 
     # Additional metrics display could be added here if needed
 
