@@ -14,11 +14,7 @@ from selectolax.lexbor import LexborHTMLParser
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_fixed
 
 from grin_to_s3.auth import GRINAuth
-from grin_to_s3.common import (
-    DEFAULT_CONNECTOR_LIMITS,
-    DEFAULT_DOWNLOAD_RETRIES,
-    DEFAULT_RETRY_WAIT_SECONDS,
-)
+from grin_to_s3.common import DEFAULT_CONNECTOR_LIMITS
 
 logger = logging.getLogger(__name__)
 
@@ -219,8 +215,8 @@ class GRINClient:
             prefetch_task.cancel()
 
     @retry(
-        stop=stop_after_attempt(DEFAULT_DOWNLOAD_RETRIES + 1),
-        wait=wait_fixed(DEFAULT_RETRY_WAIT_SECONDS),
+        stop=stop_after_attempt(3),  # 3 total attempts for HTML page prefetching
+        wait=wait_fixed(2),  # 2 second fixed delay for HTML prefetch retries
         before_sleep=before_sleep_log(logger, logging.WARNING),
         reraise=True,
     )

@@ -7,10 +7,7 @@ import aiohttp
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 
 from grin_to_s3.client import GRINClient
-from grin_to_s3.common import (
-    DEFAULT_DOWNLOAD_TIMEOUT,
-    Barcode,
-)
+from grin_to_s3.common import Barcode
 from grin_to_s3.storage.staging import DirectoryManager
 from grin_to_s3.sync.tasks.task_types import DownloadData, DownloadResult, TaskAction, TaskType
 
@@ -26,6 +23,9 @@ DOWNLOAD_BACKOFF_MIN = 1  # Start at 1 second for proper exponential growth
 DOWNLOAD_BACKOFF_MAX = 120  # Cap at 2 minutes
 DOWNLOAD_BACKOFF_MULTIPLIER = 2
 
+# Download timeout configuration
+DEFAULT_DOWNLOAD_TIMEOUT = 300  # 5 minutes
+
 
 async def main(barcode: Barcode, pipeline: "SyncPipeline") -> DownloadResult:
     to_path = pipeline.filesystem_manager.get_encrypted_file_path(barcode)
@@ -39,8 +39,6 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> DownloadResult:
         pipeline.grin_client,
         pipeline.library_directory,
         pipeline.filesystem_manager,
-        pipeline.download_timeout,
-        pipeline.download_retries,
     )
 
     return DownloadResult(
@@ -74,8 +72,6 @@ async def download_book_to_filesystem(
     grin_client: GRINClient,
     library_directory: str,
     filesystem_manager: DirectoryManager,
-    download_timeout: int = DEFAULT_DOWNLOAD_TIMEOUT,
-    download_retries: int = DOWNLOAD_MAX_RETRIES,
 ) -> DownloadData:
     """Download book archive with retry logic, excluding 404 errors from retries."""
     grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
@@ -108,8 +104,6 @@ async def download_book_to_filesystem(
                         grin_client,
                         library_directory,
                         filesystem_manager,
-                        download_timeout,
-                        download_retries,
                     )
 
                 # Update the last check point

@@ -13,12 +13,7 @@ from typing import Any
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.common import (
-    DEFAULT_DOWNLOAD_RETRIES,
-    DEFAULT_DOWNLOAD_TIMEOUT,
-    DEFAULT_MAX_SEQUENTIAL_FAILURES,
-    pluralize,
-)
+from grin_to_s3.common import pluralize
 from grin_to_s3.constants import DEFAULT_CONVERSION_REQUEST_LIMIT
 from grin_to_s3.queue_utils import get_converted_books, get_in_process_set
 from grin_to_s3.run_config import RunConfig
@@ -50,6 +45,11 @@ from .teardown import run_teardown_operations
 from .utils import reset_bucket_cache
 
 logger = logging.getLogger(__name__)
+
+# Pipeline constants (for backward compatibility - individual tasks have their own retry logic)
+DEFAULT_DOWNLOAD_TIMEOUT = 300  # 5 minutes
+DEFAULT_DOWNLOAD_RETRIES = 2  # CLI default
+DEFAULT_MAX_SEQUENTIAL_FAILURES = 10
 
 
 async def get_books_from_queue(grin_client, library_directory: str, queue_name: str, db_tracker) -> set[str]:

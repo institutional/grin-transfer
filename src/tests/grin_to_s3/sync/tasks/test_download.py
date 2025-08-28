@@ -263,10 +263,10 @@ class TestDownloadBookToFilesystem:
             )
 
     @pytest.mark.asyncio
-    async def test_download_with_custom_timeout_and_retries(
+    async def test_download_with_independent_retry_config(
         self, temp_download_path, mock_grin_client, filesystem_manager, mock_response
     ):
-        """Downloads should respect custom timeout and retry parameters."""
+        """Downloads should use task-independent retry configuration."""
         setup_download_mock(mock_grin_client, mock_response())
 
         result = await download.download_book_to_filesystem(
@@ -275,8 +275,6 @@ class TestDownloadBookToFilesystem:
             mock_grin_client,
             "TestLib",
             filesystem_manager,
-            download_timeout=600,
-            download_retries=5,
         )
 
         assert result["http_status_code"] == 200

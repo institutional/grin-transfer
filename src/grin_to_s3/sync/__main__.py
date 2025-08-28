@@ -15,12 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from grin_to_s3.common import (
-    DEFAULT_DOWNLOAD_RETRIES,
-    DEFAULT_DOWNLOAD_TIMEOUT,
-    DEFAULT_MAX_SEQUENTIAL_FAILURES,
-    parse_barcode_arguments,
-)
+from grin_to_s3.common import parse_barcode_arguments
 from grin_to_s3.constants import DEFAULT_WORKER_CONCURRENCY
 from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
@@ -42,6 +37,11 @@ from grin_to_s3.sync.pipeline import SyncPipeline
 from grin_to_s3.sync.status import show_sync_status, validate_database_file
 
 logger = logging.getLogger(__name__)
+
+# CLI default constants (kept for backward compatibility, but tasks use their own retry logic)
+DEFAULT_DOWNLOAD_TIMEOUT = 300  # 5 minutes
+DEFAULT_DOWNLOAD_RETRIES = 2  # CLI default
+DEFAULT_MAX_SEQUENTIAL_FAILURES = 10
 
 
 def _collect_task_concurrency_overrides(args) -> dict[str, int]:
