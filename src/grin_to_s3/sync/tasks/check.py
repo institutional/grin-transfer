@@ -130,6 +130,7 @@ async def etag_matches(
             return {"matched": False, "reason": "no_etag"}
         matches = stored_encrypted_etag.strip('"') == etag.strip('"')
         if matches:
+            logger.info(f"[{barcode}] etag match, will skip download")
             return {
                 "matched": True,
                 "reason": "etag_match",
