@@ -597,14 +597,6 @@ class SyncPipeline:
             book_outcome = self.process_summary_stage.determine_book_outcome(task_results)
             self.process_summary_stage.increment_by_outcome(book_outcome)
 
-        # Store legacy book outcomes for display compatibility
-        self.process_summary_stage.book_outcomes = {
-            "synced": self.process_summary_stage.books_synced,
-            "skipped": self.process_summary_stage.sync_skipped,
-            "failed": self.process_summary_stage.sync_failed,
-            "conversion_requested": self.process_summary_stage.conversions_requested_during_sync,
-        }
-
         # Store queue information
         if queues:
             self.process_summary_stage.queue_info["queues"] = queues
