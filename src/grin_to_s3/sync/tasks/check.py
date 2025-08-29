@@ -22,18 +22,57 @@ CHECK_BACKOFF_MULTIPLIER = 2
 
 
 async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
-    # Storage-first approach: always check storage first, then GRIN
+    # Always check storage first, then GRIN
     storage_metadata = await pipeline.book_manager.get_decrypted_archive_metadata(barcode, pipeline.db_tracker)
     stored_etag = storage_metadata.get("encrypted_etag") if storage_metadata else None
 
     # Single GRIN check
     try:
         grin_data = await grin_head_request(barcode, pipeline.grin_client, pipeline.library_directory)
-        grin_etag = grin_data["etag"]
-        return _handle_grin_available(barcode, stored_etag, grin_etag, grin_data, pipeline)
+        assert grin_data["etag"] is not None
+        return _handle_grin_available(barcode, stored_etag, grin_data["etag"], grin_data, pipeline)
     except aiohttp.ClientResponseError as e:
         logger.info(f"[{barcode}] HEAD request returned HTTP {e.status}")
         return _handle_grin_error(barcode, stored_etag, e, pipeline)
+
+
+# Retry check requests with exponential backoff to handle GRIN rate limiting
+# Retry schedule: immediate, 1s, 2s, 4s, 8s, 16s (total ~31s across 6 attempts)
+# Note: 404 errors are excluded from retry as they indicate missing files
+@retry(
+    stop=stop_after_attempt(CHECK_MAX_RETRIES + 1),
+    retry=lambda retry_state: bool(
+        retry_state.outcome
+        and retry_state.outcome.failed
+        and not (
+            isinstance(retry_state.outcome.exception(), aiohttp.ClientResponseError)
+            and getattr(retry_state.outcome.exception(), "status", None) == 404
+        )
+    ),
+    wait=wait_exponential(multiplier=CHECK_BACKOFF_MULTIPLIER, min=CHECK_BACKOFF_MIN, max=CHECK_BACKOFF_MAX),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
+async def grin_head_request(barcode: Barcode, grin_client: GRINClient, library_directory: str) -> CheckData:
+    """Make HEAD request to get encrypted file's ETag and file size before downloading."""
+    result: CheckData = {"etag": None, "file_size_bytes": None, "http_status_code": None}
+    grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
+    logger.debug(f"[{barcode}] Checking encrypted ETag via HEAD request to {grin_url}")
+
+    # Make HEAD request to get headers without downloading content
+    head_response = await grin_client.head_archive(grin_url)
+
+    result["http_status_code"] = head_response.status
+
+    # Look for ETag and Content-Length headers
+    etag = head_response.headers.get("ETag", "").strip('"')
+    content_length = head_response.headers.get("Content-Length", "")
+
+    file_size = int(content_length) if content_length else None
+
+    result["etag"] = etag
+    result["file_size_bytes"] = file_size
+    return result
 
 
 def _handle_grin_available(
@@ -109,44 +148,3 @@ def _handle_grin_error(
         data={"etag": None, "file_size_bytes": None, "http_status_code": error.status},
         reason="fail_unexpected_http_status_code",
     )
-
-
-# Retry check requests with exponential backoff to handle GRIN rate limiting
-# Retry schedule: immediate, 1s, 2s, 4s, 8s, 16s (total ~31s across 6 attempts)
-# Note: 404 errors are excluded from retry as they indicate missing files
-@retry(
-    stop=stop_after_attempt(CHECK_MAX_RETRIES + 1),
-    retry=lambda retry_state: bool(
-        retry_state.outcome
-        and retry_state.outcome.failed
-        and not (
-            isinstance(retry_state.outcome.exception(), aiohttp.ClientResponseError)
-            and getattr(retry_state.outcome.exception(), "status", None) == 404
-        )
-    ),
-    wait=wait_exponential(multiplier=CHECK_BACKOFF_MULTIPLIER, min=CHECK_BACKOFF_MIN, max=CHECK_BACKOFF_MAX),
-    before_sleep=before_sleep_log(logger, logging.WARNING),
-    reraise=True,
-)
-async def grin_head_request(barcode: Barcode, grin_client: GRINClient, library_directory: str) -> CheckData:
-    """Make HEAD request to get encrypted file's ETag and file size before downloading."""
-    result: CheckData = {"etag": None, "file_size_bytes": None, "http_status_code": None}
-    grin_url = f"https://books.google.com/libraries/{library_directory}/{barcode}.tar.gz.gpg"
-    logger.debug(f"[{barcode}] Checking encrypted ETag via HEAD request to {grin_url}")
-
-    # Make HEAD request to get headers without downloading content
-    head_response = await grin_client.head_archive(grin_url)
-
-    result["http_status_code"] = head_response.status
-
-    # Look for ETag and Content-Length headers
-    etag = head_response.headers.get("ETag", "").strip('"')
-    content_length = head_response.headers.get("Content-Length", "")
-
-    file_size = int(content_length) if content_length else None
-
-    result["etag"] = etag
-    result["file_size_bytes"] = file_size
-    return result
-
-
