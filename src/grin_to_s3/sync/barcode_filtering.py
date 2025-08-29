@@ -18,6 +18,7 @@ class BarcodeFilteringResult(NamedTuple):
     source_description: str
     already_synced_count: int
     limit_applied: int | None
+    using_specific_barcodes: bool  # True if specific barcodes were provided
 
 
 def get_source_books(specific_barcodes: list[str] | None, queue_books: set[str] | None) -> tuple[set[str], str]:
@@ -64,12 +65,15 @@ def create_filtering_summary(result: BarcodeFilteringResult) -> list[str]:
         f"     -> {source_count:,} {pluralize(source_count, 'book')} available",
     ]
 
-    if result.already_synced_count > 0:
+    if result.using_specific_barcodes:
+        lines.append("  2. Sync filter: Skipped (using specific barcodes)")
+        lines.append(f"     -> {needing_sync_count:,} {pluralize(needing_sync_count, 'book')} to process")
+    elif result.already_synced_count > 0:
         lines.append(f"  2. Sync filter: Removed {result.already_synced_count:,} already synced")
         lines.append(f"     -> {needing_sync_count:,} {pluralize(needing_sync_count, 'book')} need syncing")
     else:
-        lines.append("  2. Sync filter: Skipped (using specific barcodes)")
-        lines.append(f"     -> {needing_sync_count:,} {pluralize(needing_sync_count, 'book')} to process")
+        lines.append("  2. Sync filter: No books already synced")
+        lines.append(f"     -> {needing_sync_count:,} {pluralize(needing_sync_count, 'book')} need syncing")
 
     if result.limit_applied:
         lines.append(f"  3. Limit: Applied limit of {result.limit_applied:,}")
@@ -100,4 +104,5 @@ def filter_barcodes_pipeline(
         source_description=source_description,
         already_synced_count=already_synced_count,
         limit_applied=limit_applied,
+        using_specific_barcodes=bool(specific_barcodes),
     )
