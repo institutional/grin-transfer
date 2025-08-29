@@ -50,13 +50,6 @@ class CheckData(TypedDict):
     http_status_code: int | None
 
 
-class ETagMatchResult(TypedDict):
-    """Whether an Etag matched stored etag metadata, and why the determination was made"""
-
-    matched: bool
-    reason: Literal["etag_match", "etag_mismatch", "no_archive", "no_etag"]
-
-
 class DownloadData(TypedDict):
     """Data from DOWNLOAD task."""
 
@@ -183,6 +176,7 @@ REASONS = Literal[
     "skip_database_backup_flag",
     "skip_dry_run",
     "skip_etag_match",
+    "skip_found_in_storage_not_grin",
     "skip_not_applicable",
     "skip_staging_cleanup",
     "skip_verified_unavailable",
