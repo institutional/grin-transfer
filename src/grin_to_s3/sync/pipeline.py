@@ -40,7 +40,7 @@ from grin_to_s3.sync.tasks import (
 )
 from grin_to_s3.sync.tasks.task_types import TaskType
 
-from .barcode_filtering import create_filtering_summary, filter_barcodes_pipeline
+from .barcode_filtering import filter_and_print_barcodes
 from .conversion_handler import ConversionRequestHandler
 from .preflight import run_preflight_operations
 from .teardown import run_teardown_operations
@@ -437,32 +437,25 @@ class SyncPipeline:
                     continue  # Skip to next queue
                 print(f"  '{queue_name}' queue: {len(queue_books):,} books available")
 
-                # Run the filtering pipeline for this queue's books
-                filtering_result = filter_barcodes_pipeline(
+                # Filter books and print summary for this queue
+                books_to_process = filter_and_print_barcodes(
                     specific_barcodes=None,
                     queue_books=queue_books,
                     books_already_synced=books_already_synced,
                     limit=limit,
+                    queue_name=queue_name,
                 )
 
-                # Print the filtering summary
-                for line in create_filtering_summary(filtering_result):
-                    print(line)
-
                 # Handle case where no books to process from this queue
-                if not filtering_result.books_after_limit:
-                    if len(filtering_result.source_books) == 0:
-                        print(f"No books available from '{queue_name}' queue")
-                    else:
-                        print(f"No books from '{queue_name}' queue need syncing (all may already be synced)")
+                if not books_to_process:
                     continue  # Skip to next queue
 
                 # Set up progress tracking for this queue
-                books_to_process_count = len(filtering_result.books_after_limit)
+                books_to_process_count = len(books_to_process)
 
                 # Handle dry-run mode
                 if self.dry_run:
-                    await self._show_dry_run_preview(filtering_result.books_after_limit, limit, specific_barcodes)
+                    await self._show_dry_run_preview(books_to_process, limit, specific_barcodes)
                     continue  # Skip to next queue in dry-run
 
                 print(
@@ -473,7 +466,7 @@ class SyncPipeline:
 
                 # Process this queue's books
                 book_results = await process_books_with_queue(
-                    filtering_result.books_after_limit,
+                    books_to_process,
                     self,
                     task_funcs,
                     task_manager,
@@ -491,36 +484,26 @@ class SyncPipeline:
                     break
 
             else:
-                filtering_result = filter_barcodes_pipeline(
+                # Filter books and print summary for specific barcodes
+                books_to_process = filter_and_print_barcodes(
                     specific_barcodes=specific_barcodes,
                     queue_books=None,
                     books_already_synced=books_already_synced,
                     limit=limit,
+                    queue_name=None,
                 )
 
-                # Print the filtering summary
-                for line in create_filtering_summary(filtering_result):
-                    print(line)
-
                 # Handle case where no books to process
-                if not filtering_result.books_after_limit:
-                    if len(filtering_result.source_books) == 0:
-                        print("No books available")
-                    else:
-                        print("No books found that need syncing (all may already be synced)")
+                if not books_to_process:
                     return
 
                 # Set up progress tracking and task management
-                books_to_process_count = len(filtering_result.books_after_limit)
+                books_to_process_count = len(books_to_process)
 
                 # Handle dry-run mode
                 if self.dry_run:
-                    await self._show_dry_run_preview(filtering_result.books_after_limit, limit, specific_barcodes)
+                    await self._show_dry_run_preview(books_to_process, limit, specific_barcodes)
                     return
-
-                # Handle case where no books to process (already handled above, but keep for safety)
-                if not filtering_result.books_after_limit:
-                    return  # No books to process is considered successful
 
                 print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')}...")
                 print(f"Progress will be shown every {self.progress_interval} books completed")
@@ -528,7 +511,7 @@ class SyncPipeline:
 
                 # Process the filtered books
                 book_results = await process_books_with_queue(
-                    filtering_result.books_after_limit,
+                    books_to_process,
                     self,
                     task_funcs,
                     task_manager,

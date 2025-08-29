@@ -323,7 +323,7 @@ async def test_multiple_queues_independent_processing():
     # Mock the queue functions that would be called in pipeline.py
     with patch("grin_to_s3.sync.pipeline.get_books_from_queue"):
         with patch("grin_to_s3.sync.pipeline.process_books_with_queue"):
-            with patch("grin_to_s3.sync.pipeline.filter_barcodes_pipeline"):
+            with patch("grin_to_s3.sync.pipeline.filter_and_print_barcodes"):
                 # Set up mock pipeline
                 mock_pipeline = MagicMock()
                 mock_pipeline.max_sequential_failures = 2
