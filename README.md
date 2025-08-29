@@ -52,7 +52,7 @@ Assuming Docker is running on your local or host machine:
 # Then run a sample collection using filesystem storage
 ./grin-docker collect --run-name test_run --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=docker-data/storage --limit 5
 
-# Then run a sample sync using that collection
+# Then run a sample sync using that collection (assuming GRIN has titles available for download)
 ./grin-docker sync pipeline --run-name test_run --queue converted
 
 # ...synced book archives and other metadata will be in docker-data/storage
@@ -108,17 +108,19 @@ During processing, book archives and metadata are saved in the **staging** area 
    
 
 ## Pipeline steps
-Each run begins with the **collection** step, where book metadata is first downloaded from GRIN and stored locally for evaluation and processing. Collecting all book metadata for very large (1 million+ book) collections usually under an hour.
+Each run begins with the **collection** step, where book metadata is first downloaded from GRIN and stored locally for evaluation and processing. Collecting all book metadata for very large (1 million+ book) collections usually takes under an hour.
 
 GRIN needs to "convert" archives to make them available for download. This pipeline can **request** conversions up to Google's maximum of 50,000 queued.
 
 The next step is to start the **sync pipeline**, in which the original book archives are downloaded from GRIN, decrypted, and uploaded or copied to storage. 
 
-Finally, there are utilities for checking progress and gathering statistics about the run. 
+If the data is valuable to you, there is a command to **enrich** local metadata with additional fields that GRIN makes available only through direct querying of the TSV endpoint, mostly related to the OCR quality.
+
+Finally, there are utilities for managing your storage and gathering statistics about the run. 
 
 ## Core Commands
 
-The pipeline provides a unified command-line interface via `grin.py`, with  subcommands that map to the pipeline steps. Note that installed via docker, for convenience these can all be called from outside the contanier as `grin-docker <subcommand>`
+The pipeline provides a unified command-line interface via `grin.py`, with subcommands that map to the pipeline steps. When installed via docker, for convenience these can all be called from outside the contanier as `grin-docker <subcommand>`.
 
 ### 1. Book Collection: `grin.py collect`
 
@@ -130,7 +132,7 @@ python grin.py collect --run-name "harvard_2024" \
   --library-directory Harvard \
   --storage r2 
 
-# Local storage (no buckets required, but necessary to specify the storage path)
+# Local storage (no buckets required, but you must specify the path to the directory where files will go)
 python grin.py collect --run-name "local_test" --library-directory Harvard --storage local --storage-config base_path=/tmp/storage
 
 ```
@@ -139,11 +141,7 @@ python grin.py collect --run-name "local_test" --library-directory Harvard --sto
 - `--library-directory`: GRIN library directory name (required, e.g., Harvard, MIT, Yale)
 - `--run-name`: Named run for organized output (defaults to timestamp)
 - `--storage`: Storage backend (`local`, `minio`, `r2`, `s3`, `gcs`)
-- `--bucket-raw`: Raw data bucket (sync archives)
-- `--bucket-meta`: Metadata bucket (CSV/database outputs)
-- `--bucket-full`: Full-text bucket (OCR outputs)
 - `--limit`: Limit books for testing
-- `--rate-limit`: API requests per second (default: 5.0)
 
 ### 2. Processing Management: `grin.py process`
 
@@ -151,7 +149,6 @@ Request and monitor book processing via GRIN conversion system.
 
 ```bash
 python grin.py process request --run-name harvard_2024 --limit 1000
-python grin.py process monitor --run-name harvard_2024
 ```
 
 **Commands:**
@@ -163,47 +160,30 @@ python grin.py process monitor --run-name harvard_2024
 Download converted books from GRIN to storage with database tracking.
 
 ```bash
-# Sync converted books to storage (auto-detects config from run)
+# Sync converted books to storage 
 python grin.py sync pipeline --run-name harvard_2024 --queue converted
-
-# Check sync status
-python grin.py sync status --run-name harvard_2024
-
 ```
 
 **Pipeline options:**
-- `--concurrent`: Parallel downloads (default: 5)
-- `--concurrent-uploads`: Parallel uploads (default: 10)
-- `--batch-size`: Books per batch (default: 100)
 - `--limit`: Limit number of books to sync
-- `--status`: Filter by sync status (`pending`, `failed`)
-- `--force`: Overwrite existing files
-- `--staging-dir`: Custom staging directory path (default: output/run-name/staging)
+- `--force`: Overwrite existing files even if checks think the versions are identical
 
-### 4. Storage Management: `grin.py storage`
+### 4. Metadata enrichment: `grin.py enrich` 
 
-Manage storage buckets with fast listing and deletion.
+Iterate over un-enriched titles and download additional metadata.
 
 ```bash
-# List all buckets (summary)
-python grin.py storage ls --run-name harvard_2024
-
-# Detailed listing with file sizes
-python grin.py storage ls --run-name harvard_2024 -l
-
-# Remove all files from a bucket
-python grin.py storage rm raw --run-name harvard_2024
-
-# Remove with auto-confirm (dangerous!)
-python grin.py storage rm meta --run-name harvard_2024 --yes
-
-# Dry run to see what would be deleted
-python grin.py storage rm full --run-name harvard_2024 --dry-run
+python grin.py enrich --run-name harvard_2024
 ```
+
+### 5. Storage Management: `grin.py storage`
+
+Manage storage buckets with fast listing and deletion.
 
 **Commands:**
 - `ls`: List contents of all storage buckets with file counts and sizes
 - `rm`: Remove all contents from specified bucket (raw, meta, or full)
+- `cp`: Copy files from a bucket to your local filesystem
 
 
 
@@ -215,6 +195,9 @@ Each run creates organized output in `output/{run_name}/`:
 - `process_summary.json` - Previous run history, counts, and timestamps
 - `run_config.json` - Configuration file (generated as part of the collect step)
 
+### Data Dictionary 
+
+TODO: Add data dictionaries for metadata fields available from GRIN's UI as well as book metadata.
 
 ### Storage Backends
 
@@ -287,8 +270,5 @@ ruff check --fix && ruff format
 # Run type checking
 mypy src/grin_to_s3 --explicit-package-bases
 
-# Run fast tests (recommended for development)
-python -m pytest -m "not slow"
-
-# Run all tests (including slower integration tests)
+# Run tests
 python -m pytest
