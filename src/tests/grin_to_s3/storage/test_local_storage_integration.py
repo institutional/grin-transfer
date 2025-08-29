@@ -45,7 +45,7 @@ class TestLocalStorageIntegration:
             # Mock converted books
             mock_converted_books = {"TEST123"}
 
-            with patch("grin_to_s3.processing.get_converted_books", return_value=mock_converted_books):
+            with patch("grin_to_s3.queue_utils.get_converted_books", return_value=mock_converted_books):
                 # This should exercise the complete pipeline
                 status = await pipeline.get_sync_status()
 
@@ -78,7 +78,7 @@ class TestLocalStorageIntegration:
             pipeline.db_tracker.get_books_for_sync = AsyncMock(return_value=[])
 
             # Mock get_converted_books to return empty list so sync exits early
-            with patch("grin_to_s3.processing.get_converted_books", return_value=set()):
+            with patch("grin_to_s3.queue_utils.get_converted_books", return_value=set()):
                 # Capture print output to verify storage configuration display
                 with patch("builtins.print") as mock_print:
                     await pipeline.setup_sync_loop(queues=["converted"], specific_barcodes=[], limit=0)
@@ -92,7 +92,7 @@ class TestLocalStorageIntegration:
             # Remove base_path from the existing pipeline's config to simulate missing base_path
             pipeline.config.storage_config["config"] = {}  # Clear the config to remove base_path
 
-            with patch("grin_to_s3.processing.get_converted_books", return_value=set()):
+            with patch("grin_to_s3.queue_utils.get_converted_books", return_value=set()):
                 with patch("builtins.print") as mock_print:
                     await pipeline.setup_sync_loop(queues=["converted"], specific_barcodes=[], limit=0)
 

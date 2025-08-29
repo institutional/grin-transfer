@@ -7,7 +7,7 @@ A unified tool for archiving Google Books data from GRIN to S3-compatible storag
 Commands:
   auth           Set up OAuth2 authentication with GRIN
   collect        Collect library book metadata from GRIN with progress tracking
-  process        Request book processing and monitor conversion status
+  process        Request book processing from GRIN
   sync           Sync converted books from GRIN to storage (pipeline, status)
   storage        Manage storage buckets (ls, rm)
   extract        Extract OCR text from decrypted book archives
@@ -55,8 +55,6 @@ Examples:
   # Request processing for collected books
   python grin.py process request --run-name harvard_2024 --limit 1000
 
-  # Monitor processing status
-  python grin.py process monitor --run-name harvard_2024
 
   # Sync converted books to storage
   python grin.py sync pipeline --run-name harvard_2024 --queue converted
@@ -87,7 +85,7 @@ For more help on each command, use: python grin.py <command> --help
     # Add subcommand parsers (will be populated by individual modules)
     auth_parser = subparsers.add_parser("auth", help="Set up OAuth2 authentication")
     collect_parser = subparsers.add_parser("collect", help="Collect book metadata from GRIN")
-    process_parser = subparsers.add_parser("process", help="Request and monitor book processing")
+    process_parser = subparsers.add_parser("process", help="Request book processing")
     sync_parser = subparsers.add_parser("sync", help="Sync converted books from GRIN to storage")
     storage_parser = subparsers.add_parser("storage", help="Manage storage buckets and data (ls, rm, cp)")
     extract_parser = subparsers.add_parser("extract", help="Extract OCR text from decrypted book archives")
