@@ -392,22 +392,7 @@ class SyncPipeline:
                 logger.info(f"Preflight operation {operation} skipped")
 
         try:
-            # Collect books from queues if not using specific barcodes
-            queue_books = None
-            if not specific_barcodes and queues:
-                queue_books = set()
-                for queue_name in queues:
-                    print(f"Fetching books from '{queue_name}' queue...")
-                    books = await get_books_from_queue(
-                        self.grin_client, self.library_directory, queue_name, self.db_tracker
-                    )
-                    if len(books) == 0:
-                        print(f"  Warning: '{queue_name}' queue reports no books available")
-                    else:
-                        print(f"  '{queue_name}' queue: {len(books):,} books available")
-                    queue_books.update(books)
-
-            # Get already synced books from database
+            # Get already synced books from database (do this once outside the queue loop)
             if specific_barcodes:
                 books_already_synced = set()  # Skip DB check for specific barcodes
             else:
@@ -416,39 +401,7 @@ class SyncPipeline:
                     storage_type=self.config.storage_config["protocol"]
                 )
 
-            # Run the filtering pipeline
-            filtering_result = filter_barcodes_pipeline(
-                specific_barcodes=specific_barcodes,
-                queue_books=queue_books,
-                books_already_synced=books_already_synced,
-                limit=limit,
-            )
-
-            # Print the filtering summary
-            for line in create_filtering_summary(filtering_result):
-                print(line)
-
-            # Get database sync status for additional context
-            initial_status = await self.get_sync_status()
-            print(
-                f"\nDatabase sync status: {initial_status['total_converted']:,} total, "
-                f"{initial_status['synced']:,} synced, "
-                f"{initial_status['failed']:,} failed, "
-                f"{initial_status['pending']:,} pending"
-            )
-
-            # Handle case where no books to process
-            if not filtering_result.books_after_limit:
-                if len(filtering_result.source_books) == 0:
-                    print("No books available from any queue")
-                else:
-                    print("No books found that need syncing (all may already be synced)")
-                return
-
-            # Set up progress tracking and task management
-            books_to_process_count = len(filtering_result.books_after_limit)
-
-            # Define task functions and limits
+            # Define task functions and limits (move this up before queue processing)
             task_funcs = {
                 TaskType.CHECK: check.main,
                 TaskType.REQUEST_CONVERSION: request_conversion.main,
@@ -467,36 +420,142 @@ class SyncPipeline:
 
             limits = self.task_concurrency_limits
 
-            # Handle dry-run mode
-            if self.dry_run:
-                await self._show_dry_run_preview(filtering_result.books_after_limit, limit, specific_barcodes)
-                return
+            # Process each queue independently if not using specific barcodes
+            if not specific_barcodes and queues:
+                for queue_name in queues:
+                    # Reset failure counter at start of each queue
+                    logger.info(f"Processing '{queue_name}' queue")
+                    self._sequential_failures = 0
+                    # Get books from this specific queue
+                    print(f"Fetching books from '{queue_name}' queue...")
+                    queue_books = await get_books_from_queue(
+                        self.grin_client, self.library_directory, queue_name, self.db_tracker
+                    )
+                    if len(queue_books) == 0:
+                        print(f"  Warning: '{queue_name}' queue reports no books available")
+                        continue  # Skip to next queue
+                    print(f"  '{queue_name}' queue: {len(queue_books):,} books available")
 
-            # Handle case where no books to process (already handled above, but keep for safety)
-            if not filtering_result.books_after_limit:
-                return  # No books to process is considered successful
+                    # Run the filtering pipeline for this queue's books
+                    filtering_result = filter_barcodes_pipeline(
+                        specific_barcodes=None,
+                        queue_books=queue_books,
+                        books_already_synced=books_already_synced,
+                        limit=limit,
+                    )
 
-            # Create task manager and rate calculator
-            task_manager = TaskManager(limits)
-            rate_calculator = SlidingWindowRateCalculator(window_size=20)
+                    # Print the filtering summary
+                    for line in create_filtering_summary(filtering_result):
+                        print(line)
 
-            print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')}...")
-            print(f"Progress will be shown every {self.progress_interval} books completed")
-            print("---")
+                    # Handle case where no books to process from this queue
+                    if not filtering_result.books_after_limit:
+                        if len(filtering_result.source_books) == 0:
+                            print(f"No books available from '{queue_name}' queue")
+                        else:
+                            print(f"No books from '{queue_name}' queue need syncing (all may already be synced)")
+                        continue  # Skip to next queue
 
-            # Process the filtered books using the queue-based task manager
-            book_results = await process_books_with_queue(
-                filtering_result.books_after_limit,
-                self,
-                task_funcs,
-                task_manager,
-                rate_calculator,
-                workers=self.worker_count,
-                progress_interval=self.progress_interval,
-            )
+                    # Set up progress tracking for this queue
+                    books_to_process_count = len(filtering_result.books_after_limit)
 
-            # Update process summary with detailed metrics from book results
-            self._update_process_summary_metrics(book_results, queues, limit, specific_barcodes)
+                    # Handle dry-run mode
+                    if self.dry_run:
+                        await self._show_dry_run_preview(filtering_result.books_after_limit, limit, specific_barcodes)
+                        continue  # Skip to next queue in dry-run
+
+                    # Create task manager and rate calculator for this queue
+                    task_manager = TaskManager(limits)
+                    rate_calculator = SlidingWindowRateCalculator(window_size=20)
+
+                    print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')} from '{queue_name}' queue...")
+                    print(f"Progress will be shown every {self.progress_interval} books completed")
+                    print("---")
+
+                    # Process this queue's books
+                    book_results = await process_books_with_queue(
+                        filtering_result.books_after_limit,
+                        self,
+                        task_funcs,
+                        task_manager,
+                        rate_calculator,
+                        workers=self.worker_count,
+                        progress_interval=self.progress_interval,
+                    )
+
+                    # Update process summary with detailed metrics from book results
+                    self._update_process_summary_metrics(book_results, [queue_name], limit, specific_barcodes)
+
+                    # If pipeline requested shutdown due to failures, stop processing remaining queues
+                    if self._shutdown_requested:
+                        logger.info("Pipeline shutdown requested, stopping processing of remaining queues")
+                        break
+
+            else:
+                # Handle specific barcodes case (existing behavior)
+                queue_books = None
+                # Run the filtering pipeline
+                filtering_result = filter_barcodes_pipeline(
+                    specific_barcodes=specific_barcodes,
+                    queue_books=queue_books,
+                    books_already_synced=books_already_synced,
+                    limit=limit,
+                )
+
+                # Print the filtering summary
+                for line in create_filtering_summary(filtering_result):
+                    print(line)
+
+                # Get database sync status for additional context
+                initial_status = await self.get_sync_status()
+                print(
+                    f"\nDatabase sync status: {initial_status['total_converted']:,} total, "
+                    f"{initial_status['synced']:,} synced, "
+                    f"{initial_status['failed']:,} failed, "
+                    f"{initial_status['pending']:,} pending"
+                )
+
+                # Handle case where no books to process
+                if not filtering_result.books_after_limit:
+                    if len(filtering_result.source_books) == 0:
+                        print("No books available")
+                    else:
+                        print("No books found that need syncing (all may already be synced)")
+                    return
+
+                # Set up progress tracking and task management
+                books_to_process_count = len(filtering_result.books_after_limit)
+
+                # Handle dry-run mode
+                if self.dry_run:
+                    await self._show_dry_run_preview(filtering_result.books_after_limit, limit, specific_barcodes)
+                    return
+
+                # Handle case where no books to process (already handled above, but keep for safety)
+                if not filtering_result.books_after_limit:
+                    return  # No books to process is considered successful
+
+                # Create task manager and rate calculator
+                task_manager = TaskManager(limits)
+                rate_calculator = SlidingWindowRateCalculator(window_size=20)
+
+                print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')}...")
+                print(f"Progress will be shown every {self.progress_interval} books completed")
+                print("---")
+
+                # Process the filtered books using the queue-based task manager
+                book_results = await process_books_with_queue(
+                    filtering_result.books_after_limit,
+                    self,
+                    task_funcs,
+                    task_manager,
+                    rate_calculator,
+                    workers=self.worker_count,
+                    progress_interval=self.progress_interval,
+                )
+
+                # Update process summary with detailed metrics from book results
+                self._update_process_summary_metrics(book_results, queues, limit, specific_barcodes)
 
         except KeyboardInterrupt:
             # KeyboardInterrupt is handled by signal handler, just log and continue to cleanup
