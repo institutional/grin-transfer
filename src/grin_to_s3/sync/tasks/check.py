@@ -2,6 +2,7 @@ import logging
 from typing import TYPE_CHECKING
 
 import aiohttp
+from botocore.exceptions import ClientError
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 
 from grin_to_s3.client import GRINClient
@@ -23,8 +24,17 @@ CHECK_BACKOFF_MULTIPLIER = 2
 
 async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
     # Always check storage first, then GRIN
-    storage_metadata = await pipeline.book_manager.get_decrypted_archive_metadata(barcode, pipeline.db_tracker)
-    stored_etag = storage_metadata.get("encrypted_etag") if storage_metadata else None
+    try:
+        storage_metadata = await pipeline.book_manager.get_decrypted_archive_metadata(barcode, pipeline.db_tracker)
+        stored_etag = storage_metadata.get("encrypted_etag") if storage_metadata else None
+    except ClientError as e:
+        # Handle storage 404s gracefully - book simply doesn't exist in storage yet
+        if e.response.get("Error", {}).get("Code") == "404":
+            logger.debug(f"[{barcode}] Book not found in storage, proceeding to check GRIN")
+            stored_etag = None
+        else:
+            # Re-raise other S3 errors
+            raise
 
     # Single GRIN check
     try:

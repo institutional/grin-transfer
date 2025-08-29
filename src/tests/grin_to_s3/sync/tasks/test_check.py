@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import pytest
+from botocore.exceptions import ClientError
 
 from grin_to_s3.sync.tasks import check
 from grin_to_s3.sync.tasks.task_types import TaskAction

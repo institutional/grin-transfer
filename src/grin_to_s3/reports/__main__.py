@@ -35,9 +35,14 @@ def calculate_effective_duration(summary: dict) -> float | None:
     run_start_time = summary.get("run_start_time")
     if run_start_time:
         try:
-            start_dt = datetime.fromisoformat(run_start_time.replace("Z", "+00:00"))
-            now_dt = datetime.now(UTC)
-            return (now_dt - start_dt).total_seconds()
+            # Handle both string (ISO format) and float (perf_counter) timestamps
+            if isinstance(run_start_time, str):
+                start_dt = datetime.fromisoformat(run_start_time.replace("Z", "+00:00"))
+                now_dt = datetime.now(UTC)
+                return (now_dt - start_dt).total_seconds()
+            else:
+                # Skip float values - they're from perf_counter and not useful for elapsed time
+                pass
         except (ValueError, TypeError):
             pass
 
