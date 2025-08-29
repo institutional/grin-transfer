@@ -87,6 +87,14 @@ def _log_status_update(
 # Pure functional handlers - only return data, no side effects, no logging
 @on(TaskType.CHECK, TaskAction.SKIPPED)
 async def check_skipped(result: TaskResult, previous_results: dict[TaskType, TaskResult]) -> dict[str, Any]:
+    # Handle storage reconciliation for books found in storage but not in GRIN
+    if result.reason == "skip_found_in_storage_not_grin":
+        # Mark as completed in database since we have it in storage
+        return {
+            "status": ("sync", "completed", {"reason": result.reason, "reconciled_from_storage": True}),
+            "books": {"sync_timestamp": datetime.now(UTC).isoformat()},
+        }
+    
     return {"status": ("sync", "skipped", {"reason": result.reason} if result.reason else None), "books": {}}
 
 

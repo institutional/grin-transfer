@@ -1,19 +1,16 @@
 import logging
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import aiohttp
-from botocore.exceptions import ClientError
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 
 from grin_to_s3.client import GRINClient
-from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import Barcode
-from grin_to_s3.storage.book_manager import BookManager
 
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
 
-from .task_types import ArchiveMetadata, CheckData, CheckResult, ETagMatchResult, TaskAction, TaskType
+from .task_types import CheckData, CheckResult, TaskAction, TaskType
 
 logger = logging.getLogger(__name__)
 
@@ -25,56 +22,92 @@ CHECK_BACKOFF_MULTIPLIER = 2
 
 
 async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
-    data: CheckData
+    # Storage-first approach: always check storage first, then GRIN
+    storage_metadata = await pipeline.book_manager.get_decrypted_archive_metadata(barcode, pipeline.db_tracker)
+    stored_etag = storage_metadata.get("encrypted_etag") if storage_metadata else None
 
+    # Single GRIN check
     try:
-        data = await grin_head_request(barcode, pipeline.grin_client, pipeline.library_directory)
+        grin_data = await grin_head_request(barcode, pipeline.grin_client, pipeline.library_directory)
+        grin_etag = grin_data["etag"]
+        return _handle_grin_available(barcode, stored_etag, grin_etag, grin_data, pipeline)
     except aiohttp.ClientResponseError as e:
         logger.info(f"[{barcode}] HEAD request returned HTTP {e.status}")
-        # If the HEAD response was a 404, this is always a failure
-        if e.status == 404:
-            return CheckResult(
-                barcode=barcode,
-                task_type=TaskType.CHECK,
-                action=TaskAction.FAILED,
-                data={"etag": None, "file_size_bytes": None, "http_status_code": 404},
-                reason="fail_archive_missing",
-            )
-        # Other failures are not expected and should be treated as FAILED
+        return _handle_grin_error(barcode, stored_etag, e, pipeline)
+
+
+def _handle_grin_available(
+    barcode: Barcode, stored_etag: str | None, grin_etag: str, grin_data: CheckData, pipeline: "SyncPipeline"
+) -> CheckResult:
+    """Handle case where GRIN has the book available."""
+    if not stored_etag:
+        # No storage, GRIN has book → download
         return CheckResult(
             barcode=barcode,
             task_type=TaskType.CHECK,
-            action=TaskAction.FAILED,
-            data={"etag": None, "file_size_bytes": None, "http_status_code": e.status},
-            reason="fail_unexpected_http_status_code",
+            action=TaskAction.COMPLETED,
+            data=grin_data,
         )
 
-    assert data["etag"] is not None
-
-    # Now check for our own etag
-    etag_match = await etag_matches(barcode, data["etag"], pipeline.book_manager, pipeline.db_tracker)
-    if etag_match["matched"]:
+    # Book exists in storage, check etag
+    if stored_etag.strip('"') == grin_etag.strip('"'):
+        # Etags match → skip unless force flag
         if pipeline.force:
             return CheckResult(
                 barcode=barcode,
                 task_type=TaskType.CHECK,
                 action=TaskAction.COMPLETED,
-                data=data,
+                data=grin_data,
                 reason="completed_match_with_force",
             )
         return CheckResult(
             barcode=barcode,
             task_type=TaskType.CHECK,
             action=TaskAction.SKIPPED,
-            data=data,
+            data=grin_data,
             reason="skip_etag_match",
         )
-    # We're going to tell the pipeline to try to get the archive
+
+    # Etags differ → re-download needed
     return CheckResult(
         barcode=barcode,
         task_type=TaskType.CHECK,
         action=TaskAction.COMPLETED,
-        data=data,
+        data=grin_data,
+    )
+
+
+def _handle_grin_error(
+    barcode: Barcode, stored_etag: str | None, error: aiohttp.ClientResponseError, pipeline: "SyncPipeline"
+) -> CheckResult:
+    """Handle GRIN errors (404, other HTTP errors)."""
+    if error.status == 404:
+        # GRIN doesn't have the book
+        if stored_etag:
+            # Book exists in storage but not in GRIN → skip and mark as completed in DB
+            return CheckResult(
+                barcode=barcode,
+                task_type=TaskType.CHECK,
+                action=TaskAction.SKIPPED,
+                data={"etag": None, "file_size_bytes": None, "http_status_code": 404},
+                reason="skip_found_in_storage_not_grin",
+            )
+        # Book not in storage, not in GRIN → request conversion
+        return CheckResult(
+            barcode=barcode,
+            task_type=TaskType.CHECK,
+            action=TaskAction.FAILED,
+            data={"etag": None, "file_size_bytes": None, "http_status_code": 404},
+            reason="fail_archive_missing",
+        )
+
+    # Other HTTP errors
+    return CheckResult(
+        barcode=barcode,
+        task_type=TaskType.CHECK,
+        action=TaskAction.FAILED,
+        data={"etag": None, "file_size_bytes": None, "http_status_code": error.status},
+        reason="fail_unexpected_http_status_code",
     )
 
 
@@ -117,29 +150,3 @@ async def grin_head_request(barcode: Barcode, grin_client: GRINClient, library_d
     return result
 
 
-async def etag_matches(
-    barcode: Barcode, etag: str, book_manager: BookManager, db_tracker: SQLiteProgressTracker
-) -> ETagMatchResult:
-    # Check if decrypted archive exists and matches encrypted ETag
-    try:
-        metadata = cast(ArchiveMetadata, await book_manager.get_decrypted_archive_metadata(barcode, db_tracker))
-
-        stored_encrypted_etag = metadata.get("encrypted_etag")
-        if not stored_encrypted_etag:
-            logger.debug(f"[{barcode}] No stored etag found; will download")
-            return {"matched": False, "reason": "no_etag"}
-        matches = stored_encrypted_etag.strip('"') == etag.strip('"')
-        if matches:
-            logger.info(f"[{barcode}] etag match, will skip download")
-            return {
-                "matched": True,
-                "reason": "etag_match",
-            }
-        else:
-            logger.info(f"[{barcode}] Stored etag did not match GRIN etag; will re-download")
-            return {"matched": False, "reason": "etag_mismatch"}
-    except ClientError as e:
-        logger.debug(f"[{barcode}] Don't have this title in block storage")
-        if e.response and e.response.get("Error", {}).get("Code") == "404":
-            return {"matched": False, "reason": "no_archive"}
-        raise e

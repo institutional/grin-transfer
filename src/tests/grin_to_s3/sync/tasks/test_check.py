@@ -19,21 +19,17 @@ async def test_main_needs_download(mock_pipeline):
     response = MagicMock()
     response.status = 200
     response.headers = {"ETag": '"abc123"', "Content-Length": "1024"}
-    mock_pipeline.grin_client.auth.make_authenticated_request.return_value = response
     mock_pipeline.grin_client.head_archive.return_value = response
+    
+    # Mock no storage
+    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={})
 
-    with (
-        patch("grin_to_s3.sync.tasks.check.etag_matches") as mock_etag_matches,
-        patch("grin_to_s3.sync.tasks.check.BookManager"),
-    ):
-        mock_etag_matches.return_value = {"matched": False, "reason": "no_archive"}
+    result = await check.main("TEST123", mock_pipeline)
 
-        result = await check.main("TEST123", mock_pipeline)
-
-        assert result.action == TaskAction.COMPLETED
-        assert result.data is not None
-        assert result.data["etag"] == "abc123"
-        assert result.data["file_size_bytes"] == 1024
+    assert result.action == TaskAction.COMPLETED
+    assert result.data is not None
+    assert result.data["etag"] == "abc123"
+    assert result.data["file_size_bytes"] == 1024
 
 
 @pytest.mark.asyncio
@@ -42,19 +38,15 @@ async def test_main_etag_match_skips(mock_pipeline):
     response = MagicMock()
     response.status = 200
     response.headers = {"ETag": '"abc123"', "Content-Length": "1024"}
-    mock_pipeline.grin_client.auth.make_authenticated_request.return_value = response
     mock_pipeline.grin_client.head_archive.return_value = response
+    
+    # Mock storage with matching etag
+    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": "abc123"})
 
-    with (
-        patch("grin_to_s3.sync.tasks.check.etag_matches") as mock_etag_matches,
-        patch("grin_to_s3.sync.tasks.check.BookManager"),
-    ):
-        mock_etag_matches.return_value = {"matched": True, "reason": "etag_match"}
+    result = await check.main("TEST123", mock_pipeline)
 
-        result = await check.main("TEST123", mock_pipeline)
-
-        assert result.action == TaskAction.SKIPPED
-        assert result.reason == "skip_etag_match"
+    assert result.action == TaskAction.SKIPPED
+    assert result.reason == "skip_etag_match"
 
 
 @pytest.mark.asyncio
@@ -63,32 +55,65 @@ async def test_main_etag_continue_if_force(mock_pipeline):
     response = MagicMock()
     response.status = 200
     response.headers = {"ETag": '"abc123"', "Content-Length": "1024"}
-    mock_pipeline.grin_client.auth.make_authenticated_request.return_value = response
     mock_pipeline.grin_client.head_archive.return_value = response
     mock_pipeline.force = True
-    with (
-        patch("grin_to_s3.sync.tasks.check.etag_matches") as mock_etag_matches,
-        patch("grin_to_s3.sync.tasks.check.BookManager"),
-    ):
-        mock_etag_matches.return_value = {"matched": True, "reason": "etag_match"}
+    
+    # Mock storage with matching etag
+    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": "abc123"})
 
-        result = await check.main("TEST123", mock_pipeline)
+    result = await check.main("TEST123", mock_pipeline)
 
-        assert result.action == TaskAction.COMPLETED
-        assert result.reason == "completed_match_with_force"
+    assert result.action == TaskAction.COMPLETED
+    assert result.reason == "completed_match_with_force"
 
 
 @pytest.mark.asyncio
-async def test_main_404_fail(mock_pipeline):
-    """Check task should fail when file not found in GRIN."""
+async def test_main_404_fail_no_storage(mock_pipeline):
+    """Check task should fail when file not found in GRIN and not in storage."""
     error_404 = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=404, message="Not Found")
-    mock_pipeline.grin_client.auth.make_authenticated_request.side_effect = error_404
     mock_pipeline.grin_client.head_archive.side_effect = error_404
+    
+    # Mock no storage
+    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={})
 
     result = await check.main("TEST123", mock_pipeline)
 
     assert result.action == TaskAction.FAILED
     assert result.reason == "fail_archive_missing"
+
+
+@pytest.mark.asyncio
+async def test_main_storage_exists_grin_404_skip(mock_pipeline):
+    """Check task should skip when book exists in storage but GRIN returns 404."""
+    error_404 = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=404, message="Not Found")
+    mock_pipeline.grin_client.head_archive.side_effect = error_404
+    
+    # Mock storage has book
+    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": "stored-etag"})
+
+    result = await check.main("TEST123", mock_pipeline)
+
+    assert result.action == TaskAction.SKIPPED
+    assert result.reason == "skip_found_in_storage_not_grin"
+    assert result.data["http_status_code"] == 404
+
+
+@pytest.mark.asyncio
+async def test_main_etag_mismatch_redownload(mock_pipeline):
+    """Check task should complete when etags differ (re-download needed)."""
+    response = MagicMock()
+    response.status = 200
+    response.headers = {"ETag": '"new-etag"', "Content-Length": "2048"}
+    mock_pipeline.grin_client.head_archive.return_value = response
+    
+    # Mock storage has book with different etag
+    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": "old-etag"})
+
+    result = await check.main("TEST123", mock_pipeline)
+
+    assert result.action == TaskAction.COMPLETED
+    assert result.data["etag"] == "new-etag"
+    assert result.data["file_size_bytes"] == 2048
 
 
 @pytest.mark.asyncio
@@ -109,25 +134,3 @@ async def test_head_request():
     assert result["http_status_code"] == 200
 
 
-@pytest.mark.asyncio
-async def test_etag_matches():
-    """ETag should match when stored and GRIN ETags are identical."""
-    book_manager = MagicMock()
-    book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": "matching-etag"})
-
-    result = await check.etag_matches("MATCH123", "matching-etag", book_manager, MagicMock())
-
-    assert result["matched"] is True
-    assert result["reason"] == "etag_match"
-
-
-@pytest.mark.asyncio
-async def test_etag_mismatch():
-    """ETag should not match when stored and GRIN ETags differ."""
-    book_manager = MagicMock()
-    book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": "old-etag"})
-
-    result = await check.etag_matches("MISMATCH123", "new-etag", book_manager, MagicMock())
-
-    assert result["matched"] is False
-    assert result["reason"] == "etag_mismatch"
