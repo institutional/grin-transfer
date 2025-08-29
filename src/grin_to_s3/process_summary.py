@@ -788,21 +788,6 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
             print(f"  Failed: {stage_failed:,}")
         next_command = None
 
-    # Show brief collection overview if we have multiple steps (skip for sync to avoid confusion)
-    if len(summary.stages) > 1 and step_name != "sync":
-        step_order = ["collect", "process", "sync", "enrich"]
-        completed_steps = []
-
-        for s in step_order:
-            if s in summary.stages and summary.stages[s].end_time is not None:
-                step_data = summary.stages[s]
-                stage_total, _, _ = step_data.get_stage_totals()
-                if stage_total > 0:
-                    completed_steps.append(f"{s}:{stage_total:,}")
-
-        if completed_steps:
-            print(f"  Collection: {' | '.join(completed_steps)} books")
-
     # Show next command if available
     if next_command:
         run_name = summary.run_name
