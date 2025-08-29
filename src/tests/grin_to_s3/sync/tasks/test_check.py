@@ -120,6 +120,44 @@ async def test_main_etag_mismatch_redownload(mock_pipeline):
 
 
 @pytest.mark.asyncio
+async def test_main_storage_404_grin_available(mock_pipeline):
+    """Check task should complete when storage throws 404 but GRIN has the book."""
+    # Mock storage 404 error
+    storage_error = ClientError(error_response={"Error": {"Code": "404"}}, operation_name="HeadObject")
+    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(side_effect=storage_error)
+
+    # Mock GRIN has the book
+    response = MagicMock()
+    response.status = 200
+    response.headers = {"ETag": '"grin-etag"', "Content-Length": "2048"}
+    mock_pipeline.grin_client.head_archive.return_value = response
+
+    result = await check.main("TEST123", mock_pipeline)
+
+    assert result.action == TaskAction.COMPLETED
+    assert result.data["etag"] == "grin-etag"
+    assert result.data["file_size_bytes"] == 2048
+
+
+@pytest.mark.asyncio
+async def test_main_storage_404_grin_404_fail(mock_pipeline):
+    """Check task should fail when both storage and GRIN return 404."""
+    # Mock storage 404 error
+    storage_error = ClientError(error_response={"Error": {"Code": "404"}}, operation_name="HeadObject")
+    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(side_effect=storage_error)
+
+    # Mock GRIN 404 error
+    grin_error = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=404, message="Not Found")
+    mock_pipeline.grin_client.head_archive.side_effect = grin_error
+
+    result = await check.main("TEST123", mock_pipeline)
+
+    assert result.action == TaskAction.FAILED
+    assert result.reason == "fail_archive_missing"
+    assert result.data["http_status_code"] == 404
+
+
+@pytest.mark.asyncio
 async def test_head_request():
     """HEAD request should return file metadata."""
     response = MagicMock()
