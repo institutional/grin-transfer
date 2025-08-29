@@ -215,7 +215,7 @@ class TestProcessingClientDataIntegrity:
                 return await super().fetch_resource(directory, resource)
 
         processing_client.grin_client = ConvertedMockClient()
-        from grin_to_s3.processing import get_converted_books
+        from grin_to_s3.queue_utils import get_converted_books
 
         result = await get_converted_books(processing_client.grin_client, "test_dir")
 
@@ -237,7 +237,7 @@ class TestProcessingClientDataIntegrity:
                 return await super().fetch_resource(directory, resource)
 
         processing_client.grin_client = MalformedMockClient()
-        from grin_to_s3.processing import get_converted_books
+        from grin_to_s3.queue_utils import get_converted_books
 
         result = await get_converted_books(processing_client.grin_client, "test_dir")
 
@@ -265,7 +265,7 @@ class TestProcessingClientDataIntegrity:
 
         assert "Network error" in str(exc_info.value)
 
-        from grin_to_s3.processing import get_converted_books
+        from grin_to_s3.queue_utils import get_converted_books
 
         result = await get_converted_books(processing_client.grin_client, "test_dir")
         assert result == set()
