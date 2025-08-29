@@ -468,7 +468,9 @@ class SyncPipeline:
                     task_manager = TaskManager(limits)
                     rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
-                    print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')} from '{queue_name}' queue...")
+                    print(
+                        f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')} from '{queue_name}' queue..."
+                    )
                     print(f"Progress will be shown every {self.progress_interval} books completed")
                     print("---")
 
@@ -564,6 +566,7 @@ class SyncPipeline:
             print(f"Pipeline failed: {e}")
             logger.error(f"Pipeline failed: {e}", exc_info=True)
         finally:
+            print()
             print("Running teardown and final cleanup...")
             await run_teardown_operations(self)
 

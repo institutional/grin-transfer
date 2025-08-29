@@ -59,7 +59,7 @@ def create_filtering_summary(result: BarcodeFilteringResult) -> list[str]:
     final_count = len(result.books_after_limit)
 
     lines = [
-        "\nBook Selection Pipeline:",
+        "\nBarcode filtering:",
         f"  1. Source: {result.source_description}",
         f"     -> {source_count:,} {pluralize(source_count, 'book')} available",
     ]
@@ -74,11 +74,6 @@ def create_filtering_summary(result: BarcodeFilteringResult) -> list[str]:
     if result.limit_applied:
         lines.append(f"  3. Limit: Applied limit of {result.limit_applied:,}")
         lines.append(f"     -> {final_count:,} {pluralize(final_count, 'book')} will be processed")
-    else:
-        lines.append("  3. Limit: None specified")
-        lines.append(f"     -> {final_count:,} {pluralize(final_count, 'book')} will be processed")
-
-    lines.append(f"\nFinal count: {final_count:,} {pluralize(final_count, 'book')}")
 
     return lines
 
