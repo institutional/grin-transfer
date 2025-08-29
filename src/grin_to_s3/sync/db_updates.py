@@ -94,7 +94,7 @@ async def check_skipped(result: TaskResult, previous_results: dict[TaskType, Tas
             "status": ("sync", "completed", {"reason": result.reason, "reconciled_from_storage": True}),
             "books": {"sync_timestamp": datetime.now(UTC).isoformat()},
         }
-    
+
     return {"status": ("sync", "skipped", {"reason": result.reason} if result.reason else None), "books": {}}
 
 

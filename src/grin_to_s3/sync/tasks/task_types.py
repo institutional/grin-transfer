@@ -50,7 +50,6 @@ class CheckData(TypedDict):
     http_status_code: int | None
 
 
-
 class DownloadData(TypedDict):
     """Data from DOWNLOAD task."""
 

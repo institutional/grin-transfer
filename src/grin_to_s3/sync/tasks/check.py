@@ -80,7 +80,7 @@ def _handle_grin_available(
 ) -> CheckResult:
     """Handle case where GRIN has the book available."""
     if not stored_etag:
-        # No storage, GRIN has book → download
+        # We don't have the book in storage, GRIN has book → download
         return CheckResult(
             barcode=barcode,
             task_type=TaskType.CHECK,
@@ -123,7 +123,7 @@ def _handle_grin_error(
     if error.status == 404:
         # GRIN doesn't have the book
         if stored_etag:
-            # Book exists in storage but not in GRIN → skip and mark as completed in DB
+            # Book exists in storage but not in GRIN download queue → skip and mark as completed in DB
             return CheckResult(
                 barcode=barcode,
                 task_type=TaskType.CHECK,
@@ -131,7 +131,7 @@ def _handle_grin_error(
                 data={"etag": None, "file_size_bytes": None, "http_status_code": 404},
                 reason="skip_found_in_storage_not_grin",
             )
-        # Book not in storage, not in GRIN → request conversion
+        # Book not in storage, not in GRIN download queue → request conversion
         return CheckResult(
             barcode=barcode,
             task_type=TaskType.CHECK,

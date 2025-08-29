@@ -3,7 +3,7 @@
 Tests for sync tasks check module.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import pytest
@@ -20,7 +20,7 @@ async def test_main_needs_download(mock_pipeline):
     response.status = 200
     response.headers = {"ETag": '"abc123"', "Content-Length": "1024"}
     mock_pipeline.grin_client.head_archive.return_value = response
-    
+
     # Mock no storage
     mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={})
 
@@ -39,7 +39,7 @@ async def test_main_etag_match_skips(mock_pipeline):
     response.status = 200
     response.headers = {"ETag": '"abc123"', "Content-Length": "1024"}
     mock_pipeline.grin_client.head_archive.return_value = response
-    
+
     # Mock storage with matching etag
     mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": "abc123"})
 
@@ -57,7 +57,7 @@ async def test_main_etag_continue_if_force(mock_pipeline):
     response.headers = {"ETag": '"abc123"', "Content-Length": "1024"}
     mock_pipeline.grin_client.head_archive.return_value = response
     mock_pipeline.force = True
-    
+
     # Mock storage with matching etag
     mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": "abc123"})
 
@@ -72,7 +72,7 @@ async def test_main_404_fail_no_storage(mock_pipeline):
     """Check task should fail when file not found in GRIN and not in storage."""
     error_404 = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=404, message="Not Found")
     mock_pipeline.grin_client.head_archive.side_effect = error_404
-    
+
     # Mock no storage
     mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={})
 
@@ -87,9 +87,11 @@ async def test_main_storage_exists_grin_404_skip(mock_pipeline):
     """Check task should skip when book exists in storage but GRIN returns 404."""
     error_404 = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=404, message="Not Found")
     mock_pipeline.grin_client.head_archive.side_effect = error_404
-    
+
     # Mock storage has book
-    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": "stored-etag"})
+    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(
+        return_value={"encrypted_etag": "stored-etag"}
+    )
 
     result = await check.main("TEST123", mock_pipeline)
 
@@ -105,7 +107,7 @@ async def test_main_etag_mismatch_redownload(mock_pipeline):
     response.status = 200
     response.headers = {"ETag": '"new-etag"', "Content-Length": "2048"}
     mock_pipeline.grin_client.head_archive.return_value = response
-    
+
     # Mock storage has book with different etag
     mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": "old-etag"})
 
@@ -132,5 +134,3 @@ async def test_head_request():
     assert result["etag"] == "test-etag"
     assert result["file_size_bytes"] == 2048
     assert result["http_status_code"] == 200
-
-
