@@ -343,7 +343,9 @@ async def cmd_pipeline(args) -> None:
         try:
             # Execute the sync pipeline
             sync_stage.add_progress_update("Starting sync pipeline")
-            await pipeline.setup_sync_loop(queues=args.queue, limit=args.limit, specific_barcodes=specific_barcodes)
+            await pipeline.setup_sync_loop(
+                queues=args.queue or [], specific_barcodes=specific_barcodes or [], limit=args.limit
+            )
             sync_stage.add_progress_update("Sync pipeline completed successfully")
         finally:
             # Clean up pipeline resources

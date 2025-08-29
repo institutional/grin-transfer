@@ -415,6 +415,7 @@ async def process_books_with_queue(
 
     # Thread-safe counters for progress reporting
     completed_count = 0
+    failure_limit_reached = False  # Flag to coordinate failure limit between workers and main loop
     results_dict = {}
     results_lock = asyncio.Lock()
 
@@ -447,7 +448,7 @@ async def process_books_with_queue(
 
     async def processing_worker() -> None:
         """Worker that handles post-download processing tasks."""
-        nonlocal completed_count
+        nonlocal completed_count, failure_limit_reached
 
         while True:
             item = await processing_queue.get()
@@ -483,8 +484,9 @@ async def process_books_with_queue(
 
                     if book_outcome == "failed":
                         if pipeline._handle_failure(barcode, "Book processing failed"):
-                            # Set shutdown flag to stop feeding new books to queue
-                            pipeline._shutdown_requested = True
+                            # Stop feeding new books to this queue (but don't shutdown globally)
+                            failure_limit_reached = True
+                            logger.warning("Failure limit reached for current queue")
                     else:
                         # Reset failure counter on success (inline, no new function needed)
                         pipeline._sequential_failures = 0
@@ -538,15 +540,12 @@ async def process_books_with_queue(
         # Feed download queue aggressively to keep it saturated
         barcode_iter = iter(barcodes)
         barcodes_exhausted = False
-        items_fed = 0
-        feed_cycles = 0
 
-        while not barcodes_exhausted:
-            feed_cycles += 1
-            items_added_this_cycle = 0
-
+        while not barcodes_exhausted and not failure_limit_reached:
             # Try to fill the queue if there's space and we have more barcodes
-            while not barcodes_exhausted and download_queue.qsize() < download_queue.maxsize:
+            while (
+                not barcodes_exhausted and not failure_limit_reached and download_queue.qsize() < download_queue.maxsize
+            ):
                 try:
                     barcode = next(barcode_iter)
                     if pipeline._shutdown_requested:
@@ -555,8 +554,6 @@ async def process_books_with_queue(
                         barcodes_exhausted = True
                         break
                     download_queue.put_nowait(barcode)
-                    items_fed += 1
-                    items_added_this_cycle += 1
                 except StopIteration:
                     barcodes_exhausted = True
                     break
@@ -564,7 +561,7 @@ async def process_books_with_queue(
                     break
 
             # If we still have barcodes but queue is full, wait a bit
-            if not barcodes_exhausted:
+            if not barcodes_exhausted and not failure_limit_reached:
                 await asyncio.sleep(0.1)
 
         # Wait for all download queue items to be processed
