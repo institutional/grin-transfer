@@ -381,7 +381,7 @@ class SyncPipeline:
         # Initialize persistent database connection for performance optimization
         await self.initialize_resources()
 
-        # Run preflight operations (including database backup)
+        # Run preflight operations
         preflight_results = await run_preflight_operations(self)
         for operation, preflight_result in preflight_results.items():
             if preflight_result.action.value == "failed":
@@ -392,7 +392,7 @@ class SyncPipeline:
                 logger.info(f"Preflight operation {operation} skipped")
 
         try:
-            # Get already synced books from database (do this once outside the queue loop)
+            # Get already synced books from database
             if specific_barcodes:
                 books_already_synced = set()  # Skip DB check for specific barcodes
             else:
@@ -401,7 +401,7 @@ class SyncPipeline:
                     storage_type=self.config.storage_config["protocol"]
                 )
 
-            # Define task functions and limits (move this up before queue processing)
+            # Define task functions and limits
             task_funcs = {
                 TaskType.CHECK: check.main,
                 TaskType.REQUEST_CONVERSION: request_conversion.main,
