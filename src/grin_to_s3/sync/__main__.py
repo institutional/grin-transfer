@@ -412,8 +412,6 @@ Examples:
   # Sync books from a text file (no --queue needed with --barcodes-file)
   python grin.py sync pipeline --run-name harvard_2024 --barcodes-file my_books.txt
 
-  # Retry failed syncs only
-  python grin.py sync pipeline --run-name harvard_2024 --queue converted --status failed
 
   # Sync with limit and force overwrite
   python grin.py sync pipeline --run-name harvard_2024 --queue converted --limit 100 --force
@@ -457,7 +455,6 @@ Examples:
         "--barcodes-file",
         help="Path to a text file containing barcodes to sync (one per line, supports comments with #)",
     )
-    pipeline_parser.add_argument("--status", help="Filter books by sync status (e.g., 'failed', 'pending')")
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
     pipeline_parser.add_argument(
         "--dry-run", action="store_true", help="Show what would be processed without downloading or uploading files"
