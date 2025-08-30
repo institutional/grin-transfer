@@ -17,6 +17,7 @@ from typing import Any
 
 from grin_to_s3.common import parse_barcode_arguments
 from grin_to_s3.constants import DEFAULT_MAX_SEQUENTIAL_FAILURES, DEFAULT_WORKER_CONCURRENCY
+from grin_to_s3.database.database_utils import validate_database_file
 from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
     create_book_manager_for_uploads,
@@ -34,7 +35,6 @@ from grin_to_s3.run_config import (
     setup_run_database_path,
 )
 from grin_to_s3.sync.pipeline import SyncPipeline
-from grin_to_s3.sync.status import show_sync_status, validate_database_file
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +163,7 @@ async def cmd_pipeline(args) -> None:
     print(f"Database: {db_path}")
 
     # Validate database
-    validate_database_file(args.db_path)
+    validate_database_file(args.db_path, check_tables=True)
 
     # Build storage configuration from run config
     config_path = Path(args.db_path).parent / "run_config.json"
@@ -365,23 +365,6 @@ async def cmd_pipeline(args) -> None:
         display_step_summary(run_summary, "sync")
 
 
-async def cmd_status(args) -> None:
-    """Handle the 'status' command."""
-    # Set up database path and apply run configuration
-    db_path = setup_run_database_path(args, args.run_name)
-    logger.debug(f"Using run: {args.run_name}")
-    print(f"Database: {db_path}")
-
-    try:
-        await show_sync_status(args.db_path, args.storage_type)
-    except KeyboardInterrupt:
-        print("\nOperation cancelled by user")
-        sys.exit(1)
-    except Exception as e:
-        print(f"Error: {e}")
-        sys.exit(1)
-
-
 async def main() -> None:
     """Main CLI entry point for sync commands."""
     parser = argparse.ArgumentParser(
@@ -403,9 +386,6 @@ Examples:
 
   # Sync a single book (no --queue needed)
   python grin.py sync pipeline --run-name harvard_2024 --barcodes "39015123456789"
-
-  # Check sync status
-  python grin.py sync status --run-name harvard_2024
 
         """,
     )
@@ -592,26 +572,6 @@ Examples:
     # Logging
     pipeline_parser.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"], default="INFO")
 
-    # Status command
-    status_parser = subparsers.add_parser(
-        "status",
-        help="Check sync status",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Check overall sync status
-  python grin.py sync status --run-name harvard_2024
-
-  # Check sync status for specific storage type
-  python grin.py sync status --run-name harvard_2024 --storage-type r2
-        """,
-    )
-
-    status_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
-    status_parser.add_argument(
-        "--storage-type", choices=["local", "minio", "r2", "s3", "gcs"], help="Filter by storage type"
-    )
-
     args = parser.parse_args()
 
     if not args.command:
@@ -644,8 +604,6 @@ Examples:
 
     if args.command == "pipeline":
         await cmd_pipeline(args)
-    elif args.command == "status":
-        await cmd_status(args)
 
 
 if __name__ == "__main__":

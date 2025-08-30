@@ -8,7 +8,7 @@ Commands:
   auth           Set up OAuth2 authentication with GRIN
   collect        Collect library book metadata from GRIN with progress tracking
   process        Request book processing from GRIN
-  sync           Sync converted books from GRIN to storage (pipeline, status)
+  sync           Sync converted books from GRIN to storage
   storage        Manage storage buckets (ls, rm)
   extract        Extract OCR text from decrypted book archives
   enrich         Enrich books with GRIN metadata
@@ -59,8 +59,6 @@ Examples:
   # Sync converted books to storage
   python grin.py sync pipeline --run-name harvard_2024 --queue converted
 
-  # Check sync status
-  python grin.py sync status --run-name harvard_2024
 
 
 
