@@ -11,7 +11,6 @@ import logging
 import sys
 import time
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import NamedTuple
 
 from grin_to_s3.client import GRINClient
@@ -33,9 +32,9 @@ from grin_to_s3.process_summary import (
     get_current_stage,
     save_process_summary,
 )
-from grin_to_s3.run_config import apply_run_config_to_args, find_run_config, setup_run_database_path
+from grin_to_s3.run_config import apply_run_config_to_args, load_run_config
 
-from .constants import GRIN_RATE_LIMIT_DELAY
+from .constants import GRIN_RATE_LIMIT_DELAY, OUTPUT_DIR
 from .database import connect_async
 from .queue_utils import get_in_process_set
 
@@ -635,7 +634,9 @@ class ProcessingPipeline:
 async def cmd_request(args) -> None:
     """Handle the 'request' command."""
     # Apply run configuration defaults
-    apply_run_config_to_args(args, args.db_path)
+    run_config = load_run_config(OUTPUT_DIR / args.run_name / "run_config.json")
+
+    apply_run_config_to_args(args, run_config)
 
     # Validate that we have a library directory
     if not getattr(args, "grin_library_directory", None):
@@ -645,13 +646,6 @@ async def cmd_request(args) -> None:
 
     # Validate database
     validate_database_file(args.db_path, check_books_count=True)
-
-    # Set up logging - use unified log file from run config
-    run_config = find_run_config(args.db_path)
-    if run_config is None:
-        print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
-        print("Run 'python grin.py collect' first to generate the run configuration.")
-        sys.exit(1)
     setup_logging(args.log_level, run_config.log_file)
 
     # Log processing pipeline startup

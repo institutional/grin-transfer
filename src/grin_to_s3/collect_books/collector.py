@@ -8,14 +8,10 @@ Contains the BookCollector class responsible for coordinating the entire book co
 import asyncio
 import csv
 import logging
-import os
 import signal
-import socket
-import sys
 import time
 from collections.abc import AsyncGenerator
-from datetime import UTC, datetime
-from pathlib import Path
+from datetime import datetime
 
 from grin_to_s3.client import GRINClient, GRINRow
 from grin_to_s3.common import (
@@ -23,6 +19,7 @@ from grin_to_s3.common import (
     pluralize,
     print_oauth_setup_instructions,
 )
+from grin_to_s3.run_config import StorageConfig
 from grin_to_s3.storage import BookManager, create_storage_from_config
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator, show_progress
 
@@ -44,7 +41,7 @@ class BookCollector:
         self,
         directory: str,
         process_summary_stage,
-        storage_config: dict,
+        storage_config: StorageConfig,
         rate_limit: float = 1.0,
         config: ExportConfig | None = None,
         secrets_dir: str | None = None,
@@ -68,33 +65,12 @@ class BookCollector:
         self.recent_processed = BoundedSet(max_size=self.config.recent_cache_size)
         self.recent_failed = BoundedSet(max_size=self.config.recent_failed_cache_size)
 
-        # Job metadata
-        self.job_metadata = self._create_job_metadata(rate_limit, storage_config)
-
         # Storage (required)
         if not storage_config:
             raise ValueError("storage_config is required")
         storage = create_storage_from_config(storage_config)
         prefix = storage_config.get("prefix", "")
         self.book_manager: BookManager = BookManager(storage, storage_config=storage_config, base_prefix=prefix)
-
-    def _create_job_metadata(self, rate_limit: float, storage_config: dict | None) -> dict:
-        """Create comprehensive job metadata for progress tracking."""
-        now = datetime.now(UTC)
-
-        return {
-            "job_started": now.isoformat(),
-            "started_by_user": os.getenv("USER") or os.getenv("USERNAME") or "unknown",
-            "hostname": socket.gethostname(),
-            "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-            "working_directory": str(Path.cwd()),
-            "export_parameters": {
-                "directory": self.directory,
-                "rate_limit": rate_limit,
-                "storage_config": storage_config,
-            },
-            "system_info": {"platform": sys.platform, "pid": os.getpid()},
-        }
 
     async def get_converted_books_html(
         self,

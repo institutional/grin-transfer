@@ -10,6 +10,7 @@ import unittest.mock
 
 import pytest
 
+from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.database.database_utils import validate_database_file
 
 
@@ -123,7 +124,7 @@ class TestValidateDatabaseFile:
         monkeypatch.chdir(tmp_path)
 
         # Create output directory structure
-        output_dir = tmp_path / "output"
+        output_dir = tmp_path / OUTPUT_DIR
         output_dir.mkdir()
 
         run1_dir = output_dir / "run1"

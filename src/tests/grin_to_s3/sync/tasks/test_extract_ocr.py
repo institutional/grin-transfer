@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.storage.staging import DirectoryManager
 from grin_to_s3.sync.tasks import extract_ocr
 from grin_to_s3.sync.tasks.task_types import TaskAction, UnpackData
@@ -108,7 +109,7 @@ async def test_extract_local_storage_moves_file_to_full_directory():
     }
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        output_dir = Path(temp_dir) / "output"
+        output_dir = Path(temp_dir) / OUTPUT_DIR
         staging_path = Path(temp_dir) / "staging"
         staging_path.mkdir()
         filesystem_manager.staging_path = staging_path
@@ -232,7 +233,7 @@ async def test_extract_ocr_local_storage_with_compression_disabled():
 
     with tempfile.TemporaryDirectory() as temp_dir:
         staging_path = Path(temp_dir) / "staging"
-        output_dir = Path(temp_dir) / "output"
+        output_dir = Path(temp_dir) / OUTPUT_DIR
         staging_path.mkdir()
         filesystem_manager.staging_path = staging_path
 

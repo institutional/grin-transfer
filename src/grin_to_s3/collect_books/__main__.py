@@ -8,10 +8,13 @@ Run with: python grin.py collect
 
 import argparse
 import asyncio
+from datetime import datetime
 import logging
 import os
+from pathlib import Path
 import sys
 
+from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.storage.factories import create_local_storage_directories
 
 from .collector import BookCollector
@@ -22,6 +25,7 @@ from grin_to_s3.logging_config import (
     setup_logging,
 )
 from grin_to_s3.process_summary import (
+    create_book_manager_for_uploads,
     create_process_summary,
     display_step_summary,
     get_current_stage,
@@ -38,6 +42,7 @@ from grin_to_s3.run_config import (
     DEFAULT_SYNC_TASK_EXTRACT_OCR_CONCURRENCY,
     DEFAULT_SYNC_TASK_UNPACK_CONCURRENCY,
     DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY,
+    StorageConfig,
     build_storage_config_dict,
 )
 from grin_to_s3.storage import get_storage_protocol
@@ -141,9 +146,6 @@ Examples:
   # Named collection run
   python grin.py collect --run-name "harvard_fall_2024" --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
-  # Specific output file with custom run
-  python grin.py collect books.csv --run-name "test_run" --limit 100 --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
-
   # With rate limiting and storage checking
   python grin.py collect --rate-limit 0.5 --storage s3 --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
 
@@ -154,8 +156,6 @@ Examples:
   python grin.py collect --run-name "harvard_fall_2024" --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
         """,
     )
-
-    parser.add_argument("output_file", nargs="?", help="Output CSV file path (optional if using --run-name)")
 
     # Run identification
     parser.add_argument(
@@ -295,15 +295,11 @@ Examples:
 
     # Handle config creation
     if args.create_config:
-        from pathlib import Path
-
         config = ConfigManager.create_default_config(Path(args.create_config))
         print(f"Created default configuration at {args.create_config}")
         return 0
 
     # Generate run name and output file paths
-    from datetime import datetime
-    from pathlib import Path
 
     if args.run_name:
         # Use provided run name (make it filename-safe)
@@ -320,24 +316,18 @@ Examples:
     # Generate timestamp for output files (not resume files)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Determine output file path
-    if args.output_file:
-        output_file = args.output_file
-    else:
-        output_file = f"output/{run_name}/books_{timestamp}.csv"
+    output_file = f"{OUTPUT_DIR}/{run_name}/books_{timestamp}.csv"
 
     # Generate file paths - outputs get timestamped
     log_file = f"{args.log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
-    sqlite_db = f"output/{run_name}/books.db"  # No timestamp for resume
+    sqlite_db = f"{OUTPUT_DIR}/{run_name}/books.db"
 
     # Create directories
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
     Path(output_file).parent.mkdir(parents=True, exist_ok=True)
 
     # Build storage configuration using centralized function
-    storage_config = None
     if args.storage:
-        # Use centralized function that handles r2 credentials file loading
         final_storage_dict = build_storage_config_dict(args)
 
         # Auto-configure MinIO with standard bucket names (only used in Docker)
@@ -348,7 +338,7 @@ Examples:
 
         # Determine storage protocol for operational logic
         storage_protocol = get_storage_protocol(args.storage)
-        storage_config = {
+        storage_config: StorageConfig = {
             "type": args.storage,
             "protocol": storage_protocol,
             "config": final_storage_dict,
@@ -387,7 +377,7 @@ Examples:
         {
             "run_name": run_name,
             "run_identifier": run_identifier,
-            "output_directory": f"output/{run_name}",
+            "output_directory": f"{OUTPUT_DIR}/{run_name}",
             "sqlite_db_path": sqlite_db,
             "log_file": log_file,
             "storage_config": storage_config,
@@ -399,7 +389,7 @@ Examples:
     # Handle write-config option
     if args.write_config:
         # Write config to run directory
-        config_path = Path(f"output/{run_name}/run_config.json")
+        config_path = Path(f"{OUTPUT_DIR}/{run_name}/run_config.json")
         config_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(config_path, "w") as f:
@@ -424,7 +414,6 @@ Examples:
 
     try:
         # Create book storage for process summary uploads
-        from grin_to_s3.process_summary import create_book_manager_for_uploads
 
         book_manager = await create_book_manager_for_uploads(run_name)
 
@@ -437,8 +426,8 @@ Examples:
             collect_stage.set_command_arg("limit", args.limit)
 
         try:
-            # Write run configuration to run directory (for normal execution)
-            config_path = Path(f"output/{run_name}/run_config.json")
+            # Write run configuration to run directory
+            config_path = Path(f"{OUTPUT_DIR}/{run_name}/run_config.json")
             config_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(config_path, "w") as f:
@@ -459,7 +448,6 @@ Examples:
             # Validate required storage configuration
             if not storage_config:
                 raise ValueError("Storage configuration is required. Provide --storage option.")
-
             # Create book collector with configuration
             collector = BookCollector(
                 directory=args.library_directory,
@@ -515,10 +503,6 @@ Examples:
         else:
             print(f"❌ Collection failed: {e}")
 
-        # Only show resume command if collection actually started (run directory exists)
-        run_dir = Path(f"grin-runs/{run_name}")
-        if run_dir.exists():
-            print_resume_command(args, run_name)
         return 1
 
 

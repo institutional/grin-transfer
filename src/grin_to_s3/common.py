@@ -22,6 +22,7 @@ import aiofiles
 import aiohttp
 
 from grin_to_s3.docker import is_docker_environment
+from grin_to_s3.run_config import StorageConfig, StorageConfigDict
 
 from .auth.grin_auth import find_credential_file
 
@@ -558,7 +559,7 @@ async def decrypt_gpg_file(encrypted_file_path: str, decrypted_file_path: str, s
     await loop.run_in_executor(None, _decrypt_file_with_gpg)
 
 
-def auto_configure_minio(storage_config: dict) -> None:
+def auto_configure_minio(storage_config: StorageConfigDict) -> None:
     """Auto-configure MinIO credentials for Docker container environment."""
     is_docker = is_docker_environment()
 

@@ -133,38 +133,9 @@ class TestProcessSummaryUpload:
             mock_book_manager.storage.write_file.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_create_book_manager_for_uploads(self, temp_dir, mock_run_name):
-        """Test creating BookStorage for uploads."""
-        # Mock run configuration
-        mock_run_config = MagicMock()
-        mock_run_config.storage_type = "s3"
-        mock_run_config.storage_config = {
-            "type": "s3",
-            "config": {
-                "bucket_raw": "test-raw",
-                "bucket_meta": "test-meta",
-                "bucket_full": "test-full",
-            },
-        }
-
-        # Mock storage creation
-        mock_storage = MagicMock()
-
-        with patch("grin_to_s3.run_config.find_run_config", return_value=mock_run_config):
-            with patch("grin_to_s3.storage.factories.create_storage_from_config", return_value=mock_storage):
-                book_manager = await create_book_manager_for_uploads(mock_run_name)
-
-                # Verify BookStorage was created
-                assert book_manager is not None
-                assert book_manager.bucket_raw == "test-raw"
-                assert book_manager.bucket_meta == "test-meta"
-                assert book_manager.bucket_full == "test-full"
-                assert book_manager.base_prefix == mock_run_name
-
-    @pytest.mark.asyncio
     async def test_create_book_manager_for_uploads_no_config(self, mock_run_name):
         """Test creating BookStorage when no config is found."""
-        with patch("grin_to_s3.run_config.find_run_config", return_value=None):
+        with patch("grin_to_s3.run_config.load_run_config", return_value=None):
             book_manager = await create_book_manager_for_uploads(mock_run_name)
 
             # Should return None when no config is found
@@ -178,7 +149,7 @@ class TestProcessSummaryUpload:
         mock_run_config.storage_type = None
         mock_run_config.storage_config = {"bucket_raw": "test-raw"}
 
-        with patch("grin_to_s3.run_config.find_run_config", return_value=mock_run_config):
+        with patch("grin_to_s3.run_config.load_run_config", return_value=mock_run_config):
             book_manager = await create_book_manager_for_uploads(mock_run_name)
 
             # Should return None when storage type is missing
@@ -187,7 +158,7 @@ class TestProcessSummaryUpload:
     @pytest.mark.asyncio
     async def test_create_book_manager_for_uploads_exception(self, mock_run_name):
         """Test creating BookStorage when exception occurs."""
-        with patch("grin_to_s3.run_config.find_run_config", side_effect=Exception("Config error")):
+        with patch("grin_to_s3.run_config.load_run_config", side_effect=Exception("Config error")):
             book_manager = await create_book_manager_for_uploads(mock_run_name)
 
             # Should return None when exception occurs

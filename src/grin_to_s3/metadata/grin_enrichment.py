@@ -24,6 +24,7 @@ from grin_to_s3.common import (
     format_duration,
     pluralize,
 )
+from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.database.connections import connect_async
 from grin_to_s3.database.database_utils import validate_database_file
 from grin_to_s3.logging_config import setup_logging
@@ -35,7 +36,7 @@ from grin_to_s3.process_summary import (
     get_current_stage,
     save_process_summary,
 )
-from grin_to_s3.run_config import apply_run_config_to_args, find_run_config, setup_run_database_path
+from grin_to_s3.run_config import apply_run_config_to_args, load_run_config
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 
 logger = logging.getLogger(__name__)
@@ -412,8 +413,8 @@ Examples:
         parser.print_help()
         sys.exit(1)
 
-    # Set up database path and apply run configuration
-    setup_run_database_path(args, args.run_name)
+    run_config = load_run_config(OUTPUT_DIR / args.run_name / "run_config.json")
+    apply_run_config_to_args(args, run_config)
 
     # Validate database file exists and is accessible
     validate_database_file(args.db_path, check_tables=True)
@@ -430,11 +431,6 @@ Examples:
 
     # Set up logging - use unified log file from run config
     if args.command == "enrich":
-        run_config = find_run_config(args.db_path)
-        if run_config is None:
-            print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
-            print("Run 'python grin.py collect' first to generate the run configuration.")
-            sys.exit(1)
         setup_logging(args.log_level, run_config.log_file)
 
         # Log enrichment startup

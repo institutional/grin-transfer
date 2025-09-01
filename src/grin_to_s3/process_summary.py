@@ -16,6 +16,9 @@ from typing import Any, Literal
 
 import aiofiles
 
+from grin_to_s3.constants import OUTPUT_DIR
+from grin_to_s3.run_config import load_run_config
+
 from .common import compress_file_to_temp, format_duration, get_compressed_filename
 
 logger = logging.getLogger(__name__)
@@ -445,7 +448,7 @@ class RunSummaryManager:
 
     def __init__(self, run_name: str):
         self.run_name = run_name
-        self.summary_file = Path(f"output/{run_name}/process_summary.json")
+        self.summary_file = Path(f"{OUTPUT_DIR}/{run_name}/process_summary.json")
         self.summary: RunSummary | None = None
         self._storage_upload_enabled = False
         self._book_manager = None
@@ -646,18 +649,12 @@ def get_current_stage(summary: RunSummary, stage_name: str) -> ProcessStageMetri
 
 async def create_book_manager_for_uploads(run_name: str):
     """Create a BookManager instance for process summary uploads."""
-    from .run_config import find_run_config
     from .storage.book_manager import BookManager
     from .storage.factories import create_storage_from_config
 
     try:
         # Find and load run configuration
-        db_path = f"output/{run_name}/books.db"
-        run_config = find_run_config(db_path)
-
-        if not run_config:
-            logger.warning(f"No run configuration found for run {run_name}")
-            return None
+        run_config = load_run_config("{OUTPUT_DIR}/{run_name}/run_config.json")
 
         # Create storage instance
         storage_type = run_config.storage_type

@@ -5,6 +5,11 @@ Constants for grin-to-s3 application.
 Centralized constants to eliminate duplication across the codebase.
 """
 
+# Directory paths
+from pathlib import Path
+
+OUTPUT_DIR = Path("output")
+
 # GRIN API rate limiting
 GRIN_RATE_LIMIT_QPS = 5.0
 GRIN_RATE_LIMIT_DELAY = 0.2  # 1/5 = 0.2 seconds for 5 QPS

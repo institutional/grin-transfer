@@ -11,12 +11,12 @@ import asyncio
 import csv
 import logging
 import sys
-from pathlib import Path
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.database.database_utils import validate_database_file
 from grin_to_s3.logging_config import setup_logging
-from grin_to_s3.run_config import apply_run_config_to_args, setup_run_database_path
+from grin_to_s3.run_config import apply_run_config_to_args, load_run_config
 
 logger = logging.getLogger(__name__)
 
@@ -86,22 +86,11 @@ Note: This command exports ALL books in the database regardless of processing st
 async def main():
     """Main entry point for export command."""
     args = create_parser().parse_args()
-
-    # Set up database path and apply run configuration
-    args.db_path = setup_run_database_path(args, args.run_name)
-    apply_run_config_to_args(args, args.db_path)
+    run_config = load_run_config(OUTPUT_DIR / args.run_name / "run_config.json")
+    apply_run_config_to_args(args, run_config)
 
     # Validate database
     validate_database_file(args.db_path, check_tables=True, check_books_count=True)
-
-    # Set up logging
-    from grin_to_s3.run_config import find_run_config
-
-    run_config = find_run_config(args.db_path)
-    if run_config is None:
-        print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
-        print("Run 'python grin.py collect' first to generate the run configuration.")
-        sys.exit(1)
     setup_logging(args.log_level, run_config.log_file)
 
     # Log export startup

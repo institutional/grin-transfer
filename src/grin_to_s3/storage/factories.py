@@ -9,6 +9,8 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from grin_to_s3.run_config import StorageConfigDict
+
 if TYPE_CHECKING:
     from ..run_config import StorageConfig
 
@@ -232,7 +234,7 @@ def create_azure_storage(account_name: str, **kwargs: Any) -> Storage:
     return Storage(config)
 
 
-async def create_local_storage_directories(storage_config: dict) -> None:
+async def create_local_storage_directories(storage_config: StorageConfigDict) -> None:
     """Create all required directories for local storage.
 
     Args:
