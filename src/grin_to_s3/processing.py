@@ -633,9 +633,9 @@ class ProcessingPipeline:
 
 async def cmd_request(args) -> None:
     """Handle the 'request' command."""
-    # Apply run configuration defaults
     run_config = load_run_config(OUTPUT_DIR / args.run_name / "run_config.json")
 
+    # Apply run configuration defaults
     apply_run_config_to_args(args, run_config)
 
     # Validate that we have a library directory
@@ -645,7 +645,7 @@ async def cmd_request(args) -> None:
         sys.exit(1)
 
     # Validate database
-    validate_database_file(args.db_path, check_books_count=True)
+    validate_database_file(OUTPUT_DIR / args.run_name / "books.db", check_books_count=True)
     setup_logging(args.log_level, run_config.log_file)
 
     # Log processing pipeline startup
@@ -689,7 +689,7 @@ async def cmd_request(args) -> None:
     try:
         try:
             pipeline = ProcessingPipeline(
-                db_path=args.db_path,
+                db_path=str(OUTPUT_DIR / args.run_name / "books.db"),
                 directory=args.grin_library_directory,
                 process_summary_stage=process_stage,
                 rate_limit_delay=args.rate_limit,
@@ -866,11 +866,6 @@ Examples:
     if not args.command:
         parser.print_help()
         sys.exit(1)
-
-    # Set up database path and apply run configuration
-    db_path = setup_run_database_path(args, args.run_name)
-    logger.debug(f"Using run: {args.run_name}")
-    print(f"Database: {db_path}")
 
     if args.command == "request":
         await cmd_request(args)

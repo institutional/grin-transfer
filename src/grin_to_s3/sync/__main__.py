@@ -7,12 +7,10 @@ Command-line interface for sync operations.
 
 import argparse
 import asyncio
-import json
 import logging
 import os
 import signal
 import sys
-from pathlib import Path
 from typing import Any
 
 from grin_to_s3.common import parse_barcode_arguments
@@ -29,7 +27,6 @@ from grin_to_s3.process_summary import (
 from grin_to_s3.run_config import (
     RunConfig,
     apply_run_config_to_args,
-    build_storage_config_dict,
     load_run_config,
 )
 from grin_to_s3.sync.pipeline import SyncPipeline

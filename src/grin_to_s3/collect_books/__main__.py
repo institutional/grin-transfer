@@ -8,11 +8,11 @@ Run with: python grin.py collect
 
 import argparse
 import asyncio
-from datetime import datetime
 import logging
 import os
-from pathlib import Path
 import sys
+from datetime import datetime
+from pathlib import Path
 
 from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.storage.factories import create_local_storage_directories

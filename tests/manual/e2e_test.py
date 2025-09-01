@@ -251,6 +251,10 @@ class E2ETestRunner:
             timeout=180,
         )
 
+        # Wait a moment for local metadata file creation to complete
+        logger.info("Waiting for local metadata file creation to complete...")
+        time.sleep(5)
+
         # Sync with local storage - previous queue (test PR5 functionality)
         self._run_command(
             [
@@ -494,6 +498,10 @@ class E2ETestRunner:
             env=docker_env,
         )
 
+        # Wait a moment for teardown operations to complete metadata uploads
+        logger.info("Waiting for metadata upload operations to complete...")
+        time.sleep(10)
+
         # Verify that metadata files exist in the expected bucket structure
         self._verify_minio_metadata(repo_dir, docker_minio_run_name, docker_env)
 
@@ -651,8 +659,21 @@ class E2ETestRunner:
         logger.info(f"Local metadata verification complete: {len(files_found)}/{len(expected_files)} files found")
 
         if files_missing:
-            logger.warning(f"Missing metadata files: {[f.name for f in files_missing]}")
-            # Don't fail the test for missing files since some may not be created in short runs
+            # Critical files that must exist for successful sync
+            critical_files = [
+                run_dir / "books_latest.db.gz",  # Database should always be uploaded
+                run_dir / "process_summary.json.gz",  # Process summary should always be uploaded
+            ]
+
+            missing_critical = [f for f in files_missing if f in critical_files]
+            missing_optional = [f for f in files_missing if f not in critical_files]
+
+            if missing_critical:
+                logger.error(f"Critical metadata files missing: {[f.name for f in missing_critical]}")
+                raise Exception(f"Critical metadata files missing: {[f.name for f in missing_critical]}")
+            elif missing_optional:
+                logger.warning(f"Optional metadata files missing: {[f.name for f in missing_optional]}")
+                logger.info("✓ All critical metadata files found, some optional files missing")
         else:
             logger.info("✓ All expected metadata files found in correct local structure")
 
@@ -702,6 +723,18 @@ class E2ETestRunner:
                 else:
                     files_missing.append(expected_file)
                     logger.warning(f"✗ Missing metadata file: {expected_file}")
+                    # Debug: Show what files actually exist in the run directory
+                    debug_result = self._run_command(
+                        ["docker", "compose", "exec", "-T", "minio", "mc", "ls", f"minio/grin-meta/{run_name}/"],
+                        cwd=repo_dir,
+                        env=docker_env,
+                        quiet=True,
+                        check=False,
+                    )
+                    if debug_result.returncode == 0 and debug_result.stdout:
+                        logger.info(f"Files actually in {run_name}/: {debug_result.stdout.strip()}")
+                    else:
+                        logger.info(f"No files found in {run_name}/ or directory doesn't exist")
 
             # Check for timestamped subdirectory (may not exist if no timestamped files were created)
             timestamped_result = self._run_command(
@@ -721,9 +754,21 @@ class E2ETestRunner:
             logger.info(f"Metadata verification complete: {len(files_found)}/{len(expected_files)} files found")
 
             if files_missing:
-                logger.warning(f"Missing metadata files: {files_missing}")
-                # Don't fail the test for missing files since sync may not have created all files
-                # This is more of an informational check
+                # Critical files that must exist for successful sync
+                critical_files = [
+                    f"{run_name}/books_latest.db.gz",  # Database should always be uploaded
+                    f"{run_name}/process_summary.json.gz",  # Process summary should always be uploaded
+                ]
+
+                missing_critical = [f for f in files_missing if f in critical_files]
+                missing_optional = [f for f in files_missing if f not in critical_files]
+
+                if missing_critical:
+                    logger.error(f"Critical metadata files missing: {missing_critical}")
+                    raise Exception(f"Critical metadata files missing: {missing_critical}")
+                elif missing_optional:
+                    logger.warning(f"Optional metadata files missing: {missing_optional}")
+                    logger.info("✓ All critical metadata files found, some optional files missing")
             else:
                 logger.info("✓ All expected metadata files found in correct bucket structure")
 

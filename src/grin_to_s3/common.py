@@ -22,7 +22,7 @@ import aiofiles
 import aiohttp
 
 from grin_to_s3.docker import is_docker_environment
-from grin_to_s3.run_config import StorageConfig, StorageConfigDict
+from grin_to_s3.run_config import StorageConfigDict
 
 from .auth.grin_auth import find_credential_file
 
