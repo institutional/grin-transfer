@@ -7,6 +7,9 @@ import pytest
 
 from grin_to_s3.sync.pipeline import SyncPipeline
 
+# Import task-level fixtures for use in sync tests
+from tests.grin_to_s3.sync.tasks.conftest import mock_pipeline  # noqa: F401
+
 
 @pytest.fixture
 def sync_stats():
