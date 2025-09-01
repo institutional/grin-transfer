@@ -74,7 +74,7 @@ class TestProcessSummaryUpload:
             # Verify the storage path is correct (now compressed)
             call_args = mock_book_manager.storage.write_file.call_args
             storage_path, local_path = call_args[0]
-            assert storage_path == "test-meta/test_run/process_summary_test_run_upload.json.gz"
+            assert storage_path == "test-meta/test_run/test_run_upload/process_summary.json.gz"
             # local_path should be a compressed temp file, not the original summary file
             assert local_path.endswith(".gz")
 
@@ -217,8 +217,8 @@ class TestProcessSummaryUpload:
             call_args = mock_book_manager.storage.write_file.call_args
             storage_path = call_args[0][0]
 
-            # Should follow the pattern: bucket_meta/base_prefix/process_summary_run_name.json.gz (now compressed)
-            expected_path = f"test-meta/test_run/process_summary_{mock_run_name}.json.gz"
+            # Should follow the pattern: bucket_meta/run_name/process_summary.json.gz (now compressed)
+            expected_path = f"test-meta/test_run/{mock_run_name}/process_summary.json.gz"
             assert storage_path == expected_path
 
     @pytest.mark.asyncio

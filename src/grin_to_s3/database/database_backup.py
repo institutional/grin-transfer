@@ -97,14 +97,14 @@ async def create_local_database_backup(db_path: str, backup_dir: str | None = No
 
 
 async def upload_database_to_storage(
-    db_path: str, book_manager: "BookManager", upload_type: str = "latest"
+    db_path: str, book_manager: "BookManager", run_name: str, upload_type: str = "latest"
 ) -> DatabaseBackupResult:
     """Upload database file to metadata bucket with compression.
 
     Args:
         db_path: Path to SQLite database file
         book_manager: BookManager instance for upload operations
-        staging_manager: StagingDirectoryManager for cloud storage (None for local)
+        run_name: Name of the run for path organization
         upload_type: "latest" for books_latest.db.gz or "timestamped" for books_backup_{timestamp}.db.gz
 
     Returns:
@@ -131,12 +131,12 @@ async def upload_database_to_storage(
         if upload_type == "latest":
             base_filename = "books_latest.db"
             compressed_filename = get_compressed_filename(base_filename)
-            storage_path = book_manager.meta_path(compressed_filename)
+            storage_path = book_manager.meta_path(f"{run_name}/{compressed_filename}")
         else:  # timestamped
             timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-            base_filename = f"books_backup_{timestamp}.db"
+            base_filename = f"books_{timestamp}.db"
             compressed_filename = get_compressed_filename(base_filename)
-            storage_path = book_manager.meta_path(f"database_backups/{compressed_filename}")
+            storage_path = book_manager.meta_path(f"{run_name}/timestamped/{compressed_filename}")
 
         result["backup_filename"] = compressed_filename
 
