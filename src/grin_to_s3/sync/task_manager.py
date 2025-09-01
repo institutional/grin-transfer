@@ -41,6 +41,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _get_failure_details(task_results: dict[TaskType, TaskResult]) -> str:
+    """Extract meaningful error details from task results.
+
+    Args:
+        task_results: Dict of task results for a book
+
+    Returns:
+        String describing which task(s) failed and why
+    """
+    failed_tasks = []
+    for task_type, result in task_results.items():
+        if result.action == TaskAction.FAILED:
+            task_name = task_type.name.lower().replace("_", " ")
+            error_detail = result.error or "unknown error"
+            failed_tasks.append(f"{task_name} ({error_detail})")
+
+    if failed_tasks:
+        return f"Failed tasks: {', '.join(failed_tasks)}"
+    else:
+        return "Book processing failed (no specific task failure found)"
+
+
 class TaskManager:
     """
     Manages concurrent task execution with semaphores.
@@ -483,7 +505,8 @@ async def process_books_with_queue(
                     book_outcome = ProcessStageMetrics.determine_book_outcome(final_results)
 
                     if book_outcome == "failed":
-                        if pipeline._handle_failure(barcode, "Book processing failed"):
+                        error_details = _get_failure_details(final_results)
+                        if pipeline._handle_failure(barcode, error_details):
                             # Stop feeding new books to this queue (but don't shutdown globally)
                             failure_limit_reached = True
                             logger.warning("Failure limit reached for current queue")
@@ -587,17 +610,25 @@ async def process_books_with_queue(
         all_workers = download_tasks + processing_tasks
         await asyncio.gather(*all_workers, return_exceptions=True)
 
-    # Log final stats
-    logger.info(f"Processed {len(results_dict)}/{total_books} books")
+    # Log final stats with completion percentage
+    completion_percentage = (len(results_dict) / total_books * 100) if total_books > 0 else 0
+    logger.info(
+        f"Final sync results: processed {len(results_dict)}/{total_books} books ({completion_percentage:.1f}% complete)"
+    )
+
+    # Log detailed task statistics
     for task_type in TaskType:
         stats = manager.stats[task_type]
         if stats["started"] > 0:
+            task_name = task_type.name.lower().replace("_", " ")
+            success_rate = (stats["completed"] / stats["started"] * 100) if stats["started"] > 0 else 0
             logger.info(
-                f"{task_type.name}: "
+                f"Task '{task_name}': "
                 f"started={stats['started']}, "
                 f"completed={stats['completed']}, "
                 f"skipped={stats['skipped']}, "
-                f"failed={stats['failed']}"
+                f"failed={stats['failed']} "
+                f"(success rate: {success_rate:.1f}%)"
             )
 
     return results_dict

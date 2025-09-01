@@ -429,13 +429,16 @@ class SyncPipeline:
                 # Get books from this specific queue
                 print()
                 print(f"Fetching books from '{queue_name}' queue...")
+                logger.info(f"Fetching books from '{queue_name}' queue")
                 queue_books = await get_books_from_queue(
                     self.grin_client, self.library_directory, queue_name, self.db_tracker
                 )
                 if len(queue_books) == 0:
                     print(f"  Warning: '{queue_name}' queue reports no books available")
+                    logger.warning(f"'{queue_name}' queue reports no books available")
                     continue  # Skip to next queue
                 print(f"  '{queue_name}' queue: {len(queue_books):,} books available")
+                logger.info(f"'{queue_name}' queue: {len(queue_books):,} books available")
 
                 # Filter books and print summary for this queue
                 books_to_process = filter_and_print_barcodes(
@@ -461,7 +464,11 @@ class SyncPipeline:
                 print(
                     f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')} from '{queue_name}' queue..."
                 )
+                logger.info(
+                    f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')} from '{queue_name}' queue"
+                )
                 print(f"Progress will be shown every {self.progress_interval} books completed")
+                logger.info(f"Progress will be shown every {self.progress_interval} books completed")
                 print("---")
 
                 # Process this queue's books
