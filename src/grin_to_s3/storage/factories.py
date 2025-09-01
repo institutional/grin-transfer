@@ -173,12 +173,14 @@ def create_storage_from_config(storage_config: "StorageConfig") -> Storage:
                 raise ValueError(f"Invalid R2 credentials file {credentials_file}: {e}") from e
 
         case "s3":
-            bucket = config.get("bucket") or config.get("bucket_raw")
-            if not bucket or not isinstance(bucket, str):
-                raise ValueError("S3 storage requires bucket name")
-
-            # AWS credentials from environment or ~/.aws/credentials
-            return create_s3_storage(bucket=bucket)
+            missing = [
+                b
+                for b in ["bucket_raw", "bucket_meta", "bucket_full"]
+                if not config.get(b) or not isinstance(config.get(b), str)
+            ]
+            if missing:
+                raise ValueError(f"S3 storage requires bucket name(s): {', '.join(missing)}")
+            return create_s3_storage(bucket=config["bucket_raw"])
 
         case "gcs":
             project = config.get("project")
