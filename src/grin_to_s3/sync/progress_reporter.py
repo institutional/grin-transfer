@@ -5,9 +5,12 @@ Progress Reporter for Sync Pipeline
 Provides rate calculation utilities for sync operations.
 """
 
+import logging
 import time
 
 from grin_to_s3.common import format_duration
+
+logger = logging.getLogger(__name__)
 
 
 class SlidingWindowRateCalculator:
@@ -108,9 +111,12 @@ def show_progress(
     # Add extra info (queue depths for sync, current record for collect)
     if extra_info:
         extra_parts = [f"{k}: {v}" for k, v in extra_info.items()]
-        print(f"{base_info} [{', '.join(extra_parts)}]")
+        full_info = f"{base_info} [{', '.join(extra_parts)}]"
+        print(full_info)
+        logger.info(f"Progress: {full_info}")
     else:
         print(base_info)
+        logger.info(f"Progress: {base_info}")
 
 
 def show_queue_progress(
