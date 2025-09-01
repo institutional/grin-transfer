@@ -41,7 +41,6 @@ from grin_to_s3.sync.tasks import (
 from grin_to_s3.sync.tasks.task_types import TaskType
 
 from .barcode_filtering import filter_and_print_barcodes
-from .conversion_handler import ConversionRequestHandler
 from .preflight import run_preflight_operations
 from .teardown import run_teardown_operations
 from .utils import reset_bucket_cache
@@ -235,8 +234,6 @@ class SyncPipeline:
         self.storage = create_storage_from_config(self.config.storage_config)
         self.base_prefix = self.config.storage_config.get("prefix", "")
 
-        # Conversion request handling for previous queue
-        self.conversion_handler: ConversionRequestHandler | None = None  # Lazy initialization
         self.conversion_requests_made = 0
         self.book_manager = BookManager(
             self.storage, storage_config=self.config.storage_config, base_prefix=self.base_prefix
@@ -341,11 +338,6 @@ class SyncPipeline:
             queues: List of queue types to process (converted, previous, changed, all)
         """
 
-        # Initialize conversion handler if processing previous queue
-        if "previous" in queues:
-            self.conversion_handler = ConversionRequestHandler(
-                library_directory=self.library_directory, db_tracker=self.db_tracker, secrets_dir=self.secrets_dir
-            )
         if self.dry_run:
             print("🔍 DRY-RUN MODE: No files will be downloaded or uploaded")
 
