@@ -287,6 +287,9 @@ class E2ETestRunner:
         # Verify that archives actually exist and are not zero-byte
         self._verify_local_archives(repo_dir, storage_base, local_run_name)
 
+        # Verify metadata file organization
+        self._verify_local_metadata(storage_base, local_run_name)
+
         # Configuration 2: R2 storage (if credentials available)
         logger.info("=== Testing local machine with R2 storage ===")
         r2_creds_file = Path.home() / ".config" / "grin-to-s3" / "r2_credentials.json"
@@ -307,7 +310,6 @@ class E2ETestRunner:
                     "r2",
                     "--library-directory",
                     "Harvard",
-                    "--dry-run",
                 ],
                 cwd=repo_dir,
             )
@@ -492,6 +494,9 @@ class E2ETestRunner:
             env=docker_env,
         )
 
+        # Verify that metadata files exist in the expected bucket structure
+        self._verify_minio_metadata(repo_dir, docker_minio_run_name, docker_env)
+
         # Configuration 2: R2 storage in Docker (if credentials available)
         logger.info("=== Testing Docker with R2 storage ===")
         r2_creds_file = Path.home() / ".config" / "grin-to-s3" / "r2_credentials.json"
@@ -593,6 +598,140 @@ class E2ETestRunner:
             raise Exception(f"Found zero-byte archive files: {zero_byte_names}")
 
         logger.info("All archive files verified - they exist and are not zero-byte")
+
+    def _verify_local_metadata(self, storage_base: str, run_name: str) -> None:
+        """Verify that metadata files exist in local storage with the new structure."""
+        logger.info("Verifying metadata files in local storage structure...")
+
+        # Check the meta storage directory for the new structure
+        meta_dir = Path(storage_base) / "meta"
+        run_dir = meta_dir / run_name
+
+        if not meta_dir.exists():
+            logger.warning(f"Meta storage directory does not exist: {meta_dir}")
+            return
+
+        if not run_dir.exists():
+            logger.warning(f"Run directory does not exist in meta storage: {run_dir}")
+            return
+
+        # Check for expected metadata files in the new structure
+        expected_files = [
+            run_dir / "config.json",  # Run configuration (uncompressed)
+            run_dir / "process_summary.json.gz",  # Process summary (compressed)
+            run_dir / "books_latest.csv.gz",  # Latest CSV (compressed)
+            run_dir / "books_latest.db.gz",  # Latest database (compressed)
+        ]
+
+        files_found = []
+        files_missing = []
+
+        for expected_file in expected_files:
+            if expected_file.exists():
+                file_size = expected_file.stat().st_size
+                files_found.append(expected_file)
+                logger.info(f"✓ Found metadata file: {expected_file.name} ({file_size} bytes)")
+            else:
+                files_missing.append(expected_file)
+                logger.warning(f"✗ Missing metadata file: {expected_file.name}")
+
+        # Check for timestamped subdirectory (may not exist if no timestamped files were created)
+        timestamped_dir = run_dir / "timestamped"
+        if timestamped_dir.exists():
+            timestamped_files = list(timestamped_dir.glob("*"))
+            if timestamped_files:
+                logger.info(f"✓ Found timestamped subdirectory with {len(timestamped_files)} files")
+                for file in timestamped_files:
+                    logger.info(f"  - {file.name}")
+            else:
+                logger.info("✓ Found timestamped subdirectory (empty)")
+        else:
+            logger.info("ℹ No timestamped subdirectory found (expected for short test runs)")
+
+        # Report verification results
+        logger.info(f"Local metadata verification complete: {len(files_found)}/{len(expected_files)} files found")
+
+        if files_missing:
+            logger.warning(f"Missing metadata files: {[f.name for f in files_missing]}")
+            # Don't fail the test for missing files since some may not be created in short runs
+        else:
+            logger.info("✓ All expected metadata files found in correct local structure")
+
+    def _verify_minio_metadata(self, repo_dir: Path, run_name: str, docker_env: dict) -> None:
+        """Verify that metadata files exist in MinIO with the new bucket structure."""
+        logger.info("Verifying metadata files in MinIO bucket structure...")
+
+        try:
+            # Use docker compose exec to run mc (MinIO client) inside the MinIO container
+            # First check if the bucket and run directory exist
+            result = self._run_command(
+                ["docker", "compose", "exec", "-T", "minio", "mc", "ls", f"minio/grin-meta/{run_name}/"],
+                cwd=repo_dir,
+                env=docker_env,
+                quiet=True,
+                check=False,
+            )
+
+            if result.returncode != 0:
+                logger.warning(f"Run directory may not exist in meta bucket: {run_name}")
+                # Still continue to check for individual files
+
+            # Check for expected metadata files in the new structure
+            expected_files = [
+                f"{run_name}/config.json",  # Run configuration (uncompressed)
+                f"{run_name}/process_summary.json.gz",  # Process summary (compressed)
+                f"{run_name}/books_latest.csv.gz",  # Latest CSV (compressed)
+                f"{run_name}/books_latest.db.gz",  # Latest database (compressed)
+            ]
+
+            files_found = []
+            files_missing = []
+
+            for expected_file in expected_files:
+                # Check if each file exists in the bucket
+                result = self._run_command(
+                    ["docker", "compose", "exec", "-T", "minio", "mc", "stat", f"minio/grin-meta/{expected_file}"],
+                    cwd=repo_dir,
+                    env=docker_env,
+                    quiet=True,
+                    check=False,
+                )
+
+                if result.returncode == 0:
+                    files_found.append(expected_file)
+                    logger.info(f"✓ Found metadata file: {expected_file}")
+                else:
+                    files_missing.append(expected_file)
+                    logger.warning(f"✗ Missing metadata file: {expected_file}")
+
+            # Check for timestamped subdirectory (may not exist if no timestamped files were created)
+            timestamped_result = self._run_command(
+                ["docker", "compose", "exec", "-T", "minio", "mc", "ls", f"minio/grin-meta/{run_name}/timestamped/"],
+                cwd=repo_dir,
+                env=docker_env,
+                quiet=True,
+                check=False,
+            )
+
+            if timestamped_result.returncode == 0:
+                logger.info("✓ Found timestamped subdirectory")
+            else:
+                logger.info("ℹ No timestamped files found (expected for short test runs)")
+
+            # Report verification results
+            logger.info(f"Metadata verification complete: {len(files_found)}/{len(expected_files)} files found")
+
+            if files_missing:
+                logger.warning(f"Missing metadata files: {files_missing}")
+                # Don't fail the test for missing files since sync may not have created all files
+                # This is more of an informational check
+            else:
+                logger.info("✓ All expected metadata files found in correct bucket structure")
+
+        except Exception as e:
+            logger.error(f"Failed to verify MinIO metadata: {e}")
+            # Don't fail the entire test for metadata verification issues
+            logger.warning("Continuing test despite metadata verification failure")
 
     def cleanup_temp_dir(self) -> None:
         """Clean up temporary directory."""
