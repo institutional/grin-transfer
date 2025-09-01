@@ -131,11 +131,11 @@ Collects book metadata from GRIN into the local SQLite database and writes the r
 ```bash
 # Basic collection using CloudFlare R2 as the remote storage
 python grin.py collect --run-name RUN_NAME \
-  --library-directory Harvard \
+  --library-directory YOUR_LIBRARY_DIRECTORY \
   --storage r2 
 
 # Local storage (no buckets required, but you must specify the path to the directory where files will go)
-python grin.py collect --run-name "local_test" --library-directory Harvard --storage local --storage-config base_path=/tmp/storage
+python grin.py collect --run-name "local_test" --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=/tmp/storage
 
 ```
 
@@ -147,17 +147,13 @@ python grin.py collect --run-name "local_test" --library-directory Harvard --sto
 
 ### 2. Processing Management: `grin.py process`
 
-Request and monitor book processing via GRIN conversion system.
+Request book processing via GRIN conversion system.
 
 ```bash
 python grin.py process request --run-name RUN_NAME --limit 1000
 ```
 
-**Commands:**
-- `request`: Submit books for GRIN processing
-- `monitor`: Check processing status and progress
-
-### 3. Sync Pipeline: `grin.py sync`
+### 3. Sync Pipeline: `grin.py sync pipeline`
 
 Download converted books from GRIN to storage with database tracking. You must either specify a `queue`, or a list of books by derived status, or `--barcodes`, to pass a short list of barcodes on the command line, or `--barcodes-file`, a path to a file containing barcodes.
 
@@ -208,8 +204,6 @@ Manage storage buckets with fast listing and deletion.
 - `rm`: Remove all contents from specified bucket (raw, meta, or full)
 - `cp`: Copy files from a bucket to your local filesystem
 
-
-
 ## File Outputs
 
 Each run creates organized output in `output/{run_name}/`:
@@ -224,64 +218,119 @@ TODO: Add data dictionaries for metadata fields available from GRIN's UI as well
 
 ### Storage Backends
 
-**Local Storage:**
+<details>
+<summary>**Local Storage:**</summary>
+
+If you have a large enough locally-mounted filesystem, you can sync directly to it. This process is significantly faster than using a block storage system, though typically the limiting factor on syncs is GRIN, not network egress.
+
+When using local storage, you must specify a `base_path` as the directory where books and metadata will be stored. The pipeline will organize the raw, full, and metadata files underneath that.
+
 ```bash
-python grin.py collect --run-name "local" --library-directory Harvard --storage local --storage-config base_path=/tmp/grin-books
+python grin.py collect --run-name "local" --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=/var/grin-books
+```
+</details>
+
+<details>
+<summary>**AWS S3:**</summary>
+
+In AWS, create three buckets for raw archives, full-text, and metadata. Create an IAM user with access to those buckets, and an access key and ID associated with that user.
+
+**Sample IAM policy**
+
+```
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Effect": "Allow",
+			"Action": [
+				"s3:GetObject",
+				"s3:PutObject",
+				"s3:DeleteObject",
+				"s3:ListBucket",
+				"s3:GetBucketLocation",
+				"s3:AbortMultipartUpload",
+				"s3:ListMultipartUploadParts"
+			],
+			"Resource": [
+				"arn:aws:s3:::lizadaly-grin-raw",
+				"arn:aws:s3:::lizadaly-grin-raw/*",
+				"arn:aws:s3:::lizadaly-grin-meta",
+				"arn:aws:s3:::lizadaly-grin-meta/*",
+				"arn:aws:s3:::lizadaly-grin-full",
+				"arn:aws:s3:::lizadaly-grin-full/*"
+			]
+		},
+		{
+			"Effect": "Allow",
+			"Action": [
+				"s3:ListAllMyBuckets"
+			],
+			"Resource": "*"
+		}
+	]
+}
 ```
 
-**Cloudflare R2:**
-```bash 
-cp examples/auth/r2-credentials-template.json ~/.config/grin-to-s3/r2_credentials.json
+Then on the host running grin-to-s3, use an AWS credentials file:
 
-# Edit `r2_credentials.json` with your access information and bucket names, then test with:
-python grin.py collect --run-name "r2" --library-directory Harvard --storage r2
-```
-
-
-**AWS S3:**
 ```bash
-# Configure AWS credentials (choose one method):
-
-# Method 1: AWS credentials file
 mkdir -p ~/.aws
 cat > ~/.aws/credentials << EOF
 [default]
 aws_access_key_id = YOUR_ACCESS_KEY_ID
 aws_secret_access_key = YOUR_SECRET_ACCESS_KEY
 EOF
-
-# Method 2: Environment variables
-export AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY_ID
-export AWS_SECRET_ACCESS_KEY=YOUR_SECRET_ACCESS_KEY
-export AWS_DEFAULT_REGION=us-east-1
-
-# Method 3: AWS CLI configuration
-aws configure
-
-# Then run collection
-python grin.py collect --run-name "s3" --library-directory Harvard --storage s3 
 ```
 
-**Google Cloud Storage (GCS):**
+
+# Then run collection with the appropriate bucket names
+python grin.py collect --run-name "s3" --library-directory YOUR_LIBRARY_DIRECTORY --storage s3 --bucket-raw YOUR_RAW_BUCKET --bucket-full YOUR_FULL_BUCKET --bucket-meta YOUR_META_BUCKET
+```
+
+Any other boto-compatible access model should also work; for example if run on an EC2 with an instance role that has write access to the bucket.
+</details>
+
+<details>
+<summary>**Cloudflare R2:**</summary>
+
+For convenience, a sample configuration file has been provided where you can specify credentials and configuration.
+
+```bash 
+cp examples/auth/r2-credentials-template.json ~/.config/grin-to-s3/r2_credentials.json
+
+# Edit `r2_credentials.json` with your access information and bucket names, then test with:
+python grin.py collect --run-name "r2" --library-directory YOUR_LIBRARY_DIRECTORY --storage r2
+```
+</details>
+
+<details>
+<summary>**Google Cloud Storage (GCS):**</summary>
+
+You will need the three buckets, plus your GCS project ID.
+
 ```bash
 # Configure Google Cloud authentication
 gcloud auth application-default login
 
-# Create GCS buckets (optional - will be created automatically if they don't exist)
+# Create GCS buckets
 gsutil mb gs://your-grin-raw
 gsutil mb gs://your-grin-meta  
 gsutil mb gs://your-grin-full
 
 # Run collection with GCS storage
-python grin.py collect --run-name "gcs" --library-directory Harvard \
+python grin.py collect --run-name "gcs" --library-directory YOUR_LIBRARY_DIRECTORY \
   --storage gcs \
   --bucket-raw your-grin-raw \
   --bucket-meta your-grin-meta \
   --bucket-full your-grin-full \
-  --storage-config project=your-google-cloud-project-id
+  --storage-config project=YOUR_GCS_PROJECT_ID
 ```
+</details>
 
 ## Development
+
+If you would like to contribute enhances or bug-fixes to the tool, you can work on it locally:
 
 ```bash
 # Install with development dependencies
