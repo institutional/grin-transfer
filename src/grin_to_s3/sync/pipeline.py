@@ -339,7 +339,7 @@ class SyncPipeline:
         """
 
         if self.dry_run:
-            print("🔍 DRY-RUN MODE: No files will be downloaded or uploaded")
+            print("🔍 DRY RUN MODE: No files will be downloaded or uploaded\n")
 
         # Display storage configuration details
         if self.uses_local_storage:
@@ -450,7 +450,9 @@ class SyncPipeline:
 
                 # Handle dry-run mode
                 if self.dry_run:
-                    await self._show_dry_run_preview(books_to_process, limit, specific_barcodes)
+                    await self._show_dry_run_preview(books_to_process, limit, specific_barcodes, queue_name)
+                    # Update process summary with current session parameters (but no actual results)
+                    self._update_process_summary_metrics({}, [queue_name], limit, specific_barcodes)
                     continue  # Skip to next queue in dry-run
 
                 print(
@@ -502,6 +504,8 @@ class SyncPipeline:
                 # Handle dry-run mode
                 if self.dry_run:
                     await self._show_dry_run_preview(books_to_process, limit, specific_barcodes)
+                    # Update process summary with current session parameters (but no actual results)
+                    self._update_process_summary_metrics({}, queues, limit, specific_barcodes)
                     return
 
                 print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')}...")
@@ -529,9 +533,11 @@ class SyncPipeline:
             print(f"Pipeline failed: {e}")
             logger.error(f"Pipeline failed: {e}", exc_info=True)
         finally:
-            print()
-            print("Running teardown and final cleanup...")
-            await run_teardown_operations(self)
+            # Skip teardown for dry-run since no actual processing resources were used
+            if not self.dry_run:
+                print()
+                print("Running teardown and final cleanup...")
+                await run_teardown_operations(self)
 
     def _should_exit_for_failure_limit(self) -> bool:
         """Check if pipeline should exit due to sequential failure limit."""
@@ -542,13 +548,17 @@ class SyncPipeline:
         return self._shutdown_requested
 
     async def _show_dry_run_preview(
-        self, available_to_sync: list[str], limit: int | None, specific_barcodes: list[str] | None
+        self,
+        available_to_sync: list[str],
+        limit: int | None,
+        specific_barcodes: list[str] | None,
+        queue_name: str | None = None,
     ) -> None:
         """Show what would be processed in dry-run mode without actually doing it."""
         books_to_process = min(limit or len(available_to_sync), len(available_to_sync))
 
         print(f"\n{'=' * 60}")
-        print("DRY-RUN PREVIEW: Books that would be processed")
+        print("DRY RUN PREVIEW: Books that would be processed")
         print(f"{'=' * 60}")
 
         if books_to_process == 0:
@@ -557,9 +567,10 @@ class SyncPipeline:
 
         print(f"Total books that would be processed: {books_to_process:,}")
         print(f"Storage type: {self.config.storage_config['type']}")
-        print("Task concurrency limits:")
-        for task_type, task_limit in self.task_concurrency_limits.items():
-            print(f"  {task_type.name.lower()}: {task_limit}")
+        limits_str = ", ".join(
+            f"{task_type.name.lower()}:{task_limit}" for task_type, task_limit in self.task_concurrency_limits.items()
+        )
+        print(f"Task concurrency limits: {limits_str}")
 
         if specific_barcodes:
             print(f"Filtered to specific barcodes: {len(specific_barcodes) if specific_barcodes else 0}")
@@ -567,24 +578,7 @@ class SyncPipeline:
         if limit and limit < len(available_to_sync):
             print(f"Limited to first {limit:,} {pluralize(limit, 'book')}")
 
-        print(f"\nAll {books_to_process:,} {pluralize(books_to_process, 'book')} that would be processed:")
-        print("-" * 60)
-
-        # Get book records for all barcodes to show titles
-        try:
-            for i, barcode in enumerate(available_to_sync[:books_to_process]):
-                book = await self.db_tracker.get_book(barcode)
-                if book and book.title:
-                    title = book.title
-                else:
-                    title = "Unknown Title"
-
-                print(f"{i + 1:3d}. {barcode} - {title}")
-        except Exception:
-            # Fallback if we can't get book records
-            for i, barcode in enumerate(available_to_sync[:books_to_process]):
-                print(f"{i + 1:3d}. {barcode} - Unknown Title")
-
+        print(f"\nTotal: {books_to_process:,} {pluralize(books_to_process, 'book')} would be processed")
         print("-" * 60)
         print("Operations that would be performed per book:")
         print("  1. Download encrypted archive from GRIN")
@@ -600,11 +594,12 @@ class SyncPipeline:
         if not self.skip_staging_cleanup:
             print("  8. Clean up staging files")
 
-        print("\nDRY-RUN COMPLETE: No actual processing performed")
+        print("\nDRY RUN COMPLETE: No actual processing performed")
         print(f"{'=' * 60}")
 
+        queue_context = f" from '{queue_name}' queue" if queue_name else ""
         logger.info(
-            f"DRY-RUN: Would process {books_to_process} books with storage type {self.config.storage_config['type']}"
+            f"DRY RUN: Would process {books_to_process} books{queue_context} with storage type {self.config.storage_config['type']}"
         )
 
     def _update_process_summary_metrics(

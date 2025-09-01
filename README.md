@@ -2,6 +2,8 @@
 
 A pipeline for extracting page scans, metadata, and OCR from Google Books GRIN (Google Return Interface) by academic libraries who have partnered with Google Books. The tool will programmatically download and store book archives to local or S3-compatible storage. 
 
+In typical usage, you will **collect** a local copy of your library's Google Books metadata, then **request** that titles be made available for download. Once processed, you can **sync** those archives to your local storage solution. When fully synced, you should have a complete set of all decrypted book scans, OCR, and metadata.
+
 ## Prerequisites
 
 1. **GRIN Library Directory**: You should know your "library directory", or the path in GRIN where your books are made available. For example, given the URL https://books.google.com/libraries/Harvard/_all_books, the "library directory" is "Harvard." This value is case-sensitive.
@@ -128,7 +130,7 @@ Collects book metadata from GRIN into the local SQLite database and writes the r
 
 ```bash
 # Basic collection using CloudFlare R2 as the remote storage
-python grin.py collect --run-name "harvard_2024" \
+python grin.py collect --run-name RUN_NAME \
   --library-directory Harvard \
   --storage r2 
 
@@ -148,7 +150,7 @@ python grin.py collect --run-name "local_test" --library-directory Harvard --sto
 Request and monitor book processing via GRIN conversion system.
 
 ```bash
-python grin.py process request --run-name harvard_2024 --limit 1000
+python grin.py process request --run-name RUN_NAME --limit 1000
 ```
 
 **Commands:**
@@ -157,23 +159,44 @@ python grin.py process request --run-name harvard_2024 --limit 1000
 
 ### 3. Sync Pipeline: `grin.py sync`
 
-Download converted books from GRIN to storage with database tracking.
+Download converted books from GRIN to storage with database tracking. You must either specify a `queue`, or a list of books by derived status, or `--barcodes`, to pass a short list of barcodes on the command line, or `--barcodes-file`, a path to a file containing barcodes.
+
+Unless you specify `--force`, archives which are in storage and are known to be identical to those in GRIN will be skipped.
+
+#### Sync books based on GRIN status
+Provide either `--queue converted` (sync all books in GRIN's `_converted` list which are ready to download) or `--queue previous` (books with GRIN's `PREVIOUSLY_DOWNLOADED` status). 
+
+If `--queue previous` is supplied, all books marked as unsynced with the GRIN status `PREVIOUSLY_DOWNLOADED` will attempt to be synced. If a book is found ready to download in GRIN, it will be synced. If it is not in the converted state, the pipeline will request that it be added to GRIN's conversion queue. Typically you will use `--queue previous` if you have downloaded archives that predate this tool but would like to gather a unified collection.
+
+You can specify multiple queues and they will be run in order.
+
+#### Sync books by barcode
+
+Alternatively, regardless of GRIN status, you can request specific barcodes be synced. For small numbers of barcodes, you can pass them on the command line as `--barcodes`. For larger sets, pass `--barcodes-files` with a path to a file containing one barcode per line.
+
+If a barcode is specified but not immediately available from GRIN, the software will issue a request to convert it.
 
 ```bash
 # Sync converted books to storage 
-python grin.py sync pipeline --run-name harvard_2024 --queue converted
+python grin.py sync pipeline --run-name RUN_NAME --queue converted
 ```
+**Required options**
 
-**Pipeline options:**
+One of these must be specified
+- `--queue`: Which selection of books to pull from, either `converted` or `previous`
+- `--barcodes` or `--barcodes-file`: lists of specific barcodes to sync
+
+**Other common pipeline options:**
 - `--limit`: Limit number of books to sync
 - `--force`: Overwrite existing files even if checks think the versions are identical
+- `--dry-run`: Show what would happen in a sync with the provided options, but do no work
 
 ### 4. Metadata enrichment: `grin.py enrich` 
 
 Iterate over un-enriched titles and download additional metadata.
 
 ```bash
-python grin.py enrich --run-name harvard_2024
+python grin.py enrich --run-name RUN_NAME
 ```
 
 ### 5. Storage Management: `grin.py storage`

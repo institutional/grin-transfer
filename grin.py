@@ -114,6 +114,9 @@ def get_run_name_from_args() -> str | None:
 
 def needs_database_lock(command: str) -> bool:
     """Determine if a command needs database locking."""
+    # Skip lock for dry-run operations since they don't modify the database
+    if "--dry-run" in sys.argv:
+        return False
     return command in ["collect", "process", "sync", "enrich"]
 
 
