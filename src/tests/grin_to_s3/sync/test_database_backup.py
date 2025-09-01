@@ -77,7 +77,7 @@ async def test_upload_database_to_storage_latest():
         db_path.write_text("mock database content")
 
         # Upload as latest
-        result = await upload_database_to_storage(str(db_path), mock_book_manager, upload_type="latest")
+        result = await upload_database_to_storage(str(db_path), mock_book_manager, "test_run", upload_type="latest")
 
         assert result["status"] == "completed"
         assert result["backup_filename"] == "books_latest.db.gz"
@@ -102,10 +102,12 @@ async def test_upload_database_to_storage_timestamped():
         db_path.write_text("mock database content")
 
         # Upload as timestamped backup
-        result = await upload_database_to_storage(str(db_path), mock_book_manager, upload_type="timestamped")
+        result = await upload_database_to_storage(
+            str(db_path), mock_book_manager, "test_run", upload_type="timestamped"
+        )
 
         assert result["status"] == "completed"
-        assert "books_backup_" in result["backup_filename"]
+        assert "books_" in result["backup_filename"]
         assert result["backup_filename"].endswith(".db.gz")
         assert result["file_size"] > 0
         assert result["compressed_size"] > 0
@@ -128,7 +130,7 @@ async def test_upload_database_to_storage_compression_cleanup():
         db_path.write_text("mock database content")
 
         # Upload database
-        result = await upload_database_to_storage(str(db_path), mock_book_manager, upload_type="latest")
+        result = await upload_database_to_storage(str(db_path), mock_book_manager, "test_run", upload_type="latest")
 
         assert result["status"] == "completed"
         assert result["backup_filename"] == "books_latest.db.gz"
@@ -145,7 +147,9 @@ async def test_upload_database_to_storage_missing_file():
     """Test database upload with missing file."""
     mock_book_manager = Mock()
 
-    result = await upload_database_to_storage("/nonexistent/path.db", mock_book_manager, upload_type="latest")
+    result = await upload_database_to_storage(
+        "/nonexistent/path.db", mock_book_manager, "test_run", upload_type="latest"
+    )
 
     assert result["status"] == "skipped"
     assert result["file_size"] == 0
@@ -168,7 +172,7 @@ async def test_upload_database_to_storage_upload_error():
         db_path.write_text("mock database content")
 
         # Upload should fail
-        result = await upload_database_to_storage(str(db_path), mock_book_manager, upload_type="latest")
+        result = await upload_database_to_storage(str(db_path), mock_book_manager, "test_run", upload_type="latest")
 
         assert result["status"] == "failed"
         assert result["backup_filename"] == "books_latest.db.gz"  # Filename set before failure

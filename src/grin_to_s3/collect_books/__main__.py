@@ -447,6 +447,13 @@ Examples:
                 json.dump(config_dict, f, indent=2)
 
             logger.info(f"Configuration written to {config_path}")
+
+            # Upload config to storage if available
+            if book_manager:
+                storage_path = book_manager.meta_path(f"{run_name}/run_config.json")
+                await book_manager.storage.write_file(storage_path, str(config_path))
+                logger.info(f"Configuration uploaded to storage: {storage_path}")
+
             collect_stage.add_progress_update("Configuration written, starting collection")
 
             # Validate required storage configuration

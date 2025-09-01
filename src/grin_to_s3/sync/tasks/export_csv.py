@@ -41,6 +41,7 @@ async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
 
     if pipeline.uses_block_storage:
         bucket = pipeline.config.storage_config["config"].get("bucket_meta")
+        run_name = pipeline.config.run_name
 
         if pipeline.config.sync_compression_meta_enabled:
             async with compress_file_to_temp(csv_path) as compressed_path:
@@ -57,18 +58,22 @@ async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
                 source_path = str(compressed_path)
 
                 # Upload to both locations
-                bucket_path = f"{bucket}/{filename}{file_extension}"
+                bucket_path = f"{bucket}/{run_name}/{filename}{file_extension}"
                 await pipeline.storage.write_file(bucket_path, source_path)
-                await pipeline.storage.write_file(f"{bucket}/books_{timestamp}.csv{file_extension}", source_path)
+                await pipeline.storage.write_file(
+                    f"{bucket}/{run_name}/timestamped/books_{timestamp}.csv{file_extension}", source_path
+                )
                 logger.info(f"Successfully uploaded latest CSV to {bucket_path}")
         else:
             file_extension = ""
             source_path = str(csv_path)
 
             # Upload uncompressed files
-            bucket_path = f"{bucket}/{filename}{file_extension}"
+            bucket_path = f"{bucket}/{run_name}/{filename}{file_extension}"
             await pipeline.storage.write_file(bucket_path, source_path)
-            await pipeline.storage.write_file(f"{bucket}/books_{timestamp}.csv{file_extension}", source_path)
+            await pipeline.storage.write_file(
+                f"{bucket}/{run_name}/timestamped/books_{timestamp}.csv{file_extension}", source_path
+            )
             logger.info(f"Successfully uploaded latest CSV to {bucket_path}")
     else:
         logger.info(f"CSV exported as {csv_path}")

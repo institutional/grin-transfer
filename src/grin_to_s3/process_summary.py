@@ -504,9 +504,9 @@ class RunSummaryManager:
 
         try:
             # Generate storage path for compressed process summary
-            base_filename = f"process_summary_{self.run_name}.json"
+            base_filename = "process_summary.json"
             compressed_filename = get_compressed_filename(base_filename)
-            storage_path = self._book_manager.meta_path(compressed_filename)
+            storage_path = self._book_manager.meta_path(f"{self.run_name}/{compressed_filename}")
 
             # Get original file size for logging
             original_size = self.summary_file.stat().st_size
