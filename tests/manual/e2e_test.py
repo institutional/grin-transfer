@@ -617,7 +617,7 @@ class E2ETestRunner:
 
         # Check for expected metadata files in the new structure
         expected_files = [
-            run_dir / "config.json",  # Run configuration (uncompressed)
+            run_dir / "run_config.json",  # Run configuration (uncompressed)
             run_dir / "process_summary.json.gz",  # Process summary (compressed)
             run_dir / "books_latest.csv.gz",  # Latest CSV (compressed)
             run_dir / "books_latest.db.gz",  # Latest database (compressed)
@@ -678,7 +678,7 @@ class E2ETestRunner:
 
             # Check for expected metadata files in the new structure
             expected_files = [
-                f"{run_name}/config.json",  # Run configuration (uncompressed)
+                f"{run_name}/run_config.json",  # Run configuration (uncompressed)
                 f"{run_name}/process_summary.json.gz",  # Process summary (compressed)
                 f"{run_name}/books_latest.csv.gz",  # Latest CSV (compressed)
                 f"{run_name}/books_latest.db.gz",  # Latest database (compressed)
