@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Integration tests for issue #261: Ensure request processing for specific barcodes.
+Integration tests for request processing with specific barcodes.
 
 Tests that when running sync pipeline with specific barcodes that aren't available
 in GRIN, the request processing loop is activated to trigger conversion requests.
@@ -11,14 +11,13 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import aiohttp
 import pytest
 
+from grin_to_s3.sync.tasks import check, request_conversion
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskType
 
 
 @pytest.mark.asyncio
 async def test_specific_barcode_triggers_conversion_request(mock_pipeline):
     """Specific barcode returning 404 should trigger REQUEST_CONVERSION task."""
-    # Mock the task manager to track which tasks get triggered
-    from grin_to_s3.sync.tasks import check, request_conversion
 
     barcode = "TEST_BARCODE_404"
 
@@ -71,7 +70,6 @@ async def test_specific_barcode_triggers_conversion_request(mock_pipeline):
 @pytest.mark.asyncio
 async def test_mixed_barcode_list_handles_available_and_missing(mock_pipeline):
     """Mixed list of barcodes should handle available and missing ones correctly."""
-    from grin_to_s3.sync.tasks import check
 
     # Mock pipeline components
     mock_grin_client = AsyncMock()
@@ -109,7 +107,6 @@ async def test_mixed_barcode_list_handles_available_and_missing(mock_pipeline):
 @pytest.mark.asyncio
 async def test_barcode_already_in_storage_but_not_in_grin(mock_pipeline):
     """Barcode in storage but not in GRIN should be skipped (not request conversion)."""
-    from grin_to_s3.sync.tasks import check
 
     barcode = "IN_STORAGE_NOT_GRIN"
 
@@ -138,7 +135,6 @@ async def test_barcode_already_in_storage_but_not_in_grin(mock_pipeline):
 @pytest.mark.asyncio
 async def test_request_conversion_updates_counter(mock_pipeline):
     """REQUEST_CONVERSION task should increment the conversion requests counter."""
-    from grin_to_s3.sync.tasks import request_conversion
 
     barcode = "TEST_COUNTER"
     mock_pipeline.conversion_requests_made = 5
