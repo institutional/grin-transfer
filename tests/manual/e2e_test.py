@@ -516,7 +516,6 @@ class E2ETestRunner:
                     "r2",
                     "--library-directory",
                     "Harvard",
-                    "--dry-run",
                 ],
                 cwd=repo_dir,
                 env=docker_env,
