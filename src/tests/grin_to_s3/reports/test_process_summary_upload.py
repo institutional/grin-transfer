@@ -5,14 +5,13 @@ Integration tests for process summary upload functionality.
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from grin_to_s3.process_summary import (
     RunSummary,
     RunSummaryManager,
-    create_book_manager_for_uploads,
     create_process_summary,
     save_process_summary,
 )
@@ -39,7 +38,7 @@ class TestProcessSummaryUpload:
         return create_storage_mock(storage_type="s3")
 
     @pytest.fixture
-    def mock_book_manager(self, mock_storage):
+    def mock_book_manager(self):
         """Create a mock BookStorage instance."""
         return create_book_manager_mock(base_prefix="test_run")
 
@@ -74,7 +73,7 @@ class TestProcessSummaryUpload:
             # Verify the storage path is correct (now compressed)
             call_args = mock_book_manager.storage.write_file.call_args
             storage_path, local_path = call_args[0]
-            assert storage_path == "test-meta/test_run/test_run_upload/process_summary.json.gz"
+            assert storage_path == "test-meta/test_run/process_summary.json.gz"
             # local_path should be a compressed temp file, not the original summary file
             assert local_path.endswith(".gz")
 
@@ -133,38 +132,6 @@ class TestProcessSummaryUpload:
             mock_book_manager.storage.write_file.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_create_book_manager_for_uploads_no_config(self, mock_run_name):
-        """Test creating BookStorage when no config is found."""
-        with patch("grin_to_s3.run_config.load_run_config", return_value=None):
-            book_manager = await create_book_manager_for_uploads(mock_run_name)
-
-            # Should return None when no config is found
-            assert book_manager is None
-
-    @pytest.mark.asyncio
-    async def test_create_book_manager_for_uploads_no_storage_type(self, mock_run_name):
-        """Test creating BookStorage when storage type is missing."""
-        # Mock run configuration with no storage type
-        mock_run_config = MagicMock()
-        mock_run_config.storage_type = None
-        mock_run_config.storage_config = {"bucket_raw": "test-raw"}
-
-        with patch("grin_to_s3.run_config.load_run_config", return_value=mock_run_config):
-            book_manager = await create_book_manager_for_uploads(mock_run_name)
-
-            # Should return None when storage type is missing
-            assert book_manager is None
-
-    @pytest.mark.asyncio
-    async def test_create_book_manager_for_uploads_exception(self, mock_run_name):
-        """Test creating BookStorage when exception occurs."""
-        with patch("grin_to_s3.run_config.load_run_config", side_effect=Exception("Config error")):
-            book_manager = await create_book_manager_for_uploads(mock_run_name)
-
-            # Should return None when exception occurs
-            assert book_manager is None
-
-    @pytest.mark.asyncio
     async def test_upload_path_generation(self, temp_dir, mock_run_name, mock_book_manager):
         """Test that upload paths are generated correctly."""
         with patch("grin_to_s3.process_summary.Path") as mock_path:
@@ -188,8 +155,8 @@ class TestProcessSummaryUpload:
             call_args = mock_book_manager.storage.write_file.call_args
             storage_path = call_args[0][0]
 
-            # Should follow the pattern: bucket_meta/run_name/process_summary.json.gz (now compressed)
-            expected_path = f"test-meta/test_run/{mock_run_name}/process_summary.json.gz"
+            # Should follow the pattern: bucket_meta/base_prefix/process_summary.json.gz (now compressed)
+            expected_path = "test-meta/test_run/process_summary.json.gz"
             assert storage_path == expected_path
 
     @pytest.mark.asyncio

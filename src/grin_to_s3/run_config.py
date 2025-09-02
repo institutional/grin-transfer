@@ -250,16 +250,6 @@ class RunConfig:
 def load_run_config(config_path: str) -> RunConfig:
     """
     Load run configuration from a specific path.
-
-    Args:
-        config_path: Path to the run_config.json file
-
-    Returns:
-        RunConfig instance
-
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        json.JSONDecodeError: If config file is invalid JSON
     """
     with open(config_path) as f:
         config_dict = json.load(f)
@@ -272,10 +262,6 @@ def apply_run_config_to_args(args: Any, config: RunConfig) -> None:
 
     This function modifies the args object in-place, setting default values
     from the run configuration for arguments that weren't explicitly provided.
-
-    Args:
-        args: Parsed argparse.Namespace object
-        db_path: Path to the SQLite database
     """
     # Apply library directory if not set
     if not getattr(args, "grin_library_directory", None):
@@ -305,16 +291,16 @@ def validate_bucket_arguments(args: Any, storage_type: str | None = None) -> lis
     Returns:
         List of missing bucket argument names (empty if all present)
     """
-    # For cloud storage, bucket names are optional as they can be specified in the config file
-    if storage_type in ["r2", "s3", "gcs"]:
+    # For R2, bucket names are optional as they can be specified in the config file
+    if storage_type in ["r2"]:
         return []
 
     # For local storage, buckets are not needed
     if storage_type == "local":
         return []
 
-    # For MinIO, bucket names are required (since it's typically used for local development)
-    missing_buckets = []
+    # For other cloud storage, bucket names are required
+    missing_buckets: list[str] = []
     if not getattr(args, "bucket_raw", None):
         missing_buckets.append("--bucket-raw")
     if not getattr(args, "bucket_meta", None):

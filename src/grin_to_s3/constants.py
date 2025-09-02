@@ -40,3 +40,5 @@ DEFAULT_WORKER_CONCURRENCY = 100
 # S3 connection pool configuration
 # Set to 1.5x the worker concurrency to handle burst traffic
 DEFAULT_S3_MAX_POOL_CONNECTIONS = 150
+# Default directory names for local storage
+LOCAL_STORAGE_DEFAULTS = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}

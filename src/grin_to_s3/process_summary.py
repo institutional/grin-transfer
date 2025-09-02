@@ -18,6 +18,8 @@ import aiofiles
 
 from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.run_config import load_run_config
+from grin_to_s3.storage.book_manager import BookManager
+from grin_to_s3.storage.factories import create_storage_from_config
 
 from .common import compress_file_to_temp, format_duration, get_compressed_filename
 
@@ -509,7 +511,7 @@ class RunSummaryManager:
             # Generate storage path for compressed process summary
             base_filename = "process_summary.json"
             compressed_filename = get_compressed_filename(base_filename)
-            storage_path = self._book_manager.meta_path(f"{self.run_name}/{compressed_filename}")
+            storage_path = self._book_manager.meta_path(compressed_filename)
 
             # Get original file size for logging
             original_size = self.summary_file.stat().st_size
@@ -649,37 +651,15 @@ def get_current_stage(summary: RunSummary, stage_name: str) -> ProcessStageMetri
 
 async def create_book_manager_for_uploads(run_name: str):
     """Create a BookManager instance for process summary uploads."""
-    from .storage.book_manager import BookManager
-    from .storage.factories import create_storage_from_config
 
-    try:
-        # Find and load run configuration
-        run_config = load_run_config("{OUTPUT_DIR}/{run_name}/run_config.json")
+    # Find and load run configuration
+    run_config = load_run_config(f"{OUTPUT_DIR}/{run_name}/run_config.json")
 
-        # Create storage instance
-        storage_type = run_config.storage_type
+    # Use the full storage config for new API
+    storage = create_storage_from_config(run_config.storage_config)
 
-        # Local storage doesn't need process summary uploads to remote storage
-        if storage_type == "local":
-            logger.debug(f"Skipping process summary upload for local storage run {run_name}")
-            return None
-
-        # Use the full storage config for new API
-        storage = create_storage_from_config(run_config.storage_config)
-
-        # Validate that metadata bucket is configured
-        nested_config = run_config.storage_config["config"]
-        if not nested_config.get("bucket_meta"):
-            logger.warning(f"No metadata bucket configured for run {run_name}")
-            return None
-
-        # Create BookStorage with run name as prefix
-        book_manager = BookManager(storage, storage_config=run_config.storage_config, base_prefix=run_name)
-        return book_manager
-
-    except Exception as e:
-        logger.error(f"Failed to create book storage for uploads: {e}")
-        return None
+    # Create BookManager with run name as prefix
+    return BookManager(storage, storage_config=run_config.storage_config, base_prefix=run_name)
 
 
 def display_step_summary(summary: RunSummary, step_name: str) -> None:

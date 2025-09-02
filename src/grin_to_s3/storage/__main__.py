@@ -137,9 +137,9 @@ async def cmd_ls(args) -> None:
     storage = create_storage_from_config(run_config.storage_config)
     prefix = str(storage_config_dict.get("prefix", "") or "")
     buckets = {
-        "raw": run_config.storage_config["config"].get("bucket_raw"),
-        "meta": run_config.storage_config["config"].get("bucket_meta"),
-        "full": run_config.storage_config["config"].get("bucket_full"),
+        "raw": run_config.storage_bucket_raw,
+        "meta": run_config.storage_bucket_meta,
+        "full": run_config.storage_bucket_full,
     }
 
     print(f"\nStorage Listing for '{args.run_name}'")
@@ -223,9 +223,9 @@ async def cmd_cp(args) -> None:
     storage = create_storage_from_config(run_config.storage_config)
     prefix = str(storage_config_dict.get("prefix", "") or "")
     buckets = {
-        "raw": run_config.storage_config["config"].get("bucket_raw"),
-        "meta": run_config.storage_config["config"].get("bucket_meta"),
-        "full": run_config.storage_config["config"].get("bucket_full"),
+        "raw": run_config.storage_bucket_raw,
+        "meta": run_config.storage_bucket_meta,
+        "full": run_config.storage_bucket_full,
     }
 
     cp_bucket = buckets[args.bucket_name]
@@ -277,9 +277,9 @@ async def cmd_rm(args) -> None:
     storage = create_storage_from_config(run_config.storage_config)
     prefix = str(storage_config_dict.get("prefix", "") or "")
     buckets = {
-        "raw": run_config.storage_config["config"].get("bucket_raw"),
-        "meta": run_config.storage_config["config"].get("bucket_meta"),
-        "full": run_config.storage_config["config"].get("bucket_full"),
+        "raw": run_config.storage_bucket_raw,
+        "meta": run_config.storage_bucket_meta,
+        "full": run_config.storage_bucket_full,
     }
 
     bucket_name = args.bucket_name
