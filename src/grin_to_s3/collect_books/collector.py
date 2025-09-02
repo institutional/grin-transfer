@@ -23,7 +23,7 @@ from grin_to_s3.run_config import StorageConfig
 from grin_to_s3.storage import BookManager, create_storage_from_config
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator, show_progress
 
-from .config import ExportConfig, PaginationConfig
+from .config import ExportConfig
 from .grin_parser import parse_grin_row
 from .models import BookRecord, BoundedSet, SQLiteProgressTracker
 
@@ -32,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 # Progress display frequency (books per progress update)
 PROGRESS_UPDATE_FREQUENCY = 2000
+
+GRIN_PAGE_SIZE = 10_000
 
 
 class BookCollector:
@@ -78,9 +80,6 @@ class BookCollector:
         """Stream converted books from GRIN using HTML pagination with full metadata."""
         logger.info("Streaming converted books from GRIN...")
 
-        # Use same pagination settings as _all_books
-        pagination_config = self.config.pagination or PaginationConfig()
-
         book_count = 0
         phase1_start_time = time.time()
         phase1_rate_calculator = SlidingWindowRateCalculator(window_size=5)
@@ -91,8 +90,7 @@ class BookCollector:
         ) in self.grin_client.stream_book_list_html_prefetch(
             self.directory,
             list_type="_converted",
-            page_size=pagination_config.page_size,
-            max_pages=pagination_config.max_pages,
+            page_size=GRIN_PAGE_SIZE,
             start_page=1,
             sqlite_tracker=self.sqlite_tracker,
         ):
@@ -121,7 +119,6 @@ class BookCollector:
         """
         logger.info("Streaming non-converted books from GRIN...")
 
-        pagination_config = self.config.pagination or PaginationConfig()
         book_count = 0
 
         async for (
@@ -130,8 +127,7 @@ class BookCollector:
         ) in self.grin_client.stream_book_list_html_prefetch(
             directory=self.directory,
             list_type="_all_books",
-            page_size=pagination_config.page_size,
-            max_pages=pagination_config.max_pages,
+            page_size=GRIN_PAGE_SIZE,
             start_page=1,
             sqlite_tracker=self.sqlite_tracker,
         ):
