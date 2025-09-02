@@ -17,6 +17,8 @@ from pathlib import Path
 import aiosqlite
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from grin_to_s3.constants import OUTPUT_DIR
+
 from . import connect_async, connect_sync
 
 logger = logging.getLogger(__name__)
@@ -98,7 +100,7 @@ def validate_database_file(db_path: str, check_tables: bool = False, check_books
         print("\nOr check available databases:")
 
         # Try to show available databases
-        output_dir = Path("output")
+        output_dir = Path(OUTPUT_DIR)
         if output_dir.exists():
             print("\nAvailable run directories:")
             for run_dir in output_dir.iterdir():

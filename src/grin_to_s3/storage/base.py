@@ -9,6 +9,7 @@ import asyncio
 import logging
 import os
 import re
+import shutil
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -226,22 +227,33 @@ class Storage:
         try:
             normalized_path = self._normalize_path(path)
 
-            # Use persistent S3 client
-            s3_client = await self._get_s3_client()
+            if self.config.protocol == "file":
+                # For local filesystem, just copy the file
 
-            # Parse bucket and key from path
-            path_parts = normalized_path.split("/", 1)
-            if len(path_parts) != 2:
-                raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
+                # Ensure parent directories exist
+                parent = Path(normalized_path).parent
+                parent.mkdir(parents=True, exist_ok=True)
 
-            bucket, key = path_parts
-            await self._multipart_upload_from_file(s3_client, bucket, key, file_path, metadata)
+                # Use shutil.copy2 to preserve metadata
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, shutil.copy2, file_path, normalized_path)
+            else:
+                # Use persistent S3 client for S3-compatible storage
+                s3_client = await self._get_s3_client()
+
+                # Parse bucket and key from path
+                path_parts = normalized_path.split("/", 1)
+                if len(path_parts) != 2:
+                    raise ValueError(f"Invalid S3 path format: {normalized_path}. Expected 'bucket/key' format.")
+
+                bucket, key = path_parts
+                await self._multipart_upload_from_file(s3_client, bucket, key, file_path, metadata)
 
             self._log_operation_end("write_file", path, start_time)
         except Exception as e:
             duration = time.time() - start_time
             logger.error(
-                f"S3 operation FAILED: write_file for {path} after {duration:.3f}s - {e} "
+                f"Storage operation FAILED: write_file for {path} after {duration:.3f}s - {e} "
                 f"(storage_id={self._instance_id})"
             )
             raise

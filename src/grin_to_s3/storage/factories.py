@@ -9,6 +9,9 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
+from grin_to_s3.constants import LOCAL_STORAGE_DEFAULTS
+from grin_to_s3.run_config import StorageConfigDict
+
 if TYPE_CHECKING:
     from ..run_config import StorageConfig
 
@@ -20,19 +23,9 @@ from .base import BackendConfig, Storage
 logger = logging.getLogger(__name__)
 
 
-# Default directory names for local storage
-LOCAL_STORAGE_DEFAULTS = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
-
-
 def get_storage_protocol(storage_type: str) -> str:
     """
     Determine storage protocol from storage type.
-
-    Args:
-        storage_type: Original storage type (minio, r2, s3, gcs, local)
-
-    Returns:
-        str: Storage protocol ("s3", "gcs", or "local")
     """
     if storage_type in ("minio", "r2", "s3"):
         return "s3"
@@ -44,11 +37,8 @@ def get_storage_protocol(storage_type: str) -> str:
 
 def load_json_credentials(credentials_path: str) -> dict[str, Any]:
     """Load and parse JSON credentials file."""
-    try:
-        with open(credentials_path) as f:
-            return json.load(f)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON in credentials file {credentials_path}: {e}") from e
+    with open(credentials_path) as f:
+        return json.load(f)
 
 
 def s3_credentials_available() -> bool:
@@ -81,19 +71,15 @@ def load_r2_credentials() -> tuple[str, str] | None:
         )
         return None
 
-    try:
-        creds = load_json_credentials(str(credentials_file))
-        access_key = creds.get("access_key")
-        secret_key = creds.get("secret_key")
+    creds = load_json_credentials(str(credentials_file))
+    access_key = creds.get("access_key")
+    secret_key = creds.get("secret_key")
 
-        if not access_key or not secret_key:
-            logger.error(f"Invalid R2 credentials file. Missing access_key or secret_key in {credentials_file}")
-            return None
-
-        return access_key, secret_key
-    except Exception as e:
-        logger.error(f"Failed to load R2 credentials from {credentials_file}: {e}")
+    if not access_key or not secret_key:
+        logger.error(f"Invalid R2 credentials file. Missing access_key or secret_key in {credentials_file}")
         return None
+
+    return access_key, secret_key
 
 
 def validate_required_keys(data: dict, required_keys: list, context: str = "configuration") -> None:
@@ -180,9 +166,18 @@ def create_storage_from_config(storage_config: "StorageConfig") -> Storage:
             ]
             if missing:
                 raise ValueError(f"S3 storage requires bucket name(s): {', '.join(missing)}")
+            assert "bucket_raw" in config
             return create_s3_storage(bucket=config["bucket_raw"])
 
         case "gcs":
+            missing = [
+                b
+                for b in ["bucket_raw", "bucket_meta", "bucket_full"]
+                if not config.get(b) or not isinstance(config.get(b), str)
+            ]
+            if missing:
+                raise ValueError(f"S3 storage requires bucket name(s): {', '.join(missing)}")
+            assert "bucket_raw" in config
             project = config.get("project")
             if not project or not isinstance(project, str):
                 raise ValueError("GCS storage requires project ID")
@@ -232,7 +227,7 @@ def create_azure_storage(account_name: str, **kwargs: Any) -> Storage:
     return Storage(config)
 
 
-async def create_local_storage_directories(storage_config: dict) -> None:
+async def create_local_storage_directories(storage_config: StorageConfigDict) -> None:
     """Create all required directories for local storage.
 
     Args:

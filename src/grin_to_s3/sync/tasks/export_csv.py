@@ -40,7 +40,7 @@ async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
             writer.writerow(book.to_csv_row())
 
     if pipeline.uses_block_storage:
-        bucket = pipeline.config.storage_config["config"].get("bucket_meta")
+        bucket = pipeline.config.storage_bucket_meta
         run_name = pipeline.config.run_name
 
         if pipeline.config.sync_compression_meta_enabled:

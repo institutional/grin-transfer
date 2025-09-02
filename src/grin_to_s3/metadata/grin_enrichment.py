@@ -24,6 +24,7 @@ from grin_to_s3.common import (
     format_duration,
     pluralize,
 )
+from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.database.connections import connect_async
 from grin_to_s3.database.database_utils import validate_database_file
 from grin_to_s3.logging_config import setup_logging
@@ -35,7 +36,7 @@ from grin_to_s3.process_summary import (
     get_current_stage,
     save_process_summary,
 )
-from grin_to_s3.run_config import apply_run_config_to_args, find_run_config, setup_run_database_path
+from grin_to_s3.run_config import RunConfig, apply_run_config_to_args, load_run_config
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,28 @@ DEFAULT_BATCH_SIZE = 6_000  # Will be dynamically split up to optimize concurren
 
 class GRINEnrichmentPipeline:
     """Pipeline for enriching book records with detailed GRIN metadata."""
+
+    @classmethod
+    def from_run_config(
+        cls,
+        config: RunConfig,
+        process_summary_stage,
+        rate_limit_delay: float = 0.2,  # 5 QPS
+        batch_size: int = DEFAULT_BATCH_SIZE,
+        max_concurrent_requests: int = 5,  # Concurrent GRIN requests
+        timeout: int = 60,
+    ) -> "GRINEnrichmentPipeline":
+        """Create GRINEnrichmentPipeline from RunConfig."""
+        return cls(
+            directory=config.library_directory,
+            process_summary_stage=process_summary_stage,
+            db_path=config.sqlite_db_path,
+            rate_limit_delay=rate_limit_delay,
+            batch_size=batch_size,
+            max_concurrent_requests=max_concurrent_requests,
+            secrets_dir=config.secrets_dir,
+            timeout=timeout,
+        )
 
     def __init__(
         self,
@@ -412,37 +435,18 @@ Examples:
         parser.print_help()
         sys.exit(1)
 
-    # Set up database path and apply run configuration
-    setup_run_database_path(args, args.run_name)
+    run_config = load_run_config(OUTPUT_DIR / args.run_name / "run_config.json")
+    apply_run_config_to_args(args, run_config)
 
     # Validate database file exists and is accessible
-    validate_database_file(args.db_path, check_tables=True)
-
-    # Apply run configuration defaults for the command
-    if args.command in ["enrich"]:
-        apply_run_config_to_args(args, args.db_path)
-
-        # Validate that we have a library directory
-        if not getattr(args, "grin_library_directory", None):
-            print("❌ Error: No GRIN library directory specified. This should be set in the run configuration.")
-            print("Make sure you collected books with --library-directory argument.")
-            sys.exit(1)
+    validate_database_file(run_config.sqlite_db_path, check_tables=True)
 
     # Set up logging - use unified log file from run config
     if args.command == "enrich":
-        run_config = find_run_config(args.db_path)
-        if run_config is None:
-            print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
-            print("Run 'python grin.py collect' first to generate the run configuration.")
-            sys.exit(1)
         setup_logging(args.log_level, run_config.log_file)
 
-        # Log enrichment startup
         logger = logging.getLogger(__name__)
-        logger.info(
-            f"ENRICHMENT PIPELINE STARTED - {args.command} directory={args.grin_library_directory} "
-            f"rate_limit={args.rate_limit} batch_size={args.batch_size}"
-        )
+        logger.info(f"ENRICHMENT PIPELINE STARTED - {args.command}")
         logger.info(f"Command: {' '.join(sys.argv)}")
 
     # Create process summary for enrich command
@@ -456,27 +460,18 @@ Examples:
 
         run_summary = await create_process_summary(args.run_name, "enrich", book_manager)
         enrich_stage = get_current_stage(run_summary, "enrich")
-        enrich_stage.set_command_arg("grin_library_directory", args.grin_library_directory)
-        enrich_stage.set_command_arg("rate_limit", args.rate_limit)
-        enrich_stage.set_command_arg("batch_size", args.batch_size)
-        enrich_stage.set_command_arg("max_concurrent", args.max_concurrent)
-        enrich_stage.set_command_arg("reset", args.reset)
-        if args.limit:
-            enrich_stage.set_command_arg("limit", args.limit)
 
     try:
         try:
             match args.command:
                 case "enrich":
                     assert enrich_stage is not None  # Should be set for enrich command
-                    pipeline = GRINEnrichmentPipeline(
-                        directory=args.grin_library_directory,
+                    pipeline = GRINEnrichmentPipeline.from_run_config(
+                        config=run_config,
                         process_summary_stage=enrich_stage,
-                        db_path=args.db_path,
                         rate_limit_delay=args.rate_limit,
                         batch_size=args.batch_size,
                         max_concurrent_requests=args.max_concurrent,
-                        secrets_dir=args.secrets_dir,
                     )
 
                     enrich_stage.add_progress_update("Starting enrichment pipeline")

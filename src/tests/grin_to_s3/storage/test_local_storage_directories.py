@@ -6,7 +6,8 @@ from unittest.mock import patch
 
 import pytest
 
-from grin_to_s3.storage.factories import LOCAL_STORAGE_DEFAULTS, create_local_storage_directories
+from grin_to_s3.constants import LOCAL_STORAGE_DEFAULTS
+from grin_to_s3.storage.factories import create_local_storage_directories
 
 
 class TestCreateLocalStorageDirectories:

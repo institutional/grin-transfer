@@ -71,13 +71,6 @@ async def run_final_database_upload(pipeline: "SyncPipeline") -> FinalDatabaseUp
             action=TaskAction.SKIPPED,
             reason="skip_dry_run",
         )
-    if not pipeline.uses_block_storage:
-        logger.debug("Final database upload skipped for local storage")
-        return FinalDatabaseUploadResult(
-            task_type=TaskType.FINAL_DATABASE_UPLOAD,
-            action=TaskAction.SKIPPED,
-            reason="skip_not_applicable",
-        )
 
     logger.info("Uploading database as latest version...")
     upload_result = await upload_database_to_storage(

@@ -7,16 +7,14 @@ Command-line interface for sync operations.
 
 import argparse
 import asyncio
-import json
 import logging
 import os
 import signal
 import sys
-from pathlib import Path
 from typing import Any
 
 from grin_to_s3.common import parse_barcode_arguments
-from grin_to_s3.constants import DEFAULT_MAX_SEQUENTIAL_FAILURES, DEFAULT_WORKER_CONCURRENCY
+from grin_to_s3.constants import DEFAULT_MAX_SEQUENTIAL_FAILURES, DEFAULT_WORKER_CONCURRENCY, OUTPUT_DIR
 from grin_to_s3.database.database_utils import validate_database_file
 from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.process_summary import (
@@ -29,10 +27,7 @@ from grin_to_s3.process_summary import (
 from grin_to_s3.run_config import (
     RunConfig,
     apply_run_config_to_args,
-    build_storage_config_dict,
-    find_run_config,
     load_run_config,
-    setup_run_database_path,
 )
 from grin_to_s3.sync.pipeline import SyncPipeline
 
@@ -140,146 +135,30 @@ def _handle_pipeline_error(e: Exception, sync_stage) -> None:
 
 async def cmd_pipeline(args) -> None:
     """Handle the 'pipeline' command."""
-    # Set up database path
-    db_path = setup_run_database_path(args, args.run_name)
-
-    # Check if any storage-related arguments were explicitly provided on command line
-    # (before applying run config defaults)
-    storage_checks = [
-        ("storage", getattr(args, "storage", None) is not None),
-        ("bucket_raw", getattr(args, "bucket_raw", None) is not None),
-        ("bucket_meta", getattr(args, "bucket_meta", None) is not None),
-        ("bucket_full", getattr(args, "bucket_full", None) is not None),
-        ("storage_config", getattr(args, "storage_config", None) is not None),
-    ]
-    explicit_storage_args = any(check[1] for check in storage_checks)
+    run_config = load_run_config(OUTPUT_DIR / args.run_name / "run_config.json")
 
     # Apply run configuration defaults
-    apply_run_config_to_args(args, db_path)
+    apply_run_config_to_args(args, run_config)
 
     # Collect task concurrency overrides
     task_concurrency_overrides = _collect_task_concurrency_overrides(args)
 
-    print(f"Database: {db_path}")
-
     # Validate database
-    validate_database_file(args.db_path, check_tables=True)
+    validate_database_file(OUTPUT_DIR / args.run_name / "books.db", check_tables=True)
 
-    # Build storage configuration from run config
-    config_path = Path(args.db_path).parent / "run_config.json"
-    storage_config = {}
-    existing_storage_config = {}
+    # Apply task concurrency overrides and compression settings to run config
+    if task_concurrency_overrides or args.skip_compression_meta or args.skip_compression_full:
+        if task_concurrency_overrides:
+            run_config.sync_config.update(task_concurrency_overrides)
+        # Set compression based on CLI flags (default True, disabled if respective --skip-compression-* flag)
+        run_config.sync_config["compression_meta_enabled"] = not args.skip_compression_meta
+        run_config.sync_config["compression_full_enabled"] = not args.skip_compression_full
 
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                run_config = json.load(f)
+    # Write back to config file
 
-            # Get storage config from run config
-            existing_storage_config = run_config.get("storage_config", {})
-            storage_type = existing_storage_config.get("type")
-            storage_config = existing_storage_config.get("config", {})
+    if task_concurrency_overrides:
+        print(f"Applied task concurrency overrides: {task_concurrency_overrides}")
 
-            if explicit_storage_args:
-                # Build args-based config and merge with existing
-                args_storage_config = build_storage_config_dict(args)
-
-                # Merge: start with existing and override with args
-                merged_config = storage_config.copy()
-                for k, v in args_storage_config.items():
-                    if v is not None:
-                        merged_config[k] = v
-
-                storage_config_dict = {
-                    "type": args.storage or storage_type,
-                    "config": merged_config,
-                    "prefix": args_storage_config.get("prefix", existing_storage_config.get("prefix", "")),
-                }
-
-                run_config["storage_config"] = storage_config_dict
-                storage_config = merged_config
-
-                # Apply task concurrency overrides and compression settings to run config
-                if task_concurrency_overrides or args.skip_compression_meta or args.skip_compression_full:
-                    if "sync_config" not in run_config:
-                        run_config["sync_config"] = {}
-                    if task_concurrency_overrides:
-                        run_config["sync_config"].update(task_concurrency_overrides)
-                    # Set compression based on CLI flags (default True, disabled if respective --skip-compression-* flag)
-                    run_config["sync_config"]["compression_meta_enabled"] = not args.skip_compression_meta
-                    run_config["sync_config"]["compression_full_enabled"] = not args.skip_compression_full
-
-                # Write back to config file
-                with open(config_path, "w") as f:
-                    json.dump(run_config, f, indent=2)
-
-                print(f"Config in {config_path}")
-                if task_concurrency_overrides:
-                    print(f"Applied task concurrency overrides: {task_concurrency_overrides}")
-            else:
-                print(f"Using existing storage configuration from {config_path}")
-                # Use storage type from run config if not explicitly provided
-                if not args.storage:
-                    args.storage = storage_type
-
-                # Still apply task concurrency overrides and compression settings even if no storage args were provided
-                if task_concurrency_overrides or args.skip_compression_meta or args.skip_compression_full:
-                    if "sync_config" not in run_config:
-                        run_config["sync_config"] = {}
-                    if task_concurrency_overrides:
-                        run_config["sync_config"].update(task_concurrency_overrides)
-                    # Set compression based on CLI flags (default True, disabled if respective --skip-compression-* flag)
-                    run_config["sync_config"]["compression_meta_enabled"] = not args.skip_compression_meta
-                    run_config["sync_config"]["compression_full_enabled"] = not args.skip_compression_full
-
-                    # Write back to config file
-                    with open(config_path, "w") as f:
-                        json.dump(run_config, f, indent=2)
-
-                    messages = []
-                    if task_concurrency_overrides:
-                        messages.append(f"task concurrency overrides: {task_concurrency_overrides}")
-                    if args.skip_compression_meta:
-                        messages.append("meta compression disabled")
-                    if args.skip_compression_full:
-                        messages.append("full compression disabled")
-                    print(f"Applied {', '.join(messages)}")
-
-        except (json.JSONDecodeError, OSError) as e:
-            print(f"Warning: Could not read run config: {e}")
-            # Fall back to building from args
-            storage_config = build_storage_config_dict(args)
-    else:
-        print(f"Note: No run config found at {config_path}, building from args")
-        storage_config = build_storage_config_dict(args)
-
-        # Create basic run config with task concurrency overrides and compression settings if provided
-        if task_concurrency_overrides or args.skip_compression_meta or args.skip_compression_full:
-            basic_run_config: dict[str, Any] = {"sync_config": {}}
-            if task_concurrency_overrides:
-                basic_run_config["sync_config"].update(task_concurrency_overrides)
-            # Set compression based on CLI flags (default True, disabled if respective --skip-compression-* flag)
-            basic_run_config["sync_config"]["compression_meta_enabled"] = not args.skip_compression_meta
-            basic_run_config["sync_config"]["compression_full_enabled"] = not args.skip_compression_full
-
-            with open(config_path, "w") as f:
-                json.dump(basic_run_config, f, indent=2)
-
-            messages = []
-            if task_concurrency_overrides:
-                messages.append(f"task concurrency overrides: {task_concurrency_overrides}")
-            if args.skip_compression_meta:
-                messages.append("meta compression disabled")
-            if args.skip_compression_full:
-                messages.append("full compression disabled")
-            print(f"Created basic run config with {', '.join(messages)}")
-
-    # Set up logging - use unified log file from run config
-    run_config = find_run_config(args.db_path)
-    if run_config is None:
-        print(f"Error: No run configuration found. Expected run_config.json in {Path(args.db_path).parent}")
-        print("Run 'python grin.py collect' first to generate the run configuration.")
-        sys.exit(1)
     setup_logging(args.log_level, run_config.log_file)
 
     # Log sync pipeline startup
@@ -303,18 +182,6 @@ async def cmd_pipeline(args) -> None:
         sync_stage.set_command_arg("queues", args.queue)
 
     try:
-        # Load run config and update storage configuration
-        config_path = Path(args.db_path).parent / "run_config.json"
-        run_config = load_run_config(str(config_path))
-
-        # Update storage config if it was modified above
-        if existing_storage_config != run_config.config_dict.get("storage_config", {}):
-            run_config.config_dict["storage_config"] = {
-                "type": args.storage,
-                "config": storage_config,
-                "prefix": "",
-            }
-
         # Parse and validate barcodes
         specific_barcodes = _parse_and_validate_barcodes(args, sync_stage)
 

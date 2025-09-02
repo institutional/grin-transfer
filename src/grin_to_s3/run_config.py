@@ -7,7 +7,6 @@ Utilities for reading and using configuration written by collect_books runs.
 
 import json
 import sys
-from pathlib import Path
 from typing import Any, NotRequired, TypedDict, cast
 
 from .constants import (
@@ -21,6 +20,7 @@ from .constants import (
     DEFAULT_SYNC_TASK_EXTRACT_OCR_CONCURRENCY,
     DEFAULT_SYNC_TASK_UNPACK_CONCURRENCY,
     DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY,
+    OUTPUT_DIR,
 )
 
 
@@ -86,7 +86,7 @@ class RunConfig:
     @property
     def output_directory(self) -> str:
         """Get the output directory path."""
-        return self.config_dict.get("output_directory", f"output/{self.run_name}")
+        return self.config_dict.get("output_directory", f"{OUTPUT_DIR}/{self.run_name}")
 
     @property
     def sqlite_db_path(self) -> str:
@@ -247,92 +247,22 @@ class RunConfig:
         return args
 
 
-def find_run_config(db_path: str) -> RunConfig | None:
-    """
-    Find run configuration by looking for run_config.json near the database.
-
-    Args:
-        db_path: Path to the SQLite database
-
-    Returns:
-        RunConfig if found, None otherwise
-    """
-    db_file = Path(db_path)
-
-    # Look for run_config.json in the same directory as the database
-    config_path = db_file.parent / "run_config.json"
-
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                config_dict = json.load(f)
-            return RunConfig(config_dict)
-        except (json.JSONDecodeError, OSError) as e:
-            print(f"Warning: Failed to read run config from {config_path}: {e}", file=sys.stderr)
-
-    return None
-
-
 def load_run_config(config_path: str) -> RunConfig:
     """
     Load run configuration from a specific path.
-
-    Args:
-        config_path: Path to the run_config.json file
-
-    Returns:
-        RunConfig instance
-
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        json.JSONDecodeError: If config file is invalid JSON
     """
     with open(config_path) as f:
         config_dict = json.load(f)
     return RunConfig(config_dict)
 
 
-def get_run_info_from_db_path(db_path: str) -> tuple[str, str]:
-    """
-    Extract run name and output directory from database path.
-
-    Args:
-        db_path: Path to the SQLite database
-
-    Returns:
-        Tuple of (run_name, output_directory)
-    """
-    db_file = Path(db_path)
-
-    # Extract run name from path like "output/harvard_2024/books.db"
-    if db_file.parent.name == "output":
-        # Direct path like "output/books.db" - use "default"
-        run_name = "default"
-        output_directory = str(db_file.parent)
-    else:
-        # Path like "output/harvard_2024/books.db" - use parent dir name
-        run_name = db_file.parent.name
-        output_directory = str(db_file.parent)
-
-    return run_name, output_directory
-
-
-def apply_run_config_to_args(args: Any, db_path: str) -> None:
+def apply_run_config_to_args(args: Any, config: RunConfig) -> None:
     """
     Apply run configuration to parsed command line arguments.
 
     This function modifies the args object in-place, setting default values
     from the run configuration for arguments that weren't explicitly provided.
-
-    Args:
-        args: Parsed argparse.Namespace object
-        db_path: Path to the SQLite database
     """
-    config = find_run_config(db_path)
-
-    if not config:
-        return
-
     # Apply library directory if not set
     if not getattr(args, "grin_library_directory", None):
         args.grin_library_directory = config.library_directory
@@ -350,80 +280,6 @@ def apply_run_config_to_args(args: Any, db_path: str) -> None:
             setattr(args, attr_name, value)
 
 
-def print_run_config_info(db_path: str) -> None:
-    """
-    Print information about the run configuration for a database.
-
-    Args:
-        db_path: Path to the SQLite database
-    """
-    config = find_run_config(db_path)
-
-    if config:
-        print("Run Configuration Found:")
-        print(f"  Run Name: {config.run_name}")
-        print(f"  Output Directory: {config.output_directory}")
-        print(f"  Database: {config.sqlite_db_path}")
-        print(f"  GRIN Directory: {config.library_directory}")
-
-        if config.secrets_dir:
-            print(f"  Secrets Directory: {config.secrets_dir}")
-
-        storage = config.storage_config
-        print(f"  Storage Type: {storage['type']}")
-        storage_config = storage["config"]
-        if "bucket_raw" in storage_config:
-            print(f"  Raw Data Bucket: {storage_config['bucket_raw']}")
-        if "bucket_meta" in storage_config:
-            print(f"  Metadata Bucket: {storage_config['bucket_meta']}")
-        if "bucket_full" in storage_config:
-            print(f"  Full-text Bucket: {storage_config['bucket_full']}")
-        if "base_path" in storage_config:
-            print(f"  Base Path: {storage_config['base_path']}")
-        if storage.get("prefix"):
-            print(f"  Storage Prefix: {storage.get('prefix')}")
-
-        if config.sync_config:
-            print("  Sync Configuration:")
-            print("    Task Concurrency Limits:")
-            print(f"      GRIN requests (Check + Download): {config.sync_task_download_concurrency}")
-            print(f"      Decrypt: {config.sync_task_decrypt_concurrency}")
-            print(f"      Upload: {config.sync_task_upload_concurrency}")
-            print(f"      Unpack: {config.sync_task_unpack_concurrency}")
-            print(f"      Extract MARC: {config.sync_task_extract_marc_concurrency}")
-            print(f"      Extract OCR: {config.sync_task_extract_ocr_concurrency}")
-            print(f"      Export CSV: {config.sync_task_export_csv_concurrency}")
-            print(f"      Cleanup: {config.sync_task_cleanup_concurrency}")
-            print(f"    Disk Space Threshold: {config.sync_disk_space_threshold}")
-            if config.sync_staging_dir:
-                print(f"    Staging Directory: {config.sync_staging_dir}")
-    else:
-        run_name, output_dir = get_run_info_from_db_path(db_path)
-        print("No run configuration found.")
-        print(f"  Inferred Run Name: {run_name}")
-        print(f"  Inferred Output Directory: {output_dir}")
-
-
-def setup_run_database_path(args: Any, run_name: str) -> str:
-    """
-    Set up database path from run name and apply run configuration.
-
-    Args:
-        args: Arguments object to modify
-        run_name: Name of the run
-
-    Returns:
-        Database path that was set
-    """
-    # Resolve path relative to grin.py location (project root)
-    # Go up from src/grin_to_s3/run_config.py to project root
-    project_root = Path(__file__).parent.parent.parent
-    db_path = str(project_root / "output" / run_name / "books.db")
-    args.db_path = db_path
-    apply_run_config_to_args(args, db_path)
-    return db_path
-
-
 def validate_bucket_arguments(args: Any, storage_type: str | None = None) -> list[str]:
     """
     Validate that required bucket arguments are present.
@@ -435,16 +291,16 @@ def validate_bucket_arguments(args: Any, storage_type: str | None = None) -> lis
     Returns:
         List of missing bucket argument names (empty if all present)
     """
-    # For cloud storage, bucket names are optional as they can be specified in the config file
-    if storage_type in ["r2", "s3", "gcs"]:
+    # For R2, bucket names are optional as they can be specified in the config file
+    if storage_type in ["r2"]:
         return []
 
     # For local storage, buckets are not needed
     if storage_type == "local":
         return []
 
-    # For MinIO, bucket names are required (since it's typically used for local development)
-    missing_buckets = []
+    # For other cloud storage, bucket names are required
+    missing_buckets: list[str] = []
     if not getattr(args, "bucket_raw", None):
         missing_buckets.append("--bucket-raw")
     if not getattr(args, "bucket_meta", None):
@@ -527,17 +383,3 @@ def build_storage_config_dict(args: Any) -> StorageConfigDict:
             storage_dict[attr] = value
 
     return to_storage_config_dict(storage_dict)
-
-
-if __name__ == "__main__":
-    # CLI tool for testing
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Run configuration utilities")
-    parser.add_argument("db_path", help="Path to SQLite database")
-    parser.add_argument("--show-info", action="store_true", help="Show run configuration info")
-
-    args = parser.parse_args()
-
-    if args.show_info:
-        print_run_config_info(args.db_path)

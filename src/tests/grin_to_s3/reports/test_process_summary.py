@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.process_summary import (
     RunSummary,
     create_process_summary,
@@ -172,7 +173,7 @@ class TestProcessSummaryFunctions:
             await save_process_summary(summary)
 
             # Check that file was created
-            summary_file = temp_dir / "output" / "test_run" / "process_summary.json"
+            summary_file = temp_dir / OUTPUT_DIR / "test_run" / "process_summary.json"
             assert summary_file.exists()
         finally:
             # Restore original directory

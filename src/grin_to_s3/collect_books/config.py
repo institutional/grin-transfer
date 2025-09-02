@@ -169,7 +169,7 @@ class ConfigManager:
         return config or ExportConfig(library_directory="REQUIRED")
 
     @classmethod
-    def create_default_config(cls, output_path: Path = None) -> ExportConfig:
+    def create_default_config(cls, output_path: Path) -> ExportConfig:
         """Create and save a default configuration file."""
         if output_path is None:
             output_path = cls.DEFAULT_CONFIG_PATHS[0]

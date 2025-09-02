@@ -11,8 +11,8 @@ import uuid
 from grin_to_s3.database import connect_async
 from grin_to_s3.run_config import StorageConfig
 
+from ..constants import LOCAL_STORAGE_DEFAULTS
 from .base import Storage
-from .factories import LOCAL_STORAGE_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +31,6 @@ class BookManager:
             storage: Storage backend instance
             bucket_config: Bucket names configuration (keyword-only for safety)
             base_prefix: Optional prefix for all storage paths
-
-        Raises:
-            ValueError: If any bucket name is empty
         """
         self._manager_id = str(uuid.uuid4())[:8]
 

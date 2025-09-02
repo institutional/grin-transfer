@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from grin_to_s3.auth import main as auth_main
 from grin_to_s3.collect_books.__main__ import main as collect_main
 from grin_to_s3.common import SessionLock
+from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.export import main as export_main
 from grin_to_s3.extract import main as extract_main
 from grin_to_s3.metadata.grin_enrichment import enrich_main
@@ -136,7 +137,7 @@ async def main():
     if needs_database_lock(command):
         run_name = get_run_name_from_args()
         if run_name:
-            lock_path = Path(f"output/{run_name}/session.lock")
+            lock_path = Path(f"{OUTPUT_DIR}/{run_name}/session.lock")
             session_lock = SessionLock(lock_path)
             if not session_lock.acquire():
                 print(f"Another session is already running for run-name '{run_name}'")
