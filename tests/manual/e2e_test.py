@@ -251,7 +251,7 @@ class E2ETestRunner:
             timeout=180,
         )
 
-        # Sync with local storage - previous queue (test PR5 functionality)
+        # Sync with local storage - previous queue
         self._run_command(
             [
                 self.venv_python,

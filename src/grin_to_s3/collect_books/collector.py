@@ -343,7 +343,6 @@ class BookCollector:
                 writer.writerow(book.to_csv_row())
 
         print(f"✅ CSV export completed: {output_file}")
-        print(f"   Exported {len(books):,} books with all available metadata")
 
     async def process_book(self, grin_row: GRINRow) -> BookRecord | None:
         """Process a single GRINRow from GRIN and return its record.

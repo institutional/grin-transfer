@@ -48,7 +48,6 @@ async def export_csv(db_path: str, output_file: str) -> None:
                 writer.writerow(book.to_csv_row())
 
         print(f"✅ CSV export completed: {output_file}")
-        print(f"   Exported {len(books):,} books with all available metadata")
 
     except Exception as e:
         print(f"❌ CSV export failed: {e}")
