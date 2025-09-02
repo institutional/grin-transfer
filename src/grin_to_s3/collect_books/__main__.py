@@ -8,6 +8,7 @@ Run with: python grin.py collect
 
 import argparse
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -293,12 +294,6 @@ Examples:
 
     args = parser.parse_args()
 
-    # Handle config creation
-    if args.create_config:
-        config = ConfigManager.create_default_config(Path(args.create_config))
-        print(f"Created default configuration at {args.create_config}")
-        return 0
-
     # Generate run name and output file paths
 
     if args.run_name:
@@ -358,6 +353,7 @@ Examples:
             print(f"Configured with {args.storage} cloud storage")
 
     # Load configuration with CLI overrides
+    # FIXME merge this with RunConfig
     config = ConfigManager.load_config(
         config_file=args.config_file,
         library_directory=args.library_directory,
@@ -386,21 +382,16 @@ Examples:
         }
     )
 
-    # Handle write-config option
-    if args.write_config:
-        # Write config to run directory
-        config_path = Path(f"{OUTPUT_DIR}/{run_name}/run_config.json")
-        config_path.parent.mkdir(parents=True, exist_ok=True)
+    # Write config to run directory
+    config_path = Path(f"{OUTPUT_DIR}/{run_name}/run_config.json")
+    config_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with open(config_path, "w") as f:
-            import json
+    with open(config_path, "w") as f:
+        json.dump(config_dict, f, indent=2)
 
-            json.dump(config_dict, f, indent=2)
-
-        print(f"Configuration written to {config_path}")
-        print(f"Run directory: output/{run_name}/")
-        print(f"Database: {sqlite_db}")
-        return 0
+    print(f"Configuration written to {config_path}")
+    print(f"Run directory: output/{run_name}/")
+    print(f"Database: {sqlite_db}")
 
     # Initialize logging
     setup_logging(level=args.log_level, log_file=log_file, append=False)
@@ -413,8 +404,6 @@ Examples:
     logger.info(f"Command: {' '.join(sys.argv)}")
 
     try:
-        # Create book storage for process summary uploads
-
         book_manager = await create_book_manager_for_uploads(run_name)
 
         # Create or load process summary
@@ -426,17 +415,6 @@ Examples:
             collect_stage.set_command_arg("limit", args.limit)
 
         try:
-            # Write run configuration to run directory
-            config_path = Path(f"{OUTPUT_DIR}/{run_name}/run_config.json")
-            config_path.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(config_path, "w") as f:
-                import json
-
-                json.dump(config_dict, f, indent=2)
-
-            logger.info(f"Configuration written to {config_path}")
-
             # Upload config to storage if available
             if book_manager:
                 storage_path = book_manager.meta_path(f"{run_name}/run_config.json")
