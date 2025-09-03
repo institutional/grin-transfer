@@ -11,6 +11,7 @@ import asyncio
 import csv
 import logging
 import sys
+from pathlib import Path
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.constants import OUTPUT_DIR
@@ -21,7 +22,7 @@ from grin_to_s3.run_config import apply_run_config_to_args, load_run_config
 logger = logging.getLogger(__name__)
 
 
-async def export_csv(db_path: str, output_file: str) -> None:
+async def export_csv(db_path: Path, output_file: str) -> None:
     """Export books from database to CSV format.
 
     Exports books in the collection with whatever metadata is available.
@@ -89,7 +90,7 @@ async def main():
     apply_run_config_to_args(args, run_config)
 
     # Validate database
-    validate_database_file(args.db_path, check_tables=True, check_books_count=True)
+    validate_database_file(run_config.sqlite_db_path, check_tables=True, check_books_count=True)
     setup_logging(args.log_level, run_config.log_file)
 
     # Log export startup
@@ -97,7 +98,7 @@ async def main():
     logger.info(f"CSV EXPORT STARTED - output={args.output}")
 
     try:
-        await export_csv(args.db_path, args.output)
+        await export_csv(run_config.sqlite_db_path, args.output)
         logger.info("CSV export completed successfully")
     except Exception as e:
         logger.error(f"CSV export failed: {e}", exc_info=True)
