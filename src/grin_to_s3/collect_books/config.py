@@ -16,33 +16,12 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class PaginationConfig:
-    """Configuration for GRIN API pagination."""
-
-    page_size: int = 10000  # Records per page request
-    max_pages: int = 1000  # Maximum pages to fetch
-    start_page: int = 1  # Starting page number
-
-    def __post_init__(self):
-        """Validate pagination configuration."""
-        if self.page_size <= 0:
-            raise ValueError("page_size must be positive")
-        if self.max_pages <= 0:
-            raise ValueError("max_pages must be positive")
-        if self.start_page <= 0:
-            raise ValueError("start_page must be positive")
-
-
-@dataclass
 class ExportConfig:
     """Main configuration for book collection operations."""
 
     # Core settings
     library_directory: str
     rate_limit: float = 5.0  # API requests per second
-
-    # Pagination settings
-    pagination: PaginationConfig | None = None
 
     # SQLite database settings
     sqlite_db_path: str = "output/default/books.db"
@@ -60,21 +39,10 @@ class ExportConfig:
     estimation_threshold: int = 100000  # When to start estimating total
     estimation_extrapolation: int = 100000  # Extra books to estimate
 
-    def __post_init__(self):
-        """Initialize default pagination and validate settings."""
-        if self.pagination is None:
-            self.pagination = PaginationConfig()
-
-        # No additional validation needed
-
     @classmethod
     def from_dict(cls, config_dict: dict[str, Any]) -> "ExportConfig":
         """Create config from dictionary."""
-        # Handle nested pagination config
-        pagination_data = config_dict.pop("pagination", {})
-        pagination = PaginationConfig(**pagination_data)
-
-        return cls(pagination=pagination, **config_dict)
+        return cls(**config_dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert config to dictionary."""
@@ -113,13 +81,7 @@ class ExportConfig:
         """Update configuration from CLI arguments."""
         for key, value in kwargs.items():
             if value is not None:
-                if key.startswith("pagination_"):
-                    # Handle pagination sub-config
-                    pagination_key = key.replace("pagination_", "")
-                    if hasattr(self.pagination, pagination_key):
-                        setattr(self.pagination, pagination_key, value)
-                        logger.debug(f"Updated pagination.{pagination_key} = {value}")
-                elif hasattr(self, key):
+                if hasattr(self, key):
                     setattr(self, key, value)
                     logger.debug(f"Updated {key} = {value}")
 

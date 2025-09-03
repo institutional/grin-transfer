@@ -7,13 +7,16 @@ import logging
 import time
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING
 
 import aiohttp
 from selectolax.lexbor import LexborHTMLParser
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_fixed
 
 from grin_to_s3.auth import GRINAuth
+
+if TYPE_CHECKING:
+    from grin_to_s3.collect_books.models import SQLiteProgressTracker
 
 logger = logging.getLogger(__name__)
 
@@ -93,12 +96,11 @@ class GRINClient:
     async def stream_book_list_html_prefetch(
         self,
         directory: str,
-        list_type: str = ALL_BOOKS_ENDPOINT,
-        page_size: int = 5000,
-        max_pages: int = 1000,
-        start_page: int = 1,
+        list_type: str,
+        page_size: int,
+        start_page: int,
         start_url: str | None = None,
-        sqlite_tracker: Any = None,
+        sqlite_tracker: "SQLiteProgressTracker | None" = None,
     ) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
         """
         Stream book list from GRIN with prefetching and SQLite batch optimization.
@@ -110,7 +112,7 @@ class GRINClient:
         current_url: str | None = start_url or f"{self.base_url}/{directory}/{list_type}?result_count={page_size}"
         prefetch_task = None
 
-        while page_count < max_pages and current_url:
+        while current_url:
             page_count += 1
             logger.debug(f"Fetching page {page_count} (page_size={page_size}) with prefetch")
 
@@ -169,7 +171,7 @@ class GRINClient:
                 )
 
             # Start prefetching next page in background
-            if next_url and page_count < max_pages:
+            if next_url:
                 prefetch_task = asyncio.create_task(self._prefetch_page(next_url))
                 logger.debug(f"Started prefetch for page {page_count + 1}")
             else:
