@@ -163,8 +163,11 @@ class BookRecord:
     def build_update_enrichment_sql(cls) -> str:
         """Generate UPDATE SQL for enrichment fields."""
         enrichment_fields = [f.name for f in fields(cls) if "grin_tsv" in f.metadata]
-        enrichment_fields.extend(["enrichment_timestamp", "updated_at"])
-        set_clause = ", ".join(f"{field} = ?" for field in enrichment_fields)
+        # Build COALESCE clauses for enrichment fields (preserve existing values if None)
+        set_clauses = [f"{field} = COALESCE(?, {field})" for field in enrichment_fields]
+        # Always update timestamps
+        set_clauses.extend(["enrichment_timestamp = ?", "updated_at = ?"])
+        set_clause = ", ".join(set_clauses)
         return f"UPDATE books SET {set_clause} WHERE barcode = ?"
 
     @classmethod
@@ -180,8 +183,11 @@ class BookRecord:
     def build_update_marc_sql(cls) -> str:
         """Generate UPDATE SQL for MARC fields."""
         marc_fields = [f.name for f in fields(cls) if f.name.startswith("marc_")]
-        marc_fields.append("updated_at")
-        set_clause = ", ".join(f"{field} = ?" for field in marc_fields)
+        # Build COALESCE clauses for MARC fields (preserve existing values if None)
+        set_clauses = [f"{field} = COALESCE(?, {field})" for field in marc_fields]
+        # Always update timestamp
+        set_clauses.append("updated_at = ?")
+        set_clause = ", ".join(set_clauses)
         return f"UPDATE books SET {set_clause} WHERE barcode = ?"
 
     @classmethod
@@ -650,9 +656,13 @@ class SQLiteProgressTracker:
 
         query = """
             UPDATE books SET
-                storage_type = ?, storage_path = ?,
-                last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
-                sync_timestamp = ?, sync_error = ?,
+                storage_type = COALESCE(?, storage_type),
+                storage_path = COALESCE(?, storage_path),
+                last_etag_check = COALESCE(?, last_etag_check),
+                encrypted_etag = COALESCE(?, encrypted_etag),
+                is_decrypted = COALESCE(?, is_decrypted),
+                sync_timestamp = ?,
+                sync_error = COALESCE(?, sync_error),
                 updated_at = ?
             WHERE barcode = ?
         """
