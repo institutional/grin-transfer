@@ -370,7 +370,7 @@ class TestBookCollector:
                 directory="TestLibrary",
                 process_summary_stage=mock_process_stage,
                 storage_config={"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"},
-                config=config,
+                run_config=config,
             )
 
             # Initialize SQLite tracker and test persistence
@@ -384,7 +384,7 @@ class TestBookCollector:
                 directory="TestLibrary",
                 process_summary_stage=mock_process_stage,
                 storage_config={"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"},
-                config=config,
+                run_config=config,
             )
             await exporter2.sqlite_tracker.init_db()
 

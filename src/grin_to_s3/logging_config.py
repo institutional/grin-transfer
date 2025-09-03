@@ -6,7 +6,7 @@ from pathlib import Path
 from grin_to_s3.docker import is_docker_environment
 
 
-def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool = True) -> None:
+def setup_logging(level: str = "INFO", log_file: Path | None = None, append: bool = True) -> None:
     """
     Configure logging for all pipeline operations.
 
@@ -56,11 +56,10 @@ def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool
 
         # Generate timestamped filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        log_file = str(logs_dir / f"grin_pipeline_{timestamp}.log")
+        log_file = logs_dir / f"grin_pipeline_{timestamp}.log"
     else:
         # Ensure parent directory exists for custom log file
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_file.parent.mkdir(parents=True, exist_ok=True)
 
     file_handler = logging.FileHandler(str(log_file), mode="a" if append else "w")
     file_handler.setFormatter(formatter)
@@ -74,10 +73,10 @@ def setup_logging(level: str = "INFO", log_file: str | None = None, append: bool
     file_handler.flush = make_flush_func(file_handler)  # type: ignore[method-assign]
 
     # Show user-friendly path (host-relative for Docker)
-    display_path = log_file
-    if is_docker_environment() and log_file.startswith("/app/logs/"):
+    display_path = str(log_file)
+    if is_docker_environment() and str(log_file).startswith("/app/logs/"):
         # Convert container path to host path for Docker users
-        display_path = log_file.replace("/app/logs/", "docker-data/logs/")
+        display_path = str(log_file).replace("/app/logs/", "docker-data/logs/")
 
     print(f"Logging to file: {display_path}\n")
     logger = logging.getLogger(__name__)

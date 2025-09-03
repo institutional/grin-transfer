@@ -8,7 +8,6 @@ Run with: python grin.py collect
 
 import argparse
 import asyncio
-import json
 import logging
 import os
 import sys
@@ -19,7 +18,6 @@ from grin_to_s3.constants import GRIN_RATE_LIMIT_QPS, OUTPUT_DIR
 from grin_to_s3.storage.factories import create_local_storage_directories
 
 from .collector import BookCollector
-from .config import ExportConfig
 
 sys.path.append("..")
 from grin_to_s3.logging_config import (
@@ -43,8 +41,11 @@ from grin_to_s3.run_config import (
     DEFAULT_SYNC_TASK_EXTRACT_OCR_CONCURRENCY,
     DEFAULT_SYNC_TASK_UNPACK_CONCURRENCY,
     DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY,
+    RunConfig,
     StorageConfig,
     build_storage_config_dict,
+    build_sync_config_from_args,
+    save_run_config,
 )
 from grin_to_s3.storage import get_storage_protocol
 
@@ -115,23 +116,6 @@ def print_resume_command(args, run_name: str) -> None:
     print("\nTo check status:")
     print(f"python grin.py status --run-name {run_name}")
     print("=" * 60)
-
-
-def build_sync_config_from_args(args) -> dict:
-    """Build sync configuration dictionary from CLI arguments."""
-    return {
-        "task_check_concurrency": args.sync_task_check_concurrency,
-        "task_download_concurrency": args.sync_task_download_concurrency,
-        "task_decrypt_concurrency": args.sync_task_decrypt_concurrency,
-        "task_upload_concurrency": args.sync_task_upload_concurrency,
-        "task_unpack_concurrency": args.sync_task_unpack_concurrency,
-        "task_extract_marc_concurrency": args.sync_task_extract_marc_concurrency,
-        "task_extract_ocr_concurrency": args.sync_task_extract_ocr_concurrency,
-        "task_export_csv_concurrency": args.sync_task_export_csv_concurrency,
-        "task_cleanup_concurrency": args.sync_task_cleanup_concurrency,
-        "staging_dir": args.sync_staging_dir,
-        "disk_space_threshold": args.sync_disk_space_threshold,
-    }
 
 
 async def main():
@@ -289,21 +273,16 @@ Examples:
         # Generate timestamp-based run name
         run_name = datetime.now().strftime("run_%Y%m%d_%H%M%S")
 
-    # Extract the actual identifier from run_name (remove "run_" prefix if present)
-    run_identifier = run_name.removeprefix("run_") if run_name.startswith("run_") else run_name
-
     # Generate timestamp for output files (not resume files)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    output_file = f"{OUTPUT_DIR}/{run_name}/books_{timestamp}.csv"
-
-    # Generate file paths - outputs get timestamped
-    log_file = f"{args.log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
-    sqlite_db = f"{OUTPUT_DIR}/{run_name}/books.db"
+    output_file = Path(f"{OUTPUT_DIR}/{run_name}/books_{timestamp}.csv")
+    log_file = Path(f"{args.log_dir}/grin_pipeline_{run_name}_{timestamp}.log")
+    sqlite_db_path = Path(f"{OUTPUT_DIR}/{run_name}/books.db")
 
     # Create directories
-    Path(log_file).parent.mkdir(parents=True, exist_ok=True)
-    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    output_file.parent.mkdir(parents=True, exist_ok=True)
 
     # Build storage configuration
     final_storage_dict = build_storage_config_dict(args)
@@ -323,53 +302,36 @@ Examples:
         "prefix": "",
     }
 
-    # Create all required buckets/directories early to fail fast
     if args.storage == "local":
         await create_local_storage_directories(final_storage_dict)
     else:
         print(f"Configured with {args.storage} cloud storage")
-
-    # Load configuration with CLI overrides
-    # FIXME merge this with RunConfig
-    config = ExportConfig(
-        library_directory=args.library_directory,
-        rate_limit=GRIN_RATE_LIMIT_QPS,
-        sqlite_db_path=sqlite_db,
-    )
-
     # Build sync configuration from CLI arguments
     sync_config = build_sync_config_from_args(args)
-
-    # Create enhanced config dict with storage and runtime info
-    config_dict = config.to_dict()
-    config_dict.update(
-        {
-            "run_name": run_name,
-            "run_identifier": run_identifier,
-            "output_directory": f"{OUTPUT_DIR}/{run_name}",
-            "sqlite_db_path": sqlite_db,
-            "log_file": log_file,
-            "storage_config": storage_config,
-            "sync_config": sync_config,
-            "secrets_dir": args.secrets_dir,
-        }
+    run_config = RunConfig(
+        run_name=run_name,
+        library_directory=args.library_directory,
+        output_directory=Path(OUTPUT_DIR / run_name),
+        sqlite_db_path=sqlite_db_path,
+        log_file=log_file,
+        sync_config=sync_config,
+        storage_config=storage_config,
+        secrets_dir=args.secrets_dir,
     )
 
     # Write config to run directory
     config_path = Path(f"{OUTPUT_DIR}/{run_name}/run_config.json")
     config_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(config_path, "w") as f:
-        json.dump(config_dict, f, indent=2)
+    save_run_config(run_config)
 
     print(f"Configuration written to {config_path}")
     print(f"Run directory: output/{run_name}/")
-    print(f"Database: {sqlite_db}")
+    print(f"Database: {sqlite_db_path}")
 
     # Initialize logging
     setup_logging(level=args.log_level, log_file=log_file, append=False)
 
-    logger = logging.getLogger(__name__)
     logger.info(f"COLLECTION PIPELINE STARTED - run={run_name} storage={args.storage} rate_limit={GRIN_RATE_LIMIT_QPS}")
     logger.info(f"Command: {' '.join(sys.argv)}")
 
@@ -401,7 +363,7 @@ Examples:
                 directory=args.library_directory,
                 process_summary_stage=collect_stage,
                 storage_config=storage_config,
-                config=config,
+                run_config=run_config,
                 secrets_dir=args.secrets_dir,
             )
 
@@ -427,7 +389,7 @@ Examples:
             if isinstance(e, KeyboardInterrupt):
                 collect_stage.add_progress_update("Collection interrupted by user")
             else:
-                collect_stage.add_progress_update(f"Collection failed: {error_type}")
+                collect_stage.add_progress_update(f"Collection failed: {e}")
             raise
 
         finally:
@@ -446,11 +408,13 @@ Examples:
             display_step_summary(run_summary, "collect")
 
     except Exception as e:
+        import traceback
+
         if isinstance(e, KeyboardInterrupt):
             print("\n🚫 Collection interrupted by user")
         else:
-            print(f"❌ Collection failed: {e}")
-
+            print("❌ Collection failed")
+            traceback.print_exc()
         return 1
 
 

@@ -25,7 +25,6 @@ from grin_to_s3.process_summary import (
     save_process_summary,
 )
 from grin_to_s3.run_config import (
-    RunConfig,
     apply_run_config_to_args,
     load_run_config,
 )
@@ -79,27 +78,6 @@ def _parse_and_validate_barcodes(args, sync_stage) -> list[str] | None:
         sys.exit(1)
 
 
-def _apply_single_book_optimization(
-    run_config: RunConfig, specific_barcodes: list[str] | None, sync_stage
-) -> RunConfig:
-    """Apply single-book optimization if only one barcode is specified."""
-    if not (specific_barcodes and len(specific_barcodes) == 1):
-        return run_config
-
-    # Create optimized config for single book
-    optimized_config = RunConfig(run_config.config_dict.copy())
-    optimized_config.config_dict["sync_config"] = {
-        **optimized_config.config_dict.get("sync_config", {}),
-        "concurrent_downloads": 1,  # Optimal for single book
-        "concurrent_uploads": 1,  # Optimal for single book
-    }
-    print("  - Concurrent downloads: 1")
-    print("  - Concurrent uploads: 1")
-    print()
-    sync_stage.add_progress_update("Single book mode optimization applied")
-    return optimized_config
-
-
 def _setup_signal_handlers(pipeline, sync_stage) -> None:
     """Set up signal handlers for graceful shutdown."""
 
@@ -149,7 +127,7 @@ async def cmd_pipeline(args) -> None:
     # Apply task concurrency overrides and compression settings to run config
     if task_concurrency_overrides or args.skip_compression_meta or args.skip_compression_full:
         if task_concurrency_overrides:
-            run_config.sync_config.update(task_concurrency_overrides)
+            run_config.sync_config.update(task_concurrency_overrides)  # type: ignore
         # Set compression based on CLI flags (default True, disabled if respective --skip-compression-* flag)
         run_config.sync_config["compression_meta_enabled"] = not args.skip_compression_meta
         run_config.sync_config["compression_full_enabled"] = not args.skip_compression_full
@@ -184,9 +162,6 @@ async def cmd_pipeline(args) -> None:
     try:
         # Parse and validate barcodes
         specific_barcodes = _parse_and_validate_barcodes(args, sync_stage)
-
-        # Apply single-book optimization if needed
-        run_config = _apply_single_book_optimization(run_config, specific_barcodes, sync_stage)
 
         # Create pipeline with final configuration
         pipeline = SyncPipeline.from_run_config(

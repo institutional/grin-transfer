@@ -26,6 +26,9 @@ class ConfigBuilder:
             "run_name": "test_run",
             "sqlite_db_path": "/tmp/test.db",
             "library_directory": "test_library",
+            "output_directory": "/tmp/output",
+            "log_file": "/tmp/test.log",
+            "secrets_dir": None,
             "storage_config": {"type": "local", "config": {"base_path": "/tmp"}},
             "sync_config": {},
         }
@@ -104,7 +107,7 @@ class ConfigBuilder:
 
     def build(self) -> RunConfig:
         """Build the RunConfig instance."""
-        return RunConfig(self._config)
+        return RunConfig(**self._config)
 
 
 @pytest.fixture
