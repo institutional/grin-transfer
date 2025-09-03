@@ -19,7 +19,7 @@ from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.storage.factories import create_local_storage_directories
 
 from .collector import BookCollector
-from .config import ConfigManager
+from .config import ExportConfig
 
 sys.path.append("..")
 from grin_to_s3.logging_config import (
@@ -354,13 +354,9 @@ Examples:
 
     # Load configuration with CLI overrides
     # FIXME merge this with RunConfig
-    config = ConfigManager.load_config(
-        config_file=args.config_file,
+    config = ExportConfig(
         library_directory=args.library_directory,
         rate_limit=args.rate_limit,
-        pagination_page_size=args.page_size,
-        pagination_max_pages=args.max_pages,
-        pagination_start_page=args.start_page,
         sqlite_db_path=sqlite_db,
     )
 

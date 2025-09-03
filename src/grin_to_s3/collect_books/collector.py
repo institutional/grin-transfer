@@ -25,7 +25,7 @@ from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator, show_
 
 from .config import ExportConfig
 from .grin_parser import parse_grin_row
-from .models import BookRecord, BoundedSet, SQLiteProgressTracker
+from .models import BookRecord, SQLiteProgressTracker
 
 # Set up module logger
 logger = logging.getLogger(__name__)
@@ -63,9 +63,6 @@ class BookCollector:
         self.rate_calculator = SlidingWindowRateCalculator(window_size=5)
         self.start_time: float | None = None
         self.sqlite_tracker = SQLiteProgressTracker(self.config.sqlite_db_path)
-        # Keep small in-memory sets for recent items only (performance optimization)
-        self.recent_processed = BoundedSet(max_size=self.config.recent_cache_size)
-        self.recent_failed = BoundedSet(max_size=self.config.recent_failed_cache_size)
 
         # Storage (required)
         if not storage_config:
@@ -298,7 +295,6 @@ class BookCollector:
                 except Exception as e:
                     print(f"Error processing {barcode}: {e}")
                     await self.sqlite_tracker.mark_failed(barcode, str(e))
-                    self.recent_failed.add(barcode)
 
                     # Track failed item in process summary
                     self.process_summary_stage.collection_failed += 1
@@ -373,13 +369,11 @@ class BookCollector:
 
             # Mark as processed for progress tracking
             await self.sqlite_tracker.mark_processed(barcode)
-            self.recent_processed.add(barcode)
             return record
 
         except Exception as e:
             print(f"Error processing {barcode}: {e}")
             await self.sqlite_tracker.mark_failed(barcode, str(e))
-            self.recent_failed.add(barcode)
             return None
 
     async def cleanup(self):
