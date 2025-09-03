@@ -92,16 +92,25 @@ async def check_skipped(result: TaskResult, previous_results: dict[TaskType, Tas
         # Mark as completed in database since we have it in storage
         return {
             "status": ("sync", "completed", {"reason": result.reason, "reconciled_from_storage": True}),
-            "books": {"sync_timestamp": datetime.now(UTC).isoformat()},
+            "books": {
+                "sync_timestamp": datetime.now(UTC).isoformat(),
+                "last_etag_check": datetime.now(UTC).isoformat(),
+            },
         }
 
-    return {"status": ("sync", "skipped", {"reason": result.reason} if result.reason else None), "books": {}}
+    return {
+        "status": ("sync", "skipped", {"reason": result.reason} if result.reason else None),
+        "books": {"last_etag_check": datetime.now(UTC).isoformat()},
+    }
 
 
 @on(TaskType.CHECK, TaskAction.COMPLETED, status_value="checked")
 async def check_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
     etag = result.data.get("etag") if result.data else None
-    return {"status": ("sync", "checked", {"etag": etag} if etag else None), "books": {}}
+    return {
+        "status": ("sync", "checked", {"etag": etag} if etag else None),
+        "books": {"last_etag_check": datetime.now(UTC).isoformat()},
+    }
 
 
 @on(TaskType.CHECK, TaskAction.FAILED)
@@ -111,7 +120,10 @@ async def check_failed(result: TaskResult, previous_results: dict[TaskType, Task
     if result.data:
         metadata = metadata or {}
         metadata.update(result.data)
-    return {"status": ("sync", "check_failed", metadata), "books": {}}
+    return {
+        "status": ("sync", "check_failed", metadata),
+        "books": {"last_etag_check": datetime.now(UTC).isoformat()},
+    }
 
 
 @on(TaskType.REQUEST_CONVERSION, TaskAction.SKIPPED)
@@ -333,9 +345,14 @@ async def _execute_updates(conn, record_updates, barcode, now):
         await conn.execute(
             """
             UPDATE books SET
-                storage_type = ?, storage_path = ?,
-                last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
-                sync_timestamp = ?, sync_error = ?, processing_request_timestamp = ?,
+                storage_type = COALESCE(?, storage_type),
+                storage_path = COALESCE(?, storage_path),
+                last_etag_check = COALESCE(?, last_etag_check),
+                encrypted_etag = COALESCE(?, encrypted_etag),
+                is_decrypted = COALESCE(?, is_decrypted),
+                sync_timestamp = COALESCE(?, sync_timestamp),
+                sync_error = COALESCE(?, sync_error),
+                processing_request_timestamp = COALESCE(?, processing_request_timestamp),
                 updated_at = ?
             WHERE barcode = ?
             """,
@@ -344,8 +361,8 @@ async def _execute_updates(conn, record_updates, barcode, now):
                 sync_data.get("storage_path"),
                 sync_data.get("last_etag_check"),
                 sync_data.get("encrypted_etag"),
-                sync_data.get("is_decrypted", False),
-                sync_data.get("sync_timestamp", now),
+                sync_data.get("is_decrypted"),
+                sync_data.get("sync_timestamp"),
                 sync_data.get("sync_error"),
                 sync_data.get("processing_request_timestamp"),
                 now,

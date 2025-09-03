@@ -583,3 +583,88 @@ class TestRealDatabaseIntegration:
 
                 assert row is not None, f"Book record not found for {reason}"
                 assert row[0] is None, f"processing_request_timestamp should remain NULL for {reason}"
+
+    @pytest.mark.asyncio
+    async def test_check_task_updates_last_etag_check_timestamp(self, real_db_pipeline):
+        """CHECK task should update last_etag_check timestamp in books table."""
+        task_manager = TaskManager({TaskType.CHECK: 1})
+
+        # Test CHECK task COMPLETED
+        async def mock_check_task_completed():
+            return TaskResult(
+                barcode="TEST123",
+                task_type=TaskType.CHECK,
+                action=TaskAction.COMPLETED,
+                data={"etag": "new-etag", "file_size_bytes": 2048, "http_status_code": 200},
+            )
+
+        previous_results = {}
+        await task_manager.run_task(
+            TaskType.CHECK, "TEST123", mock_check_task_completed, real_db_pipeline, previous_results
+        )
+
+        # Commit accumulated updates to the real database
+        conn = await real_db_pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
+
+        # Verify last_etag_check timestamp was populated
+        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
+            cursor = await db.execute("SELECT last_etag_check FROM books WHERE barcode = ?", ("TEST123",))
+            row = await cursor.fetchone()
+
+            assert row is not None
+            last_etag_check = row[0]
+            assert last_etag_check is not None, "last_etag_check should be populated after CHECK task"
+
+            # Verify timestamp is a valid ISO format
+            parsed_time = datetime.fromisoformat(last_etag_check.replace("Z", "+00:00"))
+            assert parsed_time is not None
+
+            # Verify timestamp is recent (within last minute)
+            now = datetime.now(UTC)
+            time_diff = abs((now - parsed_time).total_seconds())
+            assert time_diff < 60, f"last_etag_check should be recent, but was {time_diff} seconds ago"
+
+    @pytest.mark.asyncio
+    async def test_check_task_skipped_updates_last_etag_check_timestamp(self, real_db_pipeline):
+        """CHECK task SKIPPED should also update last_etag_check timestamp in books table."""
+        task_manager = TaskManager({TaskType.CHECK: 1})
+
+        # Test CHECK task SKIPPED (etag match)
+        async def mock_check_task_skipped():
+            return TaskResult(
+                barcode="TEST123",
+                task_type=TaskType.CHECK,
+                action=TaskAction.SKIPPED,
+                data={"etag": "matching-etag", "file_size_bytes": 1024, "http_status_code": 200},
+                reason="skip_etag_match",
+            )
+
+        previous_results = {}
+        await task_manager.run_task(
+            TaskType.CHECK, "TEST123", mock_check_task_skipped, real_db_pipeline, previous_results
+        )
+
+        # Commit accumulated updates to the real database
+        conn = await real_db_pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
+
+        # Verify last_etag_check timestamp was populated even for skipped task
+        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
+            cursor = await db.execute("SELECT last_etag_check FROM books WHERE barcode = ?", ("TEST123",))
+            row = await cursor.fetchone()
+
+            assert row is not None
+            last_etag_check = row[0]
+            assert last_etag_check is not None, (
+                "last_etag_check should be populated after CHECK task (even when skipped)"
+            )
+
+            # Verify timestamp is a valid ISO format
+            parsed_time = datetime.fromisoformat(last_etag_check.replace("Z", "+00:00"))
+            assert parsed_time is not None
+
+            # Verify timestamp is recent (within last minute)
+            now = datetime.now(UTC)
+            time_diff = abs((now - parsed_time).total_seconds())
+            assert time_diff < 60, f"last_etag_check should be recent, but was {time_diff} seconds ago"
