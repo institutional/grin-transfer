@@ -14,7 +14,6 @@ Public API:
 from grin_to_s3.common import RateLimiter
 
 from .collector import BookCollector
-from .config import ExportConfig
 from .models import BookRecord, BoundedSet
 
 # Public API exports
@@ -23,7 +22,6 @@ __all__ = [
     "BookRecord",
     "RateLimiter",
     "BoundedSet",
-    "ExportConfig",
 ]
 
 # Version info

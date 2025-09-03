@@ -16,8 +16,8 @@ import pytest
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from grin_to_s3.collect_books.collector import BookCollector, RateLimiter
-from grin_to_s3.collect_books.config import ExportConfig
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.run_config import RunConfig, StorageConfig, SyncConfig
 from tests.mocks import get_test_data, setup_mock_exporter
 
 
@@ -364,17 +364,45 @@ class TestBookCollector:
         with tempfile.TemporaryDirectory() as temp_dir:
             test_db_path = Path(temp_dir) / "test_books.db"
 
-            config = ExportConfig(library_directory="TestLibrary", sqlite_db_path=str(test_db_path))
+            # Create minimal sync config for testing
+            sync_config: SyncConfig = {
+                "task_check_concurrency": 1,
+                "task_download_concurrency": 1,
+                "task_decrypt_concurrency": 1,
+                "task_upload_concurrency": 1,
+                "task_unpack_concurrency": 1,
+                "task_extract_marc_concurrency": 1,
+                "task_extract_ocr_concurrency": 1,
+                "task_export_csv_concurrency": 1,
+                "task_cleanup_concurrency": 1,
+                "staging_dir": Path(temp_dir) / "staging",
+                "disk_space_threshold": 0.8,
+                "compression_meta_enabled": True,
+                "compression_full_enabled": True,
+            }
+
+            storage_config: StorageConfig = {
+                "type": "local",
+                "protocol": "file",
+                "config": {"base_path": str(temp_dir)},
+                "prefix": "test",
+            }
+
+            config = RunConfig(
+                run_name="test_run",
+                library_directory="TestLibrary",
+                output_directory=Path(temp_dir) / "output",
+                sqlite_db_path=test_db_path,
+                storage_config=storage_config,
+                sync_config=sync_config,
+                log_file=Path(temp_dir) / "test.log",
+                secrets_dir=None,
+            )
 
             exporter = BookCollector(
                 directory="TestLibrary",
                 process_summary_stage=mock_process_stage,
-                storage_config={
-                    "type": "local",
-                    "protocol": "file",
-                    "config": {"base_path": str(temp_dir)},
-                    "prefix": "test",
-                },
+                storage_config=storage_config,
                 run_config=config,
             )
 
@@ -388,12 +416,7 @@ class TestBookCollector:
             exporter2 = BookCollector(
                 directory="TestLibrary",
                 process_summary_stage=mock_process_stage,
-                storage_config={
-                    "type": "local",
-                    "protocol": "file",
-                    "config": {"base_path": str(temp_dir)},
-                    "prefix": "test",
-                },
+                storage_config=storage_config,
                 run_config=config,
             )
             await exporter2.sqlite_tracker.init_db()

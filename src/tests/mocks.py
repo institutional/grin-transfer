@@ -7,7 +7,6 @@ import random
 from pathlib import Path
 
 from grin_to_s3.collect_books.collector import BookCollector
-from grin_to_s3.collect_books.config import ExportConfig
 from grin_to_s3.process_summary import ProcessStageMetrics
 
 
@@ -429,24 +428,54 @@ def get_large_html_test_data():
 
 def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
     """Create a properly mocked BookCollector for testing"""
+    from grin_to_s3.run_config import RunConfig, StorageConfig, SyncConfig
 
     if test_data is None:
         test_data = get_test_data()
 
     if storage_config is None:
-        storage_config = {"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"}
+        storage_config_typed: StorageConfig = {
+            "type": "local",
+            "protocol": "file",
+            "config": {"base_path": str(temp_dir)},
+            "prefix": "test",
+        }
+        storage_config = storage_config_typed
 
-    sqlite_db_path = Path(temp_dir) / "test_progress.db"  # Unique database per test
+    sqlite_db_path = Path(temp_dir) / "test_progress.db"
+    output_dir = Path(temp_dir) / "output"
+    output_dir.mkdir(exist_ok=True)
 
-    # Create config with unique database path
-    config = ExportConfig(
+    # Create minimal sync config for testing
+    sync_config: SyncConfig = {
+        "task_check_concurrency": 1,
+        "task_download_concurrency": 1,
+        "task_decrypt_concurrency": 1,
+        "task_upload_concurrency": 1,
+        "task_unpack_concurrency": 1,
+        "task_extract_marc_concurrency": 1,
+        "task_extract_ocr_concurrency": 1,
+        "task_export_csv_concurrency": 1,
+        "task_cleanup_concurrency": 1,
+        "staging_dir": Path(temp_dir) / "staging",
+        "disk_space_threshold": 0.8,
+        "compression_meta_enabled": True,
+        "compression_full_enabled": True,
+    }
+
+    # Create RunConfig with all required fields
+    config = RunConfig(
+        run_name="test_run",
         library_directory="TestDirectory",
-        rate_limit=100.0,  # Very fast for testing
-        sqlite_db_path=str(sqlite_db_path),
+        output_directory=output_dir,
+        sqlite_db_path=sqlite_db_path,
+        storage_config=storage_config,
+        sync_config=sync_config,
+        log_file=Path(temp_dir) / "test.log",
+        secrets_dir=None,
     )
 
     # Create a mock process summary stage if not provided
-
     mock_stage = ProcessStageMetrics("test")
 
     exporter = BookCollector(
@@ -454,12 +483,12 @@ def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
     )
 
     # Replace grin_client with mock
-    exporter.grin_client = MockGRINClient(test_data)
+    exporter.grin_client = MockGRINClient(test_data)  # type: ignore
 
     # Mock book storage if configured
     if storage_config:
         mock_book_manager = MockBookStorage()
-        mock_book_manager.storage = MockStorage()
-        exporter.book_manager = mock_book_manager
+        mock_book_manager.storage = MockStorage()  # type: ignore
+        exporter.book_manager = mock_book_manager  # type: ignore
 
     return exporter
