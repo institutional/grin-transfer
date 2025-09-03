@@ -205,7 +205,7 @@ class SyncPipeline:
         self.grin_client = GRINClient(secrets_dir=self.secrets_dir)
 
         # Initialize staging directory manager only for non-local storage
-        if self.config.storage_config["protocol"] != "local":
+        if self.config.storage_config["protocol"] != "file":
             self.filesystem_manager = StagingDirectoryManager(
                 staging_path=self.staging_dir, capacity_threshold=self.disk_space_threshold
             )
@@ -283,12 +283,12 @@ class SyncPipeline:
     @property
     def uses_block_storage(self) -> bool:
         """Check if the pipeline uses block storage."""
-        return self.config.storage_config["protocol"] != "local"
+        return self.config.storage_config["protocol"] != "file"
 
     @property
     def uses_local_storage(self) -> bool:
         """Check if the pipeline uses local storage."""
-        return self.config.storage_config["protocol"] == "local"
+        return self.config.storage_config["protocol"] == "file"
 
     def _handle_failure(self, barcode: str, error_msg: str) -> bool:
         """

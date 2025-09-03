@@ -7,6 +7,7 @@ import logging
 import time
 from collections.abc import AsyncGenerator
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import aiohttp
@@ -36,7 +37,7 @@ class GRINClient:
         self,
         base_url: str = "https://books.google.com/libraries/",
         auth: GRINAuth | None = None,
-        secrets_dir: str | None = None,
+        secrets_dir: Path | str | None = None,
         timeout: int = 60,
     ):
         self.base_url = base_url.rstrip("/")

@@ -13,8 +13,9 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import cast, get_args
 
-from grin_to_s3.constants import GRIN_RATE_LIMIT_QPS, OUTPUT_DIR
+from grin_to_s3.constants import GRIN_RATE_LIMIT_QPS, OUTPUT_DIR, STORAGE_PROTOCOLS, STORAGE_TYPES
 from grin_to_s3.storage.factories import create_local_storage_directories
 
 from .collector import BookCollector
@@ -43,6 +44,7 @@ from grin_to_s3.run_config import (
     DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY,
     RunConfig,
     StorageConfig,
+    StorageConfigDict,
     build_storage_config_dict,
     build_sync_config_from_args,
     save_run_config,
@@ -167,7 +169,7 @@ Examples:
     # Storage options
     parser.add_argument(
         "--storage",
-        choices=["local", "minio", "r2", "s3", "gcs"],
+        choices=list(get_args(STORAGE_TYPES)),
         required=True,
         help="Storage backend for run configuration",
     )
@@ -296,9 +298,9 @@ Examples:
     # Determine storage protocol for operational logic
     storage_protocol = get_storage_protocol(args.storage)
     storage_config: StorageConfig = {
-        "type": args.storage,
-        "protocol": storage_protocol,
-        "config": final_storage_dict,
+        "type": cast(STORAGE_TYPES, args.storage),
+        "protocol": cast(STORAGE_PROTOCOLS, storage_protocol),
+        "config": cast(StorageConfigDict, final_storage_dict),
         "prefix": "",
     }
 

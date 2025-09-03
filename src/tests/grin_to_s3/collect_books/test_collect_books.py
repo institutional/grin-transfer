@@ -369,7 +369,12 @@ class TestBookCollector:
             exporter = BookCollector(
                 directory="TestLibrary",
                 process_summary_stage=mock_process_stage,
-                storage_config={"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"},
+                storage_config={
+                    "type": "local",
+                    "protocol": "file",
+                    "config": {"base_path": str(temp_dir)},
+                    "prefix": "test",
+                },
                 run_config=config,
             )
 
@@ -383,7 +388,12 @@ class TestBookCollector:
             exporter2 = BookCollector(
                 directory="TestLibrary",
                 process_summary_stage=mock_process_stage,
-                storage_config={"type": "local", "config": {"base_path": str(temp_dir)}, "prefix": "test"},
+                storage_config={
+                    "type": "local",
+                    "protocol": "file",
+                    "config": {"base_path": str(temp_dir)},
+                    "prefix": "test",
+                },
                 run_config=config,
             )
             await exporter2.sqlite_tracker.init_db()
@@ -537,6 +547,7 @@ class TestBookCollectionIntegration:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage_config = {
                 "type": "local",
+                "protocol": "file",
                 "config": {
                     "base_path": temp_dir,
                     "bucket_raw": "test-raw",
@@ -546,9 +557,44 @@ class TestBookCollectionIntegration:
                 "prefix": "test-prefix",
             }
 
+            # Create a minimal RunConfig for testing
+            from pathlib import Path
+
+            from grin_to_s3.run_config import RunConfig, SyncConfig
+
+            sync_config: SyncConfig = {
+                "task_check_concurrency": 1,
+                "task_download_concurrency": 1,
+                "task_decrypt_concurrency": 1,
+                "task_upload_concurrency": 1,
+                "task_unpack_concurrency": 1,
+                "task_extract_marc_concurrency": 1,
+                "task_extract_ocr_concurrency": 1,
+                "task_export_csv_concurrency": 1,
+                "task_cleanup_concurrency": 1,
+                "staging_dir": Path("/tmp/staging"),
+                "disk_space_threshold": 0.8,
+                "compression_meta_enabled": True,
+                "compression_full_enabled": True,
+            }
+
+            run_config = RunConfig(
+                run_name="test_run",
+                library_directory="TestDirectory",
+                output_directory=Path("/tmp/output"),
+                sqlite_db_path=Path("/tmp/test.db"),
+                storage_config=storage_config,
+                sync_config=sync_config,
+                log_file=Path("/tmp/log.txt"),
+                secrets_dir=None,
+            )
+
             # This should not raise an exception
             collector = BookCollector(
-                "TestDirectory", process_summary_stage=mock_process_stage, storage_config=storage_config
+                "TestDirectory",
+                process_summary_stage=mock_process_stage,
+                storage_config=storage_config,
+                run_config=run_config,
             )
 
             # Verify storage was initialized correctly

@@ -83,10 +83,12 @@ class TestLocalStorageIntegration:
                 with patch("builtins.print") as mock_print:
                     await pipeline.setup_sync_loop(queues=["converted"], specific_barcodes=[], limit=0)
 
-                    # Check that target directory was printed in startup configuration
+                    # Check that local storage configuration was printed in startup configuration
                     print_calls = [str(call) for call in mock_print.call_args_list]
-                    target_dir_printed = any("valid_path" in call for call in print_calls)
-                    assert target_dir_printed, "Target directory should be displayed in startup configuration"
+                    local_storage_printed = any("Local filesystem" in call for call in print_calls)
+                    assert local_storage_printed, (
+                        "Local filesystem storage should be displayed in startup configuration"
+                    )
 
             # Test case 2: Minimal storage config (no base_path)
             # Remove base_path from the existing pipeline's config to simulate missing base_path
@@ -112,13 +114,16 @@ class TestLocalStorageIntegration:
             await tracker.init_db()
             await tracker.close()
 
-            config = test_config_builder.with_db_path(str(db_path)).local_storage(temp_dir).build()
-
+            config = (
+                test_config_builder.with_db_path(str(db_path))
+                .local_storage(temp_dir)
+                .with_staging_dir(str(Path(temp_dir) / "staging"))
+                .build()
+            )
             pipeline = SyncPipeline.from_run_config(
                 config=config,
                 process_summary_stage=mock_process_stage,
             )
-
             # Verify filesystem_manager is LocalDirectoryManager for local storage
             from grin_to_s3.storage.staging import LocalDirectoryManager
 

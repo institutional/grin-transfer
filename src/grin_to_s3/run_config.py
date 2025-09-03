@@ -24,6 +24,8 @@ from .constants import (
     DEFAULT_SYNC_TASK_EXTRACT_OCR_CONCURRENCY,
     DEFAULT_SYNC_TASK_UNPACK_CONCURRENCY,
     DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY,
+    STORAGE_PROTOCOLS,
+    STORAGE_TYPES,
 )
 
 
@@ -93,8 +95,8 @@ class StorageConfigDict(TypedDict, total=False):
 class StorageConfig(TypedDict):
     """Complete storage configuration."""
 
-    type: str
-    protocol: str
+    type: STORAGE_TYPES
+    protocol: STORAGE_PROTOCOLS
     config: StorageConfigDict
     prefix: NotRequired[str]  # Optional prefix for all storage operations
 
@@ -142,11 +144,11 @@ def to_storage_config_dict(source: dict[str, Any]) -> StorageConfigDict:
 
 
 def to_run_storage_config(
-    storage_type: str, protocol: str, config: dict[str, Any] | StorageConfigDict, prefix: str = ""
+    storage_type: str, protocol: STORAGE_PROTOCOLS, config: dict[str, Any] | StorageConfigDict, prefix: str = ""
 ) -> StorageConfig:
     """Create a properly typed RunStorageConfig."""
     result: StorageConfig = {
-        "type": storage_type,
+        "type": cast(STORAGE_TYPES, storage_type),
         "protocol": protocol,
         "config": to_storage_config_dict(cast(dict[str, Any], config)),
     }
@@ -169,7 +171,7 @@ class RunConfig:
     secrets_dir: Path | None
 
     @property
-    def storage_type(self) -> str:
+    def storage_type(self) -> STORAGE_TYPES:
         """Get the storage type."""
         return self.storage_config["type"]
 

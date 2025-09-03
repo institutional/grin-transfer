@@ -270,7 +270,7 @@ class SQLiteProgressTracker:
     SQLite-based progress tracker.
     """
 
-    def __init__(self, db_path: str = "output/default/books.db", cache_size: int = 10000):
+    def __init__(self, db_path: Path | str = "output/default/books.db", cache_size: int = 10000):
         self.db_path = Path(db_path)
         self.session_id = int(datetime.now(UTC).timestamp())
         self._initialized = False

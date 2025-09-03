@@ -9,7 +9,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any
 
-from grin_to_s3.constants import LOCAL_STORAGE_DEFAULTS
+from grin_to_s3.constants import LOCAL_STORAGE_DEFAULTS, STORAGE_PROTOCOLS, STORAGE_TYPES
 from grin_to_s3.run_config import StorageConfigDict
 
 if TYPE_CHECKING:
@@ -23,16 +23,16 @@ from .base import BackendConfig, Storage
 logger = logging.getLogger(__name__)
 
 
-def get_storage_protocol(storage_type: str) -> str:
+def get_storage_protocol(storage_type: STORAGE_TYPES) -> STORAGE_PROTOCOLS:
     """
     Determine storage protocol from storage type.
     """
     if storage_type in ("minio", "r2", "s3"):
         return "s3"
-    elif storage_type == "gcs":
+    elif storage_type == "gcs":  # FIXME, this should really also be s3
         return "gcs"
     else:
-        return "local"
+        return "file"
 
 
 def load_json_credentials(credentials_path: str) -> dict[str, Any]:

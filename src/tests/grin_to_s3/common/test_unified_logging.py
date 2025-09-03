@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from grin_to_s3.logging_config import setup_logging
-from grin_to_s3.run_config import RunConfig
+from grin_to_s3.run_config import RunConfig, serialize_paths
 
 
 class TestSetupLogging:
@@ -94,7 +94,7 @@ class TestRunConfigLogFile:
             test_config_builder.local_storage().with_run_name("test_run").with_log_file("/path/to/logfile.log").build()
         )
 
-        assert run_config.log_file == "/path/to/logfile.log"
+        assert str(run_config.log_file) == "/path/to/logfile.log"
 
     def test_run_config_log_file_with_run_name(self, test_config_builder):
         """Test log_file property with realistic run name format."""
@@ -105,8 +105,8 @@ class TestRunConfigLogFile:
             .build()
         )
 
-        assert "grin_pipeline_my_test_run" in run_config.log_file
-        assert run_config.log_file.endswith(".log")
+        assert "grin_pipeline_my_test_run" in str(run_config.log_file)
+        assert str(run_config.log_file).endswith(".log")
 
 
 class TestUnifiedLoggingIntegration:
@@ -126,14 +126,17 @@ class TestUnifiedLoggingIntegration:
                 test_config_builder.local_storage().with_run_name(run_name).with_log_file(log_file).build()
             )
 
+            # Serialize paths for JSON compatibility
+            serialized_config = serialize_paths(config_dict)
+
             # Write config file
             config_path = Path(temp_dir) / "run_config.json"
             with open(config_path, "w") as f:
-                json.dump(config_dict, f, indent=2)
+                json.dump(serialized_config, f, indent=2)
 
             # Load and verify
             run_config = RunConfig(**config_dict)
-            assert run_config.log_file == log_file
+            assert str(run_config.log_file) == log_file
             assert "grin_pipeline_test_run" in str(run_config.log_file)
 
     def test_custom_log_dir_in_config(self, test_config_builder):
