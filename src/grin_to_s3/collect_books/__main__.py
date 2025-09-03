@@ -15,7 +15,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from grin_to_s3.constants import OUTPUT_DIR
+from grin_to_s3.constants import GRIN_RATE_LIMIT_QPS, OUTPUT_DIR
 from grin_to_s3.storage.factories import create_local_storage_directories
 
 from .collector import BookCollector
@@ -165,7 +165,6 @@ Examples:
 
     # Export options
     parser.add_argument("--limit", type=int, help="Limit number of books to process (for testing)")
-    parser.add_argument("--rate-limit", type=float, default=5.0, help="API requests per second (default: 5.0)")
 
     # Logging options
     parser.add_argument(
@@ -202,16 +201,6 @@ Examples:
     )
     parser.add_argument("--storage-config", action="append", help="Additional storage config key=value")
 
-    # Resume/progress options (progress files are auto-generated based on run name)
-
-    # Configuration options
-    parser.add_argument("--config-file", type=str, help="Configuration file path (JSON format)")
-    parser.add_argument("--create-config", type=str, help="Create default config file at specified path and exit")
-    parser.add_argument(
-        "--write-config",
-        action="store_true",
-        help="Write configuration to run directory and exit (requires storage options)",
-    )
     parser.add_argument(
         "--secrets-dir",
         type=str,
@@ -223,11 +212,6 @@ Examples:
         required=True,
         help="Library directory name for GRIN API requests (e.g., Harvard, MIT, Yale)",
     )
-
-    # Pagination options
-    parser.add_argument("--page-size", type=int, help="Records per page for API requests (default: 10000)")
-    parser.add_argument("--max-pages", type=int, help="Maximum pages to fetch (default: 1000)")
-    parser.add_argument("--start-page", type=int, help="Starting page number (default: 1)")
 
     # Sync configuration options (stored in run config for later use)
     parser.add_argument(
@@ -321,42 +305,35 @@ Examples:
     Path(log_file).parent.mkdir(parents=True, exist_ok=True)
     Path(output_file).parent.mkdir(parents=True, exist_ok=True)
 
-    # Build storage configuration using centralized function
-    if args.storage:
-        final_storage_dict = build_storage_config_dict(args)
+    # Build storage configuration
+    final_storage_dict = build_storage_config_dict(args)
 
-        # Auto-configure MinIO with standard bucket names (only used in Docker)
-        if args.storage == "minio":
-            from ..common import auto_configure_minio
+    # Auto-configure MinIO with standard bucket names (only used in Docker)
+    if args.storage == "minio":
+        from ..common import auto_configure_minio
 
-            auto_configure_minio(final_storage_dict)
+        auto_configure_minio(final_storage_dict)
 
-        # Determine storage protocol for operational logic
-        storage_protocol = get_storage_protocol(args.storage)
-        storage_config: StorageConfig = {
-            "type": args.storage,
-            "protocol": storage_protocol,
-            "config": final_storage_dict,
-            "prefix": "",
-        }
+    # Determine storage protocol for operational logic
+    storage_protocol = get_storage_protocol(args.storage)
+    storage_config: StorageConfig = {
+        "type": args.storage,
+        "protocol": storage_protocol,
+        "config": final_storage_dict,
+        "prefix": "",
+    }
 
-        # Create all required buckets/directories early to fail fast
-        if args.storage == "local":
-            try:
-                await create_local_storage_directories(final_storage_dict)
-            except ValueError as e:
-                print(f"Error: {e}")
-                print("Usage: python grin.py collect --storage local --storage-config base_path=/path/to/storage")
-                sys.exit(1)
-
-        else:
-            print(f"Configured with {args.storage} cloud storage")
+    # Create all required buckets/directories early to fail fast
+    if args.storage == "local":
+        await create_local_storage_directories(final_storage_dict)
+    else:
+        print(f"Configured with {args.storage} cloud storage")
 
     # Load configuration with CLI overrides
     # FIXME merge this with RunConfig
     config = ExportConfig(
         library_directory=args.library_directory,
-        rate_limit=args.rate_limit,
+        rate_limit=GRIN_RATE_LIMIT_QPS,
         sqlite_db_path=sqlite_db,
     )
 
@@ -393,10 +370,7 @@ Examples:
     setup_logging(level=args.log_level, log_file=log_file, append=False)
 
     logger = logging.getLogger(__name__)
-    limit_info = f" limit={args.limit}" if args.limit else ""
-    logger.info(
-        f"COLLECTION PIPELINE STARTED - run={run_name} storage={args.storage} rate_limit={args.rate_limit}{limit_info}"
-    )
+    logger.info(f"COLLECTION PIPELINE STARTED - run={run_name} storage={args.storage} rate_limit={GRIN_RATE_LIMIT_QPS}")
     logger.info(f"Command: {' '.join(sys.argv)}")
 
     try:
