@@ -333,7 +333,7 @@ async def _execute_updates(conn, record_updates, barcode, now):
         await conn.execute(
             """
             UPDATE books SET
-                storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
+                storage_type = ?, storage_path = ?,
                 last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
                 sync_timestamp = ?, sync_error = ?, processing_request_timestamp = ?,
                 updated_at = ?
@@ -342,7 +342,6 @@ async def _execute_updates(conn, record_updates, barcode, now):
             (
                 sync_data.get("storage_type"),
                 sync_data.get("storage_path"),
-                sync_data.get("storage_decrypted_path"),
                 sync_data.get("last_etag_check"),
                 sync_data.get("encrypted_etag"),
                 sync_data.get("is_decrypted", False),

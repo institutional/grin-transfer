@@ -66,8 +66,7 @@ CREATE TABLE IF NOT EXISTS books (
     
     -- Sync tracking for storage pipeline (status tracked in history table)
     storage_type TEXT, -- "s3", "local"
-    storage_path TEXT, -- Path to encrypted archive in storage
-    storage_decrypted_path TEXT, -- Path to decrypted archive in storage
+    storage_path TEXT, -- Path to decrypted archive in storage
     last_etag_check TEXT, -- ISO timestamp of last ETag verification
     encrypted_etag TEXT, -- Encrypted file's ETag for duplicate detection
     is_decrypted BOOLEAN DEFAULT FALSE, -- Whether decrypted version exists

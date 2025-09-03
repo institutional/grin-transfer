@@ -215,7 +215,7 @@ Each run creates organized output in `output/{run_name}/`:
 ### Data Dictionary
 
 <details>
-<summary><strong>CSV Metadata Fields (59 columns)</strong></summary>
+<summary><strong>CSV Metadata Fields (58 columns)</strong></summary>
 
 The CSV export contains comprehensive metadata drawn from multiple sources through a three-step process:
 
@@ -301,8 +301,7 @@ Extracted from Google Books' METS XML files containing institutional MARC record
 Pipeline-managed fields for tracking storage backend operations:
 
 - **Storage Type** - String. Backend storage type. Values: `r2`, `s3`, `minio`, `local` *(Internal)*
-- **Storage Path** - String. Full path to encrypted archive in storage (e.g., `bucket-raw/BARCODE/BARCODE.tar.gz.gpg`) *(Internal)*
-- **Storage Decrypted Path** - String. Path to decrypted archive if applicable (e.g., `bucket-raw/BARCODE/BARCODE.tar.gz`) *(Internal)*
+- **Storage Path** - String. Full path to decrypted archive in storage (e.g., `bucket-raw/BARCODE/BARCODE.tar.gz`) *(Internal)*
 - **Last ETag Check** - ISO8601 Datetime (UTC). When storage ETag was last verified for integrity *(Internal)*
 - **Encrypted ETag** - String. ETag hash of encrypted archive for integrity verification *(Internal)*
 - **Is Decrypted** - Integer (0/1). Whether archive has been decrypted locally (0 = not decrypted, 1 = decrypted) *(Internal)*

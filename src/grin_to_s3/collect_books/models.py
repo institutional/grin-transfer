@@ -111,7 +111,6 @@ class BookRecord:
     # Sync tracking for storage pipeline (status tracked in history table)
     storage_type: str | None = field(default=None, metadata={"csv": "Storage Type"})
     storage_path: str | None = field(default=None, metadata={"csv": "Storage Path"})
-    storage_decrypted_path: str | None = field(default=None, metadata={"csv": "Storage Decrypted Path"})
     last_etag_check: str | None = field(default=None, metadata={"csv": "Last ETag Check"})
     encrypted_etag: str | None = field(default=None, metadata={"csv": "Encrypted ETag"})
     is_decrypted: bool = field(default=False, metadata={"csv": "Is Decrypted"})
@@ -651,7 +650,7 @@ class SQLiteProgressTracker:
 
         query = """
             UPDATE books SET
-                storage_type = ?, storage_path = ?, storage_decrypted_path = ?,
+                storage_type = ?, storage_path = ?,
                 last_etag_check = ?, encrypted_etag = ?, is_decrypted = ?,
                 sync_timestamp = ?, sync_error = ?,
                 updated_at = ?
@@ -660,7 +659,6 @@ class SQLiteProgressTracker:
         params = (
             sync_data.get("storage_type"),
             sync_data.get("storage_path"),
-            sync_data.get("storage_decrypted_path"),
             sync_data.get("last_etag_check"),
             sync_data.get("encrypted_etag"),
             sync_data.get("is_decrypted", False),
