@@ -7,7 +7,11 @@ Utilities for reading and using configuration written by collect_books runs.
 
 import json
 import sys
-from typing import Any, NotRequired, TypedDict, cast
+import types
+from argparse import Namespace
+from dataclasses import asdict, dataclass, fields
+from pathlib import Path
+from typing import Any, NotRequired, TypedDict, Union, cast, get_args, get_origin
 
 from .constants import (
     DEFAULT_SYNC_DISK_SPACE_THRESHOLD,
@@ -20,8 +24,59 @@ from .constants import (
     DEFAULT_SYNC_TASK_EXTRACT_OCR_CONCURRENCY,
     DEFAULT_SYNC_TASK_UNPACK_CONCURRENCY,
     DEFAULT_SYNC_TASK_UPLOAD_CONCURRENCY,
-    OUTPUT_DIR,
+    STORAGE_PROTOCOLS,
+    STORAGE_TYPES,
 )
+
+
+def serialize_paths(obj: Any) -> Any:
+    """Recursively convert Path objects to strings."""
+    if isinstance(obj, Path):
+        return str(obj)
+    elif isinstance(obj, dict):
+        return {k: serialize_paths(v) for k, v in obj.items()}
+    elif isinstance(obj, list | tuple):
+        return [serialize_paths(item) for item in obj]
+    return obj
+
+
+def deserialize_paths(obj: Any, type_hint: Any) -> Any:
+    """Recursively convert strings back to Paths based on type hints."""
+    # Handle Path type
+    if type_hint == Path:
+        return Path(obj) if obj is not None else None
+
+    # Handle Optional[Path] (Path | None or Union[Path, None])
+    origin = get_origin(type_hint)
+    args = get_args(type_hint)
+
+    if (origin is Union or origin is types.UnionType) and Path in args:
+        if obj is not None and isinstance(obj, str):
+            return Path(obj)
+        return obj  # Return None or other non-string values as-is
+
+    # Handle dataclasses (check this first since dataclasses also have __annotations__)
+    if hasattr(type_hint, "__dataclass_fields__"):
+        result = {}
+        for field in fields(type_hint):
+            if field.name in obj:
+                result[field.name] = deserialize_paths(obj[field.name], field.type)
+            else:
+                # Include field even if not in obj (could be None or have default)
+                result[field.name] = obj.get(field.name)
+        return type_hint(**result)
+
+    # Handle dicts with nested types (TypedDict)
+    if isinstance(obj, dict) and hasattr(type_hint, "__annotations__"):
+        result = {}
+        for key, value in obj.items():
+            if key in type_hint.__annotations__:
+                result[key] = deserialize_paths(value, type_hint.__annotations__[key])
+            else:
+                result[key] = value
+        return result
+
+    return obj
 
 
 class StorageConfigDict(TypedDict, total=False):
@@ -40,10 +95,45 @@ class StorageConfigDict(TypedDict, total=False):
 class StorageConfig(TypedDict):
     """Complete storage configuration."""
 
-    type: str
-    protocol: str
+    type: STORAGE_TYPES
+    protocol: STORAGE_PROTOCOLS
     config: StorageConfigDict
     prefix: NotRequired[str]  # Optional prefix for all storage operations
+
+
+class SyncConfig(TypedDict):
+    task_check_concurrency: int
+    task_download_concurrency: int
+    task_decrypt_concurrency: int
+    task_upload_concurrency: int
+    task_unpack_concurrency: int
+    task_extract_marc_concurrency: int
+    task_extract_ocr_concurrency: int
+    task_export_csv_concurrency: int
+    task_cleanup_concurrency: int
+    staging_dir: Path
+    disk_space_threshold: float
+    compression_meta_enabled: bool
+    compression_full_enabled: bool
+
+
+def build_sync_config_from_args(args: Namespace) -> SyncConfig:
+    """Build sync configuration dictionary from CLI arguments."""
+    return {
+        "task_check_concurrency": args.sync_task_check_concurrency,
+        "task_download_concurrency": args.sync_task_download_concurrency,
+        "task_decrypt_concurrency": args.sync_task_decrypt_concurrency,
+        "task_upload_concurrency": args.sync_task_upload_concurrency,
+        "task_unpack_concurrency": args.sync_task_unpack_concurrency,
+        "task_extract_marc_concurrency": args.sync_task_extract_marc_concurrency,
+        "task_extract_ocr_concurrency": args.sync_task_extract_ocr_concurrency,
+        "task_export_csv_concurrency": args.sync_task_export_csv_concurrency,
+        "task_cleanup_concurrency": args.sync_task_cleanup_concurrency,
+        "staging_dir": args.sync_staging_dir,
+        "disk_space_threshold": args.sync_disk_space_threshold,
+        "compression_full_enabled": args.compression_full_enabled if "compression_full_enabled" in args else True,
+        "compression_meta_enabled": args.compression_meta_enabled if "compression_meta_enabled" in args else True,
+    }
 
 
 def to_storage_config_dict(source: dict[str, Any]) -> StorageConfigDict:
@@ -54,11 +144,11 @@ def to_storage_config_dict(source: dict[str, Any]) -> StorageConfigDict:
 
 
 def to_run_storage_config(
-    storage_type: str, protocol: str, config: dict[str, Any] | StorageConfigDict, prefix: str = ""
+    storage_type: str, protocol: STORAGE_PROTOCOLS, config: dict[str, Any] | StorageConfigDict, prefix: str = ""
 ) -> StorageConfig:
     """Create a properly typed RunStorageConfig."""
     result: StorageConfig = {
-        "type": storage_type,
+        "type": cast(STORAGE_TYPES, storage_type),
         "protocol": protocol,
         "config": to_storage_config_dict(cast(dict[str, Any], config)),
     }
@@ -67,61 +157,21 @@ def to_run_storage_config(
     return result
 
 
+@dataclass
 class RunConfig:
     """Configuration for a specific collection run."""
 
-    def __init__(self, config_dict: dict[str, Any]):
-        self.config_dict = config_dict
+    run_name: str
+    library_directory: str
+    output_directory: Path
+    sqlite_db_path: Path
+    storage_config: StorageConfig
+    sync_config: SyncConfig
+    log_file: Path
+    secrets_dir: Path | None
 
     @property
-    def run_name(self) -> str:
-        """Get the run name."""
-        return self.config_dict.get("run_name", "default")
-
-    @property
-    def run_identifier(self) -> str:
-        """Get the run identifier."""
-        return self.config_dict.get("run_identifier", "default")
-
-    @property
-    def output_directory(self) -> str:
-        """Get the output directory path."""
-        return self.config_dict.get("output_directory", f"{OUTPUT_DIR}/{self.run_name}")
-
-    @property
-    def sqlite_db_path(self) -> str:
-        """Get the SQLite database path."""
-        return self.config_dict.get("sqlite_db_path", f"{self.output_directory}/books.db")
-
-    @property
-    def library_directory(self) -> str:
-        """Get the GRIN library directory."""
-        return self.config_dict.get("library_directory", "")
-
-    @property
-    def secrets_dir(self) -> str | None:
-        """Get the secrets directory."""
-        return self.config_dict.get("secrets_dir")
-
-    @property
-    def storage_config(self) -> StorageConfig:
-        """Get the storage configuration."""
-        stored_config = self.config_dict.get("storage_config")
-        if not stored_config:
-            raise ValueError("Storage configuration is required but not found in run config")
-
-        # Fill in protocol if missing (only field we auto-derive)
-        if "protocol" not in stored_config:
-            from .storage.factories import get_storage_protocol
-
-            stored_config["protocol"] = get_storage_protocol(stored_config["type"])
-        if "config" not in stored_config:
-            stored_config["config"] = {}
-
-        return stored_config  # Type checker will enforce RunStorageConfig structure
-
-    @property
-    def storage_type(self) -> str:
+    def storage_type(self) -> STORAGE_TYPES:
         """Get the storage type."""
         return self.storage_config["type"]
 
@@ -139,16 +189,6 @@ class RunConfig:
     def storage_bucket_full(self) -> str | None:
         """Get the full-text storage bucket from storage config."""
         return self.storage_config["config"].get("bucket_full")
-
-    @property
-    def log_file(self) -> str:
-        """Get the unified log file path."""
-        return self.config_dict["log_file"]
-
-    @property
-    def sync_config(self) -> dict[str, Any]:
-        """Get the sync configuration section."""
-        return self.config_dict.get("sync_config", {})
 
     @property
     def sync_task_check_concurrency(self) -> int:
@@ -196,9 +236,9 @@ class RunConfig:
         return self.sync_config.get("task_cleanup_concurrency", DEFAULT_SYNC_TASK_CLEANUP_CONCURRENCY)
 
     @property
-    def sync_staging_dir(self) -> str | None:
+    def sync_staging_dir(self) -> Path:
         """Get the staging directory setting for sync operations."""
-        return self.sync_config.get("staging_dir")
+        return self.sync_config["staging_dir"]
 
     @property
     def sync_disk_space_threshold(self) -> float:
@@ -253,7 +293,17 @@ def load_run_config(config_path: str) -> RunConfig:
     """
     with open(config_path) as f:
         config_dict = json.load(f)
-    return RunConfig(config_dict)
+    return deserialize_paths(config_dict, RunConfig)
+
+
+def save_run_config(config: RunConfig) -> None:
+    """
+    Save run configuration to run_config.json in the output directory.
+    """
+    config_path = config.output_directory / "run_config.json"
+    config_dict = serialize_paths(asdict(config))
+    with open(config_path, "w") as f:
+        json.dump(config_dict, f, indent=2)
 
 
 def apply_run_config_to_args(args: Any, config: RunConfig) -> None:

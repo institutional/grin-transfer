@@ -78,7 +78,7 @@ async def batch_write_status_updates(db_path: str, status_updates: list) -> None
         await conn.commit()
 
 
-def validate_database_file(db_path: str, check_tables: bool = False, check_books_count: bool = False) -> None:
+def validate_database_file(db_path: Path, check_tables: bool = False, check_books_count: bool = False) -> None:
     """
     Validate that the database file exists and is a valid SQLite database.
 

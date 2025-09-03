@@ -3,11 +3,12 @@
 import sqlite3
 import tempfile
 from pathlib import Path
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from grin_to_s3.run_config import RunConfig
+from grin_to_s3.run_config import RunConfig, StorageConfig, StorageConfigDict, SyncConfig
 from grin_to_s3.sync.tasks import download
 from tests.test_utils.unified_mocks import (
     create_book_manager_mock,
@@ -22,12 +23,39 @@ class ConfigBuilder:
     """Builder for creating test RunConfig instances with common configurations."""
 
     def __init__(self):
+        # Default sync config with all required fields
+        default_sync_config: SyncConfig = {
+            "task_check_concurrency": 5,
+            "task_download_concurrency": 3,
+            "task_decrypt_concurrency": 5,
+            "task_upload_concurrency": 5,
+            "task_unpack_concurrency": 5,
+            "task_extract_marc_concurrency": 5,
+            "task_extract_ocr_concurrency": 2,
+            "task_export_csv_concurrency": 1,
+            "task_cleanup_concurrency": 5,
+            "staging_dir": Path("/tmp/staging"),
+            "disk_space_threshold": 0.8,
+            "compression_meta_enabled": True,
+            "compression_full_enabled": True,
+        }
+
+        # Default local storage config with protocol
+        default_storage_config: StorageConfig = {
+            "type": "local",
+            "protocol": "file",
+            "config": {"base_path": "/tmp"},
+        }
+
         self._config = {
             "run_name": "test_run",
-            "sqlite_db_path": "/tmp/test.db",
+            "sqlite_db_path": Path("/tmp/test.db"),
             "library_directory": "test_library",
-            "storage_config": {"type": "local", "config": {"base_path": "/tmp"}},
-            "sync_config": {},
+            "output_directory": Path("/tmp/output"),
+            "log_file": Path("/tmp/test.log"),
+            "secrets_dir": None,
+            "storage_config": default_storage_config,
+            "sync_config": default_sync_config,
         }
 
     def with_run_name(self, run_name: str):
@@ -37,7 +65,7 @@ class ConfigBuilder:
 
     def with_db_path(self, db_path: str):
         """Set the database path."""
-        self._config["sqlite_db_path"] = db_path
+        self._config["sqlite_db_path"] = Path(db_path)
         return self
 
     def with_library_directory(self, library_directory: str):
@@ -47,7 +75,12 @@ class ConfigBuilder:
 
     def local_storage(self, base_path: str = "/tmp"):
         """Configure local storage."""
-        self._config["storage_config"] = {"type": "local", "config": {"base_path": base_path}}
+        storage_config: StorageConfig = {
+            "type": "local",
+            "protocol": "file",
+            "config": {"base_path": base_path},
+        }
+        self._config["storage_config"] = storage_config
         return self
 
     def s3_storage(
@@ -56,7 +89,12 @@ class ConfigBuilder:
         """Configure S3 storage."""
         config = {"bucket_raw": bucket_raw, "bucket_meta": bucket_meta, "bucket_full": bucket_full}
         config.update(kwargs)
-        self._config["storage_config"] = {"type": "s3", "config": config}
+        storage_config: StorageConfig = {
+            "type": "s3",
+            "protocol": "s3",
+            "config": cast(StorageConfigDict, config),
+        }
+        self._config["storage_config"] = storage_config
         return self
 
     def r2_storage(
@@ -65,7 +103,12 @@ class ConfigBuilder:
         """Configure R2 storage."""
         config = {"bucket_raw": bucket_raw, "bucket_meta": bucket_meta, "bucket_full": bucket_full}
         config.update(kwargs)
-        self._config["storage_config"] = {"type": "r2", "config": config}
+        storage_config: StorageConfig = {
+            "type": "r2",
+            "protocol": "s3",
+            "config": cast(StorageConfigDict, config),
+        }
+        self._config["storage_config"] = storage_config
         return self
 
     def minio_storage(
@@ -74,37 +117,46 @@ class ConfigBuilder:
         """Configure MinIO storage."""
         config = {"bucket_raw": bucket_raw, "bucket_meta": bucket_meta, "bucket_full": bucket_full}
         config.update(kwargs)
-        self._config["storage_config"] = {"type": "minio", "config": config}
+        storage_config: StorageConfig = {
+            "type": "minio",
+            "protocol": "s3",
+            "config": cast(StorageConfigDict, config),
+        }
+        self._config["storage_config"] = storage_config
         return self
 
     def with_sync_config(self, **kwargs):
         """Set sync configuration options."""
+        # Ensure Path objects are converted properly
+        for key, value in kwargs.items():
+            if key == "staging_dir" and isinstance(value, str):
+                kwargs[key] = Path(value)
         self._config["sync_config"].update(kwargs)
         return self
 
     def with_concurrent_downloads(self, count: int):
         """Set concurrent downloads count."""
-        self._config["sync_config"]["concurrent_downloads"] = count
+        self._config["sync_config"]["task_download_concurrency"] = count
         return self
 
     def with_concurrent_uploads(self, count: int):
         """Set concurrent uploads count."""
-        self._config["sync_config"]["concurrent_uploads"] = count
+        self._config["sync_config"]["task_upload_concurrency"] = count
         return self
 
     def with_staging_dir(self, staging_dir: str):
         """Set staging directory."""
-        self._config["sync_config"]["staging_dir"] = staging_dir
+        self._config["sync_config"]["staging_dir"] = Path(staging_dir)
         return self
 
     def with_log_file(self, log_file: str):
         """Set log file path."""
-        self._config["log_file"] = log_file
+        self._config["log_file"] = Path(log_file)
         return self
 
     def build(self) -> RunConfig:
         """Build the RunConfig instance."""
-        return RunConfig(self._config)
+        return RunConfig(**self._config)
 
 
 @pytest.fixture

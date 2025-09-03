@@ -7,6 +7,7 @@ Centralized constants to eliminate duplication across the codebase.
 
 # Directory paths
 from pathlib import Path
+from typing import Literal
 
 OUTPUT_DIR = Path("output")
 
@@ -40,5 +41,12 @@ DEFAULT_WORKER_CONCURRENCY = 100
 # S3 connection pool configuration
 # Set to 1.5x the worker concurrency to handle burst traffic
 DEFAULT_S3_MAX_POOL_CONNECTIONS = 150
+
 # Default directory names for local storage
 LOCAL_STORAGE_DEFAULTS = {"bucket_raw": "raw", "bucket_meta": "meta", "bucket_full": "full"}
+
+# Storage protocols inform behavior (e.g. r2 has the same behavior as s3)
+STORAGE_PROTOCOLS = Literal["s3", "gcs", "file"]  # FIXME gcs should not really be here
+
+# Storage types
+STORAGE_TYPES = Literal["s3", "gcs", "local", "r2", "minio"]

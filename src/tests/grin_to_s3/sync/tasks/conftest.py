@@ -52,6 +52,7 @@ def mock_pipeline():
         pipeline.config = MagicMock()
         pipeline.config.storage_config = {
             "protocol": "s3",  # Default to non-local storage
+            "type": "s3",
             "config": {"bucket_raw": "test-raw", "bucket_full": "test-full", "bucket_meta": "test-meta"},
         }
 

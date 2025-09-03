@@ -12,6 +12,7 @@ import signal
 import time
 from collections.abc import AsyncGenerator
 from datetime import datetime
+from pathlib import Path
 
 from grin_to_s3.client import GRINClient, GRINRow
 from grin_to_s3.common import (
@@ -19,13 +20,13 @@ from grin_to_s3.common import (
     pluralize,
     print_oauth_setup_instructions,
 )
-from grin_to_s3.run_config import StorageConfig
+from grin_to_s3.constants import GRIN_RATE_LIMIT_QPS
+from grin_to_s3.run_config import RunConfig, StorageConfig
 from grin_to_s3.storage import BookManager, create_storage_from_config
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator, show_progress
 
-from .config import ExportConfig
 from .grin_parser import parse_grin_row
-from .models import BookRecord, BoundedSet, SQLiteProgressTracker
+from .models import BookRecord, SQLiteProgressTracker
 
 # Set up module logger
 logger = logging.getLogger(__name__)
@@ -44,32 +45,25 @@ class BookCollector:
         directory: str,
         process_summary_stage,
         storage_config: StorageConfig,
+        run_config: RunConfig,
         rate_limit: float = 1.0,
-        config: ExportConfig | None = None,
         secrets_dir: str | None = None,
     ):
         # Load or use provided configuration
-        self.config = config or ExportConfig(library_directory=directory, rate_limit=rate_limit)
+        self.run_config = run_config
 
-        self.directory = self.config.library_directory
+        self.directory = self.run_config.library_directory
         self.process_summary_stage = process_summary_stage
 
         # Initialize client
         self.grin_client = GRINClient(secrets_dir=secrets_dir)
-        self.rate_limiter = RateLimiter(self.config.rate_limit)
+        self.rate_limiter = RateLimiter(GRIN_RATE_LIMIT_QPS)
         self.storage_config = storage_config
 
         # Progress tracking
         self.rate_calculator = SlidingWindowRateCalculator(window_size=5)
         self.start_time: float | None = None
-        self.sqlite_tracker = SQLiteProgressTracker(self.config.sqlite_db_path)
-        # Keep small in-memory sets for recent items only (performance optimization)
-        self.recent_processed = BoundedSet(max_size=self.config.recent_cache_size)
-        self.recent_failed = BoundedSet(max_size=self.config.recent_failed_cache_size)
-
-        # Storage (required)
-        if not storage_config:
-            raise ValueError("storage_config is required")
+        self.sqlite_tracker = SQLiteProgressTracker(str(self.run_config.sqlite_db_path))
         storage = create_storage_from_config(storage_config)
         prefix = storage_config.get("prefix", "")
         self.book_manager: BookManager = BookManager(storage, storage_config=storage_config, base_prefix=prefix)
@@ -186,7 +180,7 @@ class BookCollector:
             f"Two-pass collection complete: {total_books:,} total books ({converted_count:,} converted + {non_converted_count:,} non-converted)"
         )
 
-    async def collect_books(self, output_file: str, limit: int | None = None) -> bool:
+    async def collect_books(self, output_file: Path, limit: int | None = None) -> bool:
         """
         Book collection with pagination.
 
@@ -298,7 +292,6 @@ class BookCollector:
                 except Exception as e:
                     print(f"Error processing {barcode}: {e}")
                     await self.sqlite_tracker.mark_failed(barcode, str(e))
-                    self.recent_failed.add(barcode)
 
                     # Track failed item in process summary
                     self.process_summary_stage.collection_failed += 1
@@ -321,7 +314,7 @@ class BookCollector:
         # Return completion status
         return completed_successfully
 
-    async def export_csv_from_database(self, output_file: str) -> None:
+    async def export_csv_from_database(self, output_file: Path) -> None:
         """Export all books from SQLite database to CSV file.
 
         Args:
@@ -373,13 +366,11 @@ class BookCollector:
 
             # Mark as processed for progress tracking
             await self.sqlite_tracker.mark_processed(barcode)
-            self.recent_processed.add(barcode)
             return record
 
         except Exception as e:
             print(f"Error processing {barcode}: {e}")
             await self.sqlite_tracker.mark_failed(barcode, str(e))
-            self.recent_failed.add(barcode)
             return None
 
     async def cleanup(self):

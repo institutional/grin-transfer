@@ -6,12 +6,13 @@ Unit tests for unified logging functionality
 import json
 import logging
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 
 from grin_to_s3.logging_config import setup_logging
-from grin_to_s3.run_config import RunConfig
+from grin_to_s3.run_config import RunConfig, serialize_paths
 
 
 class TestSetupLogging:
@@ -22,7 +23,7 @@ class TestSetupLogging:
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = Path(temp_dir) / "test.log"
 
-            setup_logging("INFO", str(log_file))
+            setup_logging("INFO", log_file)
 
             # Log something to ensure file is created
             logger = logging.getLogger("test")
@@ -37,12 +38,12 @@ class TestSetupLogging:
             log_file = Path(temp_dir) / "test.log"
 
             # First logging session (create new file)
-            setup_logging("INFO", str(log_file), append=False)
+            setup_logging("INFO", log_file, append=False)
             logger1 = logging.getLogger("test1")
             logger1.info("First message")
 
             # Second logging session with append (default)
-            setup_logging("INFO", str(log_file))
+            setup_logging("INFO", log_file)
             logger2 = logging.getLogger("test2")
             logger2.info("Second message")
 
@@ -56,12 +57,12 @@ class TestSetupLogging:
             log_file = Path(temp_dir) / "test.log"
 
             # First logging session
-            setup_logging("INFO", str(log_file))
+            setup_logging("INFO", log_file)
             logger1 = logging.getLogger("test1")
             logger1.info("First message")
 
             # Second logging session without append (overwrite)
-            setup_logging("INFO", str(log_file), append=False)
+            setup_logging("INFO", log_file, append=False)
             logger2 = logging.getLogger("test2")
             logger2.info("Second message")
 
@@ -74,7 +75,7 @@ class TestSetupLogging:
         with tempfile.TemporaryDirectory() as temp_dir:
             log_file = Path(temp_dir) / "subdir" / "nested" / "test.log"
 
-            setup_logging("INFO", str(log_file))
+            setup_logging("INFO", log_file)
 
             # Log something to ensure file is created
             logger = logging.getLogger("test")
@@ -93,7 +94,7 @@ class TestRunConfigLogFile:
             test_config_builder.local_storage().with_run_name("test_run").with_log_file("/path/to/logfile.log").build()
         )
 
-        assert run_config.log_file == "/path/to/logfile.log"
+        assert str(run_config.log_file) == "/path/to/logfile.log"
 
     def test_run_config_log_file_with_run_name(self, test_config_builder):
         """Test log_file property with realistic run name format."""
@@ -104,8 +105,8 @@ class TestRunConfigLogFile:
             .build()
         )
 
-        assert "grin_pipeline_my_test_run" in run_config.log_file
-        assert run_config.log_file.endswith(".log")
+        assert "grin_pipeline_my_test_run" in str(run_config.log_file)
+        assert str(run_config.log_file).endswith(".log")
 
 
 class TestUnifiedLoggingIntegration:
@@ -121,19 +122,22 @@ class TestUnifiedLoggingIntegration:
             log_file = f"{log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
 
             # Create config dict as collect would
-            config_dict = (
-                test_config_builder.local_storage().with_run_name(run_name).with_log_file(log_file).build().config_dict
+            config_dict = asdict(
+                test_config_builder.local_storage().with_run_name(run_name).with_log_file(log_file).build()
             )
+
+            # Serialize paths for JSON compatibility
+            serialized_config = serialize_paths(config_dict)
 
             # Write config file
             config_path = Path(temp_dir) / "run_config.json"
             with open(config_path, "w") as f:
-                json.dump(config_dict, f, indent=2)
+                json.dump(serialized_config, f, indent=2)
 
             # Load and verify
-            run_config = RunConfig(config_dict)
-            assert run_config.log_file == log_file
-            assert "grin_pipeline_test_run" in run_config.log_file
+            run_config = RunConfig(**config_dict)
+            assert str(run_config.log_file) == log_file
+            assert "grin_pipeline_test_run" in str(run_config.log_file)
 
     def test_custom_log_dir_in_config(self, test_config_builder):
         """Test that custom log directory is preserved in config."""
@@ -144,21 +148,21 @@ class TestUnifiedLoggingIntegration:
             custom_log_dir = "custom_logs"
             log_file = f"{custom_log_dir}/grin_pipeline_{run_name}_{timestamp}.log"
 
-            config_dict = (
-                test_config_builder.local_storage().with_run_name(run_name).with_log_file(log_file).build().config_dict
+            config_dict = asdict(
+                test_config_builder.local_storage().with_run_name(run_name).with_log_file(log_file).build()
             )
 
-            run_config = RunConfig(config_dict)
-            assert run_config.log_file.startswith("custom_logs/")
-            assert "grin_pipeline_test_run" in run_config.log_file
+            run_config = RunConfig(**config_dict)
+            assert str(run_config.log_file).startswith("custom_logs/")
+            assert "grin_pipeline_test_run" in str(run_config.log_file)
 
     def test_subsequent_commands_use_same_log_file(self, test_config_builder):
         """Test that subsequent commands can access the same log file."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            log_file = str(Path(temp_dir) / "grin_pipeline_test_20250626_105045.log")
+            log_file = Path(temp_dir) / "grin_pipeline_test_20250626_105045.log"
 
-            config_dict = (
-                test_config_builder.local_storage().with_run_name("test").with_log_file(log_file).build().config_dict
+            config_dict = asdict(
+                test_config_builder.local_storage().with_run_name("test").with_log_file(log_file).build()
             )
 
             # First command (collect) creates log
@@ -167,7 +171,7 @@ class TestUnifiedLoggingIntegration:
             logger1.info("Collection started")
 
             # Second command (sync) appends to same log
-            run_config = RunConfig(config_dict)
+            run_config = RunConfig(**config_dict)
             setup_logging("INFO", run_config.log_file, append=True)
             logger2 = logging.getLogger("sync")
             logger2.info("Sync started")

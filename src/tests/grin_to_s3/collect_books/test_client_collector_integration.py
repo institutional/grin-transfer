@@ -3,6 +3,7 @@ Test integration between client and collector to catch type mismatches.
 """
 
 import tempfile
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -10,6 +11,44 @@ import pytest
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.collector import BookCollector
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
+from grin_to_s3.run_config import RunConfig, StorageConfig, SyncConfig
+
+
+def create_test_run_config(db_path: str) -> RunConfig:
+    """Helper function to create a test RunConfig."""
+    storage_config: StorageConfig = {
+        "type": "local",
+        "protocol": "file",
+        "config": {"base_path": "/tmp/test"},
+        "prefix": "test",
+    }
+
+    sync_config: SyncConfig = {
+        "task_check_concurrency": 1,
+        "task_download_concurrency": 1,
+        "task_decrypt_concurrency": 1,
+        "task_upload_concurrency": 1,
+        "task_unpack_concurrency": 1,
+        "task_extract_marc_concurrency": 1,
+        "task_extract_ocr_concurrency": 1,
+        "task_export_csv_concurrency": 1,
+        "task_cleanup_concurrency": 1,
+        "staging_dir": Path("/tmp/staging"),
+        "disk_space_threshold": 0.8,
+        "compression_meta_enabled": True,
+        "compression_full_enabled": True,
+    }
+
+    return RunConfig(
+        run_name="test_run",
+        library_directory="Harvard",
+        output_directory=Path("/tmp/output"),
+        sqlite_db_path=Path(db_path),
+        storage_config=storage_config,
+        sync_config=sync_config,
+        log_file=Path("/tmp/log.txt"),
+        secrets_dir=None,
+    )
 
 
 @pytest.mark.asyncio
@@ -57,11 +96,14 @@ async def test_client_collector_integration():
 
             # Create a temporary database for real SQLiteProgressTracker
             with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+                run_config = create_test_run_config(tmp_db.name)
+
                 # Create collector and replace client
                 collector = BookCollector(
                     directory="Harvard",
                     process_summary_stage=AsyncMock(),
-                    storage_config={"type": "local", "config": {"base_path": "/tmp/test"}, "prefix": "test"},
+                    storage_config=run_config.storage_config,
+                    run_config=run_config,
                 )
                 collector.grin_client = client
                 collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
@@ -111,10 +153,13 @@ async def test_collector_stream_all_books_integration():
 
         # Create a temporary database for real SQLiteProgressTracker
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            run_config = create_test_run_config(tmp_db.name)
+
             collector = BookCollector(
                 directory="Harvard",
                 process_summary_stage=AsyncMock(),
-                storage_config={"type": "local", "config": {"base_path": "/tmp/test"}, "prefix": "test"},
+                storage_config=run_config.storage_config,
+                run_config=run_config,
             )
             collector.grin_client = client
             collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
@@ -162,10 +207,23 @@ async def test_get_all_books_limit_functionality():
         yield {"barcode": "book_005", "title": "Non-Converted Book 5"}, set()
 
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+        run_config = create_test_run_config(tmp_db.name)
+        run_config = RunConfig(
+            run_name="test_run",
+            library_directory="TestLibrary",
+            output_directory=Path("/tmp/output"),
+            sqlite_db_path=Path(tmp_db.name),
+            storage_config=run_config.storage_config,
+            sync_config=run_config.sync_config,
+            log_file=Path("/tmp/log.txt"),
+            secrets_dir=None,
+        )
+
         collector = BookCollector(
             directory="TestLibrary",
             process_summary_stage=AsyncMock(),
-            storage_config={"type": "local", "config": {"base_path": "/tmp/test"}, "prefix": "test"},
+            storage_config=run_config.storage_config,
+            run_config=run_config,
         )
         collector.grin_client = client
         collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)

@@ -103,7 +103,7 @@ def manual_authorization_flow(flow: InstalledAppFlow) -> Credentials:
     # Exchange code for tokens
     try:
         flow.fetch_token(code=auth_code)
-        return flow.credentials
+        return flow.credentials  # type: ignore
     except Exception as e:
         raise Exception(f"Failed to exchange authorization code: {e}") from e
 
@@ -120,7 +120,10 @@ class GRINAuth:
     """Async OAuth2 implementation for GRIN access."""
 
     def __init__(
-        self, secrets_file: str | None = None, credentials_file: str | None = None, secrets_dir: str | None = None
+        self,
+        secrets_file: Path | str | None = None,
+        credentials_file: Path | str | None = None,
+        secrets_dir: Path | str | None = None,
     ):
         """
         Initialize GRIN authentication.
@@ -134,7 +137,7 @@ class GRINAuth:
         self.credentials_file = self._find_credentials_file(credentials_file, secrets_dir)
         self.credentials: Credentials | None = None
 
-    def _find_secrets_file(self, secrets_file: str | None, secrets_dir: str | None) -> Path:
+    def _find_secrets_file(self, secrets_file: Path | str | None, secrets_dir: Path | str | None) -> Path:
         """Find the OAuth2 secrets file, checking multiple locations."""
         if secrets_file:
             return Path(secrets_file)
@@ -171,7 +174,7 @@ class GRINAuth:
         default_path = home / ".config" / "grin-to-s3" / "client_secret.json"
         return default_path
 
-    def _find_credentials_file(self, credentials_file: str | None, secrets_dir: str | None) -> Path:
+    def _find_credentials_file(self, credentials_file: Path | str | None, secrets_dir: Path | str | None) -> Path:
         """Find the credentials file, checking multiple locations."""
         if credentials_file:
             return Path(credentials_file)
