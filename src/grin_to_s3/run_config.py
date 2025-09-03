@@ -129,8 +129,8 @@ def build_sync_config_from_args(args: Namespace) -> SyncConfig:
         "task_cleanup_concurrency": args.sync_task_cleanup_concurrency,
         "staging_dir": args.sync_staging_dir,
         "disk_space_threshold": args.sync_disk_space_threshold,
-        "compression_full_enabled": args.compression_full_enabled,
-        "compression_meta_enabled": args.compression_full_enabled,
+        "compression_full_enabled": args.compression_full_enabled if "compression_full_enabled" in args else True,
+        "compression_meta_enabled": args.compression_meta_enabled if "compression_meta_enabled" in args else True,
     }
 
 
