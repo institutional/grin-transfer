@@ -284,6 +284,22 @@ class E2ETestRunner:
             timeout=180,
         )
 
+        # Export to CSV (test the export functionality)
+        csv_output = f"{local_run_name}_books.csv"
+        self._run_command(
+            [
+                self.venv_python,
+                "grin.py",
+                "export",
+                "--run-name",
+                local_run_name,
+                "--output",
+                csv_output,
+            ],
+            cwd=repo_dir,
+            timeout=60,
+        )
+
         # Configuration 2: R2 storage (if credentials available)
         logger.info("=== Testing local machine with R2 storage ===")
         r2_creds_file = Path.home() / ".config" / "grin-to-s3" / "r2_credentials.json"
@@ -340,6 +356,22 @@ class E2ETestRunner:
                 ],
                 cwd=repo_dir,
                 timeout=180,
+            )
+
+            # Export to CSV (test the export functionality)
+            csv_output = f"{r2_run_name}_books.csv"
+            self._run_command(
+                [
+                    self.venv_python,
+                    "grin.py",
+                    "export",
+                    "--run-name",
+                    r2_run_name,
+                    "--output",
+                    csv_output,
+                ],
+                cwd=repo_dir,
+                timeout=60,
             )
         else:
             logger.warning("R2 credentials not found, skipping R2 storage test")
