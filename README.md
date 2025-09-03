@@ -212,9 +212,175 @@ Each run creates organized output in `output/{run_name}/`:
 - `process_summary.json` - Previous run history, counts, and timestamps
 - `run_config.json` - Configuration file (generated as part of the collect step)
 
-### Data Dictionary 
+### Data Dictionary
 
-TODO: Add data dictionaries for metadata fields available from GRIN's UI as well as book metadata.
+<details>
+<summary><strong>CSV Metadata Fields (59 columns)</strong></summary>
+
+The CSV export contains comprehensive metadata drawn from multiple sources through a three-step process:
+
+1. **Collection step** (`grin.py collect`) - Gathers basic metadata from GRIN's HTML listing pages, including barcode, timestamps, and processing state
+2. **Enrichment step** (`grin.py enrich`) - Makes additional API calls to retrieve detailed quality metrics, conditions, and analysis scores from GRIN's TSV data export
+3. **Sync pipeline** (`grin.py sync`) - Extracts detailed bibliographic metadata from MARC records embedded in METS XML files during archive syncing
+
+**Data availability timing:**
+- Collection fields are populated immediately after running the collection step.
+- Enrichment fields remain empty until you run the enrichment step.
+- MARC fields are populated during sync when METS XML files are available.
+
+Each book is represented as a single row with the following fields:
+
+#### Core Identification
+- **Barcode** - String. The unique barcode identifier used by your institution and Google Books to identify each volume *(Collection step)*
+- **Title** - String. Book title extracted from MARC metadata when available *(Collection step)*
+
+#### GRIN Processing Timestamps
+Dates from Google's GRIN system are in YYYY/MM/DD HH:MM format:
+
+- **Scanned Date** - Datetime (YYYY/MM/DD HH:MM). Date when physical book was scanned by Google *(Collection step)*
+- **Converted Date** - Datetime (YYYY/MM/DD HH:MM). Date when scan was converted to searchable format *(Collection step)*
+- **Downloaded Date** - Datetime (YYYY/MM/DD HH:MM). Date when archive became available for download *(Collection step)*
+- **Processed Date** - Datetime (YYYY/MM/DD HH:MM). Date when Google completed processing *(Collection step)*
+- **Analyzed Date** - Datetime (YYYY/MM/DD HH:MM). Date when Google completed content analysis *(Collection step)*
+- **OCR Date** - Datetime (YYYY/MM/DD HH:MM). Date when optical character recognition was last performed on the book images *(Collection step)*
+- **Google Books Link** - URL. Public-facing Google Books URL for this volume *(Collection step)*
+- **Processing Request Timestamp** - ISO8601 Datetime (UTC). When this book was submitted to Google's conversion queue *(Internal)*
+
+#### GRIN State and Quality Metrics
+Most fields populated from Google's detailed enrichment TSV data accessed via the GRIN API:
+
+- **GRIN State** - String/Enum. Current processing state. Common values: `CONVERTED`, `CHECKED_IN`, `NEW`, `PREVIOUSLY_DOWNLOADED`, `NOT_AVAILABLE_FOR_DOWNLOAD` *(Collection step - basic state, enhanced by enrichment step)*
+- **GRIN Viewability** - String/Enum. How Google Books displays this title. Values: `VIEW_FULL`, `VIEW_METADATA`, `VIEW_NONE`, `VIEW_SNIPPET` *(Enrichment step)*
+- **GRIN Opted Out** - String ("true"/"false"/empty). Whether volume was opted out post-scan *(Enrichment step)*
+- **GRIN Conditions** - String. Comma-separated integers describing physical condition at check-in (see Google's GRIN Overview.pdf) *(Enrichment step)*
+- **GRIN Scannable** - String ("true"/"false"/empty). Whether volume was deemed scannable (note: some non-scannable books still have scans) *(Enrichment step)*
+- **GRIN Tagging** - String ("true"/"false"/empty). Internal Google tagging status *(Enrichment step)*
+- **GRIN Audit** - String. Quality review status - may contain percentage values (e.g., "0%") or be empty *(Enrichment step)*
+- **GRIN Material Error %** - String. Percentage format (e.g., "5%") indicating material scanning errors *(Enrichment step)*
+- **GRIN Overall Error %** - String. Percentage format indicating overall processing errors *(Enrichment step)*
+- **GRIN Claimed** - String ("true"/"false"/empty). Whether volume was claimed in Google's system *(Enrichment step)*
+- **GRIN OCR Analysis Score** - String. Quality score for optical character recognition [0-100] *(Enrichment step)*
+- **GRIN OCR GTD Score** - String. Google's Garbage Text Detection score for OCR quality [0-100] *(Enrichment step)*
+- **GRIN Digitization Method** - String/Enum. Scanning method used. Values: `NON_DESTRUCTIVE`, `SHEETFED`, `DIGIFEED` *(Enrichment step)*
+- **GRIN Check-In Date** - Datetime (YYYY/MM/DD HH:MM). When volume was checked in to Google's facility *(Enrichment step)*
+- **GRIN Source Library Bibkey** - String. Bibliographic key from originating library *(Enrichment step)*
+- **GRIN Rubbish** - String ("true"/"false"/empty). Whether volume was flagged as unsuitable for processing *(Enrichment step)*
+- **GRIN Allow Download Updated Date** - Datetime (YYYY/MM/DD HH:MM). When download permissions were last updated *(Enrichment step)*
+- **GRIN Viewability Updated Date** - Datetime (YYYY/MM/DD HH:MM). When viewing permissions were last updated *(Enrichment step)*
+- **Enrichment Timestamp** - ISO8601 Datetime (UTC). When GRIN enrichment data was last retrieved *(Internal)*
+
+#### MARC Bibliographic Metadata
+Extracted from Google Books' METS XML files containing institutional MARC records:
+
+- **MARC Control Number** - String. MARC control number from institutional catalog (MARC field 001) *(Sync pipeline - METS extraction)*
+- **MARC Date Type** - String. MARC date type field indicating how dates should be interpreted (e.g., "Publication date and copyright date", "Range of years") (MARC 008 position 06) *(Sync pipeline - METS extraction)*
+- **MARC Date 1** - String. Four-digit year, "9999", or empty (MARC 008 positions 07-10) *(Sync pipeline - METS extraction)*
+- **MARC Date 2** - String. Four-digit year, "9999", or empty (MARC 008 positions 11-14) *(Sync pipeline - METS extraction)*
+- **MARC Language** - String. Three-letter language code (MARC 008 positions 35-37, [ISO 639-2](https://www.loc.gov/marc/languages/)) *(Sync pipeline - METS extraction)*
+- **MARC LCCN** - String. Library of Congress Control Number (MARC field 010) *(Sync pipeline - METS extraction)*
+- **MARC LC Call Number** - String. Library of Congress call number classification (MARC field 050) *(Sync pipeline - METS extraction)*
+- **MARC ISBN** - String. Comma-separated ISBN values (format varies: may include additional publication info) (MARC field 020) *(Sync pipeline - METS extraction)*
+- **MARC OCLC Numbers** - String. Comma-separated OCLC numbers, typically formatted as "(OCoLC)00055898" (MARC field 035) *(Sync pipeline - METS extraction)*
+- **MARC Title** - String. Main title from MARC title statement (MARC field 245 subfield $a) *(Sync pipeline - METS extraction)*
+- **MARC Title Remainder** - String. Subtitle/remainder from MARC title statement (MARC field 245 subfield $b) *(Sync pipeline - METS extraction)*
+- **MARC Author Personal** - String. Personal name from MARC author field (MARC field 100) *(Sync pipeline - METS extraction)*
+- **MARC Author Corporate** - String. Corporate/organizational author (may include government entities) (MARC field 110) *(Sync pipeline - METS extraction)*
+- **MARC Author Meeting** - String. Meeting/conference name as author (MARC field 111) *(Sync pipeline - METS extraction)*
+- **MARC Subjects** - String. Comma-separated subject headings (e.g., "English language", "Botany") (MARC field 650) *(Sync pipeline - METS extraction)*
+- **MARC Genres** - String. Comma-separated genre/form terms (e.g., "Fiction", "History") (MARC field 655) *(Sync pipeline - METS extraction)*
+- **MARC General Note** - String. General notes field from MARC record (MARC field 500) *(Sync pipeline - METS extraction)*
+- **MARC Extraction Timestamp** - ISO8601 Datetime (UTC). When MARC metadata was extracted from METS XML *(Internal)*
+
+*Note: MARC dates of "9999" indicate ongoing publications or uncertain end dates. Do not use simple "greater than" comparisons without filtering these values.*
+
+#### Export and Processing Status
+- **CSV Exported** - ISO8601 Datetime (UTC). When record was last exported to CSV *(Internal)*
+- **CSV Updated** - ISO8601 Datetime (UTC). When CSV record was last updated *(Internal)*
+
+#### Storage and Sync Tracking
+Pipeline-managed fields for tracking storage backend operations:
+
+- **Storage Type** - String. Backend storage type. Values: `r2`, `s3`, `minio`, `local` *(Internal)*
+- **Storage Path** - String. Full path to encrypted archive in storage (e.g., `bucket-raw/BARCODE/BARCODE.tar.gz.gpg`) *(Internal)*
+- **Storage Decrypted Path** - String. Path to decrypted archive if applicable (e.g., `bucket-raw/BARCODE/BARCODE.tar.gz`) *(Internal)*
+- **Last ETag Check** - ISO8601 Datetime (UTC). When storage ETag was last verified for integrity *(Internal)*
+- **Encrypted ETag** - String. ETag hash of encrypted archive for integrity verification *(Internal)*
+- **Is Decrypted** - Integer (0/1). Whether archive has been decrypted locally (0 = not decrypted, 1 = decrypted) *(Internal)*
+- **Sync Timestamp** - ISO8601 Datetime (UTC). When storage sync was completed successfully *(Internal)*
+- **Sync Error** - String. Error message if sync failed (empty if successful) *(Internal)*
+
+#### Record Keeping
+- **Created At** - ISO8601 Datetime (UTC). When book record was first created in local database *(Internal)*
+- **Updated At** - ISO8601 Datetime (UTC). When book record was last modified *(Internal)*
+
+</details>
+
+<details>
+<summary><strong>JSONL Full-Text Files</strong></summary>
+
+The pipeline generates JSONL files containing page-by-page OCR text for full-text search and analysis.
+
+#### File Structure
+- **Filename**: `{barcode}_ocr.jsonl[.gz]`
+- **Format**: One JSON-encoded string per line (JSON Lines format)
+- **Compression**: Optional gzip compression based on configuration
+
+#### Content Format
+Each line contains a JSON-encoded string with the OCR text for one page:
+
+```jsonl
+"This is the OCR text content from page 1 of the book..."
+"This is the OCR text content from page 2 of the book..."
+"This is the OCR text content from page 3 of the book..."
+```
+
+#### Key Features
+- **Sequential page order** - Line 1 = Page 1, Line 2 = Page 2, etc.
+- **Simple text strings** - Each line contains only the OCR text content for that page
+- **No embedded metadata** - Book metadata is available in the CSV export, matched by barcode
+- **Cross-referencing** - Use the barcode from the filename to find corresponding CSV metadata
+- **Memory efficient** - Can be processed line-by-line for large books
+- **Supports compression** - Files may be gzipped (.gz extension) based on configuration
+
+#### Usage Examples
+```python
+# Read JSONL file line by line
+import json
+with open('barcode123_ocr.jsonl', 'r') as f:
+    for page_num, line in enumerate(f, 1):
+        page_text = json.loads(line.strip())
+        print(f"Page {page_num}: {page_text[:100]}...")
+```
+
+</details>
+
+<details>
+<summary><strong>Data Sources</strong></summary>
+
+The metadata combines information from multiple authoritative sources:
+
+#### Google Books GRIN API
+- Core book identification (barcode, Google Books links)
+- Processing timestamps (scanned, converted, downloaded, processed, analyzed, OCR dates)
+- State and quality metrics (viewability, error percentages, OCR scores)
+- Processing conditions and flags
+
+#### Google Books GRIN Enrichment TSV
+- Detailed quality and condition metadata
+- Digitization method and facility information
+- Enhanced error reporting and analysis scores
+
+#### Institutional MARC Records
+- Bibliographic metadata from your library's catalog
+- Extracted from Google's METS XML files
+- Author, title, subject, and classification information
+
+#### Pipeline Processing
+- Storage backend tracking and sync status
+- Export timestamps and processing metadata
+- Record creation and update tracking
+
+</details>
 
 ### Storage Backends
 
