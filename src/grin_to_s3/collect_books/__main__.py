@@ -21,6 +21,7 @@ from grin_to_s3.storage.factories import create_local_storage_directories
 from .collector import BookCollector
 
 sys.path.append("..")
+from grin_to_s3.database.database_backup import upload_database_to_storage
 from grin_to_s3.logging_config import (
     setup_logging,
 )
@@ -348,6 +349,9 @@ Examples:
             # Always end the stage and save summary
             run_summary.end_stage("collect")
             await save_process_summary(run_summary, book_manager)
+
+            # Upload books database to storage
+            await upload_database_to_storage(str(sqlite_db_path), book_manager, run_name, upload_type="latest")
 
             # Clean up book manager storage resources
             if "book_manager" in locals() and book_manager and hasattr(book_manager, "storage"):
