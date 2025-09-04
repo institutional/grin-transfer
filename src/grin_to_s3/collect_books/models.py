@@ -104,10 +104,6 @@ class BookRecord:
     marc_general_note: str | None = field(default=None, metadata={"csv": "MARC General Note"})
     marc_extraction_timestamp: str | None = field(default=None, metadata={"csv": "MARC Extraction Timestamp"})
 
-    # Export tracking
-    csv_exported: str | None = field(default=None, metadata={"csv": "CSV Exported"})
-    csv_updated: str | None = field(default=None, metadata={"csv": "CSV Updated"})
-
     # Sync tracking for storage pipeline (status tracked in history table)
     storage_type: str | None = field(default=None, metadata={"csv": "Storage Type"})
     storage_path: str | None = field(default=None, metadata={"csv": "Storage Path"})

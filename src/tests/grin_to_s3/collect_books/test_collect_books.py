@@ -41,8 +41,6 @@ class TestBookRecord:
         assert "Barcode" in headers
         assert "Title" in headers
         assert "Processing Request Timestamp" in headers  # New status tracking field
-        assert "CSV Exported" in headers
-        assert "CSV Updated" in headers
 
         # Check that headers match the number of fields in to_csv_row
         test_record = BookRecord(barcode="TEST")

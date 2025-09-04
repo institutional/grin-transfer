@@ -293,10 +293,6 @@ Extracted from Google Books' METS XML files containing institutional MARC record
 
 *Note: MARC dates of "9999" indicate ongoing publications or uncertain end dates. Do not use simple "greater than" comparisons without filtering these values.*
 
-#### Export and Processing Status
-- **CSV Exported** - ISO8601 Datetime (UTC). When record was last exported to CSV *(Internal)*
-- **CSV Updated** - ISO8601 Datetime (UTC). When CSV record was last updated *(Internal)*
-
 #### Storage and Sync Tracking
 Pipeline-managed fields for tracking storage backend operations:
 

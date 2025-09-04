@@ -266,9 +266,9 @@ async def extract_marc_failed(result: TaskResult, previous_results: dict[TaskTyp
     return {"status": ("marc_extraction", "failed", {"error": result.error} if result.error else None), "books": {}}
 
 
-@on(TaskType.EXPORT_CSV, TaskAction.COMPLETED, "export", "csv_updated")
+@on(TaskType.EXPORT_CSV, TaskAction.COMPLETED, "export", "csv_exported")
 async def export_csv_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
-    return {"status": ("export", "csv_updated", None), "books": {}}
+    return {"status": ("export", "csv_exported", None), "books": {}}
 
 
 @on(TaskType.CLEANUP, TaskAction.COMPLETED, status_value="completed")

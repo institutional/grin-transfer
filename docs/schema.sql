@@ -60,10 +60,6 @@ CREATE TABLE IF NOT EXISTS books (
     marc_general_note TEXT,
     marc_extraction_timestamp TEXT,
     
-    -- Export tracking
-    csv_exported TEXT,
-    csv_updated TEXT,
-    
     -- Sync tracking for storage pipeline (status tracked in history table)
     storage_type TEXT, -- "s3", "local"
     storage_path TEXT, -- Path to decrypted archive in storage
