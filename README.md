@@ -4,6 +4,33 @@ A pipeline for extracting page scans, metadata, and OCR from Google Books GRIN (
 
 In typical usage, you will **collect** a local copy of your library's Google Books metadata, then **request** that titles be made available for download. Once processed, you can **sync** those archives to your local storage solution. When fully synced, you should have a complete set of all decrypted book scans, OCR, and metadata.
 
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+  - [Set up OAuth2 client credentials](#set-up-oauth2-client-credentials)
+- [Installation](#installation-requirements)
+  - [Docker (recommended)](#quick-start-with-docker-recommended)
+  - [Local](#local-installation)
+- [Pipeline concepts](#pipeline-concepts)
+  - [Runs](#runs)
+  - [Storage](#storage)
+  - [Staging](#staging)
+- [Pipeline steps](#pipeline-steps)
+- [Core commands](#core-commands)
+  - [1. Book Collection: `grin.py collect`](#1-book-collection-grinpy-collect)
+  - [2. Processing Management: `grin.py process`](#2-processing-management-grinpy-process)
+  - [3. Sync Pipeline: `grin.py sync pipeline`](#3-sync-pipeline-grinpy-sync-pipeline)
+  - [4. Metadata enrichment: `grin.py enrich`](#4-metadata-enrichment-grinpy-enrich)
+  - [5. Storage Management: `grin.py storage`](#5-storage-management-grinpy-storage)
+- [File outputs](#file-outputs)
+  - [Data dictionary](#data-dictionary)
+- [Storage backends](#storage-backends)
+  - [Local filesystem](#local-storage)
+  - [AWS S3](#aws-s3)
+  - [Cloudflare R2](#cloudflare-r2)
+  - [Google Cloud Storage (GCS)](#google-cloud-storage-gcs)
+- [Development](#development)
+
 ## Prerequisites
 
 1. **GRIN Library Directory**: You should know your "library directory", or the path in GRIN where your books are made available. For example, given the URL https://books.google.com/libraries/Harvard/_all_books, the "library directory" is "Harvard." This value is case-sensitive.
@@ -34,7 +61,9 @@ your client secret' boxes. Ignore this, just click 'OK'.
 down arrow with a line under it.
 10. Move that file into your home directory at `.config/grin-to-s3/client_secret.json`
 
-## Installation requirements
+[↑ Back to the top](#grin-to-s3)
+
+## Installation
 
 The GRIN-to-S3 pipeline can be installed via docker, or directly on a target Linux-like or MacOS machine.
 
@@ -90,6 +119,8 @@ python grin.py collect --run-name test_run --library-directory YOUR_LIBRARY_DIRE
 # And sync those 10 files
 python grin.py sync pipeline --run-name test_run --queue converted
 ```
+
+[↑ Back to the top](#grin-to-s3)
 ## Pipeline concepts
 
 ### Runs
@@ -107,6 +138,8 @@ For block storage, the default configuration is to use three buckets:
 
 ### Staging
 During processing, book archives and metadata are saved in the **staging** area on your local filesystem until they are fully uploaded to storage. By default,  `staging/` is created in the repo directory, but can be overridden with `--sync-staging-dir`. To avoid running out of local disk space, `--sync-disk-space-threshold` is used to keep the staging area at capacity; when capacity is exceeded, downloads are paused and usually will resume once files are fully uploaded.
+
+[↑ Back to the top](#grin-to-s3)
    
 
 ## Pipeline steps
@@ -118,9 +151,11 @@ The next step is to start the **sync pipeline**, in which the original book arch
 
 If the data is valuable to you, there is a command to **enrich** local metadata with additional fields that GRIN makes available only through direct querying of the TSV endpoint, mostly related to the OCR quality.
 
-Finally, there are utilities for managing your storage and gathering statistics about the run. 
+Finally, there are utilities for managing your storage and gathering statistics about the run.
 
-## Core Commands
+[↑ Back to the top](#grin-to-s3) 
+
+## Core commands
 
 The pipeline provides a unified command-line interface via `grin.py`, with subcommands that map to the pipeline steps. When installed via docker, for convenience these can all be called from outside the contanier as `grin-docker <subcommand>`.
 
@@ -204,7 +239,9 @@ Manage storage buckets with fast listing and deletion.
 - `rm`: Remove all contents from specified bucket (raw, meta, or full)
 - `cp`: Copy files from a bucket to your local filesystem
 
-## File Outputs
+[↑ Back to the top](#grin-to-s3)
+
+## File outputs
 
 Each run creates organized output in `output/{run_name}/`:
 - `books.db` - SQLite database with all book records and sync status
@@ -353,10 +390,10 @@ The metadata combines information from multiple authoritative sources:
 
 </details>
 
-### Storage Backends
+### Storage backends
 
 <details>
-<summary><strong>Local Storage</strong></summary>
+<summary><strong>Local filesystem</strong></summary>
 
 If you have a large enough locally-mounted filesystem, you can sync directly to it. This process is significantly faster than using a block storage system, though typically the limiting factor on syncs is GRIN, not network egress.
 
@@ -466,9 +503,11 @@ python grin.py collect --run-name "gcs" --library-directory YOUR_LIBRARY_DIRECTO
 ```
 </details>
 
+[↑ Back to the top](#grin-to-s3)
+
 ## Development
 
-If you would like to contribute enhances or bug-fixes to the tool, you can work on it locally:
+If you would like to contribute enhancements or bug-fixes to the tool, you can work on it locally:
 
 ```bash
 # Install with development dependencies
@@ -482,3 +521,6 @@ mypy src/grin_to_s3 --explicit-package-bases
 
 # Run tests
 python -m pytest
+```
+
+[↑ Back to the top](#grin-to-s3)
