@@ -20,7 +20,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.common import (
-    RateLimiter,
     format_duration,
     pluralize,
 )
@@ -73,11 +72,11 @@ class GRINEnrichmentPipeline:
         self,
         directory: str,
         process_summary_stage,
-        db_path: str = "output/default/books.db",
+        db_path: Path,
         rate_limit_delay: float = 0.2,  # 5 QPS
         batch_size: int = DEFAULT_BATCH_SIZE,
         max_concurrent_requests: int = 5,  # Concurrent GRIN requests
-        secrets_dir: str | None = None,  # Directory containing secrets files
+        secrets_dir: Path | str | None = None,  # Directory containing secrets files
         timeout: int = 60,
     ):
         self.directory = directory
@@ -91,9 +90,7 @@ class GRINEnrichmentPipeline:
         self.grin_client = GRINClient(timeout=timeout, secrets_dir=secrets_dir)
         self.sqlite_tracker = SQLiteProgressTracker(db_path)
 
-        # Rate limiting
-        requests_per_second = 1.0 / rate_limit_delay if rate_limit_delay > 0 else 5.0
-        self.rate_limiter = RateLimiter(requests_per_second=requests_per_second)
+        # Concurrency limiting
         self._rate_limit_semaphore = asyncio.Semaphore(max_concurrent_requests)
 
         # Track if pipeline is shutting down for cleanup
@@ -166,9 +163,6 @@ class GRINEnrichmentPipeline:
             Number of successfully enriched books
         """
         async with self._rate_limit_semaphore:
-            # Apply rate limiting
-            await self.rate_limiter.acquire()
-
             try:
                 # Fetch with automatic retry
                 tsv_data = await self._fetch_grin_batch(barcodes)
@@ -221,7 +215,6 @@ class GRINEnrichmentPipeline:
         logger.info("Starting GRIN metadata enrichment pipeline")
         logger.info(f"Database: {self.db_path}")
         logger.info(f"Directory: {self.directory}")
-        logger.info(f"Rate limit: {self.rate_limiter.requests_per_second:.1f} requests/second")
         logger.info(f"Concurrent requests: {self.max_concurrent_requests}")
 
         logger.info(f"Database batch size: {self.batch_size:,} books")
@@ -304,13 +297,9 @@ class GRINEnrichmentPipeline:
                 # Create URL-sized batches dynamically for this set
                 url_batches = self._create_url_batches(barcodes)
 
-                # Process URL batches in chunks limited by max_concurrent_requests
-                results = []
-                for i in range(0, len(url_batches), self.max_concurrent_requests):
-                    chunk = url_batches[i : i + self.max_concurrent_requests]
-                    tasks = [self._fetch_and_update(batch) for batch in chunk]
-                    chunk_results = await asyncio.gather(*tasks, return_exceptions=True)
-                    results.extend(chunk_results)
+                # Process all URL batches concurrently (semaphore controls actual concurrency)
+                tasks = [self._fetch_and_update(batch) for batch in url_batches]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 # Update progress
                 enriched = sum(r for r in results if isinstance(r, int))
