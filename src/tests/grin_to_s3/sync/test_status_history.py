@@ -323,7 +323,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
 
         # Test get_books_for_sync - should find books that have been requested
         # and are in valid processing states (excludes failed books)
-        sync_books = await self.tracker.get_books_for_sync(storage_type="test", limit=10)
+        sync_books = await self.tracker.get_books_for_sync(limit=10)
 
         sync_barcodes = set(sync_books)
         expected_barcodes = {"SYNC001", "SYNC002", "SYNC003", "SYNC004"}

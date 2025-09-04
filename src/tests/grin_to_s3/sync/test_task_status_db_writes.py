@@ -43,23 +43,18 @@ class TestHandlerRegistration:
 
     def test_handler_registration(self):
         """@on decorator should register handlers in UPDATE_HANDLERS registry."""
-        # Clear any existing handlers for this test
+        # Test that existing handlers are properly registered
         test_key = (TaskType.CHECK, TaskAction.COMPLETED)
-        if test_key in UPDATE_HANDLERS:
-            del UPDATE_HANDLERS[test_key]
 
-        @on(TaskType.CHECK, TaskAction.COMPLETED, "test_status", "test_value")
-        def test_handler(result, pipeline_data):
-            return {"metadata": {"test": True}}
-
-        # Verify handler was registered
-        assert test_key in UPDATE_HANDLERS
+        # Verify the production handler exists
+        assert test_key in UPDATE_HANDLERS, f"Expected production handler for {test_key} to be registered"
         handlers = UPDATE_HANDLERS[test_key]
-        assert len(handlers) == 1
+        assert len(handlers) == 1, f"Expected exactly one handler for {test_key}"
+
         handler_func, status_type, status_value = handlers[0]
-        assert handler_func == test_handler
-        assert status_type == "test_status"
-        assert status_value == "test_value"
+        assert callable(handler_func), "Handler function should be callable"
+        assert status_type == "sync", f"Expected status_type 'sync', got '{status_type}'"
+        assert status_value == "checked", f"Expected status_value 'checked', got '{status_value}'"
 
 
 class TestHandlerBehavior:
@@ -242,7 +237,7 @@ class TestRealDatabaseIntegration:
                 barcode="TEST123",
                 task_type=TaskType.UPLOAD,
                 action=TaskAction.COMPLETED,
-                data={"upload_path": "/bucket/TEST123.tar.gz", "storage_type": "s3"},
+                data={"upload_path": "/bucket/TEST123.tar.gz"},
             )
 
         previous_results = {
@@ -286,7 +281,7 @@ class TestRealDatabaseIntegration:
                 barcode="TEST123",
                 task_type=TaskType.UPLOAD,
                 action=TaskAction.COMPLETED,
-                data={"upload_path": "/bucket/TEST123.tar.gz", "storage_type": "s3"},
+                data={"upload_path": "/bucket/TEST123.tar.gz"},
             )
 
         previous_results = {
@@ -306,16 +301,15 @@ class TestRealDatabaseIntegration:
         # Verify sync data was updated in books table
         async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
             cursor = await db.execute(
-                "SELECT storage_type, storage_path, is_decrypted, encrypted_etag FROM books WHERE barcode = ?",
+                "SELECT storage_path, is_decrypted, encrypted_etag FROM books WHERE barcode = ?",
                 ("TEST123",),
             )
             row = await cursor.fetchone()
 
             assert row is not None
-            assert row[0] == "s3"  # storage_type
-            assert row[1] == "/bucket/TEST123.tar.gz"  # storage_path
-            assert row[2] == 1  # is_decrypted (SQLite stores as integer)
-            assert row[3] == "real_etag_value"  # encrypted_etag
+            assert row[0] == "/bucket/TEST123.tar.gz"  # storage_path
+            assert row[1] == 1  # is_decrypted (SQLite stores as integer)
+            assert row[2] == "real_etag_value"  # encrypted_etag
 
     @pytest.mark.asyncio
     async def test_failed_task_error_captured_in_database(self, real_db_pipeline):
@@ -583,3 +577,88 @@ class TestRealDatabaseIntegration:
 
                 assert row is not None, f"Book record not found for {reason}"
                 assert row[0] is None, f"processing_request_timestamp should remain NULL for {reason}"
+
+    @pytest.mark.asyncio
+    async def test_check_task_updates_last_etag_check_timestamp(self, real_db_pipeline):
+        """CHECK task should update last_etag_check timestamp in books table."""
+        task_manager = TaskManager({TaskType.CHECK: 1})
+
+        # Test CHECK task COMPLETED
+        async def mock_check_task_completed():
+            return TaskResult(
+                barcode="TEST123",
+                task_type=TaskType.CHECK,
+                action=TaskAction.COMPLETED,
+                data={"etag": "new-etag", "file_size_bytes": 2048, "http_status_code": 200},
+            )
+
+        previous_results = {}
+        await task_manager.run_task(
+            TaskType.CHECK, "TEST123", mock_check_task_completed, real_db_pipeline, previous_results
+        )
+
+        # Commit accumulated updates to the real database
+        conn = await real_db_pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
+
+        # Verify last_etag_check timestamp was populated
+        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
+            cursor = await db.execute("SELECT last_etag_check FROM books WHERE barcode = ?", ("TEST123",))
+            row = await cursor.fetchone()
+
+            assert row is not None
+            last_etag_check = row[0]
+            assert last_etag_check is not None, "last_etag_check should be populated after CHECK task"
+
+            # Verify timestamp is a valid ISO format
+            parsed_time = datetime.fromisoformat(last_etag_check.replace("Z", "+00:00"))
+            assert parsed_time is not None
+
+            # Verify timestamp is recent (within last minute)
+            now = datetime.now(UTC)
+            time_diff = abs((now - parsed_time).total_seconds())
+            assert time_diff < 60, f"last_etag_check should be recent, but was {time_diff} seconds ago"
+
+    @pytest.mark.asyncio
+    async def test_check_task_skipped_updates_last_etag_check_timestamp(self, real_db_pipeline):
+        """CHECK task SKIPPED should also update last_etag_check timestamp in books table."""
+        task_manager = TaskManager({TaskType.CHECK: 1})
+
+        # Test CHECK task SKIPPED (etag match)
+        async def mock_check_task_skipped():
+            return TaskResult(
+                barcode="TEST123",
+                task_type=TaskType.CHECK,
+                action=TaskAction.SKIPPED,
+                data={"etag": "matching-etag", "file_size_bytes": 1024, "http_status_code": 200},
+                reason="skip_etag_match",
+            )
+
+        previous_results = {}
+        await task_manager.run_task(
+            TaskType.CHECK, "TEST123", mock_check_task_skipped, real_db_pipeline, previous_results
+        )
+
+        # Commit accumulated updates to the real database
+        conn = await real_db_pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
+
+        # Verify last_etag_check timestamp was populated even for skipped task
+        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
+            cursor = await db.execute("SELECT last_etag_check FROM books WHERE barcode = ?", ("TEST123",))
+            row = await cursor.fetchone()
+
+            assert row is not None
+            last_etag_check = row[0]
+            assert last_etag_check is not None, (
+                "last_etag_check should be populated after CHECK task (even when skipped)"
+            )
+
+            # Verify timestamp is a valid ISO format
+            parsed_time = datetime.fromisoformat(last_etag_check.replace("Z", "+00:00"))
+            assert parsed_time is not None
+
+            # Verify timestamp is recent (within last minute)
+            now = datetime.now(UTC)
+            time_diff = abs((now - parsed_time).total_seconds())
+            assert time_diff < 60, f"last_etag_check should be recent, but was {time_diff} seconds ago"

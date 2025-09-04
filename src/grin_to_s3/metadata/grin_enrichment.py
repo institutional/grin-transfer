@@ -20,7 +20,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.common import (
-    RateLimiter,
     format_duration,
     pluralize,
 )
@@ -73,11 +72,11 @@ class GRINEnrichmentPipeline:
         self,
         directory: str,
         process_summary_stage,
-        db_path: str = "output/default/books.db",
+        db_path: Path,
         rate_limit_delay: float = 0.2,  # 5 QPS
         batch_size: int = DEFAULT_BATCH_SIZE,
         max_concurrent_requests: int = 5,  # Concurrent GRIN requests
-        secrets_dir: str | None = None,  # Directory containing secrets files
+        secrets_dir: Path | str | None = None,  # Directory containing secrets files
         timeout: int = 60,
     ):
         self.directory = directory
@@ -91,9 +90,7 @@ class GRINEnrichmentPipeline:
         self.grin_client = GRINClient(timeout=timeout, secrets_dir=secrets_dir)
         self.sqlite_tracker = SQLiteProgressTracker(db_path)
 
-        # Rate limiting
-        requests_per_second = 1.0 / rate_limit_delay if rate_limit_delay > 0 else 5.0
-        self.rate_limiter = RateLimiter(requests_per_second=requests_per_second)
+        # Concurrency limiting
         self._rate_limit_semaphore = asyncio.Semaphore(max_concurrent_requests)
 
         # Track if pipeline is shutting down for cleanup
@@ -149,8 +146,8 @@ class GRINEnrichmentPipeline:
         if current_batch:
             batches.append(current_batch)
 
-        # Limit concurrent batches to max_concurrent_requests
-        return batches[: self.max_concurrent_requests]
+        # Return all batches (will be processed in chunks)
+        return batches
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=8), reraise=True)
     async def _fetch_grin_batch(self, barcodes: list[str]) -> str:
@@ -166,9 +163,6 @@ class GRINEnrichmentPipeline:
             Number of successfully enriched books
         """
         async with self._rate_limit_semaphore:
-            # Apply rate limiting
-            await self.rate_limiter.acquire()
-
             try:
                 # Fetch with automatic retry
                 tsv_data = await self._fetch_grin_batch(barcodes)
@@ -221,7 +215,6 @@ class GRINEnrichmentPipeline:
         logger.info("Starting GRIN metadata enrichment pipeline")
         logger.info(f"Database: {self.db_path}")
         logger.info(f"Directory: {self.directory}")
-        logger.info(f"Rate limit: {self.rate_limiter.requests_per_second:.1f} requests/second")
         logger.info(f"Concurrent requests: {self.max_concurrent_requests}")
 
         logger.info(f"Database batch size: {self.batch_size:,} books")
@@ -304,7 +297,7 @@ class GRINEnrichmentPipeline:
                 # Create URL-sized batches dynamically for this set
                 url_batches = self._create_url_batches(barcodes)
 
-                # Process concurrently with semaphore
+                # Process all URL batches concurrently (semaphore controls actual concurrency)
                 tasks = [self._fetch_and_update(batch) for batch in url_batches]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -330,8 +323,9 @@ class GRINEnrichmentPipeline:
                     eta_text = f" (ETA: {format_duration(eta_seconds)})" if books_remaining > 0 else " (Complete)"
 
                 logger.info(f"  Batch completed: {enriched}/{len(barcodes)} enriched in {batch_elapsed:.1f}s")
-                print(f"Progress: {processed_count:,}/{total_books:,} processed ({rate:.1f} books/sec){eta_text}")
-                progress_msg = f"  Overall progress: {processed_count:,}/{total_books:,} processed"
+                # Show progress against remaining books for intuitive progress tracking
+                print(f"Progress: {processed_count:,}/{remaining_books:,} processed ({rate:.1f} books/sec){eta_text}")
+                progress_msg = f"  Overall progress: {processed_count:,}/{remaining_books:,} processed"
                 rate_msg = f" ({rate:.1f} books/sec){eta_text}"
                 logger.info(progress_msg + rate_msg)
 

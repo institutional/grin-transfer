@@ -13,7 +13,6 @@ OUTPUT_DIR = Path("output")
 
 # GRIN API rate limiting
 GRIN_RATE_LIMIT_QPS = 5.0
-GRIN_RATE_LIMIT_DELAY = 0.2  # 1/5 = 0.2 seconds for 5 QPS
 
 # GRIN queue and processing limits
 GRIN_MAX_QUEUE_SIZE = 50000

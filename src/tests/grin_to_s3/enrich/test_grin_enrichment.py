@@ -301,6 +301,41 @@ class TestGRINEnrichmentPipeline:
         assert book2.enrichment_timestamp is not None  # But marked as processed
 
     @pytest.mark.asyncio
+    async def test_url_batches_not_truncated(self, mock_process_stage):
+        """Test that all URL batches are processed, not just max_concurrent_requests"""
+        pipeline = GRINEnrichmentPipeline(
+            directory="TestLibrary",
+            db_path=":memory:",
+            process_summary_stage=mock_process_stage,
+            max_concurrent_requests=2,  # Small number to trigger the bug
+        )
+
+        # Create many long barcodes that will force multiple URL batches
+        # Each barcode is ~200 characters to trigger URL length limits
+        long_prefix = "x" * 180
+        barcodes = [f"{long_prefix}_barcode_{i:04d}" for i in range(100)]
+
+        # Get URL batches
+        url_batches = pipeline._create_url_batches(barcodes)
+
+        # Count total barcodes in all batches
+        total_barcodes_in_batches = sum(len(batch) for batch in url_batches)
+
+        # Before the fix: total_barcodes_in_batches would be less than len(barcodes)
+        # After the fix: they should be equal
+        assert total_barcodes_in_batches == len(barcodes), (
+            f"Lost barcodes! Expected {len(barcodes)}, got {total_barcodes_in_batches}"
+        )
+
+        # Should create multiple batches due to URL length limits
+        assert len(url_batches) > 1, "Should create multiple URL batches for long barcodes"
+
+        # Should create more batches than max_concurrent_requests to test the fix
+        assert len(url_batches) > pipeline.max_concurrent_requests, (
+            f"Need more URL batches ({len(url_batches)}) than max_concurrent ({pipeline.max_concurrent_requests}) to test fix"
+        )
+
+    @pytest.mark.asyncio
     async def test_reset_enrichment(self, temp_db_with_books, mock_enrichment_data, mock_process_stage):
         """Test resetting enrichment data before re-enriching"""
         mock_client = MockGRINEnrichmentClient(mock_enrichment_data)

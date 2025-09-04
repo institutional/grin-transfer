@@ -302,6 +302,10 @@ class GRINClient:
                 header_key = headers[i].lower().replace(" ", "_").replace("-", "_").replace("'", "")
                 cell_text = cell.text(strip=True) if cell.text() else ""
 
+                # Check for anchor tags and extract href if present
+                anchor = cell.css_first("a[href]")
+                cell_value = anchor.attributes.get("href") if anchor else cell_text
+
                 # Special handling for barcode extraction
                 match header_key:
                     case "filename" if cell_text.endswith(".tar.gz.gpg"):
@@ -310,8 +314,8 @@ class GRINClient:
                     case "barcode":
                         # For all_books: direct barcode field
                         record["barcode"] = cell_text
-                    case _ if cell_text:
-                        record[header_key] = cell_text
+                    case _ if cell_value:
+                        record[header_key] = cell_value
 
         # Must have a barcode to be valid
         if not record.get("barcode"):

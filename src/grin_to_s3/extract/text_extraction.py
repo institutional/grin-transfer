@@ -9,8 +9,6 @@ files and provides memory-efficient processing for large archives.
 import json
 import logging
 import re
-import tarfile
-from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -45,20 +43,6 @@ class InvalidPageFormatError(TextExtractionError):
     pass
 
 
-def _validate_and_finalize_extraction(
-    page_data: dict[int, str], txt_files_found: int, archive_path: str
-) -> dict[int, str]:
-    """Validate extraction results and return page data."""
-    if txt_files_found == 0:
-        raise TextExtractionError(f"No .txt files found in archive: {archive_path}")
-
-    if not page_data:
-        raise InvalidPageFormatError(f"No valid page files found in archive: {archive_path}")
-
-    logger.debug(f"OCR extraction completed: {len(page_data)} valid pages from {txt_files_found} .txt files")
-    return page_data
-
-
 def _parse_page_number(filename: str) -> int | None:
     """
     Parse page number from filename like '00000001.txt'.
@@ -78,94 +62,6 @@ def _parse_page_number(filename: str) -> int | None:
             return page_num
 
     return None
-
-
-def _build_page_array(page_data: dict[int, str]) -> list[str]:
-    """
-    Build final page array with empty strings for missing pages.
-
-    Takes a dictionary of page_number -> content and creates a list
-    where index corresponds to page number (0-indexed). Missing pages
-    are filled with empty strings.
-
-    Args:
-        page_data: Dictionary mapping page numbers to content
-
-    Returns:
-        List of page contents, 0-indexed
-    """
-    if not page_data:
-        return []
-
-    # Find the range of pages
-    min_page = min(page_data.keys())
-    max_page = max(page_data.keys())
-
-    # Log any gaps in page numbering
-    missing_pages = []
-    for page_num in range(min_page, max_page + 1):
-        if page_num not in page_data:
-            missing_pages.append(page_num)
-
-    if missing_pages:
-        logger.warning(f"Missing pages detected: {missing_pages}")
-
-    # Build result array (0-indexed)
-    result = []
-    for page_num in range(min_page, max_page + 1):
-        content = page_data.get(page_num, "")
-        result.append(content)
-
-    return result
-
-
-def _page_content_generator(archive_path: str) -> Iterator[tuple[int, str]]:
-    """
-    Generator that yields (page_number, content) tuples from archive.
-
-    Memory-efficient extraction that processes one page at a time.
-    """
-    with tarfile.open(archive_path, "r:gz") as tar:
-        # First pass: get all txt files and their page numbers
-        txt_members = []
-        for member in tar.getmembers():
-            if not member.isfile() or not Path(member.name).name.endswith(".txt"):
-                continue
-
-            page_num = _parse_page_number(Path(member.name).name)
-            if page_num is not None:
-                txt_members.append((member, page_num))
-
-        if not txt_members:
-            raise TextExtractionError(f"No .txt files found in archive: {archive_path}")
-
-        # Sort by page number
-        txt_members.sort(key=lambda x: x[1])
-
-        # Yield pages with gap handling
-        expected_page = 1
-
-        for member, page_num in txt_members:
-            # Yield empty strings for gaps
-            while expected_page < page_num:
-                yield (expected_page, "")
-                expected_page += 1
-
-            # Extract and yield current page
-            file_obj = tar.extractfile(member)
-            if file_obj is None:
-                content = ""
-            else:
-                try:
-                    content = file_obj.read().decode("utf-8", errors="replace")
-                except Exception as e:
-                    logger.warning(f"Error reading {member.name}: {e}")
-                    content = ""
-                finally:
-                    file_obj.close()
-
-            yield (page_num, content)
-            expected_page = page_num + 1
 
 
 def filesystem_page_generator(extracted_dir: Path):

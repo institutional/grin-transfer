@@ -41,8 +41,6 @@ class TestBookRecord:
         assert "Barcode" in headers
         assert "Title" in headers
         assert "Processing Request Timestamp" in headers  # New status tracking field
-        assert "CSV Exported" in headers
-        assert "CSV Updated" in headers
 
         # Check that headers match the number of fields in to_csv_row
         test_record = BookRecord(barcode="TEST")
@@ -65,6 +63,34 @@ class TestBookRecord:
         assert row[1] == "Test Book Title"  # Title
         assert row[2] == "2024-01-01T10:00:00"  # Scanned Date
         assert row[9] == "2024-01-02T10:00:00"  # Processing Request Timestamp
+
+    def test_boolean_fields_in_csv_row(self):
+        """Test that boolean fields output TRUE/FALSE in CSV format."""
+        # Test with False value (simulating SQLite 0)
+        record_false = BookRecord(barcode="TEST_BOOL_FALSE")
+        record_false.is_decrypted = 0  # Simulating SQLite integer storage
+        row_false = record_false.to_csv_row()
+        headers = BookRecord.csv_headers()
+        is_decrypted_pos = headers.index("Is Decrypted")
+        assert row_false[is_decrypted_pos] == "FALSE"
+
+        # Test with True value (simulating SQLite 1)
+        record_true = BookRecord(barcode="TEST_BOOL_TRUE")
+        record_true.is_decrypted = 1  # Simulating SQLite integer storage
+        row_true = record_true.to_csv_row()
+        assert row_true[is_decrypted_pos] == "TRUE"
+
+        # Test with Python boolean True
+        record_bool_true = BookRecord(barcode="TEST_BOOL_PY_TRUE")
+        record_bool_true.is_decrypted = True
+        row_bool_true = record_bool_true.to_csv_row()
+        assert row_bool_true[is_decrypted_pos] == "TRUE"
+
+        # Test with Python boolean False
+        record_bool_false = BookRecord(barcode="TEST_BOOL_PY_FALSE")
+        record_bool_false.is_decrypted = False
+        row_bool_false = record_bool_false.to_csv_row()
+        assert row_bool_false[is_decrypted_pos] == "FALSE"
 
     def test_marc_fields_in_csv_headers(self):
         """Test that MARC fields are included in CSV headers."""
