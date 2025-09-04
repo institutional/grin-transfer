@@ -48,9 +48,11 @@ class BookCollector:
         run_config: RunConfig,
         rate_limit: float = 1.0,
         secrets_dir: str | None = None,
+        refresh_mode: bool = False,
     ):
         # Load or use provided configuration
         self.run_config = run_config
+        self.refresh_mode = refresh_mode
 
         self.directory = self.run_config.library_directory
         self.process_summary_stage = process_summary_stage
@@ -190,7 +192,10 @@ class BookCollector:
         Returns:
             True if collection completed successfully, False if interrupted or incomplete
         """
-        print("Starting book collection")
+        if self.refresh_mode:
+            print("Starting book collection in refresh mode (updates existing, adds new)")
+        else:
+            print("Starting book collection")
         if limit:
             print(f"Limit: {limit:,} {pluralize(limit, 'book')}")
             print("\n⚠️  WARNING: Using --limit will result in an incomplete collection only suitable for quick tests.")
@@ -260,8 +265,8 @@ class BookCollector:
                 if not barcode:
                     continue
 
-                # Skip if already processed (using batch SQLite results)
-                if barcode in known_barcodes_on_page:
+                # Skip if already processed (using batch SQLite results) - unless in refresh mode
+                if barcode in known_barcodes_on_page and not self.refresh_mode:
                     continue
 
                 # Process the book
@@ -346,9 +351,6 @@ class BookCollector:
 
         barcode = parsed_data["barcode"]
 
-        if await self.sqlite_tracker.is_processed(barcode):
-            return None  # Already processed
-
         try:
             # Create record
             record = BookRecord(**parsed_data)
@@ -359,10 +361,8 @@ class BookCollector:
                     f"[{barcode}] GRIN returned empty title field; okay only if book is not available for download"
                 )
 
-            # Save book record to SQLite database (blocking to ensure data integrity)
-            # Note: Main network/processing work remains parallel; only DB writes are synchronous
-            # to prevent race condition where limit is reached before all books are saved
-            await self.sqlite_tracker.save_book(record)
+            # Let the database handle everything via UPSERT
+            await self.sqlite_tracker.save_book(record, refresh_mode=self.refresh_mode)
 
             # Mark as processed for progress tracking
             await self.sqlite_tracker.mark_processed(barcode)

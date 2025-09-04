@@ -546,8 +546,8 @@ class SQLiteProgressTracker:
                 pass
             self._persistent_conn = None
 
-    async def save_book(self, book: BookRecord) -> None:
-        """Save or update a book record in the database."""
+    async def save_book(self, book: BookRecord, refresh_mode: bool = False) -> None:
+        """Save or update a book record in the database using UPSERT."""
         await self.init_db()
 
         now = datetime.now(UTC).isoformat()
@@ -557,7 +557,53 @@ class SQLiteProgressTracker:
             book.created_at = now
         book.updated_at = now
 
-        await self._execute_query_with_commit(BookRecord.build_insert_sql(), book.to_tuple())
+        # Always use UPSERT and change conflict behavior based on mode
+        if refresh_mode:
+            # Update with COALESCE to preserve existing non-null values
+            conflict_action = """DO UPDATE SET
+                title = COALESCE(excluded.title, books.title),
+                scanned_date = COALESCE(excluded.scanned_date, books.scanned_date),
+                converted_date = COALESCE(excluded.converted_date, books.converted_date),
+                downloaded_date = COALESCE(excluded.downloaded_date, books.downloaded_date),
+                processed_date = COALESCE(excluded.processed_date, books.processed_date),
+                analyzed_date = COALESCE(excluded.analyzed_date, books.analyzed_date),
+                ocr_date = COALESCE(excluded.ocr_date, books.ocr_date),
+                google_books_link = COALESCE(excluded.google_books_link, books.google_books_link),
+                processing_request_timestamp = COALESCE(excluded.processing_request_timestamp, books.processing_request_timestamp),
+                grin_state = COALESCE(excluded.grin_state, books.grin_state),
+                updated_at = excluded.updated_at"""
+        else:
+            # Normal mode: skip existing records
+            conflict_action = "DO NOTHING"
+
+        sql_query = f"""INSERT INTO books (barcode, title, scanned_date, converted_date,
+                                      downloaded_date, processed_date, analyzed_date,
+                                      ocr_date, google_books_link, processing_request_timestamp,
+                                      grin_state, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(barcode) {conflict_action}"""
+
+        logger.debug(f"save_book SQL: {sql_query}")
+        logger.debug(f"save_book values: barcode={book.barcode}, refresh_mode={refresh_mode}")
+
+        await self._execute_query_with_commit(
+            sql_query,
+            (
+                book.barcode,
+                book.title,
+                book.scanned_date,
+                book.converted_date,
+                book.downloaded_date,
+                book.processed_date,
+                book.analyzed_date,
+                book.ocr_date,
+                book.google_books_link,
+                book.processing_request_timestamp,
+                book.grin_state,
+                book.created_at,
+                book.updated_at,
+            ),
+        )
 
     async def get_book(self, barcode: str) -> BookRecord | None:
         """Retrieve a book record from the database."""

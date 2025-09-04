@@ -151,6 +151,11 @@ Examples:
 
     # Export options
     parser.add_argument("--limit", type=int, help="Limit number of books to process (for testing)")
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Update metadata for existing books and add new ones (default: skip existing books)",
+    )
 
     # Logging options
     parser.add_argument(
@@ -367,6 +372,7 @@ Examples:
                 storage_config=storage_config,
                 run_config=run_config,
                 secrets_dir=args.secrets_dir,
+                refresh_mode=args.refresh,
             )
 
             # Run book collection with pagination

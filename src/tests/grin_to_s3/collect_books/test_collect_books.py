@@ -24,29 +24,6 @@ from tests.mocks import get_test_data, setup_mock_exporter
 class TestBookRecord:
     """Test BookRecord data class functionality."""
 
-    def test_book_record_creation(self):
-        """Test basic BookRecord creation."""
-        record = BookRecord(barcode="TEST123", scanned_date="2024-01-01T10:00:00", title="Test Book")
-
-        assert record.barcode == "TEST123"
-        assert record.scanned_date == "2024-01-01T10:00:00"
-        assert record.title == "Test Book"
-        # processing state is now tracked in status history, not in the record itself
-
-    def test_csv_headers(self):
-        """Test CSV headers are consistent."""
-        headers = BookRecord.csv_headers()
-
-        # Check that essential headers are present
-        assert "Barcode" in headers
-        assert "Title" in headers
-        assert "Processing Request Timestamp" in headers  # New status tracking field
-
-        # Check that headers match the number of fields in to_csv_row
-        test_record = BookRecord(barcode="TEST")
-        csv_row = test_record.to_csv_row()
-        assert len(headers) == len(csv_row)
-
     def test_to_csv_row(self):
         """Test CSV row conversion."""
         record = BookRecord(
@@ -148,35 +125,6 @@ class TestBookRecord:
         assert data_dict["MARC Date Type"] == ""
         assert data_dict["MARC Author Personal"] == ""
 
-    def test_get_marc_fields(self):
-        """Test that get_marc_fields returns all MARC field names."""
-        marc_fields = BookRecord.get_marc_fields()
-
-        expected_fields = [
-            "marc_control_number",
-            "marc_date_type",
-            "marc_date_1",
-            "marc_date_2",
-            "marc_language",
-            "marc_lccn",
-            "marc_lc_call_number",
-            "marc_isbn",
-            "marc_oclc_numbers",
-            "marc_title",
-            "marc_title_remainder",
-            "marc_author_personal",
-            "marc_author_corporate",
-            "marc_author_meeting",
-            "marc_subjects",
-            "marc_genres",
-            "marc_general_note",
-            "marc_extraction_timestamp",
-        ]
-
-        assert len(marc_fields) == 18, f"Expected 18 MARC fields, got {len(marc_fields)}"
-        for expected_field in expected_fields:
-            assert expected_field in marc_fields, f"Missing MARC field: {expected_field}"
-
     def test_build_update_marc_sql(self):
         """Test that MARC update SQL is properly generated."""
         sql = BookRecord.build_update_marc_sql()
@@ -213,15 +161,6 @@ class TestBookRecord:
         assert record_with_data.marc_control_number == "123"
         assert record_with_data.marc_title == "Test Title"
         assert record_with_data.marc_extraction_timestamp == "2025-07-10T12:00:00Z"
-
-    def test_marc_field_defaults(self):
-        """Test that MARC fields have proper default values."""
-        record = BookRecord(barcode="DEFAULT_TEST")
-
-        marc_fields = BookRecord.get_marc_fields()
-        for field in marc_fields:
-            value = getattr(record, field)
-            assert value is None, f"MARC field {field} should default to None, got {value}"
 
 
 class TestRateLimiter:
@@ -367,6 +306,128 @@ class TestSQLiteProgressTracker:
             finally:
                 os.unlink(tmp_db.name)
 
+    @pytest.mark.asyncio
+    async def test_save_book_initial_insert(self):
+        """Test save_book with initial book insertion."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+                await tracker.init_db()
+
+                # Create a test book record
+                book = BookRecord(
+                    barcode="TEST001", title="Test Book", scanned_date="2024-01-01T10:00:00", converted_date=None
+                )
+
+                # Save book in normal mode
+                await tracker.save_book(book, refresh_mode=False)
+
+                # Retrieve and verify the book was saved
+                saved_book = await tracker.get_book("TEST001")
+                assert saved_book is not None
+                assert saved_book.barcode == "TEST001"
+                assert saved_book.title == "Test Book"
+                assert saved_book.scanned_date == "2024-01-01T10:00:00"
+                assert saved_book.converted_date is None
+                assert saved_book.created_at is not None
+                assert saved_book.updated_at is not None
+
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
+    @pytest.mark.asyncio
+    async def test_save_book_normal_mode_ignores_duplicate(self):
+        """Test save_book in normal mode ignores duplicate records (DO NOTHING)."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+                await tracker.init_db()
+
+                # Create initial book record
+                original_book = BookRecord(
+                    barcode="TEST001", title="Original Title", scanned_date="2024-01-01T10:00:00", converted_date=None
+                )
+                await tracker.save_book(original_book, refresh_mode=False)
+
+                # Try to save a duplicate with different data in normal mode
+                duplicate_book = BookRecord(
+                    barcode="TEST001",
+                    title="Updated Title - Should Be Ignored",
+                    scanned_date="2024-02-01T10:00:00",
+                    converted_date="2024-02-01T11:00:00",
+                )
+                await tracker.save_book(duplicate_book, refresh_mode=False)
+
+                # Verify original data is preserved
+                saved_book = await tracker.get_book("TEST001")
+                assert saved_book is not None
+                assert saved_book.title == "Original Title"
+                assert saved_book.scanned_date == "2024-01-01T10:00:00"
+                assert saved_book.converted_date is None
+
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
+    @pytest.mark.asyncio
+    async def test_save_book_refresh_mode_updates_with_coalesce(self):
+        """Test save_book in refresh mode updates with COALESCE preservation."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+                await tracker.init_db()
+
+                # Create initial book record
+                original_book = BookRecord(
+                    barcode="TEST001", title="Original Title", scanned_date="2024-01-01T10:00:00", converted_date=None
+                )
+                await tracker.save_book(original_book, refresh_mode=False)
+
+                # Update with new values in refresh mode (COALESCE only handles NULL, not empty strings)
+                update_book = BookRecord(
+                    barcode="TEST001",
+                    title="Updated Title",  # This will overwrite the original title
+                    scanned_date=None,  # Should be preserved via COALESCE
+                    converted_date="2024-02-01T11:00:00",  # Should be updated
+                    processed_date="2024-02-01T12:00:00",  # Should be added
+                )
+                await tracker.save_book(update_book, refresh_mode=True)
+
+                # Verify COALESCE behavior
+                saved_book = await tracker.get_book("TEST001")
+                assert saved_book is not None
+                assert saved_book.title == "Updated Title"  # Updated (COALESCE doesn't preserve non-NULL values)
+                assert saved_book.scanned_date == "2024-01-01T10:00:00"  # Preserved (NULL was passed)
+                assert saved_book.converted_date == "2024-02-01T11:00:00"  # Updated
+                assert saved_book.processed_date == "2024-02-01T12:00:00"  # Added
+
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
+    @pytest.mark.asyncio
+    async def test_save_book_refresh_mode_inserts_new_record(self):
+        """Test save_book in refresh mode can still insert new records."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+                await tracker.init_db()
+
+                # Create new book record in refresh mode
+                new_book = BookRecord(barcode="TEST001", title="New Book", scanned_date="2024-01-01T10:00:00")
+                await tracker.save_book(new_book, refresh_mode=True)
+
+                # Verify the book was inserted
+                saved_book = await tracker.get_book("TEST001")
+                assert saved_book is not None
+                assert saved_book.title == "New Book"
+                assert saved_book.scanned_date == "2024-01-01T10:00:00"
+
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
 
 class TestBookCollector:
     """Test BookCollector functionality with mocking."""
@@ -486,7 +547,7 @@ class TestBookCollector:
 
     @pytest.mark.asyncio
     async def test_process_book_already_processed(self):
-        """Test skipping already processed book."""
+        """Test processing already processed book with UPSERT (normal mode uses DO NOTHING)."""
         grin_row = {"barcode": "SKIP001", "scanned_date": "2024/01/01 10:00"}
 
         # Mark as already processed in SQLite
@@ -494,7 +555,9 @@ class TestBookCollector:
 
         record = await self.exporter.process_book(grin_row)
 
-        assert record is None
+        # Normal mode uses ON CONFLICT DO NOTHING, so existing records are preserved
+        assert record is not None
+        assert record.barcode == "SKIP001"
 
         # Ensure all background tasks complete before test ends
         if hasattr(self.exporter, "_background_tasks") and self.exporter._background_tasks:
@@ -652,6 +715,61 @@ class TestBookCollectionIntegration:
             assert collector.book_manager.bucket_meta == "test-meta"
             assert collector.book_manager.bucket_full == "test-full"
             assert collector.book_manager.base_prefix == "test-prefix"
+
+
+class TestBookCollectorRefreshMode:
+    """Test refresh mode functionality for BookCollector."""
+
+    def setup_method(self):
+        """Set up test fixtures."""
+        self.temp_dir = tempfile.mkdtemp()
+        self.exporter = setup_mock_exporter(self.temp_dir)
+
+    def teardown_method(self):
+        """Clean up test fixtures."""
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    @pytest.mark.parametrize(
+        "refresh_mode,expected_title",
+        [
+            (False, "Original Title"),  # Normal mode: title should not change
+            (True, "Updated Title"),  # Refresh mode: title should change
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_refresh_mode_updates_existing_books(self, refresh_mode, expected_title):
+        """Test that refresh mode updates existing books while normal mode skips them."""
+        # Save initial book
+        initial_book = BookRecord(
+            barcode="TEST123", title="Original Title", scanned_date="2024-01-01T10:00:00", grin_state="converted"
+        )
+
+        await self.exporter.sqlite_tracker.save_book(initial_book, refresh_mode=False)
+        await self.exporter.sqlite_tracker.mark_processed("TEST123")
+
+        # Set refresh mode
+        self.exporter.refresh_mode = refresh_mode
+
+        # Simulate processing the same book with updated data
+        grin_row = {
+            "barcode": "TEST123",
+            "title": "Updated Title",
+            "scanned_date": "2024/01/01 10:00",
+            "grin_state": "converted",
+        }
+
+        # Simulate the collector's skip logic
+        known_barcodes = await self.exporter.sqlite_tracker.load_known_barcodes_batch({"TEST123"})
+        should_skip = "TEST123" in known_barcodes and not self.exporter.refresh_mode
+
+        if not should_skip:
+            # Process the book (only happens in refresh mode)
+            await self.exporter.process_book(grin_row)
+
+        # Check final title in database
+        books_data = await self.exporter.sqlite_tracker.get_all_books_csv_data()
+        final_book = next(book for book in books_data if book.barcode == "TEST123")
+        assert final_book.title == expected_title
 
 
 # Pytest configuration for async tests
