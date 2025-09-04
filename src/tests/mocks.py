@@ -478,9 +478,7 @@ def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
     # Create a mock process summary stage if not provided
     mock_stage = ProcessStageMetrics("test")
 
-    exporter = BookCollector(
-        directory="TestDirectory", process_summary_stage=mock_stage, storage_config=storage_config, run_config=config
-    )
+    exporter = BookCollector(process_summary_stage=mock_stage, storage_config=storage_config, run_config=config)
 
     # Replace grin_client with mock
     exporter.grin_client = MockGRINClient(test_data)  # type: ignore

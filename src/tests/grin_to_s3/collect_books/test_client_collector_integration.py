@@ -100,7 +100,6 @@ async def test_client_collector_integration():
 
                 # Create collector and replace client
                 collector = BookCollector(
-                    directory="Harvard",
                     process_summary_stage=AsyncMock(),
                     storage_config=run_config.storage_config,
                     run_config=run_config,
@@ -109,9 +108,9 @@ async def test_client_collector_integration():
                 collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
 
                 try:
-                    # Test that collector can handle GRINRow from get_converted_books_html
+                    # Test that collector can handle GRINRow from get_all_books
                     books = []
-                    async for book_data in collector.get_converted_books_html():
+                    async for book_data in collector.get_all_books():
                         books.append(book_data)
                         if len(books) >= 1:  # Just test one book
                             break
@@ -156,7 +155,6 @@ async def test_collector_stream_all_books_integration():
             run_config = create_test_run_config(tmp_db.name)
 
             collector = BookCollector(
-                directory="Harvard",
                 process_summary_stage=AsyncMock(),
                 storage_config=run_config.storage_config,
                 run_config=run_config,
@@ -188,23 +186,20 @@ async def test_collector_stream_all_books_integration():
 
 @pytest.mark.asyncio
 async def test_get_all_books_limit_functionality():
-    """Test that get_all_books respects limit parameter across both phases."""
+    """Test that get_all_books respects limit parameter in single-phase collection."""
 
     client = GRINClient()
 
-    # Mock phase 1 (converted books) to return 3 books
-    async def mock_converted_generator():
-        yield {"barcode": "conv_001", "title": "Converted Book 1"}, set()
-        yield {"barcode": "conv_002", "title": "Converted Book 2"}, set()
-        yield {"barcode": "conv_003", "title": "Converted Book 3"}, set()
-
-    # Mock phase 2 (non-converted books) to return 5 books
-    async def mock_all_books_generator():
-        yield {"barcode": "book_001", "title": "Non-Converted Book 1"}, set()
-        yield {"barcode": "book_002", "title": "Non-Converted Book 2"}, set()
-        yield {"barcode": "book_003", "title": "Non-Converted Book 3"}, set()
-        yield {"barcode": "book_004", "title": "Non-Converted Book 4"}, set()
-        yield {"barcode": "book_005", "title": "Non-Converted Book 5"}, set()
+    # Mock client method to return a mix of test books
+    async def mock_stream_book_list_html_prefetch(*args, **kwargs):
+        yield ({"barcode": "book_001", "title": "Book 1", "converted_date": "2023-01-01"}, None)
+        yield ({"barcode": "book_002", "title": "Book 2", "converted_date": None}, None)
+        yield ({"barcode": "book_003", "title": "Book 3", "converted_date": "2023-01-02"}, None)
+        yield ({"barcode": "book_004", "title": "Book 4", "converted_date": None}, None)
+        yield ({"barcode": "book_005", "title": "Book 5", "converted_date": "2023-01-03"}, None)
+        yield ({"barcode": "book_006", "title": "Book 6", "converted_date": None}, None)
+        yield ({"barcode": "book_007", "title": "Book 7", "converted_date": "2023-01-04"}, None)
+        yield ({"barcode": "book_008", "title": "Book 8", "converted_date": None}, None)
 
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
         run_config = create_test_run_config(tmp_db.name)
@@ -220,7 +215,6 @@ async def test_get_all_books_limit_functionality():
         )
 
         collector = BookCollector(
-            directory="TestLibrary",
             process_summary_stage=AsyncMock(),
             storage_config=run_config.storage_config,
             run_config=run_config,
@@ -229,60 +223,68 @@ async def test_get_all_books_limit_functionality():
         collector.sqlite_tracker = SQLiteProgressTracker(tmp_db.name)
 
         try:
-            # Test case 1: Limit = 2 (should get 2 from phase 1, 0 from phase 2)
-            with patch.object(collector, "get_converted_books_html", return_value=mock_converted_generator()):
-                with patch.object(collector, "get_all_books_html", return_value=mock_all_books_generator()):
-                    books = []
-                    async for book_data, _ in collector.get_all_books(limit=2):
-                        books.append(book_data)
+            # Test case 1: Limit = 2 (should get first 2 books from single source)
+            with patch.object(
+                collector.grin_client,
+                "stream_book_list_html_prefetch",
+                return_value=mock_stream_book_list_html_prefetch(),
+            ):
+                books = []
+                async for book_data in collector.get_all_books(limit=2):
+                    books.append(book_data)
 
-                    assert len(books) == 2
-                    assert books[0]["barcode"] == "conv_001"
-                    assert books[1]["barcode"] == "conv_002"
+                assert len(books) == 2
+                assert books[0]["barcode"] == "book_001"
+                assert books[1]["barcode"] == "book_002"
 
-            # Test case 2: Limit = 5 (should get 3 from phase 1, 2 from phase 2)
-            with patch.object(collector, "get_converted_books_html", return_value=mock_converted_generator()):
-                with patch.object(collector, "get_all_books_html", return_value=mock_all_books_generator()):
-                    books = []
-                    async for book_data, _ in collector.get_all_books(limit=5):
-                        books.append(book_data)
+            # Test case 2: Limit = 5 (should get first 5 books from single source)
+            with patch.object(
+                collector.grin_client,
+                "stream_book_list_html_prefetch",
+                return_value=mock_stream_book_list_html_prefetch(),
+            ):
+                books = []
+                async for book_data in collector.get_all_books(limit=5):
+                    books.append(book_data)
 
-                    assert len(books) == 5
-                    # First 3 should be from phase 1 (converted)
-                    assert books[0]["barcode"] == "conv_001"
-                    assert books[1]["barcode"] == "conv_002"
-                    assert books[2]["barcode"] == "conv_003"
-                    # Next 2 should be from phase 2 (non-converted)
-                    assert books[3]["barcode"] == "book_001"
-                    assert books[4]["barcode"] == "book_002"
+                assert len(books) == 5
+                assert books[0]["barcode"] == "book_001"
+                assert books[1]["barcode"] == "book_002"
+                assert books[2]["barcode"] == "book_003"
+                assert books[3]["barcode"] == "book_004"
+                assert books[4]["barcode"] == "book_005"
 
-            # Test case 3: Limit = 10 (should get all 8 books: 3 + 5)
-            with patch.object(collector, "get_converted_books_html", return_value=mock_converted_generator()):
-                with patch.object(collector, "get_all_books_html", return_value=mock_all_books_generator()):
-                    books = []
-                    async for book_data, _ in collector.get_all_books(limit=10):
-                        books.append(book_data)
+            # Test case 3: Limit = 10 (should get all 8 books available)
+            with patch.object(
+                collector.grin_client,
+                "stream_book_list_html_prefetch",
+                return_value=mock_stream_book_list_html_prefetch(),
+            ):
+                books = []
+                async for book_data in collector.get_all_books(limit=10):
+                    books.append(book_data)
 
-                    assert len(books) == 8  # Only 8 books total available
-                    # All 3 converted books
-                    assert books[0]["barcode"] == "conv_001"
-                    assert books[1]["barcode"] == "conv_002"
-                    assert books[2]["barcode"] == "conv_003"
-                    # All 5 non-converted books
-                    assert books[3]["barcode"] == "book_001"
-                    assert books[4]["barcode"] == "book_002"
-                    assert books[5]["barcode"] == "book_003"
-                    assert books[6]["barcode"] == "book_004"
-                    assert books[7]["barcode"] == "book_005"
+                assert len(books) == 8  # Only 8 books total available
+                assert books[0]["barcode"] == "book_001"
+                assert books[1]["barcode"] == "book_002"
+                assert books[2]["barcode"] == "book_003"
+                assert books[3]["barcode"] == "book_004"
+                assert books[4]["barcode"] == "book_005"
+                assert books[5]["barcode"] == "book_006"
+                assert books[6]["barcode"] == "book_007"
+                assert books[7]["barcode"] == "book_008"
 
             # Test case 4: No limit (should get all books)
-            with patch.object(collector, "get_converted_books_html", return_value=mock_converted_generator()):
-                with patch.object(collector, "get_all_books_html", return_value=mock_all_books_generator()):
-                    books = []
-                    async for book_data, _ in collector.get_all_books():
-                        books.append(book_data)
+            with patch.object(
+                collector.grin_client,
+                "stream_book_list_html_prefetch",
+                return_value=mock_stream_book_list_html_prefetch(),
+            ):
+                books = []
+                async for book_data in collector.get_all_books():
+                    books.append(book_data)
 
-                    assert len(books) == 8  # All available books
+                assert len(books) == 8  # All available books
 
         finally:
             await collector.sqlite_tracker.close()

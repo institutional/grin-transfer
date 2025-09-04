@@ -42,11 +42,9 @@ class BookCollector:
 
     def __init__(
         self,
-        directory: str,
         process_summary_stage,
         storage_config: StorageConfig,
         run_config: RunConfig,
-        rate_limit: float = 1.0,
         secrets_dir: str | None = None,
         refresh_mode: bool = False,
     ):
@@ -70,38 +68,22 @@ class BookCollector:
         prefix = storage_config.get("prefix", "")
         self.book_manager: BookManager = BookManager(storage, storage_config=storage_config, base_prefix=prefix)
 
-    async def get_converted_books_html(
-        self,
-    ) -> AsyncGenerator[GRINRow, None]:
-        """Stream converted books from GRIN using HTML pagination with full metadata."""
-        logger.info("Streaming converted books from GRIN...")
+    async def get_all_books(self, limit: int | None = None) -> AsyncGenerator[GRINRow, None]:
+        """Stream all books from GRIN using HTML pagination with large page sizes.
 
-        book_count = 0
-
-        async for (
-            book_row,
-            _,
-        ) in self.grin_client.stream_book_list_html_prefetch(
-            self.directory,
-            list_type="_converted",
-            page_size=GRIN_PAGE_SIZE,
-            start_page=1,
-            sqlite_tracker=self.sqlite_tracker,
-        ):
-            yield book_row
-            book_count += 1
-
-    async def get_all_books_html(
-        self,
-    ) -> AsyncGenerator[GRINRow, None]:
-        """Stream non-converted books from GRIN using HTML pagination with large page sizes.
-
-        Note: _all_books endpoint actually returns 'all books except converted', not truly all books.
         Always starts from page 1 for idempotent collection.
+
+        Args:
+            limit: Maximum number of books to yield
+
+        Yields:
+            GRINRow: book_row
         """
-        logger.info("Streaming non-converted books from GRIN...")
+        print("Collecting all books from GRIN...")
+        logger.info("Streaming all books from GRIN...")
 
         book_count = 0
+        total_yielded = 0
 
         async for (
             book_row,
@@ -113,60 +95,17 @@ class BookCollector:
             start_page=1,
             sqlite_tracker=self.sqlite_tracker,
         ):
-            yield book_row
-            book_count += 1
-
-            if book_count % 5000 == 0:
-                logger.info(f"Streamed {book_count:,} non-converted {pluralize(book_count, 'book')}...")
-
-    async def get_all_books(self, limit: int | None = None) -> AsyncGenerator[GRINRow, None]:
-        """Stream all book data from GRIN using two-pass collection with full metadata.
-
-        First pass: Collect converted books with full metadata from _converted endpoint
-        Second pass: Collect non-converted books from _all_books endpoint
-
-        Note: _all_books endpoint actually returns 'all books except converted', not truly all books.
-
-        Args:
-            limit: Maximum number of books to yield across both phases
-
-        Yields:
-            GRINRow: book_row
-        """
-        total_yielded = 0
-        # First pass: Get converted books with full metadata
-        print("Phase 1: Collecting converted books with full metadata...")
-        converted_count = 0
-        async for book_row in self.get_converted_books_html():
             if limit and total_yielded >= limit:
                 break
+
             yield book_row
-            converted_count += 1
+            book_count += 1
             total_yielded += 1
 
-        if converted_count > 0:
-            print(f"Phase 1 complete: {converted_count:,} converted books collected")
+            if book_count % 5000 == 0:
+                logger.info(f"Streamed {book_count:,} {pluralize(book_count, 'book')}...")
 
-        # Second pass: Get non-converted books from _all_books (only if limit not reached)
-        if not limit or total_yielded < limit:
-            print("Phase 2: Collecting non-converted books...")
-            non_converted_count = 0
-            async for book_row in self.get_all_books_html():
-                if limit and total_yielded >= limit:
-                    break
-                yield book_row
-                non_converted_count += 1
-                total_yielded += 1
-
-            if non_converted_count > 0:
-                print(f"Phase 2 complete: {non_converted_count:,} non-converted books collected")
-        else:
-            non_converted_count = 0
-
-        total_books = converted_count + non_converted_count
-        print(
-            f"Two-pass collection complete: {total_books:,} total books ({converted_count:,} converted + {non_converted_count:,} non-converted)"
-        )
+        print(f"Collection complete: {total_yielded:,} total books collected")
 
     async def collect_books(self, output_file: Path, limit: int | None = None) -> bool:
         """

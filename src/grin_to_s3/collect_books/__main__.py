@@ -311,7 +311,6 @@ Examples:
                 raise ValueError("Storage configuration is required. Provide --storage option.")
             # Create book collector with configuration
             collector = BookCollector(
-                directory=args.library_directory,
                 process_summary_stage=collect_stage,
                 storage_config=storage_config,
                 run_config=run_config,
