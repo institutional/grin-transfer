@@ -138,8 +138,9 @@ class BookRecord:
                 value = getattr(self, f.name)
                 if value is None:
                     values.append("")
-                elif isinstance(value, bool):
-                    values.append(str(value) if value else "")
+                elif f.type is bool:
+                    # Handle boolean fields (SQLite returns 0/1 for BOOLEAN)
+                    values.append("TRUE" if value else "FALSE")
                 else:
                     values.append(str(value))
         return values

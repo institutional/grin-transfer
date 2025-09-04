@@ -149,8 +149,8 @@ class GRINEnrichmentPipeline:
         if current_batch:
             batches.append(current_batch)
 
-        # Limit concurrent batches to max_concurrent_requests
-        return batches[: self.max_concurrent_requests]
+        # Return all batches (will be processed in chunks)
+        return batches
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=8), reraise=True)
     async def _fetch_grin_batch(self, barcodes: list[str]) -> str:
@@ -304,9 +304,13 @@ class GRINEnrichmentPipeline:
                 # Create URL-sized batches dynamically for this set
                 url_batches = self._create_url_batches(barcodes)
 
-                # Process concurrently with semaphore
-                tasks = [self._fetch_and_update(batch) for batch in url_batches]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                # Process URL batches in chunks limited by max_concurrent_requests
+                results = []
+                for i in range(0, len(url_batches), self.max_concurrent_requests):
+                    chunk = url_batches[i : i + self.max_concurrent_requests]
+                    tasks = [self._fetch_and_update(batch) for batch in chunk]
+                    chunk_results = await asyncio.gather(*tasks, return_exceptions=True)
+                    results.extend(chunk_results)
 
                 # Update progress
                 enriched = sum(r for r in results if isinstance(r, int))
@@ -330,8 +334,9 @@ class GRINEnrichmentPipeline:
                     eta_text = f" (ETA: {format_duration(eta_seconds)})" if books_remaining > 0 else " (Complete)"
 
                 logger.info(f"  Batch completed: {enriched}/{len(barcodes)} enriched in {batch_elapsed:.1f}s")
-                print(f"Progress: {processed_count:,}/{total_books:,} processed ({rate:.1f} books/sec){eta_text}")
-                progress_msg = f"  Overall progress: {processed_count:,}/{total_books:,} processed"
+                # Show progress against remaining books for intuitive progress tracking
+                print(f"Progress: {processed_count:,}/{remaining_books:,} processed ({rate:.1f} books/sec){eta_text}")
+                progress_msg = f"  Overall progress: {processed_count:,}/{remaining_books:,} processed"
                 rate_msg = f" ({rate:.1f} books/sec){eta_text}"
                 logger.info(progress_msg + rate_msg)
 
