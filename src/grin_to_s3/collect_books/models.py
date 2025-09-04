@@ -105,7 +105,6 @@ class BookRecord:
     marc_extraction_timestamp: str | None = field(default=None, metadata={"csv": "MARC Extraction Timestamp"})
 
     # Sync tracking for storage pipeline (status tracked in history table)
-    storage_type: str | None = field(default=None, metadata={"csv": "Storage Type"})
     storage_path: str | None = field(default=None, metadata={"csv": "Storage Path"})
     last_etag_check: str | None = field(default=None, metadata={"csv": "Last ETag Check"})
     encrypted_etag: str | None = field(default=None, metadata={"csv": "Encrypted ETag"})
@@ -652,7 +651,6 @@ class SQLiteProgressTracker:
 
         query = """
             UPDATE books SET
-                storage_type = COALESCE(?, storage_type),
                 storage_path = COALESCE(?, storage_path),
                 last_etag_check = COALESCE(?, last_etag_check),
                 encrypted_etag = COALESCE(?, encrypted_etag),
@@ -662,7 +660,6 @@ class SQLiteProgressTracker:
             WHERE barcode = ?
         """
         params = (
-            sync_data.get("storage_type"),
             sync_data.get("storage_path"),
             sync_data.get("last_etag_check"),
             sync_data.get("encrypted_etag"),
@@ -678,7 +675,6 @@ class SQLiteProgressTracker:
 
     async def get_books_for_sync(
         self,
-        storage_type: str,
         limit: int | None = None,
         status_filter: str | None = None,
         converted_barcodes: set[str] | None = None,
@@ -687,7 +683,6 @@ class SQLiteProgressTracker:
         """Get barcodes for books that need syncing to storage.
 
         Args:
-            storage_type: Target storage type ("r2", "minio", "s3", "local")
             limit: Maximum number of books to return (no limit if None)
             status_filter: Optional sync status filter ("pending", "failed", etc.)
             converted_barcodes: Optional set of barcodes known to be converted/ready for download
@@ -767,11 +762,6 @@ class SQLiteProgressTracker:
                 )
             """
 
-        # Optionally filter by storage type (for re-syncing)
-        if storage_type:
-            base_query += " AND (storage_type IS NULL OR storage_type = ?)"
-            params.append(storage_type)
-
         base_query += " ORDER BY created_at DESC"
         if limit is not None:
             base_query += " LIMIT ?"
@@ -781,25 +771,18 @@ class SQLiteProgressTracker:
         rows = await cursor.fetchall()
         return [row[0] for row in rows]
 
-    async def get_sync_stats(self, storage_type: str | None = None) -> dict:
+    async def get_sync_stats(self) -> dict:
         """Get sync statistics for books using atomic status history.
 
         Note: This method returns stats for all books in the database since the actual
         download availability is determined dynamically by checking GRIN's _converted endpoint.
-
-        Args:
-            storage_type: Optional storage type filter
 
         Returns:
             Dictionary with sync statistics
         """
         # Base filters - check all books since availability is determined at download time
         where_clause = "WHERE 1=1"
-        params = []
-
-        if storage_type:
-            where_clause += " AND (b.storage_type IS NULL OR b.storage_type = ?)"
-            params.append(storage_type)
+        params: list[str] = []
 
         # Total books (potential candidates for download)
         total_converted = await self._execute_count_query(f"SELECT COUNT(*) FROM books b {where_clause}", tuple(params))
@@ -895,7 +878,6 @@ class SQLiteProgressTracker:
             "pending": pending_count,
             "syncing": syncing_count,
             "decrypted": decrypted_count,
-            "storage_type": storage_type,
         }
 
     async def get_enrichment_stats(self) -> dict:
@@ -1212,7 +1194,7 @@ class SQLiteProgressTracker:
             (status_type, status_value),
         )
 
-    async def get_synced_books(self, storage_type: str) -> set[str]:
+    async def get_synced_books(self) -> set[str]:
         """Get set of barcodes that are already synced (completed status in book_status_history)."""
         return await self._execute_barcode_query(
             """
@@ -1388,21 +1370,6 @@ class SQLiteProgressTracker:
             (),
         )
 
-        # Storage breakdown by type
-        storage_breakdown = {}
-        cursor = await self._execute_query(
-            """
-            SELECT storage_type, COUNT(*) as count
-            FROM books
-            WHERE storage_type IS NOT NULL
-            GROUP BY storage_type
-            """,
-            (),
-        )
-        storage_rows = await cursor.fetchall()
-        for row in storage_rows:
-            storage_breakdown[row[0]] = row[1]
-
         return {
             "total_attempted": total_attempted,
             "total_uploaded": total_uploaded,
@@ -1410,7 +1377,6 @@ class SQLiteProgressTracker:
             "total_skipped": total_skipped,
             "sync_upload_rate_per_hour": uploads_in_24h / 24.0,
             "last_sync_time": last_sync_time,
-            "storage_breakdown": storage_breakdown,
         }
 
     async def get_pipeline_summary(self) -> dict:

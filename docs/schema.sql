@@ -61,7 +61,6 @@ CREATE TABLE IF NOT EXISTS books (
     marc_extraction_timestamp TEXT,
     
     -- Sync tracking for storage pipeline (status tracked in history table)
-    storage_type TEXT, -- "s3", "local"
     storage_path TEXT, -- Path to decrypted archive in storage
     last_etag_check TEXT, -- ISO timestamp of last ETag verification
     encrypted_etag TEXT, -- Encrypted file's ETag for duplicate detection
@@ -106,7 +105,6 @@ CREATE INDEX IF NOT EXISTS idx_books_barcode ON books(barcode);
 CREATE INDEX IF NOT EXISTS idx_books_enrichment ON books(enrichment_timestamp);
 CREATE INDEX IF NOT EXISTS idx_books_marc_extraction ON books(marc_extraction_timestamp);
 CREATE INDEX IF NOT EXISTS idx_books_grin_state ON books(grin_state);
-CREATE INDEX IF NOT EXISTS idx_books_storage_type ON books(storage_type);
 CREATE INDEX IF NOT EXISTS idx_books_processing_timestamp ON books(processing_request_timestamp);
 
 CREATE INDEX IF NOT EXISTS idx_processed_barcode ON processed(barcode);

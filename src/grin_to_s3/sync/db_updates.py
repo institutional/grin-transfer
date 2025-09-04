@@ -209,9 +209,6 @@ async def upload_completed(result: TaskResult, previous_results: dict[TaskType, 
     download_result = previous_results.get(TaskType.DOWNLOAD)
     etag = download_result.data.get("etag") if download_result and download_result.data else None
 
-    # Get storage type from upload result data (set by upload task)
-    storage_type = result.data.get("storage_type") if result.data else None
-
     books_updates = {
         "storage_path": path,
         "is_decrypted": True,
@@ -219,8 +216,6 @@ async def upload_completed(result: TaskResult, previous_results: dict[TaskType, 
     }
     if etag:
         books_updates["encrypted_etag"] = etag
-    if storage_type:
-        books_updates["storage_type"] = storage_type
 
     return {"status": ("sync", "uploaded", {"path": path} if path else None), "books": books_updates}
 
@@ -345,7 +340,6 @@ async def _execute_updates(conn, record_updates, barcode, now):
         await conn.execute(
             """
             UPDATE books SET
-                storage_type = COALESCE(?, storage_type),
                 storage_path = COALESCE(?, storage_path),
                 last_etag_check = COALESCE(?, last_etag_check),
                 encrypted_etag = COALESCE(?, encrypted_etag),
@@ -356,7 +350,6 @@ async def _execute_updates(conn, record_updates, barcode, now):
             WHERE barcode = ?
             """,
             (
-                sync_data.get("storage_type"),
                 sync_data.get("storage_path"),
                 sync_data.get("last_etag_check"),
                 sync_data.get("encrypted_etag"),

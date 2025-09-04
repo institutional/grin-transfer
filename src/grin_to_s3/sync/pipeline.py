@@ -320,7 +320,7 @@ class SyncPipeline:
 
     async def get_sync_status(self) -> dict:
         """Get current sync status and statistics."""
-        stats = await self.db_tracker.get_sync_stats(self.config.storage_config["protocol"])
+        stats = await self.db_tracker.get_sync_stats()
 
         return stats
 
@@ -388,9 +388,7 @@ class SyncPipeline:
                 books_already_synced = set()  # Skip DB check for specific barcodes
             else:
                 # Get books that are already synced
-                books_already_synced = await self.db_tracker.get_synced_books(
-                    storage_type=self.config.storage_config["protocol"]
-                )
+                books_already_synced = await self.db_tracker.get_synced_books()
 
             # Define task functions and limits
             task_funcs = {

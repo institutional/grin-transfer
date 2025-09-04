@@ -237,7 +237,7 @@ class TestRealDatabaseIntegration:
                 barcode="TEST123",
                 task_type=TaskType.UPLOAD,
                 action=TaskAction.COMPLETED,
-                data={"upload_path": "/bucket/TEST123.tar.gz", "storage_type": "s3"},
+                data={"upload_path": "/bucket/TEST123.tar.gz"},
             )
 
         previous_results = {
@@ -281,7 +281,7 @@ class TestRealDatabaseIntegration:
                 barcode="TEST123",
                 task_type=TaskType.UPLOAD,
                 action=TaskAction.COMPLETED,
-                data={"upload_path": "/bucket/TEST123.tar.gz", "storage_type": "s3"},
+                data={"upload_path": "/bucket/TEST123.tar.gz"},
             )
 
         previous_results = {
@@ -301,16 +301,15 @@ class TestRealDatabaseIntegration:
         # Verify sync data was updated in books table
         async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
             cursor = await db.execute(
-                "SELECT storage_type, storage_path, is_decrypted, encrypted_etag FROM books WHERE barcode = ?",
+                "SELECT storage_path, is_decrypted, encrypted_etag FROM books WHERE barcode = ?",
                 ("TEST123",),
             )
             row = await cursor.fetchone()
 
             assert row is not None
-            assert row[0] == "s3"  # storage_type
-            assert row[1] == "/bucket/TEST123.tar.gz"  # storage_path
-            assert row[2] == 1  # is_decrypted (SQLite stores as integer)
-            assert row[3] == "real_etag_value"  # encrypted_etag
+            assert row[0] == "/bucket/TEST123.tar.gz"  # storage_path
+            assert row[1] == 1  # is_decrypted (SQLite stores as integer)
+            assert row[2] == "real_etag_value"  # encrypted_etag
 
     @pytest.mark.asyncio
     async def test_failed_task_error_captured_in_database(self, real_db_pipeline):
