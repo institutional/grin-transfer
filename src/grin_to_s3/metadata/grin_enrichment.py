@@ -25,6 +25,7 @@ from grin_to_s3.common import (
 )
 from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.database.connections import connect_async
+from grin_to_s3.database.database_backup import upload_database_to_storage
 from grin_to_s3.database.database_utils import validate_database_file
 from grin_to_s3.logging_config import setup_logging
 from grin_to_s3.metadata.tsv_parser import parse_grin_tsv
@@ -497,6 +498,12 @@ Examples:
         if run_summary:
             run_summary.end_stage("enrich")
             await save_process_summary(run_summary, book_manager)
+
+            # Upload books database to storage
+            if book_manager:
+                await upload_database_to_storage(
+                    str(run_config.sqlite_db_path), book_manager, args.run_name, upload_type="latest"
+                )
 
             # Display completion summary
             display_step_summary(run_summary, "enrich")
