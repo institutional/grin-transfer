@@ -36,7 +36,7 @@ class TestProcessingClientDataIntegrity:
     @pytest.fixture
     def processing_client(self):
         """Create a ProcessingClient for testing."""
-        client = ProcessingClient(directory="test_dir", rate_limit_delay=0)
+        client = ProcessingClient(directory="test_dir")
         # Replace grin_client with mock to avoid authentication issues
         client.grin_client = MockProcessingClient()
         return client
@@ -307,9 +307,7 @@ class TestProcessingPipelineBarcodeFunctionality:
         mock_stage.add_progress_update = Mock()
         mock_stage.add_error = Mock()
 
-        pipeline = ProcessingPipeline(
-            db_path=str(db_path), directory="test_dir", process_summary_stage=mock_stage, rate_limit_delay=0
-        )
+        pipeline = ProcessingPipeline(db_path=str(db_path), directory="test_dir", process_summary_stage=mock_stage)
 
         # Replace grin_client with mock to avoid authentication issues
         pipeline.processing_client.grin_client = MockProcessingClient()  # type: ignore

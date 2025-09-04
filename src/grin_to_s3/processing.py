@@ -17,7 +17,6 @@ from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import (
     BarcodeSet,
-    RateLimiter,
     format_duration,
     parse_barcode_arguments,
     pluralize,
@@ -34,7 +33,7 @@ from grin_to_s3.process_summary import (
 )
 from grin_to_s3.run_config import apply_run_config_to_args, load_run_config
 
-from .constants import GRIN_RATE_LIMIT_DELAY, OUTPUT_DIR
+from .constants import OUTPUT_DIR
 from .database import connect_async
 from .queue_utils import get_in_process_set
 
@@ -65,16 +64,11 @@ class ProcessingClient:
     def __init__(
         self,
         directory: str,
-        rate_limit_delay: float = 0.2,  # 5 QPS
         secrets_dir: str | None = None,
         timeout: int = 60,
     ):
         self.directory = directory
         self.grin_client = GRINClient(timeout=timeout, secrets_dir=secrets_dir)
-
-        # Rate limiting
-        requests_per_second = 1.0 / rate_limit_delay if rate_limit_delay > 0 else 5.0
-        self.rate_limiter = RateLimiter(requests_per_second=requests_per_second)
 
         # In-memory tracking for batch database updates
         self.requested_books: set[str] = set()  # Track books we've requested processing for
@@ -103,8 +97,6 @@ class ProcessingClient:
         """
         if not barcodes:
             return {}
-
-        await self.rate_limiter.acquire()
 
         # Use GRIN's _process endpoint with comma-separated barcodes
         barcodes_param = ",".join(barcodes)
@@ -156,14 +148,12 @@ class ProcessingPipeline:
         db_path: str,
         directory: str,
         process_summary_stage,
-        rate_limit_delay: float = 0.2,  # 5 QPS
         batch_size: int = 200,  # Increased from 100 based on testing
         max_in_process: int = 50000,  # GRIN's max queue limit
         secrets_dir: str | None = None,
     ):
         self.db_path = db_path
         self.directory = directory
-        self.rate_limit_delay = rate_limit_delay
         self.batch_size = batch_size
         self.max_in_process = max_in_process
         self.process_summary_stage = process_summary_stage
@@ -171,7 +161,6 @@ class ProcessingPipeline:
         # Initialize components
         self.processing_client = ProcessingClient(
             directory=directory,
-            rate_limit_delay=rate_limit_delay,
             secrets_dir=secrets_dir,
         )
         self.db_tracker = SQLiteProgressTracker(db_path)
@@ -287,7 +276,7 @@ class ProcessingPipeline:
         print("Starting GRIN book processing request pipeline")
         print(f"Database: {self.db_path}")
         print(f"Directory: {self.directory}")
-        print(f"Rate limit: {1 / self.rate_limit_delay:.1f} requests/second")
+        print(f"Max concurrent batches: {self.max_concurrent_batches}")
         print(f"Max in process: {self.max_in_process:,}")
         if limit:
             print(f"Limit: {limit:,} {pluralize(limit, 'request')}")
@@ -652,7 +641,7 @@ async def cmd_request(args) -> None:
     logger = logging.getLogger(__name__)
     logger.info(
         f"PROCESSING PIPELINE STARTED - {args.command} directory={args.grin_library_directory} "
-        f"rate_limit={args.rate_limit} batch_size={args.batch_size}"
+        f"batch_size={args.batch_size}"
     )
     logger.info(f"Command: {' '.join(sys.argv)}")
 
@@ -666,7 +655,6 @@ async def cmd_request(args) -> None:
     run_summary = await create_process_summary(run_name, "process", book_manager)
     process_stage = get_current_stage(run_summary, "process")
     process_stage.set_command_arg("grin_library_directory", args.grin_library_directory)
-    process_stage.set_command_arg("rate_limit", args.rate_limit)
     process_stage.set_command_arg("batch_size", args.batch_size)
     process_stage.set_command_arg("max_in_process", args.max_in_process)
     if args.limit:
@@ -692,7 +680,6 @@ async def cmd_request(args) -> None:
                 db_path=str(OUTPUT_DIR / args.run_name / "books.db"),
                 directory=args.grin_library_directory,
                 process_summary_stage=process_stage,
-                rate_limit_delay=args.rate_limit,
                 batch_size=args.batch_size,
                 max_in_process=args.max_in_process,
                 secrets_dir=args.secrets_dir,
@@ -741,7 +728,6 @@ def _create_processing_client(library_directory: str, secrets_dir: str | None = 
     """
     return ProcessingClient(
         directory=library_directory,
-        rate_limit_delay=GRIN_RATE_LIMIT_DELAY,
         secrets_dir=secrets_dir,
     )
 
@@ -823,9 +809,6 @@ Examples:
   # Request processing with limits
   python grin.py process request --run-name harvard_2024 --limit 100
 
-  # Custom rate limiting
-  python grin.py process request --run-name harvard_2024 --rate-limit 0.1
-
   # Process specific barcodes
   python grin.py process request --run-name harvard_2024 --barcodes "YL1BTJ,ABC123,XYZ789"
         """,
@@ -834,9 +817,6 @@ Examples:
     request_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
 
     # Processing options
-    request_parser.add_argument(
-        "--rate-limit", type=float, default=0.2, help="Delay between requests (default: 0.2s for 5 QPS)"
-    )
     request_parser.add_argument("--batch-size", type=int, default=200, help="Batch size for processing (default: 200)")
     request_parser.add_argument(
         "--max-in-process", type=int, default=50000, help="Maximum books in GRIN queue (default: 50000)"
