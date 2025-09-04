@@ -8,24 +8,24 @@ In typical usage, you will **collect** a local copy of your library's Google Boo
 
 - [Prerequisites](#prerequisites)
   - [Set up OAuth2 client credentials](#set-up-oauth2-client-credentials)
-- [Installation requirements](#installation-requirements)
-  - [Quick start with docker (recommended)](#quick-start-with-docker-recommended)
-  - [Local installation](#local-installation)
+- [Installation](#installation-requirements)
+  - [Docker (recommended)](#quick-start-with-docker-recommended)
+  - [Local](#local-installation)
 - [Pipeline concepts](#pipeline-concepts)
   - [Runs](#runs)
   - [Storage](#storage)
   - [Staging](#staging)
 - [Pipeline steps](#pipeline-steps)
-- [Core Commands](#core-commands)
+- [Core commands](#core-commands)
   - [1. Book Collection: `grin.py collect`](#1-book-collection-grinpy-collect)
   - [2. Processing Management: `grin.py process`](#2-processing-management-grinpy-process)
   - [3. Sync Pipeline: `grin.py sync pipeline`](#3-sync-pipeline-grinpy-sync-pipeline)
   - [4. Metadata enrichment: `grin.py enrich`](#4-metadata-enrichment-grinpy-enrich)
   - [5. Storage Management: `grin.py storage`](#5-storage-management-grinpy-storage)
-- [File Outputs](#file-outputs)
-  - [Data Dictionary](#data-dictionary)
-- [Storage Backends](#storage-backends)
-  - [Local Storage](#local-storage)
+- [File outputs](#file-outputs)
+  - [Data dictionary](#data-dictionary)
+- [Storage backends](#storage-backends)
+  - [Local filesystem](#local-storage)
   - [AWS S3](#aws-s3)
   - [Cloudflare R2](#cloudflare-r2)
   - [Google Cloud Storage (GCS)](#google-cloud-storage-gcs)
@@ -63,7 +63,7 @@ down arrow with a line under it.
 
 [↑ Back to the top](#grin-to-s3)
 
-## Installation requirements
+## Installation
 
 The GRIN-to-S3 pipeline can be installed via docker, or directly on a target Linux-like or MacOS machine.
 
@@ -155,7 +155,7 @@ Finally, there are utilities for managing your storage and gathering statistics 
 
 [↑ Back to the top](#grin-to-s3) 
 
-## Core Commands
+## Core commands
 
 The pipeline provides a unified command-line interface via `grin.py`, with subcommands that map to the pipeline steps. When installed via docker, for convenience these can all be called from outside the contanier as `grin-docker <subcommand>`.
 
@@ -241,7 +241,7 @@ Manage storage buckets with fast listing and deletion.
 
 [↑ Back to the top](#grin-to-s3)
 
-## File Outputs
+## File outputs
 
 Each run creates organized output in `output/{run_name}/`:
 - `books.db` - SQLite database with all book records and sync status
@@ -390,10 +390,10 @@ The metadata combines information from multiple authoritative sources:
 
 </details>
 
-### Storage Backends
+### Storage backends
 
 <details>
-<summary><strong>Local Storage</strong></summary>
+<summary><strong>Local filesystem</strong></summary>
 
 If you have a large enough locally-mounted filesystem, you can sync directly to it. This process is significantly faster than using a block storage system, though typically the limiting factor on syncs is GRIN, not network egress.
 
