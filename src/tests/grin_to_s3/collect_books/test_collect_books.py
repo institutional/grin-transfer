@@ -487,7 +487,6 @@ class TestBookCollector:
             )
 
             exporter = BookCollector(
-                directory="TestLibrary",
                 process_summary_stage=mock_process_stage,
                 storage_config=storage_config,
                 run_config=config,
@@ -501,7 +500,6 @@ class TestBookCollector:
 
             # Create new exporter with same database to test persistence
             exporter2 = BookCollector(
-                directory="TestLibrary",
                 process_summary_stage=mock_process_stage,
                 storage_config=storage_config,
                 run_config=config,
@@ -703,7 +701,6 @@ class TestBookCollectionIntegration:
 
             # This should not raise an exception
             collector = BookCollector(
-                "TestDirectory",
                 process_summary_stage=mock_process_stage,
                 storage_config=storage_config,
                 run_config=run_config,

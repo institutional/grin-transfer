@@ -24,8 +24,6 @@ logger = logging.getLogger(__name__)
 # HTTP connection pool limits for GRIN client
 HTTP_CONNECTION_POOL_LIMITS = {"limit": 10, "limit_per_host": 5}
 
-ALL_BOOKS_ENDPOINT = "_all_books"
-
 
 GRINRow = dict[str, str]  # Type alias for book data with dynamic keys
 
