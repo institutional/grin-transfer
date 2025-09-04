@@ -77,8 +77,6 @@ class BookCollector:
         logger.info("Streaming converted books from GRIN...")
 
         book_count = 0
-        phase1_start_time = time.time()
-        phase1_rate_calculator = SlidingWindowRateCalculator(window_size=5)
 
         async for (
             book_row,
@@ -92,18 +90,6 @@ class BookCollector:
         ):
             yield book_row, known_barcodes
             book_count += 1
-
-            # Show progress every N items to match main collection frequency
-            if book_count % PROGRESS_UPDATE_FREQUENCY == 0:
-                extra_info = {"current": book_row.get("barcode", "unknown")} if book_row.get("barcode") else None
-                show_progress(
-                    start_time=phase1_start_time,
-                    total_items=None,  # Unknown total for converted books
-                    rate_calculator=phase1_rate_calculator,
-                    completed_count=book_count,
-                    operation_name="barcode records",
-                    extra_info=extra_info,
-                )
 
     async def get_all_books_html(
         self,
