@@ -215,7 +215,7 @@ Each run creates organized output in `output/{run_name}/`:
 ### Data Dictionary
 
 <details>
-<summary><strong>CSV Metadata Fields (58 columns)</strong></summary>
+<summary><strong>CSV Metadata Fields</strong></summary>
 
 The CSV export contains comprehensive metadata drawn from multiple sources through a three-step process:
 
@@ -232,7 +232,7 @@ Each book is represented as a single row with the following fields:
 
 #### Core Identification
 - **Barcode** - String. The unique barcode identifier used by your institution and Google Books to identify each volume *(Collection step)*
-- **Title** - String. Book title extracted from MARC metadata when available *(Collection step)*
+- **Title** - String. Book title as reported by GRIN *(Collection step)*
 
 #### GRIN Processing Timestamps
 Dates from Google's GRIN system are in YYYY/MM/DD HH:MM format:
@@ -244,7 +244,7 @@ Dates from Google's GRIN system are in YYYY/MM/DD HH:MM format:
 - **Analyzed Date** - Datetime (YYYY/MM/DD HH:MM). Date when Google completed content analysis *(Collection step)*
 - **OCR Date** - Datetime (YYYY/MM/DD HH:MM). Date when optical character recognition was last performed on the book images *(Collection step)*
 - **Google Books Link** - URL. Public-facing Google Books URL for this volume *(Collection step)*
-- **Processing Request Timestamp** - ISO8601 Datetime (UTC). When this book was submitted to Google's conversion queue *(Internal)*
+- **Processing Request Timestamp** - ISO8601 Datetime (UTC). When this book was submitted to Google's conversion queue by this tool *(Internal)*
 
 #### GRIN State and Quality Metrics
 Most fields populated from Google's detailed enrichment TSV data accessed via the GRIN API:
@@ -296,13 +296,11 @@ Extracted from Google Books' METS XML files containing institutional MARC record
 #### Storage and Sync Tracking
 Pipeline-managed fields for tracking storage backend operations:
 
-- **Storage Type** - String. Backend storage type. Values: `r2`, `s3`, `minio`, `local` *(Internal)*
 - **Storage Path** - String. Full path to decrypted archive in storage (e.g., `bucket-raw/BARCODE/BARCODE.tar.gz`) *(Internal)*
 - **Last ETag Check** - ISO8601 Datetime (UTC). When storage ETag was last verified for integrity *(Internal)*
 - **Encrypted ETag** - String. ETag hash of encrypted archive for integrity verification *(Internal)*
-- **Is Decrypted** - Integer (0/1). Whether archive has been decrypted locally (0 = not decrypted, 1 = decrypted) *(Internal)*
-- **Sync Timestamp** - ISO8601 Datetime (UTC). When storage sync was completed successfully *(Internal)*
-- **Sync Error** - String. Error message if sync failed (empty if successful) *(Internal)*
+- **Is Decrypted** - Integer (0/1). Whether archive has been decrypted locally *(Internal)*
+- **Sync Timestamp** - ISO8601 Datetime (UTC). When storage sync was last completed successfully *(Internal)*
 
 #### Record Keeping
 - **Created At** - ISO8601 Datetime (UTC). When book record was first created in local database *(Internal)*
@@ -329,24 +327,6 @@ Each line contains a JSON-encoded string with the OCR text for one page:
 "This is the OCR text content from page 3 of the book..."
 ```
 
-#### Key Features
-- **Sequential page order** - Line 1 = Page 1, Line 2 = Page 2, etc.
-- **Simple text strings** - Each line contains only the OCR text content for that page
-- **No embedded metadata** - Book metadata is available in the CSV export, matched by barcode
-- **Cross-referencing** - Use the barcode from the filename to find corresponding CSV metadata
-- **Memory efficient** - Can be processed line-by-line for large books
-- **Supports compression** - Files may be gzipped (.gz extension) based on configuration
-
-#### Usage Examples
-```python
-# Read JSONL file line by line
-import json
-with open('barcode123_ocr.jsonl', 'r') as f:
-    for page_num, line in enumerate(f, 1):
-        page_text = json.loads(line.strip())
-        print(f"Page {page_num}: {page_text[:100]}...")
-```
-
 </details>
 
 <details>
@@ -356,31 +336,27 @@ The metadata combines information from multiple authoritative sources:
 
 #### Google Books GRIN API
 - Core book identification (barcode, Google Books links)
-- Processing timestamps (scanned, converted, downloaded, processed, analyzed, OCR dates)
-- State and quality metrics (viewability, error percentages, OCR scores)
-- Processing conditions and flags
+- Physical book processing timestamps (scanned, converted, downloaded, processed, analyzed, OCR dates)
+- OCR state and quality metrics (viewability, error percentages, OCR scores)
 
 #### Google Books GRIN Enrichment TSV
 - Detailed quality and condition metadata
 - Digitization method and facility information
-- Enhanced error reporting and analysis scores
 
 #### Institutional MARC Records
-- Bibliographic metadata from your library's catalog
 - Extracted from Google's METS XML files
 - Author, title, subject, and classification information
 
 #### Pipeline Processing
 - Storage backend tracking and sync status
 - Export timestamps and processing metadata
-- Record creation and update tracking
 
 </details>
 
 ### Storage Backends
 
 <details>
-<summary>**Local Storage:**</summary>
+<summary><strong>Local Storage</strong></summary>
 
 If you have a large enough locally-mounted filesystem, you can sync directly to it. This process is significantly faster than using a block storage system, though typically the limiting factor on syncs is GRIN, not network egress.
 
@@ -392,7 +368,7 @@ python grin.py collect --run-name "local" --library-directory YOUR_LIBRARY_DIREC
 </details>
 
 <details>
-<summary>**AWS S3:**</summary>
+<summary><strong>AWS S3</strong></summary>
 
 In AWS, create three buckets for raw archives, full-text, and metadata. Create an IAM user with access to those buckets, and an access key and ID associated with that user.
 
@@ -445,7 +421,8 @@ EOF
 ```
 
 
-# Then run collection with the appropriate bucket names
+Then run collection with the appropriate bucket names
+```
 python grin.py collect --run-name "s3" --library-directory YOUR_LIBRARY_DIRECTORY --storage s3 --bucket-raw YOUR_RAW_BUCKET --bucket-full YOUR_FULL_BUCKET --bucket-meta YOUR_META_BUCKET
 ```
 
@@ -453,7 +430,7 @@ Any other boto-compatible access model should also work; for example if run on a
 </details>
 
 <details>
-<summary>**Cloudflare R2:**</summary>
+<summary><strong>Cloudflare R2</strong></summary>
 
 For convenience, a sample configuration file has been provided where you can specify credentials and configuration.
 
@@ -466,7 +443,7 @@ python grin.py collect --run-name "r2" --library-directory YOUR_LIBRARY_DIRECTOR
 </details>
 
 <details>
-<summary>**Google Cloud Storage (GCS):**</summary>
+<summary><strong>Google Cloud Storage (GCS)</strong></summary>
 
 You will need the three buckets, plus your GCS project ID.
 
