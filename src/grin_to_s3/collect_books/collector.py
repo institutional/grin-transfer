@@ -48,9 +48,11 @@ class BookCollector:
         run_config: RunConfig,
         rate_limit: float = 1.0,
         secrets_dir: str | None = None,
+        refresh_mode: bool = False,
     ):
         # Load or use provided configuration
         self.run_config = run_config
+        self.refresh_mode = refresh_mode
 
         self.directory = self.run_config.library_directory
         self.process_summary_stage = process_summary_stage
@@ -70,17 +72,15 @@ class BookCollector:
 
     async def get_converted_books_html(
         self,
-    ) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
+    ) -> AsyncGenerator[GRINRow, None]:
         """Stream converted books from GRIN using HTML pagination with full metadata."""
         logger.info("Streaming converted books from GRIN...")
 
         book_count = 0
-        phase1_start_time = time.time()
-        phase1_rate_calculator = SlidingWindowRateCalculator(window_size=5)
 
         async for (
             book_row,
-            known_barcodes,
+            _,
         ) in self.grin_client.stream_book_list_html_prefetch(
             self.directory,
             list_type="_converted",
@@ -88,24 +88,12 @@ class BookCollector:
             start_page=1,
             sqlite_tracker=self.sqlite_tracker,
         ):
-            yield book_row, known_barcodes
+            yield book_row
             book_count += 1
-
-            # Show progress every N items to match main collection frequency
-            if book_count % PROGRESS_UPDATE_FREQUENCY == 0:
-                extra_info = {"current": book_row.get("barcode", "unknown")} if book_row.get("barcode") else None
-                show_progress(
-                    start_time=phase1_start_time,
-                    total_items=None,  # Unknown total for converted books
-                    rate_calculator=phase1_rate_calculator,
-                    completed_count=book_count,
-                    operation_name="barcode records",
-                    extra_info=extra_info,
-                )
 
     async def get_all_books_html(
         self,
-    ) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
+    ) -> AsyncGenerator[GRINRow, None]:
         """Stream non-converted books from GRIN using HTML pagination with large page sizes.
 
         Note: _all_books endpoint actually returns 'all books except converted', not truly all books.
@@ -117,7 +105,7 @@ class BookCollector:
 
         async for (
             book_row,
-            known_barcodes,
+            _,
         ) in self.grin_client.stream_book_list_html_prefetch(
             directory=self.directory,
             list_type="_all_books",
@@ -125,13 +113,13 @@ class BookCollector:
             start_page=1,
             sqlite_tracker=self.sqlite_tracker,
         ):
-            yield book_row, known_barcodes
+            yield book_row
             book_count += 1
 
             if book_count % 5000 == 0:
                 logger.info(f"Streamed {book_count:,} non-converted {pluralize(book_count, 'book')}...")
 
-    async def get_all_books(self, limit: int | None = None) -> AsyncGenerator[tuple[GRINRow, set[str]], None]:
+    async def get_all_books(self, limit: int | None = None) -> AsyncGenerator[GRINRow, None]:
         """Stream all book data from GRIN using two-pass collection with full metadata.
 
         First pass: Collect converted books with full metadata from _converted endpoint
@@ -143,16 +131,16 @@ class BookCollector:
             limit: Maximum number of books to yield across both phases
 
         Yields:
-            tuple[GRINRow, set[str]]: (book_row, known_barcodes)
+            GRINRow: book_row
         """
         total_yielded = 0
         # First pass: Get converted books with full metadata
         print("Phase 1: Collecting converted books with full metadata...")
         converted_count = 0
-        async for book_row, known_barcodes in self.get_converted_books_html():
+        async for book_row in self.get_converted_books_html():
             if limit and total_yielded >= limit:
                 break
-            yield book_row, known_barcodes
+            yield book_row
             converted_count += 1
             total_yielded += 1
 
@@ -163,10 +151,10 @@ class BookCollector:
         if not limit or total_yielded < limit:
             print("Phase 2: Collecting non-converted books...")
             non_converted_count = 0
-            async for book_row, known_barcodes in self.get_all_books_html():
+            async for book_row in self.get_all_books_html():
                 if limit and total_yielded >= limit:
                     break
-                yield book_row, known_barcodes
+                yield book_row
                 non_converted_count += 1
                 total_yielded += 1
 
@@ -190,7 +178,10 @@ class BookCollector:
         Returns:
             True if collection completed successfully, False if interrupted or incomplete
         """
-        print("Starting book collection")
+        if self.refresh_mode:
+            print("Starting book collection in refresh mode (updates existing, adds new)")
+        else:
+            print("Starting book collection")
         if limit:
             print(f"Limit: {limit:,} {pluralize(limit, 'book')}")
             print("\n⚠️  WARNING: Using --limit will result in an incomplete collection only suitable for quick tests.")
@@ -229,7 +220,7 @@ class BookCollector:
             # Process books one by one using configured data mode
             last_book_time = time.time()
             book_count_in_loop = 0
-            async for grin_row, known_barcodes_on_page in self.get_all_books(limit=limit):
+            async for grin_row in self.get_all_books(limit=limit):
                 current_time = time.time()
                 time_since_last = current_time - last_book_time
                 book_count_in_loop += 1
@@ -260,9 +251,7 @@ class BookCollector:
                 if not barcode:
                     continue
 
-                # Skip if already processed (using batch SQLite results)
-                if barcode in known_barcodes_on_page:
-                    continue
+                # Process all books - let database UPSERT handle duplicates safely
 
                 # Process the book
                 try:
@@ -346,9 +335,6 @@ class BookCollector:
 
         barcode = parsed_data["barcode"]
 
-        if await self.sqlite_tracker.is_processed(barcode):
-            return None  # Already processed
-
         try:
             # Create record
             record = BookRecord(**parsed_data)
@@ -359,10 +345,8 @@ class BookCollector:
                     f"[{barcode}] GRIN returned empty title field; okay only if book is not available for download"
                 )
 
-            # Save book record to SQLite database (blocking to ensure data integrity)
-            # Note: Main network/processing work remains parallel; only DB writes are synchronous
-            # to prevent race condition where limit is reached before all books are saved
-            await self.sqlite_tracker.save_book(record)
+            # Let the database handle everything via UPSERT
+            await self.sqlite_tracker.save_book(record, refresh_mode=self.refresh_mode)
 
             # Mark as processed for progress tracking
             await self.sqlite_tracker.mark_processed(barcode)

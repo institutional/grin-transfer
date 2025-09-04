@@ -111,7 +111,7 @@ async def test_client_collector_integration():
                 try:
                     # Test that collector can handle GRINRow from get_converted_books_html
                     books = []
-                    async for book_data, _known_barcodes in collector.get_converted_books_html():
+                    async for book_data in collector.get_converted_books_html():
                         books.append(book_data)
                         if len(books) >= 1:  # Just test one book
                             break
@@ -167,7 +167,7 @@ async def test_collector_stream_all_books_integration():
             try:
                 # This should not crash with attribute errors (including missing load_known_barcodes_batch)
                 books = []
-                async for book_data, _known_barcodes in collector.get_all_books():
+                async for book_data in collector.get_all_books():
                     books.append(book_data)
                     if len(books) >= 1:
                         break

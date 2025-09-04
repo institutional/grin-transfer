@@ -21,6 +21,7 @@ from grin_to_s3.storage.factories import create_local_storage_directories
 from .collector import BookCollector
 
 sys.path.append("..")
+from grin_to_s3.database.database_backup import upload_database_to_storage
 from grin_to_s3.logging_config import (
     setup_logging,
 )
@@ -63,63 +64,6 @@ if hasattr(sys.stderr, "reconfigure"):
 logger = logging.getLogger(__name__)
 
 
-def print_resume_command(args, run_name: str) -> None:
-    """
-    Print the command to resume an interrupted collection.
-
-    Args:
-        args: Parsed command line arguments
-        run_name: The run name for this collection
-    """
-    print("\n" + "=" * 60)
-    print("TO RESUME THIS COLLECTION:")
-    print("=" * 60)
-
-    # Build the resume command
-    cmd_parts = ["python grin.py collect"]
-
-    # Add run name (most important for resume)
-    cmd_parts.append(f'--run-name "{run_name}"')
-
-    # Add other important arguments that should be preserved
-    if args.limit:
-        cmd_parts.append(f"--limit {args.limit}")
-
-    # Directory is passed via --library-directory argument
-    cmd_parts.append(f'--library-directory "{args.library_directory}"')
-
-    if args.rate_limit != 5.0:  # Only if not default
-        cmd_parts.append(f"--rate-limit {args.rate_limit}")
-
-    if args.storage:
-        cmd_parts.append(f"--storage {args.storage}")
-        if args.bucket_raw:
-            cmd_parts.append(f"--bucket-raw {args.bucket_raw}")
-        if args.bucket_meta:
-            cmd_parts.append(f"--bucket-meta {args.bucket_meta}")
-        if args.bucket_full:
-            cmd_parts.append(f"--bucket-full {args.bucket_full}")
-        if args.storage_config:
-            for config_item in args.storage_config:
-                cmd_parts.append(f"--storage-config {config_item}")
-
-    if args.config_file:
-        cmd_parts.append(f'--config-file "{args.config_file}"')
-
-    # Custom output file path (if specified)
-    if args.output_file:
-        cmd_parts.insert(1, f'"{args.output_file}"')  # Add after script name
-
-    resume_command = " ".join(cmd_parts)
-    print(f"\n{resume_command}")
-    print(f"\nRun directory: output/{run_name}/")
-    print("\nTo enrich metadata:")
-    print(f"python grin.py enrich --run-name {run_name}")
-    print("\nTo check status:")
-    print(f"python grin.py status --run-name {run_name}")
-    print("=" * 60)
-
-
 async def main():
     """CLI interface for book collection pipeline."""
     parser = argparse.ArgumentParser(
@@ -151,6 +95,11 @@ Examples:
 
     # Export options
     parser.add_argument("--limit", type=int, help="Limit number of books to process (for testing)")
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Update metadata for existing books and add new ones (default: skip existing books)",
+    )
 
     # Logging options
     parser.add_argument(
@@ -351,7 +300,7 @@ Examples:
         try:
             # Upload config to storage if available
             if book_manager:
-                storage_path = book_manager.meta_path(f"{run_name}/run_config.json")
+                storage_path = book_manager.meta_path("run_config.json")
                 await book_manager.storage.write_file(storage_path, str(config_path))
                 logger.info(f"Configuration uploaded to storage: {storage_path}")
 
@@ -367,6 +316,7 @@ Examples:
                 storage_config=storage_config,
                 run_config=run_config,
                 secrets_dir=args.secrets_dir,
+                refresh_mode=args.refresh,
             )
 
             # Run book collection with pagination
@@ -378,8 +328,6 @@ Examples:
                 collect_stage.add_progress_update("Collection completed successfully")
             else:
                 collect_stage.add_progress_update("Collection incomplete - interrupted or limited")
-                # Show resume command if collection was not completed
-                print_resume_command(args, run_name)
 
             return 0
 
@@ -401,6 +349,9 @@ Examples:
             # Always end the stage and save summary
             run_summary.end_stage("collect")
             await save_process_summary(run_summary, book_manager)
+
+            # Upload books database to storage
+            await upload_database_to_storage(str(sqlite_db_path), book_manager, run_name, upload_type="latest")
 
             # Clean up book manager storage resources
             if "book_manager" in locals() and book_manager and hasattr(book_manager, "storage"):

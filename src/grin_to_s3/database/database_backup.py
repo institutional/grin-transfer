@@ -131,12 +131,12 @@ async def upload_database_to_storage(
         if upload_type == "latest":
             base_filename = "books_latest.db"
             compressed_filename = get_compressed_filename(base_filename)
-            storage_path = book_manager.meta_path(f"{run_name}/{compressed_filename}")
+            storage_path = book_manager.meta_path(compressed_filename)
         else:  # timestamped
             timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
             base_filename = f"books_{timestamp}.db"
             compressed_filename = get_compressed_filename(base_filename)
-            storage_path = book_manager.meta_path(f"{run_name}/timestamped/{compressed_filename}")
+            storage_path = book_manager.meta_path(f"timestamped/{compressed_filename}")
 
         result["backup_filename"] = compressed_filename
 
