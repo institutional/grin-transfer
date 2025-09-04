@@ -356,7 +356,7 @@ Examples:
         try:
             # Upload config to storage if available
             if book_manager:
-                storage_path = book_manager.meta_path(f"{run_name}/run_config.json")
+                storage_path = book_manager.meta_path("run_config.json")
                 await book_manager.storage.write_file(storage_path, str(config_path))
                 logger.info(f"Configuration uploaded to storage: {storage_path}")
 
