@@ -111,7 +111,6 @@ class BookRecord:
     encrypted_etag: str | None = field(default=None, metadata={"csv": "Encrypted ETag"})
     is_decrypted: bool = field(default=False, metadata={"csv": "Is Decrypted"})
     sync_timestamp: str | None = field(default=None, metadata={"csv": "Sync Timestamp"})
-    sync_error: str | None = field(default=None, metadata={"csv": "Sync Error"})
 
     # Record keeping
     created_at: str | None = field(default=None, metadata={"csv": "Created At"})
@@ -659,7 +658,6 @@ class SQLiteProgressTracker:
                 encrypted_etag = COALESCE(?, encrypted_etag),
                 is_decrypted = COALESCE(?, is_decrypted),
                 sync_timestamp = ?,
-                sync_error = COALESCE(?, sync_error),
                 updated_at = ?
             WHERE barcode = ?
         """
@@ -670,7 +668,6 @@ class SQLiteProgressTracker:
             sync_data.get("encrypted_etag"),
             sync_data.get("is_decrypted", False),
             sync_data.get("sync_timestamp", now),
-            sync_data.get("sync_error"),
             now,
             barcode,
         )

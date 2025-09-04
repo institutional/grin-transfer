@@ -67,7 +67,6 @@ CREATE TABLE IF NOT EXISTS books (
     encrypted_etag TEXT, -- Encrypted file's ETag for duplicate detection
     is_decrypted BOOLEAN DEFAULT FALSE, -- Whether decrypted version exists
     sync_timestamp TEXT, -- ISO timestamp of last successful sync
-    sync_error TEXT, -- Error message if sync failed
     
     -- Record keeping
     created_at TEXT NOT NULL,

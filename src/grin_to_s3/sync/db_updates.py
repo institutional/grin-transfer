@@ -351,7 +351,6 @@ async def _execute_updates(conn, record_updates, barcode, now):
                 encrypted_etag = COALESCE(?, encrypted_etag),
                 is_decrypted = COALESCE(?, is_decrypted),
                 sync_timestamp = COALESCE(?, sync_timestamp),
-                sync_error = COALESCE(?, sync_error),
                 processing_request_timestamp = COALESCE(?, processing_request_timestamp),
                 updated_at = ?
             WHERE barcode = ?
@@ -363,7 +362,6 @@ async def _execute_updates(conn, record_updates, barcode, now):
                 sync_data.get("encrypted_etag"),
                 sync_data.get("is_decrypted"),
                 sync_data.get("sync_timestamp"),
-                sync_data.get("sync_error"),
                 sync_data.get("processing_request_timestamp"),
                 now,
                 barcode,
