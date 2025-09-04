@@ -43,23 +43,18 @@ class TestHandlerRegistration:
 
     def test_handler_registration(self):
         """@on decorator should register handlers in UPDATE_HANDLERS registry."""
-        # Clear any existing handlers for this test
+        # Test that existing handlers are properly registered
         test_key = (TaskType.CHECK, TaskAction.COMPLETED)
-        if test_key in UPDATE_HANDLERS:
-            del UPDATE_HANDLERS[test_key]
 
-        @on(TaskType.CHECK, TaskAction.COMPLETED, "test_status", "test_value")
-        def test_handler(result, pipeline_data):
-            return {"metadata": {"test": True}}
-
-        # Verify handler was registered
-        assert test_key in UPDATE_HANDLERS
+        # Verify the production handler exists
+        assert test_key in UPDATE_HANDLERS, f"Expected production handler for {test_key} to be registered"
         handlers = UPDATE_HANDLERS[test_key]
-        assert len(handlers) == 1
+        assert len(handlers) == 1, f"Expected exactly one handler for {test_key}"
+
         handler_func, status_type, status_value = handlers[0]
-        assert handler_func == test_handler
-        assert status_type == "test_status"
-        assert status_value == "test_value"
+        assert callable(handler_func), "Handler function should be callable"
+        assert status_type == "sync", f"Expected status_type 'sync', got '{status_type}'"
+        assert status_value == "checked", f"Expected status_value 'checked', got '{status_value}'"
 
 
 class TestHandlerBehavior:
