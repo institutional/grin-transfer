@@ -6,7 +6,7 @@ Eliminates circular import dependencies by consolidating storage functionality.
 """
 
 # Core storage classes and interfaces
-from .base import BackendConfig, Storage, StorageError, StorageNotFoundError
+from .base import BackendConfig, Storage, StorageNotFoundError
 
 # Book-specific storage operations
 from .book_manager import BookManager
@@ -28,7 +28,6 @@ __all__ = [
     # Base classes
     "Storage",
     "BackendConfig",
-    "StorageError",
     "StorageNotFoundError",
     # Factories
     "create_storage_from_config",

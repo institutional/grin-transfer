@@ -23,13 +23,7 @@ from ..constants import DEFAULT_S3_MAX_POOL_CONNECTIONS
 logger = logging.getLogger(__name__)
 
 
-class StorageError(Exception):
-    """Base exception for storage operations."""
-
-    pass
-
-
-class StorageNotFoundError(StorageError):
+class StorageNotFoundError(Exception):
     """Raised when storage object doesn't exist."""
 
     pass
