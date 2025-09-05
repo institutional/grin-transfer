@@ -14,12 +14,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
 
-from ..database.database_backup import upload_database_to_storage
+from ..database.database_backup import DatabaseBackupResult, upload_database_to_storage
 from .tasks import export_csv
 from .tasks.task_types import (
     CsvExportTeardownResult,
-    FinalDatabaseUploadData,
-    FinalDatabaseUploadResult,
     StagingCleanupData,
     StagingCleanupResult,
     TaskAction,
@@ -57,43 +55,6 @@ async def run_csv_export(pipeline: "SyncPipeline") -> CsvExportTeardownResult:
             action=TaskAction.FAILED,
             error=f"CSV export failed: {e}",
         )
-
-
-async def run_final_database_upload(pipeline: "SyncPipeline") -> FinalDatabaseUploadResult:
-    """Upload final database state as latest version to storage."""
-    if pipeline.dry_run:
-        logger.debug("Final database upload skipped in dry-run mode")
-        return FinalDatabaseUploadResult(
-            task_type=TaskType.FINAL_DATABASE_UPLOAD,
-            action=TaskAction.SKIPPED,
-            reason="skip_dry_run",
-        )
-
-    logger.info("Uploading database as latest version...")
-    upload_result = await upload_database_to_storage(
-        pipeline.db_path,
-        pipeline.book_manager,
-    )
-
-    if upload_result["status"] != "completed":
-        return FinalDatabaseUploadResult(
-            task_type=TaskType.FINAL_DATABASE_UPLOAD,
-            action=TaskAction.FAILED,
-            error=f"Final database upload failed: {upload_result['status']}",
-        )
-
-    data: FinalDatabaseUploadData = {
-        "backup_filename": upload_result["backup_filename"],
-        "file_size": upload_result["file_size"],
-        "compressed_size": upload_result["compressed_size"],
-        "backup_time": upload_result["backup_time"],
-    }
-
-    return FinalDatabaseUploadResult(
-        task_type=TaskType.FINAL_DATABASE_UPLOAD,
-        action=TaskAction.COMPLETED,
-        data=data,
-    )
 
 
 async def run_staging_cleanup(pipeline: "SyncPipeline") -> StagingCleanupResult:
@@ -142,7 +103,7 @@ async def run_staging_cleanup(pipeline: "SyncPipeline") -> StagingCleanupResult:
 
 async def run_teardown_operations(
     pipeline: "SyncPipeline",
-) -> dict[str, CsvExportTeardownResult | FinalDatabaseUploadResult | StagingCleanupResult]:
+) -> dict[str, CsvExportTeardownResult | DatabaseBackupResult | StagingCleanupResult]:
     """Run all teardown operations after batch processing completes.
 
     Args:
@@ -151,7 +112,7 @@ async def run_teardown_operations(
     Returns:
         Dict mapping operation names to their results
     """
-    results: dict[str, CsvExportTeardownResult | FinalDatabaseUploadResult | StagingCleanupResult] = {}
+    results: dict[str, CsvExportTeardownResult | DatabaseBackupResult | StagingCleanupResult] = {}
 
     # Skip teardown operations in dry-run mode
     if pipeline.dry_run:
@@ -163,7 +124,11 @@ async def run_teardown_operations(
     results["csv_export"] = csv_export_result
 
     # Upload final database state
-    final_upload_result = await run_final_database_upload(pipeline)
+    logger.info("Uploading database as latest version...")
+    final_upload_result = await upload_database_to_storage(
+        pipeline.db_path,
+        pipeline.book_manager,
+    )
     results["final_database_upload"] = final_upload_result
 
     # Clean up staging directory

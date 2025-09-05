@@ -142,16 +142,6 @@ class DatabaseUploadData(TypedDict):
     backup_time: float
 
 
-# Teardown task data types
-class FinalDatabaseUploadData(TypedDict):
-    """Data from FINAL_DATABASE_UPLOAD task."""
-
-    backup_filename: str | None
-    file_size: int
-    compressed_size: int
-    backup_time: float
-
-
 class StagingCleanupData(TypedDict):
     """Data from STAGING_CLEANUP task."""
 
@@ -270,7 +260,6 @@ DatabaseBackupResult = Result[DatabaseBackupData]
 DatabaseUploadResult = Result[DatabaseUploadData]
 
 # Teardown operation results (no barcode)
-FinalDatabaseUploadResult = Result[FinalDatabaseUploadData]
 StagingCleanupResult = Result[StagingCleanupData]
 CsvExportTeardownResult = Result[ExportCsvData]
 
