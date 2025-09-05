@@ -1,51 +1,97 @@
-# SQL queries for common admin tasks
+# SQL queries for pipeline administration
 
-This document provides SQL queries for common administrative tasks when working with the GRIN-to-S3 pipeline database. All queries are designed to work directly with SQLite and can be executed using the `sqlite3` command-line tool or any SQLite client.
+SQL queries for managing and optimizing the GRIN-to-S3 pipeline. All queries work with SQLite.
 
 ## Table of contents
 
 - [Database access](#database-access)
-- [Status breakdown queries](#status-breakdown-queries)
-  - [GRIN status fields](#grin-status-fields)
-  - [Processing pipeline status](#processing-pipeline-status)
-  - [Sync pipeline status](#sync-pipeline-status)
-  - [Combined status reports](#combined-status-reports)
-- [Barcode list operations](#barcode-list-operations)
-  - [Export all barcodes](#export-all-barcodes)
-  - [Export barcodes by status](#export-barcodes-by-status)
-  - [Export barcodes needing processing](#export-barcodes-needing-processing)
-  - [Using barcode lists with sync pipeline](#using-barcode-lists-with-sync-pipeline)
-- [Troubleshooting queries](#troubleshooting-queries)
-  - [Find books with errors](#find-books-with-errors)
-  - [Find books with missing metadata](#find-books-with-missing-metadata)
-  - [Find processing bottlenecks](#find-processing-bottlenecks)
-- [Performance analysis queries](#performance-analysis-queries)
-  - [Processing time analysis](#processing-time-analysis)
-  - [Collection statistics](#collection-statistics)
+- [Pipeline optimization](#pipeline-optimization)
+- [Status queries](#status-queries)
+  - [GRIN status](#grin-status)
+  - [Processing status](#processing-status)
+  - [Sync status](#sync-status)
+- [Barcode operations](#barcode-operations)
+  - [Export barcodes](#export-barcodes)
+  - [Pipeline integration](#pipeline-integration)
+- [Troubleshooting](#troubleshooting)
+  - [Error detection](#error-detection)
+  - [Missing metadata](#missing-metadata)
+  - [Processing bottlenecks](#processing-bottlenecks)
+- [Performance analysis](#performance-analysis)
 
 ## Database access
 
-The SQLite database is located in your run directory at `grin-output/{run-name}/books.db`. You can access it directly using:
+Database location: `grin-output/{run-name}/books.db`
 
 ```bash
-sqlite3 grin-output/{run-name}/books.db
-```
-
-For example:
-```bash
+# Interactive
 sqlite3 grin-output/harvard_2024/books.db
-```
 
-You can also execute queries directly from the command line:
-```bash
+# Direct query
 sqlite3 grin-output/harvard_2024/books.db "SELECT COUNT(*) FROM books;"
 ```
 
-## Status breakdown queries
+## Pipeline optimization
 
-### GRIN status fields
+### Batch size optimization
 
-Show breakdown of books by GRIN state:
+Optimal batch size based on processing times:
+```sql
+SELECT 
+    DATE(processing_request_timestamp) as date,
+    COUNT(*) as books_requested,
+    AVG(julianday(converted_date) - julianday(processing_request_timestamp)) * 24 as avg_hours,
+    MIN(julianday(converted_date) - julianday(processing_request_timestamp)) * 24 as min_hours,
+    MAX(julianday(converted_date) - julianday(processing_request_timestamp)) * 24 as max_hours
+FROM books 
+WHERE processing_request_timestamp IS NOT NULL 
+  AND converted_date IS NOT NULL
+GROUP BY DATE(processing_request_timestamp)
+ORDER BY date DESC;
+```
+
+### Books stuck in processing
+
+Books requested >24 hours ago without conversion:
+```sql
+SELECT barcode, title, processing_request_timestamp,
+    (julianday('now') - julianday(processing_request_timestamp)) * 24 as hours_waiting
+FROM books 
+WHERE processing_request_timestamp IS NOT NULL 
+  AND converted_date IS NULL
+  AND julianday('now') - julianday(processing_request_timestamp) > 1
+ORDER BY processing_request_timestamp;
+```
+
+### Re-processing candidates
+
+Books that failed sync but are now converted:
+```sql
+SELECT b.barcode
+FROM books b
+JOIN book_status_history bsh ON b.barcode = bsh.barcode
+WHERE bsh.status_type = 'sync' 
+  AND bsh.status_value = 'verified_unavailable'
+  AND b.converted_date IS NOT NULL
+  AND b.sync_timestamp IS NULL
+GROUP BY b.barcode;
+```
+
+Export directly to sync pipeline:
+```bash
+sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "
+SELECT b.barcode FROM books b
+JOIN book_status_history bsh ON b.barcode = bsh.barcode
+WHERE bsh.status_type = 'sync' AND bsh.status_value = 'verified_unavailable'
+  AND b.converted_date IS NOT NULL AND b.sync_timestamp IS NULL
+GROUP BY b.barcode;" | python grin.py sync pipeline --run-name harvard_2024 --barcodes-file -
+```
+
+## Status queries
+
+### GRIN status
+
+Breakdown by GRIN state:
 ```sql
 SELECT grin_state, COUNT(*) as count
 FROM books 
@@ -54,7 +100,7 @@ GROUP BY grin_state
 ORDER BY count DESC;
 ```
 
-Show breakdown by viewability:
+Viewability:
 ```sql
 SELECT grin_viewability, COUNT(*) as count
 FROM books 
@@ -63,7 +109,7 @@ GROUP BY grin_viewability
 ORDER BY count DESC;
 ```
 
-Show breakdown by opt-out status:
+Opt-out status:
 ```sql
 SELECT grin_opted_out, COUNT(*) as count
 FROM books 
@@ -72,7 +118,7 @@ GROUP BY grin_opted_out
 ORDER BY count DESC;
 ```
 
-Show breakdown by scannable status:
+Scannable status:
 ```sql
 SELECT grin_scannable, COUNT(*) as count
 FROM books 
@@ -81,7 +127,7 @@ GROUP BY grin_scannable
 ORDER BY count DESC;
 ```
 
-Combined GRIN status overview:
+Combined GRIN status:
 ```sql
 SELECT 
     grin_state,
@@ -95,16 +141,16 @@ GROUP BY grin_state, grin_viewability, grin_scannable, grin_opted_out
 ORDER BY count DESC;
 ```
 
-### Processing pipeline status
+### Processing status
 
-Show books that have been requested for processing:
+Books requested:
 ```sql
 SELECT COUNT(*) as books_requested_for_processing
 FROM books 
 WHERE processing_request_timestamp IS NOT NULL;
 ```
 
-Show breakdown of processing request dates:
+Request dates:
 ```sql
 SELECT 
     DATE(processing_request_timestamp) as request_date,
@@ -115,7 +161,7 @@ GROUP BY DATE(processing_request_timestamp)
 ORDER BY request_date DESC;
 ```
 
-Show latest processing request status from history:
+Latest request status:
 ```sql
 SELECT 
     bsh.status_value,
@@ -133,16 +179,16 @@ GROUP BY bsh.status_value
 ORDER BY count DESC;
 ```
 
-### Sync pipeline status
+### Sync status
 
-Show books that have been synced:
+Books synced:
 ```sql
 SELECT COUNT(*) as books_synced
 FROM books 
 WHERE sync_timestamp IS NOT NULL;
 ```
 
-Show latest sync status from history:
+Latest sync status:
 ```sql
 SELECT 
     bsh.status_value,
@@ -160,7 +206,7 @@ GROUP BY bsh.status_value
 ORDER BY count DESC;
 ```
 
-Show books that failed verification:
+Failed verification:
 ```sql
 SELECT COUNT(*) as verified_unavailable_count
 FROM book_status_history 
@@ -168,16 +214,14 @@ WHERE status_type = 'sync'
   AND status_value = 'verified_unavailable';
 ```
 
-Show books that are decrypted and available:
+Decrypted books:
 ```sql
 SELECT COUNT(*) as decrypted_books
 FROM books 
 WHERE is_decrypted = 1;
 ```
 
-### Combined status reports
-
-Comprehensive status report showing pipeline progress:
+### Pipeline progress summary
 ```sql
 SELECT 
     'Total books' as status_category,
@@ -217,48 +261,36 @@ FROM books
 WHERE is_decrypted = 1;
 ```
 
-## Barcode list operations
+## Barcode operations
 
-### Export all barcodes
+### Export barcodes
 
-Export all barcodes to a file:
+All barcodes:
 ```bash
 sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "SELECT barcode FROM books;" > all_barcodes.txt
 ```
 
-Or using a SQL query in the sqlite3 shell:
-```sql
-.output all_barcodes.txt
-.separator ""
-SELECT barcode FROM books;
-.output stdout
-```
-
-### Export barcodes by status
-
-Export barcodes for books that have been converted by GRIN:
+Converted books:
 ```bash
 sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "SELECT barcode FROM books WHERE converted_date IS NOT NULL;" > converted_barcodes.txt
 ```
 
-Export barcodes for books that have NOT been synced yet:
+Unsynced books:
 ```bash
 sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "SELECT barcode FROM books WHERE sync_timestamp IS NULL;" > unsynced_barcodes.txt
 ```
 
-Export barcodes for books with GRIN state 'converted':
+GRIN converted state:
 ```bash
 sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "SELECT barcode FROM books WHERE grin_state = 'converted';" > grin_converted_barcodes.txt
 ```
 
-Export barcodes for books that are scannable and not opted out:
+Scannable, not opted out:
 ```bash
 sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "SELECT barcode FROM books WHERE grin_scannable = 'true' AND (grin_opted_out = 'false' OR grin_opted_out IS NULL);" > scannable_barcodes.txt
 ```
 
-### Export barcodes needing processing
-
-Export barcodes for books that need to be requested for processing:
+Books needing processing request:
 ```bash
 sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "
 SELECT barcode 
@@ -269,7 +301,7 @@ WHERE processing_request_timestamp IS NULL
 ;" > barcodes_needing_processing.txt
 ```
 
-Export barcodes for books that have been converted but not yet synced:
+Converted but unsynced:
 ```bash
 sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "
 SELECT barcode 
@@ -279,29 +311,28 @@ WHERE converted_date IS NOT NULL
 ;" > converted_but_unsynced_barcodes.txt
 ```
 
-### Using barcode lists with sync pipeline
-
-Once you have exported a barcode list, you can use it with the sync pipeline:
+### Pipeline integration
 
 ```bash
-# Sync specific barcodes from a file
+# From file
 python grin.py sync pipeline --run-name harvard_2024 --barcodes-file converted_barcodes.txt
 
-# Sync a limited number of barcodes from a file
+# With limit
 python grin.py sync pipeline --run-name harvard_2024 --barcodes-file converted_barcodes.txt --limit 100
-```
 
-You can also use barcodes directly on the command line:
-```bash
-# Sync specific barcodes
+# Direct barcodes
 python grin.py sync pipeline --run-name harvard_2024 --barcodes "barcode1,barcode2,barcode3"
+
+# Pipe from SQL
+sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "SELECT barcode FROM books WHERE sync_timestamp IS NULL LIMIT 100;" | \
+  python grin.py sync pipeline --run-name harvard_2024 --barcodes-file -
 ```
 
-## Troubleshooting queries
+## Troubleshooting
 
-### Find books with errors
+### Error detection
 
-Find books that failed during sync:
+Sync failures:
 ```sql
 SELECT 
     b.barcode,
@@ -315,7 +346,7 @@ WHERE bsh.status_type = 'sync'
 ORDER BY bsh.timestamp DESC;
 ```
 
-Find books in the failed table:
+Failed table entries:
 ```sql
 SELECT 
     f.barcode,
@@ -327,23 +358,23 @@ LEFT JOIN books b ON f.barcode = b.barcode
 ORDER BY f.timestamp DESC;
 ```
 
-### Find books with missing metadata
+### Missing metadata
 
-Find books without GRIN enrichment data:
+No enrichment:
 ```sql
 SELECT COUNT(*) as books_without_enrichment
 FROM books 
 WHERE enrichment_timestamp IS NULL;
 ```
 
-Find books without MARC metadata:
+No MARC:
 ```sql
 SELECT COUNT(*) as books_without_marc
 FROM books 
 WHERE marc_extraction_timestamp IS NULL;
 ```
 
-Find books with missing titles:
+Missing titles:
 ```sql
 SELECT barcode, created_at
 FROM books 
@@ -352,9 +383,9 @@ ORDER BY created_at DESC
 LIMIT 20;
 ```
 
-### Find processing bottlenecks
+### Processing bottlenecks
 
-Find books that have been requested for processing but haven't been converted:
+Requested but not converted:
 ```sql
 SELECT 
     COUNT(*) as books_requested_but_not_converted
@@ -363,7 +394,7 @@ WHERE processing_request_timestamp IS NOT NULL
   AND converted_date IS NULL;
 ```
 
-Find oldest processing requests still pending:
+Oldest pending requests:
 ```sql
 SELECT 
     barcode,
@@ -376,11 +407,9 @@ ORDER BY processing_request_timestamp ASC
 LIMIT 20;
 ```
 
-## Performance analysis queries
+## Performance analysis
 
-### Processing time analysis
-
-Average time between collection and enrichment:
+Collection to enrichment time:
 ```sql
 SELECT 
     AVG(
@@ -391,7 +420,7 @@ WHERE enrichment_timestamp IS NOT NULL
   AND created_at IS NOT NULL;
 ```
 
-Average time between processing request and conversion:
+Request to conversion time:
 ```sql
 SELECT 
     AVG(
@@ -402,9 +431,7 @@ WHERE processing_request_timestamp IS NOT NULL
   AND converted_date IS NOT NULL;
 ```
 
-### Collection statistics
-
-Show collection growth over time:
+Collection growth:
 ```sql
 SELECT 
     DATE(created_at) as collection_date,
@@ -414,7 +441,7 @@ GROUP BY DATE(created_at)
 ORDER BY collection_date;
 ```
 
-Show most recent activity:
+Recent activity:
 ```sql
 SELECT 
     'Most recent book added' as activity,
@@ -443,7 +470,7 @@ SELECT
 FROM books;
 ```
 
-Show daily pipeline throughput:
+Daily throughput (last 7 days):
 ```sql
 SELECT 
     DATE(timestamp) as date,
@@ -456,11 +483,7 @@ GROUP BY DATE(timestamp), status_type, status_value
 ORDER BY date DESC, status_type, status_value;
 ```
 
-## Advanced queries
-
 ### Books by publication year
-
-Show distribution of books by publication year (using MARC date_1):
 ```sql
 SELECT 
     marc_date_1 as publication_year,
@@ -475,8 +498,6 @@ LIMIT 20;
 ```
 
 ### Books by language
-
-Show distribution of books by language:
 ```sql
 SELECT 
     marc_language,
@@ -488,9 +509,7 @@ ORDER BY count DESC
 LIMIT 20;
 ```
 
-### Large books (by archive size)
-
-Note: This requires that ETag metadata includes size information in the status history.
+### Large books by archive size
 
 ```sql
 SELECT 
@@ -507,10 +526,6 @@ LIMIT 20;
 
 ---
 
-**Note**: All queries assume you're working with a properly initialized GRIN-to-S3 database. If you encounter errors, verify that:
+**Requirements**: Initialized GRIN-to-S3 database with tables: books, processed, failed, book_status_history.
 
-1. The database file exists and is accessible
-2. All expected tables are present (books, processed, failed, book_status_history)
-3. You have appropriate read permissions
-
-For more information about the database schema, see `docs/schema.sql`.
+See `docs/schema.sql` for schema details.
