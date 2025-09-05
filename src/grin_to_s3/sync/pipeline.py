@@ -406,12 +406,13 @@ class SyncPipeline:
             if not self.skip_extract_ocr:
                 task_funcs[TaskType.EXTRACT_OCR] = extract_ocr.main
 
-            # Create task manager and rate calculator
+            # Create task manager
             task_manager = TaskManager(self.task_concurrency_limits)
-            rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
             # Handle the two mutually exclusive modes: specific barcodes vs queues
             if specific_barcodes:
+                # Create rate calculator for specific barcodes mode
+                rate_calculator = SlidingWindowRateCalculator(window_size=20)
                 # Process specific barcodes mode
                 books_to_process = filter_and_print_barcodes(
                     specific_barcodes=specific_barcodes,
@@ -458,6 +459,8 @@ class SyncPipeline:
                     # Reset failure counter at start of each queue
                     logger.info(f"Processing '{queue_name}' queue")
                     self._sequential_failures = 0
+                    # Create fresh rate calculator for each queue
+                    rate_calculator = SlidingWindowRateCalculator(window_size=20)
                     # Get books from this specific queue
                     print()
                     print(f"Fetching books from '{queue_name}' queue...")
