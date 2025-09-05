@@ -85,7 +85,7 @@ class TaskManager:
 
         # Simple stats
         self.stats: dict[TaskType, dict[str, int]] = defaultdict(
-            lambda: {"started": 0, "completed": 0, "skipped": 0, "failed": 0}
+            lambda: {"started": 0, "completed": 0, "skipped": 0, "failed": 0, "needs_conversion": 0}
         )
 
     async def run_task(
@@ -124,7 +124,11 @@ class TaskManager:
                     case TaskAction.SKIPPED:
                         self.stats[task_type]["skipped"] += 1
                     case TaskAction.FAILED:
-                        self.stats[task_type]["failed"] += 1
+                        # Check if this is a CHECK task with archive missing (needs conversion)
+                        if task_type == TaskType.CHECK and result.reason == "fail_archive_missing":
+                            self.stats[task_type]["needs_conversion"] += 1
+                        else:
+                            self.stats[task_type]["failed"] += 1
 
             except Exception as e:
                 self.stats[task_type]["failed"] += 1
@@ -617,15 +621,23 @@ async def process_books_with_queue(
         stats = manager.stats[task_type]
         if stats["started"] > 0:
             task_name = task_type.name.lower().replace("_", " ")
-            success_rate = (stats["completed"] / stats["started"] * 100) if stats["started"] > 0 else 0
-            logger.info(
-                f"Task '{task_name}': "
-                f"started={stats['started']}, "
-                f"completed={stats['completed']}, "
-                f"skipped={stats['skipped']}, "
-                f"failed={stats['failed']} "
-                f"(success rate: {success_rate:.1f}%)"
-            )
+
+            # Calculate success rate including completed + skipped + needs_conversion
+            successful_count = stats["completed"] + stats["skipped"] + stats["needs_conversion"]
+            success_rate = (successful_count / stats["started"] * 100) if stats["started"] > 0 else 0
+
+            # Build log message with conditional needs_conversion field
+            log_parts = [
+                f"started={stats['started']}",
+                f"completed={stats['completed']}",
+                f"skipped={stats['skipped']}",
+                f"failed={stats['failed']}",
+            ]
+
+            if stats["needs_conversion"] > 0:
+                log_parts.insert(-1, f"needs_conversion={stats['needs_conversion']}")
+
+            logger.info(f"Task '{task_name}': " + ", ".join(log_parts) + f" (success rate: {success_rate:.1f}%)")
 
     # Display formatted task statistics to console
     display_task_statistics(manager.stats)
@@ -642,6 +654,7 @@ def display_task_statistics(stats: dict[TaskType, dict[str, int]]) -> None:
     successful_tasks = []
     partial_failure_tasks = []
     complete_failure_tasks = []
+    needs_conversion_tasks = []
 
     for task_type in TaskType:
         task_stats = stats[task_type]
@@ -651,20 +664,32 @@ def display_task_statistics(stats: dict[TaskType, dict[str, int]]) -> None:
         task_name = task_type.name.lower().replace("_", " ")
         started = task_stats["started"]
         completed = task_stats["completed"]
+        skipped = task_stats["skipped"]
         failed = task_stats["failed"]
-        success_rate = (completed / started * 100) if started > 0 else 0
+        needs_conversion = task_stats["needs_conversion"]
 
-        task_info = {
+        # Calculate success rate including completed + skipped + needs_conversion
+        successful_count = completed + skipped + needs_conversion
+        success_rate = (successful_count / started * 100) if started > 0 else 0
+
+        task_info: dict[str, Any] = {
             "name": task_name,
             "completed": completed,
+            "skipped": skipped,
             "started": started,
             "failed": failed,
+            "needs_conversion": needs_conversion,
+            "successful_count": successful_count,
             "success_rate": success_rate,
         }
 
+        # Categorize based on true failures only (not including needs_conversion)
         if failed == 0:
-            successful_tasks.append(task_info)
-        elif completed == 0 and failed > 0:
+            if needs_conversion > 0:
+                needs_conversion_tasks.append(task_info)
+            else:
+                successful_tasks.append(task_info)
+        elif successful_count == 0 and failed > 0:
             complete_failure_tasks.append(task_info)
         else:
             partial_failure_tasks.append(task_info)
@@ -677,20 +702,45 @@ def display_task_statistics(stats: dict[TaskType, dict[str, int]]) -> None:
     if complete_failure_tasks:
         for task in complete_failure_tasks:
             print(
-                f"❌ CRITICAL: {task['name']:<15} {task['completed']}/{task['started']} ({task['success_rate']:5.1f}%) - ALL FAILED"
+                f"❌ CRITICAL: {task['name']:<15} {task['successful_count']}/{task['started']} ({task['success_rate']:5.1f}%) - ALL FAILED"
             )
 
     # Show partial failures next
     if partial_failure_tasks:
         for task in partial_failure_tasks:
+            # Show detailed breakdown for partial failures
+            success_parts = []
+            if task["completed"] > 0:
+                success_parts.append(f"{task['completed']} completed")
+            if task["skipped"] > 0:
+                success_parts.append(f"{task['skipped']} skipped")
+            if task["needs_conversion"] > 0:
+                success_parts.append(f"{task['needs_conversion']} need conversion")
+
+            success_detail = f" ({', '.join(success_parts)})" if success_parts else ""
             print(
-                f"⚠️  WARNING:  {task['name']:<15} {task['completed']}/{task['started']} ({task['success_rate']:5.1f}%) - {task['failed']} failed"
+                f"⚠️  WARNING:  {task['name']:<15} {task['successful_count']}/{task['started']} ({task['success_rate']:5.1f}%){success_detail} - {task['failed']} failed"
+            )
+
+    # Show needs conversion tasks
+    if needs_conversion_tasks:
+        for task in needs_conversion_tasks:
+            conversion_detail = f" ({task['needs_conversion']} books need conversion)"
+            print(
+                f"📋 {task['name']:<20} {task['successful_count']}/{task['started']} ({task['success_rate']:5.1f}%){conversion_detail}"
             )
 
     # Show successful tasks last
     if successful_tasks:
         for task in successful_tasks:
-            print(f"✓ {task['name']:<20} {task['completed']}/{task['started']} ({task['success_rate']:5.1f}%)")
+            # Show breakdown of completed vs skipped for successful tasks
+            if task["skipped"] > 0:
+                detail = f" ({task['completed']} completed, {task['skipped']} skipped)"
+            else:
+                detail = ""
+            print(
+                f"✓ {task['name']:<20} {task['successful_count']}/{task['started']} ({task['success_rate']:5.1f}%){detail}"
+            )
 
     # Add critical failure summary if any tasks completely failed
     if complete_failure_tasks:
@@ -698,5 +748,10 @@ def display_task_statistics(stats: dict[TaskType, dict[str, int]]) -> None:
         for task in complete_failure_tasks:
             print(f"   • {task['name']}: All {task['started']} attempts failed")
         print("   Consider checking task configuration and logs for details")
+
+    # Add conversion summary if any tasks need conversion
+    if needs_conversion_tasks:
+        total_needing_conversion = sum(task["needs_conversion"] for task in needs_conversion_tasks)
+        print(f"\n📋 Books requiring conversion: {total_needing_conversion:,} books need to be processed by GRIN")
 
     print()  # Add spacing after the summary
