@@ -204,7 +204,6 @@ class E2ETestRunner:
 
         # Configuration 1: Local storage
         logger.info("=== Testing local machine with local storage ===")
-        local_run_name = f"{self.run_name}_local"
 
         # Collect with local storage
         storage_base = str(repo_dir / "test-data")
@@ -214,7 +213,7 @@ class E2ETestRunner:
                 "grin.py",
                 "collect",
                 "--run-name",
-                local_run_name,
+                self.run_name,
                 "--limit",
                 str(self.limit),
                 "--storage",
@@ -241,7 +240,7 @@ class E2ETestRunner:
                 "sync",
                 "pipeline",
                 "--run-name",
-                local_run_name,
+                self.run_name,
                 "--queue",
                 "converted",
                 "--limit",
@@ -259,7 +258,7 @@ class E2ETestRunner:
                 "sync",
                 "pipeline",
                 "--run-name",
-                local_run_name,
+                self.run_name,
                 "--queue",
                 "previous",
                 "--limit",
@@ -276,7 +275,7 @@ class E2ETestRunner:
                 "grin.py",
                 "enrich",
                 "--run-name",
-                local_run_name,
+                self.run_name,
                 "--limit",
                 "5",
             ],
@@ -285,14 +284,14 @@ class E2ETestRunner:
         )
 
         # Export to CSV (test the export functionality)
-        csv_output = f"{local_run_name}_books.csv"
+        csv_output = f"{self.run_name}_books.csv"
         self._run_command(
             [
                 self.venv_python,
                 "grin.py",
                 "export",
                 "--run-name",
-                local_run_name,
+                self.run_name,
                 "--output",
                 csv_output,
             ],
@@ -304,8 +303,6 @@ class E2ETestRunner:
         logger.info("=== Testing local machine with R2 storage ===")
         r2_creds_file = Path.home() / ".config" / "grin-to-s3" / "r2_credentials.json"
         if r2_creds_file.exists():
-            r2_run_name = f"{self.run_name}_r2"
-
             # Collect with R2 storage (let it use user's config)
             self._run_command(
                 [
@@ -313,7 +310,7 @@ class E2ETestRunner:
                     "grin.py",
                     "collect",
                     "--run-name",
-                    r2_run_name,
+                    self.run_name,
                     "--limit",
                     str(self.limit),
                     "--storage",
@@ -332,7 +329,7 @@ class E2ETestRunner:
                     "sync",
                     "pipeline",
                     "--run-name",
-                    r2_run_name,
+                    self.run_name,
                     "--queue",
                     "converted",
                     "--limit",
@@ -350,7 +347,7 @@ class E2ETestRunner:
                     "grin.py",
                     "enrich",
                     "--run-name",
-                    r2_run_name,
+                    self.run_name,
                     "--limit",
                     "5",
                 ],
@@ -359,14 +356,14 @@ class E2ETestRunner:
             )
 
             # Export to CSV (test the export functionality)
-            csv_output = f"{r2_run_name}_books.csv"
+            csv_output = f"{self.run_name}_books.csv"
             self._run_command(
                 [
                     self.venv_python,
                     "grin.py",
                     "export",
                     "--run-name",
-                    r2_run_name,
+                    self.run_name,
                     "--output",
                     csv_output,
                 ],
@@ -472,7 +469,6 @@ class E2ETestRunner:
 
         # Configuration 1: MinIO storage in Docker
         logger.info("=== Testing Docker with MinIO storage ===")
-        docker_minio_run_name = f"{self.run_name}_docker_minio"
 
         # Collect with MinIO storage in Docker - use standard bucket names that get created
         self._run_command(
@@ -480,7 +476,7 @@ class E2ETestRunner:
                 "./grin-docker",
                 "collect",
                 "--run-name",
-                docker_minio_run_name,
+                self.run_name,
                 "--limit",
                 str(self.limit),
                 "--storage",
@@ -509,7 +505,7 @@ class E2ETestRunner:
                 "sync",
                 "pipeline",
                 "--run-name",
-                docker_minio_run_name,
+                self.run_name,
                 "--queue",
                 "converted",
                 "--limit",
@@ -524,15 +520,13 @@ class E2ETestRunner:
         logger.info("=== Testing Docker with R2 storage ===")
         r2_creds_file = Path.home() / ".config" / "grin-to-s3" / "r2_credentials.json"
         if r2_creds_file.exists():
-            docker_r2_run_name = f"{self.run_name}_docker_r2"
-
             # Collect with R2 storage in Docker (let it use user's config)
             self._run_command(
                 [
                     "./grin-docker",
                     "collect",
                     "--run-name",
-                    docker_r2_run_name,
+                    self.run_name,
                     "--limit",
                     str(self.limit),
                     "--storage",
@@ -551,7 +545,7 @@ class E2ETestRunner:
                     "sync",
                     "pipeline",
                     "--run-name",
-                    docker_r2_run_name,
+                    self.run_name,
                     "--queue",
                     "converted",
                     "--limit",
