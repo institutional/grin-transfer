@@ -13,11 +13,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
 
-from ..database.database_backup import create_local_database_backup, upload_database_to_storage
+from ..database.database_backup import create_local_database_backup
 from .tasks.task_types import (
     DatabaseBackupData,
     DatabaseBackupResult,
-    DatabaseUploadData,
     DatabaseUploadResult,
     TaskAction,
     TaskType,
@@ -56,38 +55,6 @@ async def run_database_backup(pipeline: "SyncPipeline") -> DatabaseBackupResult:
 
     return DatabaseBackupResult(
         task_type=TaskType.DATABASE_BACKUP,
-        action=TaskAction.COMPLETED,
-        data=data,
-    )
-
-
-async def run_database_upload(pipeline: "SyncPipeline") -> DatabaseUploadResult:
-    """Upload database backup to block storage."""
-    upload_result = await upload_database_to_storage(
-        pipeline.db_path,
-        pipeline.book_manager,
-        pipeline.config.run_name,
-        upload_type="timestamped",
-    )
-
-    if upload_result["status"] != "completed":
-        return DatabaseUploadResult(
-            task_type=TaskType.DATABASE_UPLOAD,
-            action=TaskAction.FAILED,
-            error=f"Database backup upload failed: {upload_result['status']}",
-        )
-
-    logger.info(f"Database backup uploaded: {upload_result['backup_filename']}")
-
-    data: DatabaseUploadData = {
-        "backup_filename": upload_result["backup_filename"],
-        "file_size": upload_result["file_size"],
-        "compressed_size": upload_result["compressed_size"],
-        "backup_time": upload_result["backup_time"],
-    }
-
-    return DatabaseUploadResult(
-        task_type=TaskType.DATABASE_UPLOAD,
         action=TaskAction.COMPLETED,
         data=data,
     )

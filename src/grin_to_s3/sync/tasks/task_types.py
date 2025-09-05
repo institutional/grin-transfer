@@ -142,16 +142,6 @@ class DatabaseUploadData(TypedDict):
     backup_time: float
 
 
-# Teardown task data types
-class FinalDatabaseUploadData(TypedDict):
-    """Data from FINAL_DATABASE_UPLOAD task."""
-
-    backup_filename: str | None
-    file_size: int
-    compressed_size: int
-    backup_time: float
-
-
 class StagingCleanupData(TypedDict):
     """Data from STAGING_CLEANUP task."""
 
@@ -262,17 +252,14 @@ UnpackResult = TaskResult[UnpackData]
 UploadResult = TaskResult[UploadData]
 ExtractMarcResult = TaskResult[ExtractMarcData]
 ExtractOcrResult = TaskResult[ExtractOcrData]
-ExportCsvResult = TaskResult[ExportCsvData]
 CleanupResult = TaskResult[CleanupData]
 
-# Preflight operation results (no barcode)
+# Preflight operation results
 DatabaseBackupResult = Result[DatabaseBackupData]
 DatabaseUploadResult = Result[DatabaseUploadData]
 
-# Teardown operation results (no barcode)
-FinalDatabaseUploadResult = Result[FinalDatabaseUploadData]
+# Teardown operation results
 StagingCleanupResult = Result[StagingCleanupData]
-CsvExportTeardownResult = Result[ExportCsvData]
 
 
 # Task function protocols for type safety
@@ -308,10 +295,6 @@ class ExtractMarcTaskFunc(Protocol):
 
 class ExtractOcrTaskFunc(Protocol):
     async def __call__(self, barcode: str, unpack_data: UnpackData, pipeline: SyncPipeline) -> ExtractOcrResult: ...
-
-
-class ExportCsvTaskFunc(Protocol):
-    async def __call__(self, barcode: str, pipeline: SyncPipeline) -> ExportCsvResult: ...
 
 
 class CleanupTaskFunc(Protocol):

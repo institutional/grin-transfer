@@ -625,17 +625,11 @@ class E2ETestRunner:
 def main():
     """Main entry point for E2E testing script."""
     parser = argparse.ArgumentParser(description="End-to-end testing script for grin-to-s3")
-    parser.add_argument("--run-name", help="Run name for the test pipeline (default: auto-generated)")
+    parser.add_argument("--run-name", default="e2e_test", help="Run name for the test pipeline (default: test)")
     parser.add_argument("--limit", type=int, default=20, help="Limit number of books to process (default: 20)")
     parser.add_argument("--no-cleanup", action="store_true", help="Don't clean up temporary directory after tests")
 
     args = parser.parse_args()
-
-    # Generate run name if not provided
-    if not args.run_name:
-        import os
-
-        args.run_name = f"e2e_test_{os.getenv('USER', 'user')}_{int(time.time())}"
 
     runner = E2ETestRunner(run_name=args.run_name, limit=args.limit, cleanup=not args.no_cleanup)
 

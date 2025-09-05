@@ -13,9 +13,8 @@ from .utils import (
 )
 
 __all__ = [
-    # Main entry point
-    "main",
     # Pipeline orchestration
+    "main",
     "SyncPipeline",
     # Utility functions
     "ensure_bucket_exists",
