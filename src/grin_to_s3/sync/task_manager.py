@@ -393,10 +393,6 @@ async def process_processing_phase(
         conn = await pipeline.db_tracker.get_connection()
         await commit_book_record_updates(pipeline, barcode, conn)
 
-    # Update process summary metrics
-    outcome = pipeline.process_summary_stage.determine_book_outcome(results)
-    pipeline.process_summary_stage.increment_by_outcome(outcome)
-
     return results
 
 
