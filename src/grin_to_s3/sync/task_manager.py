@@ -727,7 +727,7 @@ def display_task_statistics(stats: dict[TaskType, dict[str, int]]) -> None:
         for task in needs_conversion_tasks:
             conversion_detail = f" ({task['needs_conversion']} books need conversion)"
             print(
-                f"📋 {task['name']:<20} {task['successful_count']}/{task['started']} ({task['success_rate']:5.1f}%){conversion_detail}"
+                f"→ {task['name']:<20} {task['successful_count']}/{task['started']} ({task['success_rate']:5.1f}%){conversion_detail}"
             )
 
     # Show successful tasks last
@@ -752,6 +752,6 @@ def display_task_statistics(stats: dict[TaskType, dict[str, int]]) -> None:
     # Add conversion summary if any tasks need conversion
     if needs_conversion_tasks:
         total_needing_conversion = sum(task["needs_conversion"] for task in needs_conversion_tasks)
-        print(f"\n📋 Books requiring conversion: {total_needing_conversion:,} books need to be processed by GRIN")
+        print(f"\nBooks requiring conversion: {total_needing_conversion:,} books need to be processed by GRIN")
 
     print()  # Add spacing after the summary
