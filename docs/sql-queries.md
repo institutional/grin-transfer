@@ -21,34 +21,18 @@ SQL queries for managing and optimizing the GRIN-to-S3 pipeline. All queries wor
 
 ## Database access
 
-Database location: `grin-output/{run-name}/books.db`
+Database location: `output/{run-name}/books.db`
 
 ```bash
 # Interactive
-sqlite3 grin-output/harvard_2024/books.db
+sqlite3 output/run-name/books.db
 
 # Direct query
-sqlite3 grin-output/harvard_2024/books.db "SELECT COUNT(*) FROM books;"
+sqlite3 output/run-name/books.db "SELECT COUNT(*) FROM books;"
 ```
 
-## Pipeline optimization
+## Pipeline status
 
-### Batch size optimization
-
-Optimal batch size based on processing times:
-```sql
-SELECT 
-    DATE(processing_request_timestamp) as date,
-    COUNT(*) as books_requested,
-    AVG(julianday(converted_date) - julianday(processing_request_timestamp)) * 24 as avg_hours,
-    MIN(julianday(converted_date) - julianday(processing_request_timestamp)) * 24 as min_hours,
-    MAX(julianday(converted_date) - julianday(processing_request_timestamp)) * 24 as max_hours
-FROM books 
-WHERE processing_request_timestamp IS NOT NULL 
-  AND converted_date IS NOT NULL
-GROUP BY DATE(processing_request_timestamp)
-ORDER BY date DESC;
-```
 
 ### Books stuck in processing
 
@@ -79,12 +63,12 @@ GROUP BY b.barcode;
 
 Export directly to sync pipeline:
 ```bash
-sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "
+sqlite3 -separator $'\n' output/run-name/books.db "
 SELECT b.barcode FROM books b
 JOIN book_status_history bsh ON b.barcode = bsh.barcode
 WHERE bsh.status_type = 'sync' AND bsh.status_value = 'verified_unavailable'
   AND b.converted_date IS NOT NULL AND b.sync_timestamp IS NULL
-GROUP BY b.barcode;" | python grin.py sync pipeline --run-name harvard_2024 --barcodes-file -
+GROUP BY b.barcode;" | python grin.py sync pipeline --run-name run-name --barcodes-file -
 ```
 
 ## Status queries
@@ -100,6 +84,23 @@ GROUP BY grin_state
 ORDER BY count DESC;
 ```
 
+```bash
+echo "SELECT grin_state, COUNT(*) as count
+FROM books
+WHERE grin_state IS NOT NULL
+GROUP BY grin_state
+ORDER BY count DESC;" | sqlite3 -header -column output/full/books.db
+
+grin_state                  count 
+--------------------------  ------
+PREVIOUSLY_DOWNLOADED       91673
+CHECKED_IN                  6970 
+CONVERTED                   6995 
+IN_PROCESS                  2019 
+NOT_AVAILABLE_FOR_DOWNLOAD  60   
+NEW                         120   
+```
+
 Viewability:
 ```sql
 SELECT grin_viewability, COUNT(*) as count
@@ -109,23 +110,7 @@ GROUP BY grin_viewability
 ORDER BY count DESC;
 ```
 
-Opt-out status:
-```sql
-SELECT grin_opted_out, COUNT(*) as count
-FROM books 
-WHERE grin_opted_out IS NOT NULL 
-GROUP BY grin_opted_out 
-ORDER BY count DESC;
-```
 
-Scannable status:
-```sql
-SELECT grin_scannable, COUNT(*) as count
-FROM books 
-WHERE grin_scannable IS NOT NULL 
-GROUP BY grin_scannable 
-ORDER BY count DESC;
-```
 
 Combined GRIN status:
 ```sql
@@ -267,32 +252,32 @@ WHERE is_decrypted = 1;
 
 All barcodes:
 ```bash
-sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "SELECT barcode FROM books;" > all_barcodes.txt
+sqlite3 -separator $'\n' output/run-name/books.db "SELECT barcode FROM books;" > all_barcodes.txt
 ```
 
 Converted books:
 ```bash
-sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "SELECT barcode FROM books WHERE converted_date IS NOT NULL;" > converted_barcodes.txt
+sqlite3 -separator $'\n' output/run-name/books.db "SELECT barcode FROM books WHERE converted_date IS NOT NULL;" > converted_barcodes.txt
 ```
 
 Unsynced books:
 ```bash
-sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "SELECT barcode FROM books WHERE sync_timestamp IS NULL;" > unsynced_barcodes.txt
+sqlite3 -separator $'\n' output/run-name/books.db "SELECT barcode FROM books WHERE sync_timestamp IS NULL;" > unsynced_barcodes.txt
 ```
 
 GRIN converted state:
 ```bash
-sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "SELECT barcode FROM books WHERE grin_state = 'converted';" > grin_converted_barcodes.txt
+sqlite3 -separator $'\n' output/run-name/books.db "SELECT barcode FROM books WHERE grin_state = 'converted';" > grin_converted_barcodes.txt
 ```
 
 Scannable, not opted out:
 ```bash
-sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "SELECT barcode FROM books WHERE grin_scannable = 'true' AND (grin_opted_out = 'false' OR grin_opted_out IS NULL);" > scannable_barcodes.txt
+sqlite3 -separator $'\n' output/run-name/books.db "SELECT barcode FROM books WHERE grin_scannable = 'true' AND (grin_opted_out = 'false' OR grin_opted_out IS NULL);" > scannable_barcodes.txt
 ```
 
 Books needing processing request:
 ```bash
-sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "
+sqlite3 -separator $'\n' output/run-name/books.db "
 SELECT barcode 
 FROM books 
 WHERE processing_request_timestamp IS NULL 
@@ -303,7 +288,7 @@ WHERE processing_request_timestamp IS NULL
 
 Converted but unsynced:
 ```bash
-sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "
+sqlite3 -separator $'\n' output/run-name/books.db "
 SELECT barcode 
 FROM books 
 WHERE converted_date IS NOT NULL 
@@ -315,17 +300,17 @@ WHERE converted_date IS NOT NULL
 
 ```bash
 # From file
-python grin.py sync pipeline --run-name harvard_2024 --barcodes-file converted_barcodes.txt
+python grin.py sync pipeline --run-name run-name --barcodes-file converted_barcodes.txt
 
 # With limit
-python grin.py sync pipeline --run-name harvard_2024 --barcodes-file converted_barcodes.txt --limit 100
+python grin.py sync pipeline --run-name run-name --barcodes-file converted_barcodes.txt --limit 100
 
 # Direct barcodes
-python grin.py sync pipeline --run-name harvard_2024 --barcodes "barcode1,barcode2,barcode3"
+python grin.py sync pipeline --run-name run-name --barcodes "barcode1,barcode2,barcode3"
 
 # Pipe from SQL
-sqlite3 -separator $'\n' grin-output/harvard_2024/books.db "SELECT barcode FROM books WHERE sync_timestamp IS NULL LIMIT 100;" | \
-  python grin.py sync pipeline --run-name harvard_2024 --barcodes-file -
+sqlite3 -separator $'\n' output/run-name/books.db "SELECT barcode FROM books WHERE sync_timestamp IS NULL LIMIT 100;" | \
+  python grin.py sync pipeline --run-name run-name --barcodes-file -
 ```
 
 ## Troubleshooting
