@@ -18,23 +18,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def _store_ocr_file(
-    source_path: Path, barcode: Barcode, filename: str, pipeline: "SyncPipeline", metadata: ArchiveOcrMetadata
+async def upload_ocr_to_storage(
+    source_path: Path, barcode: Barcode, pipeline: "SyncPipeline", metadata: ArchiveOcrMetadata
 ) -> str:
     """Store OCR file to the appropriate location based on pipeline configuration."""
+    destination_path = pipeline.book_manager.full_text_path(f"{barcode}_ocr.jsonl")
+    if source_path.name.endswith(".gz"):
+        destination_path = f"{destination_path}.gz"
+
     if pipeline.uses_block_storage:
-        bucket = pipeline.config.storage_config["config"].get("bucket_full")
-        final_path = f"{bucket}/{filename}"
-        await pipeline.storage.write_file(final_path, str(source_path), cast(dict[str, str], metadata))
+        logger.info(f"Uploading OCR file to {destination_path}")
+        await pipeline.storage.write_file(destination_path, str(source_path), cast(dict[str, str], metadata))
     else:
         # Local storage: move to 'full' subdirectory
-        base_path = Path(pipeline.config.storage_config["config"].get("base_path", ""))
-        final_path = base_path / "full" / barcode / filename
-        final_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(source_path, final_path)
-        final_path = str(final_path)
+        shutil.move(source_path, destination_path)
 
-    return final_path
+    return destination_path
 
 
 async def main(barcode: Barcode, unpack_data: UnpackData, pipeline: "SyncPipeline") -> ExtractOcrResult:
@@ -57,14 +56,12 @@ async def main(barcode: Barcode, unpack_data: UnpackData, pipeline: "SyncPipelin
 
     if pipeline.config.sync_compression_full_enabled:
         async with compress_file_to_temp(jsonl_path) as compressed_path:
-            jsonl_final_path = await _store_ocr_file(
-                compressed_path, barcode, f"{jsonl_filename}.gz", pipeline, metadata
-            )
+            jsonl_final_path = await upload_ocr_to_storage(compressed_path, barcode, pipeline, metadata)
             # For compression with local storage, clean up original file
             if not pipeline.uses_block_storage:
                 jsonl_path.unlink()
     else:
-        jsonl_final_path = await _store_ocr_file(jsonl_path, barcode, jsonl_filename, pipeline, metadata)
+        jsonl_final_path = await upload_ocr_to_storage(jsonl_path, barcode, pipeline, metadata)
         # For no compression with block storage, clean up original file
         if pipeline.uses_block_storage:
             jsonl_path.unlink()

@@ -711,7 +711,7 @@ class TestBookCollectionIntegration:
             assert collector.book_manager.bucket_raw == "test-raw"
             assert collector.book_manager.bucket_meta == "test-meta"
             assert collector.book_manager.bucket_full == "test-full"
-            assert collector.book_manager.base_prefix == "test-prefix"
+            assert collector.book_manager.base_prefix == "test_run"
 
 
 class TestBookCollectorRefreshMode:

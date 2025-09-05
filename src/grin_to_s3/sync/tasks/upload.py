@@ -71,9 +71,9 @@ async def upload_book_from_filesystem(
     }
 
     # Generate a path to deposit the file
-    to_path = book_manager.raw_archive_path(barcode, f"{barcode}.tar.gz")
+    to_path = book_manager.raw_archive_path(f"{barcode}.tar.gz")
 
-    logger.info(f"[{barcode}] Uploading to {to_path}.")
+    logger.info(f"[{barcode}] Uploading raw archive to {to_path}.")
 
     await book_manager.storage.write_file(to_path, str(decrypted["decrypted_path"]), cast(dict[str, str], metadata))
 

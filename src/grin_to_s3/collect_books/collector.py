@@ -65,8 +65,9 @@ class BookCollector:
         self.start_time: float | None = None
         self.sqlite_tracker = SQLiteProgressTracker(str(self.run_config.sqlite_db_path))
         storage = create_storage_from_config(storage_config)
-        prefix = storage_config.get("prefix", "")
-        self.book_manager: BookManager = BookManager(storage, storage_config=storage_config, base_prefix=prefix)
+        self.book_manager: BookManager = BookManager(
+            storage, storage_config=storage_config, base_prefix=run_config.run_name
+        )
 
     async def get_all_books(self, limit: int | None = None) -> AsyncGenerator[GRINRow, None]:
         """Stream all books from GRIN using HTML pagination with large page sizes.

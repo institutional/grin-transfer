@@ -30,7 +30,7 @@ class BookManager:
         Args:
             storage: Storage backend instance
             bucket_config: Bucket names configuration (keyword-only for safety)
-            base_prefix: Optional prefix for all storage paths
+            base_prefix: Optional prefix for all storage paths (normally this will be the run_name)
         """
         self._manager_id = str(uuid.uuid4())[:8]
 
@@ -54,23 +54,17 @@ class BookManager:
 
         self.base_prefix = base_prefix.rstrip("/")
 
-    def raw_archive_path(self, barcode: str, filename: str) -> str:
+    def raw_archive_path(self, filename: str) -> str:
         """Generate path for raw archive file."""
-        if self.base_prefix:
-            return f"{self.bucket_raw}/{self.base_prefix}/{barcode}/{filename}"
-        return f"{self.bucket_raw}/{barcode}/{filename}"
+        return f"{self.bucket_raw}/{self.base_prefix}/{filename}"
 
-    def full_text_path(self, barcode: str, filename: str) -> str:
+    def full_text_path(self, filename: str) -> str:
         """Generate path for full-text bucket file."""
-        if self.base_prefix:
-            return f"{self.bucket_full}/{self.base_prefix}/{filename}"
-        return f"{self.bucket_full}/{filename}"
+        return f"{self.bucket_full}/{self.base_prefix}/{filename}"
 
     def meta_path(self, filename: str) -> str:
         """Generate path for metadata bucket file."""
-        if self.base_prefix:
-            return f"{self.bucket_meta}/{self.base_prefix}/{filename}"
-        return f"{self.bucket_meta}/{filename}"
+        return f"{self.bucket_meta}/{self.base_prefix}/{filename}"
 
     async def get_decrypted_archive_metadata(
         self,
@@ -80,7 +74,7 @@ class BookManager:
         """Get metadata from decrypted archive file."""
 
         filename = f"{barcode}.tar.gz"
-        path = self.raw_archive_path(barcode, filename)
+        path = self.raw_archive_path(filename)
 
         # For local storage, query the database for etag
         if self.storage.config.protocol == "file":

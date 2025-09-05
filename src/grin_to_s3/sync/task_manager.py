@@ -393,10 +393,6 @@ async def process_processing_phase(
         conn = await pipeline.db_tracker.get_connection()
         await commit_book_record_updates(pipeline, barcode, conn)
 
-    # Update process summary metrics
-    outcome = pipeline.process_summary_stage.determine_book_outcome(results)
-    pipeline.process_summary_stage.increment_by_outcome(outcome)
-
     return results
 
 
@@ -631,4 +627,76 @@ async def process_books_with_queue(
                 f"(success rate: {success_rate:.1f}%)"
             )
 
+    # Display formatted task statistics to console
+    display_task_statistics(manager.stats)
+
     return results_dict
+
+
+def display_task_statistics(stats: dict[TaskType, dict[str, int]]) -> None:
+    """Display formatted task statistics to console with emphasis on failures."""
+    if not any(task_stats["started"] > 0 for task_stats in stats.values()):
+        return  # No tasks were started
+
+    # Collect task data for display
+    successful_tasks = []
+    partial_failure_tasks = []
+    complete_failure_tasks = []
+
+    for task_type in TaskType:
+        task_stats = stats[task_type]
+        if task_stats["started"] == 0:
+            continue
+
+        task_name = task_type.name.lower().replace("_", " ")
+        started = task_stats["started"]
+        completed = task_stats["completed"]
+        failed = task_stats["failed"]
+        success_rate = (completed / started * 100) if started > 0 else 0
+
+        task_info = {
+            "name": task_name,
+            "completed": completed,
+            "started": started,
+            "failed": failed,
+            "success_rate": success_rate,
+        }
+
+        if failed == 0:
+            successful_tasks.append(task_info)
+        elif completed == 0 and failed > 0:
+            complete_failure_tasks.append(task_info)
+        else:
+            partial_failure_tasks.append(task_info)
+
+    # Display header
+    print(f"\n{'Task Statistics Summary'}")
+    print("─" * 40)
+
+    # Show critical failures first (most important)
+    if complete_failure_tasks:
+        for task in complete_failure_tasks:
+            print(
+                f"❌ CRITICAL: {task['name']:<15} {task['completed']}/{task['started']} ({task['success_rate']:5.1f}%) - ALL FAILED"
+            )
+
+    # Show partial failures next
+    if partial_failure_tasks:
+        for task in partial_failure_tasks:
+            print(
+                f"⚠️  WARNING:  {task['name']:<15} {task['completed']}/{task['started']} ({task['success_rate']:5.1f}%) - {task['failed']} failed"
+            )
+
+    # Show successful tasks last
+    if successful_tasks:
+        for task in successful_tasks:
+            print(f"✓ {task['name']:<20} {task['completed']}/{task['started']} ({task['success_rate']:5.1f}%)")
+
+    # Add critical failure summary if any tasks completely failed
+    if complete_failure_tasks:
+        print("\n⚠️  Critical failures detected:")
+        for task in complete_failure_tasks:
+            print(f"   • {task['name']}: All {task['started']} attempts failed")
+        print("   Consider checking task configuration and logs for details")
+
+    print()  # Add spacing after the summary
