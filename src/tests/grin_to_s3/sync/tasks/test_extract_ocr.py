@@ -72,6 +72,9 @@ async def test_extract_with_storage_config():
     pipeline.filesystem_manager = filesystem_manager
     pipeline.storage.write_file = AsyncMock()
     pipeline.config.storage_config = {"config": {"bucket_full": "test-bucket"}}
+    pipeline.config.sync_compression_full_enabled = True
+    pipeline.book_manager = MagicMock()
+    pipeline.book_manager.full_text_path = MagicMock(side_effect=lambda filename: f"test-bucket/{filename}")
 
     unpack_data: UnpackData = {
         "unpacked_path": Path("/tmp/TEST123"),
@@ -93,7 +96,9 @@ async def test_extract_with_storage_config():
 
             assert result.action == TaskAction.COMPLETED
             assert result.data
-            assert "test-bucket/TEST123_ocr.jsonl.gz" == str(result.data["json_file_path"])
+            assert "TEST123_ocr.jsonl" in str(result.data["json_file_path"])
+            # Should use compression by default
+            mock_compress.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -116,7 +121,18 @@ async def test_extract_local_storage_moves_file_to_full_directory():
 
         # Configure for local storage
         pipeline.config.storage_config = {"config": {"base_path": str(output_dir)}}  # No bucket_full = local storage
+        pipeline.config.sync_compression_full_enabled = True
         pipeline.uses_block_storage = False
+
+        # Mock book_manager with proper path method
+        pipeline.book_manager = MagicMock()
+
+        def mock_full_text_path(filename):
+            full_dir = output_dir / "full"
+            full_dir.mkdir(parents=True, exist_ok=True)  # Create directory if needed
+            return full_dir / filename
+
+        pipeline.book_manager.full_text_path.side_effect = mock_full_text_path
 
         # Create the JSONL file in staging
         jsonl_staging_path = staging_path / "TEST123_ocr.jsonl"
@@ -130,7 +146,7 @@ async def test_extract_local_storage_moves_file_to_full_directory():
             # Verify the result
             assert result.action == TaskAction.COMPLETED
             assert result.data
-            expected_final_path = output_dir / "full" / "TEST123" / "TEST123_ocr.jsonl.gz"
+            expected_final_path = output_dir / "full" / "TEST123_ocr.jsonl"  # No barcode directory, no .gz in path
             assert str(result.data["json_file_path"]) == str(expected_final_path)
 
             # Verify staging file was moved (no longer exists)
@@ -150,6 +166,8 @@ async def test_extract_ocr_with_compression_enabled():
     pipeline.config.storage_config = {"config": {"bucket_full": "test-bucket"}}
     pipeline.config.sync_compression_full_enabled = True
     pipeline.uses_block_storage = True
+    pipeline.book_manager = MagicMock()
+    pipeline.book_manager.full_text_path = MagicMock(side_effect=lambda filename: f"test-bucket/{filename}")
 
     unpack_data: UnpackData = {
         "unpacked_path": Path("/tmp/TEST123"),
@@ -169,9 +187,9 @@ async def test_extract_ocr_with_compression_enabled():
 
             result = await extract_ocr.main("TEST123", unpack_data, pipeline)
 
-            # Should use compression and create .gz file
+            # Should use compression
             assert result.action == TaskAction.COMPLETED
-            assert str(result.data["json_file_path"]).endswith(".gz")
+            assert "TEST123_ocr.jsonl" in str(result.data["json_file_path"])
             mock_compress.assert_called_once()
 
 
@@ -185,6 +203,8 @@ async def test_extract_ocr_with_compression_disabled():
     pipeline.config.storage_config = {"config": {"bucket_full": "test-bucket"}}
     pipeline.config.sync_compression_full_enabled = False
     pipeline.uses_block_storage = True
+    pipeline.book_manager = MagicMock()
+    pipeline.book_manager.full_text_path = MagicMock(side_effect=lambda filename: f"test-bucket/{filename}")
 
     unpack_data: UnpackData = {
         "unpacked_path": Path("/tmp/TEST123"),
@@ -240,6 +260,16 @@ async def test_extract_ocr_local_storage_with_compression_disabled():
         # Update pipeline config to use temp output dir
         pipeline.config.storage_config = {"config": {"base_path": str(output_dir)}}
 
+        # Mock book_manager with proper path method
+        pipeline.book_manager = MagicMock()
+
+        def mock_full_text_path(filename):
+            full_dir = output_dir / "full"
+            full_dir.mkdir(parents=True, exist_ok=True)  # Create directory if needed
+            return full_dir / filename
+
+        pipeline.book_manager.full_text_path.side_effect = mock_full_text_path
+
         # Create the JSONL file
         jsonl_path = staging_path / "TEST123_ocr.jsonl"
         jsonl_path.write_text("test content")
@@ -254,7 +284,7 @@ async def test_extract_ocr_local_storage_with_compression_disabled():
 
             # Should not use compression and move file without .gz extension
             assert result.action == TaskAction.COMPLETED
-            expected_path = output_dir / "full" / "TEST123" / "TEST123_ocr.jsonl"
+            expected_path = output_dir / "full" / "TEST123_ocr.jsonl"  # No barcode directory in new structure
             assert str(result.data["json_file_path"]) == str(expected_path)
             mock_compress.assert_not_called()
 

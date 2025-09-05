@@ -59,6 +59,7 @@ def mock_pipeline():
         # Mock book manager
         pipeline.book_manager = MagicMock()
         pipeline.book_manager.raw_archive_path = MagicMock(return_value="test-bucket/TEST123/TEST123.tar.gz")
+        pipeline.book_manager.full_text_path = MagicMock(side_effect=lambda filename: f"test-bucket/{filename}")
         pipeline.book_manager.storage = pipeline.storage
         pipeline.book_manager._manager_id = "test-mgr"
 

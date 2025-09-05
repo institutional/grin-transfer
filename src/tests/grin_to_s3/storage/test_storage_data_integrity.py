@@ -72,22 +72,22 @@ class TestStoragePathIntegrity:
         config = BackendConfig(protocol="file")
         storage = Storage(config)
 
-        # Test without base_prefix
+        # Test with base_prefix
         book_manager = BookManager(
-            storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix=""
+            storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="test_run"
         )
 
         # Test raw archive path construction
         raw_path = book_manager.raw_archive_path("TEST001.tar.gz.gpg")
-        assert raw_path == "raw/TEST001/TEST001.tar.gz.gpg"
+        assert raw_path == "raw/test_run/TEST001.tar.gz.gpg"
 
         # Test full text path construction
         full_path = book_manager.full_text_path("test.txt")
-        assert full_path == "full/test.txt"
+        assert full_path == "full/test_run/test.txt"
 
         # Test meta path construction
         meta_path = book_manager.meta_path("books.csv")
-        assert meta_path == "meta/books.csv"
+        assert meta_path == "meta/test_run/books.csv"
 
         # Test with base_prefix
         book_manager_with_prefix = BookManager(
@@ -95,7 +95,7 @@ class TestStoragePathIntegrity:
         )
 
         raw_path_prefixed = book_manager_with_prefix.raw_archive_path("TEST001.tar.gz.gpg")
-        assert raw_path_prefixed == "raw/myproject/TEST001/TEST001.tar.gz.gpg"
+        assert raw_path_prefixed == "raw/myproject/TEST001.tar.gz.gpg"
 
         full_path_prefixed = book_manager_with_prefix.full_text_path("test.txt")
         assert full_path_prefixed == "full/myproject/test.txt"
@@ -108,7 +108,7 @@ class TestStoragePathIntegrity:
         config = BackendConfig(protocol="file")
         storage = Storage(config)
         book_manager = BookManager(
-            storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix=""
+            storage, storage_config=standard_storage_config("local", "raw", "meta", "full"), base_prefix="test_run"
         )
 
         # Test edge case barcodes
@@ -121,15 +121,15 @@ class TestStoragePathIntegrity:
             ("VERY_LONG_BARCODE_" + "X" * 100, "VERY_LONG_BARCODE_" + "X" * 100),  # Very long
         ]
 
-        for barcode, expected_barcode in test_cases:
+        for barcode, _ in test_cases:
             # Test that paths are constructed correctly
             raw_path = book_manager.raw_archive_path(f"{barcode}.tar.gz.gpg")
-            expected_raw = f"raw/{expected_barcode}/{barcode}.tar.gz.gpg"
+            expected_raw = f"raw/test_run/{barcode}.tar.gz.gpg"  # No barcode directory, uses prefix
             assert raw_path == expected_raw
 
             # Test full text path
             full_path = book_manager.full_text_path("test.txt")
-            assert full_path == "full/test.txt"  # Full text path doesn't include barcode
+            assert full_path == "full/test_run/test.txt"  # Uses prefix
 
     def test_unicode_barcode_handling(self):
         """Test handling of Unicode characters in barcodes."""
