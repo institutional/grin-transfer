@@ -232,11 +232,10 @@ class SyncPipeline:
 
         # Initialize storage components once (now that tests provide complete configurations)
         self.storage = create_storage_from_config(self.config.storage_config)
-        self.base_prefix = self.config.storage_config.get("prefix", "")
 
         self.conversion_requests_made = 0
         self.book_manager = BookManager(
-            self.storage, storage_config=self.config.storage_config, base_prefix=self.base_prefix
+            self.storage, storage_config=self.config.storage_config, base_prefix=self.config.run_name
         )
 
     async def initialize_resources(self):

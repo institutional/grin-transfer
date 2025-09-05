@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import logging
 from datetime import datetime
@@ -58,12 +59,15 @@ async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
                 source_path = str(compressed_path)
 
                 # Upload to both locations
-                bucket_path = f"{bucket}/{run_name}/{filename}{file_extension}"
-                await pipeline.storage.write_file(bucket_path, source_path)
-                await pipeline.storage.write_file(
-                    f"{bucket}/{run_name}/timestamped/books_{timestamp}.csv{file_extension}", source_path
+                bucket_path = pipeline.book_manager.meta_path(f"{filename}{file_extension}")
+                bucket_path_timestamped = pipeline.book_manager.meta_path(
+                    f"timestamped/books_{timestamp}.csv{file_extension}"
                 )
-                logger.info(f"Successfully uploaded latest CSV to {bucket_path}")
+                await asyncio.gather(
+                    pipeline.storage.write_file(bucket_path, source_path),
+                    pipeline.storage.write_file(bucket_path_timestamped, source_path),
+                )
+                logger.info(f"Successfully uploaded latest CSV to {bucket_path} and {bucket_path_timestamped}")
         else:
             file_extension = ""
             source_path = str(csv_path)

@@ -6,9 +6,9 @@ Handles database backup creation and upload operations with comprehensive
 error handling and cleanup.
 """
 
+import asyncio
 import logging
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
@@ -30,7 +30,7 @@ class DatabaseBackupResult(TypedDict):
     backup_filename: str | None
 
 
-async def create_local_database_backup(db_path: str, backup_dir: str | None = None) -> DatabaseBackupResult:
+async def create_local_database_backup(db_path: Path, backup_dir: str | None = None) -> DatabaseBackupResult:
     """Create local timestamped backup of database.
 
     Args:
@@ -96,16 +96,13 @@ async def create_local_database_backup(db_path: str, backup_dir: str | None = No
     return result
 
 
-async def upload_database_to_storage(
-    db_path: str, book_manager: "BookManager", run_name: str, upload_type: str = "latest"
-) -> DatabaseBackupResult:
+async def upload_database_to_storage(db_path: Path, book_manager: "BookManager") -> DatabaseBackupResult:
     """Upload database file to metadata bucket with compression.
 
     Args:
         db_path: Path to SQLite database file
         book_manager: BookManager instance for upload operations
         run_name: Name of the run for path organization
-        upload_type: "latest" for books_latest.db.gz or "timestamped" for books_backup_{timestamp}.db.gz
 
     Returns:
         Dict with upload operation results
@@ -120,40 +117,30 @@ async def upload_database_to_storage(
     }
 
     try:
-        db_path_obj = Path(db_path)
-        if not db_path_obj.exists():
-            logger.warning(f"Database file does not exist: {db_path}")
-            result["status"] = "skipped"
-            result["backup_time"] = time.time() - start_time
-            return result
-
-        # Generate filename based on upload type (with compression)
-        if upload_type == "latest":
-            base_filename = "books_latest.db"
-            compressed_filename = get_compressed_filename(base_filename)
-            storage_path = book_manager.meta_path(compressed_filename)
-        else:  # timestamped
-            timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-            base_filename = f"books_{timestamp}.db"
-            compressed_filename = get_compressed_filename(base_filename)
-            storage_path = book_manager.meta_path(f"timestamped/{compressed_filename}")
-
+        base_filename = "books_latest.db"
+        compressed_filename = get_compressed_filename(base_filename)
+        storage_path = book_manager.meta_path(compressed_filename)
         result["backup_filename"] = compressed_filename
 
         # Get original file size
-        result["file_size"] = db_path_obj.stat().st_size
+        result["file_size"] = db_path.stat().st_size
 
-        # Upload compressed database
-        async with compress_file_to_temp(db_path_obj) as compressed_path:
+        # Upload compressed database to both paths simultaneously
+        async with compress_file_to_temp(db_path) as compressed_path:
             result["compressed_size"] = compressed_path.stat().st_size
-            await book_manager.storage.write_file(storage_path, str(compressed_path))
+            timestamped_path = book_manager.meta_path(f"timestamped/{compressed_filename}")
 
+            # Upload to both paths concurrently
+            await asyncio.gather(
+                book_manager.storage.write_file(storage_path, str(compressed_path)),
+                book_manager.storage.write_file(timestamped_path, str(compressed_path)),
+            )
         result["status"] = "completed"
         compression_ratio = (
             (1 - result["compressed_size"] / result["file_size"]) * 100 if result["file_size"] > 0 else 0
         )
         logger.info(
-            f"Database uploaded to storage: {compressed_filename} "
+            f"Database uploaded to storage: {storage_path} and {timestamped_path} "
             f"({result['file_size']:,} -> {result['compressed_size']:,} bytes, {compression_ratio:.1f}% compression)"
         )
 

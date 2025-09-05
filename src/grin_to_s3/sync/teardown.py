@@ -48,10 +48,7 @@ async def run_csv_export(pipeline: "SyncPipeline") -> CsvExportTeardownResult:
         )
 
     try:
-        result = await export_csv.main(pipeline)
-
-        # Return the result directly since it's already the right type
-        return result
+        return await export_csv.main(pipeline)
 
     except Exception as e:
         logger.error(f"CSV export failed: {e}", exc_info=True)
@@ -76,8 +73,6 @@ async def run_final_database_upload(pipeline: "SyncPipeline") -> FinalDatabaseUp
     upload_result = await upload_database_to_storage(
         pipeline.db_path,
         pipeline.book_manager,
-        pipeline.config.run_name,
-        upload_type="latest",
     )
 
     if upload_result["status"] != "completed":

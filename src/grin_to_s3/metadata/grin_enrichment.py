@@ -501,9 +501,7 @@ Examples:
 
             # Upload books database to storage
             if book_manager:
-                await upload_database_to_storage(
-                    str(run_config.sqlite_db_path), book_manager, args.run_name, upload_type="latest"
-                )
+                await upload_database_to_storage(run_config.sqlite_db_path, book_manager)
 
             # Display completion summary
             display_step_summary(run_summary, "enrich")

@@ -350,7 +350,7 @@ Examples:
             await save_process_summary(run_summary, book_manager)
 
             # Upload books database to storage
-            await upload_database_to_storage(str(sqlite_db_path), book_manager, run_name, upload_type="latest")
+            await upload_database_to_storage(sqlite_db_path, book_manager, run_name)
 
             # Clean up book manager storage resources
             if "book_manager" in locals() and book_manager and hasattr(book_manager, "storage"):

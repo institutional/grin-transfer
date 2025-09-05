@@ -67,7 +67,10 @@ async def test_upload_database_to_storage_latest():
     # Mock setup
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager.meta_path.return_value = "meta/books_latest.db.gz"
+    mock_book_manager.meta_path.side_effect = [
+        "meta/test_run/books_latest.db.gz",
+        "meta/test_run/timestamped/books_latest.db.gz",
+    ]
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
@@ -77,50 +80,32 @@ async def test_upload_database_to_storage_latest():
         db_path.write_text("mock database content")
 
         # Upload as latest
-        result = await upload_database_to_storage(str(db_path), mock_book_manager, "test_run", upload_type="latest")
+        result = await upload_database_to_storage(
+            db_path,
+            mock_book_manager,
+        )
 
         assert result["status"] == "completed"
         assert result["backup_filename"] == "books_latest.db.gz"
         assert result["file_size"] > 0
         assert result["compressed_size"] > 0
-        mock_storage.write_file.assert_called_once()
+        assert mock_storage.write_file.call_count == 2
+        calls = mock_storage.write_file.call_args_list
+        paths_called = [call[0][0] for call in calls]
+        assert "meta/test_run/books_latest.db.gz" in paths_called
+        assert "meta/test_run/timestamped/books_latest.db.gz" in paths_called
 
 
 @pytest.mark.asyncio
 async def test_upload_database_to_storage_timestamped():
-    """Test database upload as timestamped backup."""
+    """Test database upload uploads to both latest and timestamped paths."""
     # Mock setup
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager.meta_path.return_value = "meta/database_backups/books_backup_20240101_120000.db.gz"
-    mock_book_manager.storage = mock_storage
-    mock_storage.write_file = AsyncMock()
-
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Create mock database file
-        db_path = Path(temp_dir) / "test.db"
-        db_path.write_text("mock database content")
-
-        # Upload as timestamped backup
-        result = await upload_database_to_storage(
-            str(db_path), mock_book_manager, "test_run", upload_type="timestamped"
-        )
-
-        assert result["status"] == "completed"
-        assert "books_" in result["backup_filename"]
-        assert result["backup_filename"].endswith(".db.gz")
-        assert result["file_size"] > 0
-        assert result["compressed_size"] > 0
-        mock_storage.write_file.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_upload_database_to_storage_compression_cleanup():
-    """Test database upload handles temporary compression files correctly."""
-    # Mock setup
-    mock_storage = Mock()
-    mock_book_manager = Mock()
-    mock_book_manager.meta_path.return_value = "meta/books_latest.db.gz"
+    mock_book_manager.meta_path.side_effect = [
+        "meta/test_run/books_latest.db.gz",
+        "meta/test_run/timestamped/books_latest.db.gz",
+    ]
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock()
 
@@ -130,30 +115,52 @@ async def test_upload_database_to_storage_compression_cleanup():
         db_path.write_text("mock database content")
 
         # Upload database
-        result = await upload_database_to_storage(str(db_path), mock_book_manager, "test_run", upload_type="latest")
+        result = await upload_database_to_storage(db_path, mock_book_manager)
 
         assert result["status"] == "completed"
         assert result["backup_filename"] == "books_latest.db.gz"
         assert result["file_size"] > 0
         assert result["compressed_size"] > 0
-        mock_storage.write_file.assert_called_once()
-
-        # Verify temporary compression files are cleaned up automatically
-        # (compress_file_to_temp context manager handles cleanup)
+        assert mock_storage.write_file.call_count == 2
+        calls = mock_storage.write_file.call_args_list
+        paths_called = [call[0][0] for call in calls]
+        assert "meta/test_run/books_latest.db.gz" in paths_called
+        assert "meta/test_run/timestamped/books_latest.db.gz" in paths_called
 
 
 @pytest.mark.asyncio
-async def test_upload_database_to_storage_missing_file():
-    """Test database upload with missing file."""
+async def test_upload_database_to_storage_compression_cleanup():
+    """Test database upload handles temporary compression files correctly."""
+    # Mock setup
+    mock_storage = Mock()
     mock_book_manager = Mock()
+    mock_book_manager.meta_path.side_effect = [
+        "meta/test_run/books_latest.db.gz",
+        "meta/test_run/timestamped/books_latest.db.gz",
+    ]
+    mock_book_manager.storage = mock_storage
+    mock_storage.write_file = AsyncMock()
 
-    result = await upload_database_to_storage(
-        "/nonexistent/path.db", mock_book_manager, "test_run", upload_type="latest"
-    )
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create mock database file
+        db_path = Path(temp_dir) / "test.db"
+        db_path.write_text("mock database content")
 
-    assert result["status"] == "skipped"
-    assert result["file_size"] == 0
-    assert result["backup_filename"] is None
+        # Upload database
+        result = await upload_database_to_storage(db_path, mock_book_manager)
+
+        assert result["status"] == "completed"
+        assert result["backup_filename"] == "books_latest.db.gz"
+        assert result["file_size"] > 0
+        assert result["compressed_size"] > 0
+        assert mock_storage.write_file.call_count == 2
+        calls = mock_storage.write_file.call_args_list
+        paths_called = [call[0][0] for call in calls]
+        assert "meta/test_run/books_latest.db.gz" in paths_called
+        assert "meta/test_run/timestamped/books_latest.db.gz" in paths_called
+
+        # Verify temporary compression files are cleaned up automatically
+        # (compress_file_to_temp context manager handles cleanup)
 
 
 @pytest.mark.asyncio
@@ -162,7 +169,10 @@ async def test_upload_database_to_storage_upload_error():
     # Mock setup with failing storage
     mock_storage = Mock()
     mock_book_manager = Mock()
-    mock_book_manager.meta_path.return_value = "meta/books_latest.db.gz"
+    mock_book_manager.meta_path.side_effect = [
+        "meta/test_run/books_latest.db.gz",
+        "meta/test_run/timestamped/books_latest.db.gz",
+    ]
     mock_book_manager.storage = mock_storage
     mock_storage.write_file = AsyncMock(side_effect=Exception("Storage error"))
 
@@ -172,7 +182,7 @@ async def test_upload_database_to_storage_upload_error():
         db_path.write_text("mock database content")
 
         # Upload should fail
-        result = await upload_database_to_storage(str(db_path), mock_book_manager, "test_run", upload_type="latest")
+        result = await upload_database_to_storage(db_path, mock_book_manager)
 
         assert result["status"] == "failed"
         assert result["backup_filename"] == "books_latest.db.gz"  # Filename set before failure
