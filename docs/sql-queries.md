@@ -4,7 +4,7 @@ The tool tracks its status with an internal SQLite database which you are encour
 
 The `books` table will contain information about the archives in your collection. The `book_status_history` table will contain rows for each task and job run.
 
-See [docs/schema.sql](schema.sql)
+See [docs/schema.sql](schema.sql) for the database schema and [docs/status-definitions.md](status-definitions.md) for a complete list of all status values and their meanings.
 
 ## Table of contents
 
@@ -299,7 +299,7 @@ SELECT DISTINCT b.barcode
 FROM books b
 JOIN book_status_history bsh ON b.barcode = bsh.barcode
 WHERE bsh.status_type = 'sync' 
-  AND bsh.status_value IN ('check_failed', 'download_failed', 'decrypt_failed', 'upload_failed', 'failed');
+  AND bsh.status_value IN ('check_failed', 'download_failed', 'decrypt_failed', 'unpack_failed', 'upload_failed', 'failed');
 ```
 
 Books requiring retry with failure details (never completed):
@@ -313,7 +313,7 @@ SELECT
 FROM books b
 JOIN book_status_history bsh ON b.barcode = bsh.barcode
 WHERE bsh.status_type = 'sync' 
-  AND bsh.status_value IN ('check_failed', 'download_failed', 'decrypt_failed', 'upload_failed', 'failed')
+  AND bsh.status_value IN ('check_failed', 'download_failed', 'decrypt_failed', 'unpack_failed', 'upload_failed', 'failed')
   -- This clause checks that they never eventually completed
   AND NOT EXISTS (
       SELECT 1 FROM book_status_history bsh2 
@@ -361,7 +361,7 @@ SELECT
     COUNT(*) as failure_count,
     MAX(timestamp) as latest_failure
 FROM book_status_history
-WHERE status_value IN ('check_failed', 'download_failed', 'decrypt_failed', 'upload_failed', 'failed', 'unavailable', 'limit_reached')
+WHERE status_value IN ('check_failed', 'download_failed', 'decrypt_failed', 'unpack_failed', 'upload_failed', 'failed', 'unavailable', 'limit_reached')
   AND timestamp >= datetime('now', '-7 days')
 GROUP BY status_type, status_value
 ORDER BY failure_count DESC;

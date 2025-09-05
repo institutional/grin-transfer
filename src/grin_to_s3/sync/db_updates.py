@@ -167,11 +167,11 @@ async def request_conversion_failed(result: TaskResult, previous_results: dict[T
             return {"status": ("conversion", "failed", metadata), "books": {}}
 
 
-@on(TaskType.DOWNLOAD, TaskAction.COMPLETED, status_value="downloading")
+@on(TaskType.DOWNLOAD, TaskAction.COMPLETED, status_value="downloaded")
 async def download_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
     etag = result.data.get("etag") if result.data else None
     return {
-        "status": ("sync", "downloading", {"etag": etag} if etag else None),
+        "status": ("sync", "downloaded", {"etag": etag} if etag else None),
         "books": {"encrypted_etag": etag} if etag else {},
     }
 
