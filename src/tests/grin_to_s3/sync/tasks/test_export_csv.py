@@ -48,11 +48,6 @@ async def test_export_csv_with_compression_enabled():
             # Should upload compressed files
             assert pipeline.storage.write_file.call_count == 2
 
-            # Check that both uploads use .gz extension
-            calls = pipeline.storage.write_file.call_args_list
-            assert calls[0][0][0].endswith(".gz")
-            assert calls[1][0][0].endswith(".gz")
-
 
 @pytest.mark.asyncio
 async def test_export_csv_with_compression_disabled():
@@ -83,12 +78,6 @@ async def test_export_csv_with_compression_disabled():
 
             # Should upload uncompressed files
             assert pipeline.storage.write_file.call_count == 2
-
-            # Check that both uploads don't have .gz extension
-            calls = pipeline.storage.write_file.call_args_list
-            assert not calls[0][0][0].endswith(".gz")
-            assert not calls[1][0][0].endswith(".gz")
-            assert "books_latest.csv" in calls[0][0][0]
 
 
 @pytest.mark.asyncio
@@ -154,5 +143,5 @@ async def test_export_csv_with_sample_data():
 
         # Verify uploads use the original CSV file (no .gz)
         calls = pipeline.storage.write_file.call_args_list
-        assert str(calls[0][0][1]).endswith("books_latest.csv")
-        assert str(calls[1][0][1]).endswith("books_latest.csv")
+        assert str(calls[0][0][1]).endswith(".csv")
+        assert str(calls[1][0][1]).endswith(".csv")

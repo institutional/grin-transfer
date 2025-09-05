@@ -25,7 +25,7 @@ async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
     books = await pipeline.db_tracker.get_all_books_csv_data()
 
     csv_path = base_path / "meta" / filename
-    timestamped_path = base_path / "meta" / "timestamped" / f"books_{timestamp}.csv"
+    timestamped_path = base_path / "meta" / "timestamped" / f"{timestamp}_books.csv"
     bucket_path = None
 
     csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -41,9 +41,6 @@ async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
             writer.writerow(book.to_csv_row())
 
     if pipeline.uses_block_storage:
-        bucket = pipeline.config.storage_bucket_meta
-        run_name = pipeline.config.run_name
-
         if pipeline.config.sync_compression_meta_enabled:
             async with compress_file_to_temp(csv_path) as compressed_path:
                 # Get compression statistics
@@ -55,30 +52,23 @@ async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
                     f"CSV compression: {original_size:,} -> {compressed_size:,} bytes ({compression_ratio:.1f}% reduction)"
                 )
 
-                file_extension = ".gz"
-                source_path = str(compressed_path)
-
-                # Upload to both locations
-                bucket_path = pipeline.book_manager.meta_path(f"{filename}{file_extension}")
-                bucket_path_timestamped = pipeline.book_manager.meta_path(
-                    f"timestamped/books_{timestamp}.csv{file_extension}"
-                )
+                # Upload compressed file to both locations
+                bucket_path = pipeline.book_manager.meta_path("books_latest.csv.gz")
+                bucket_path_timestamped = pipeline.book_manager.meta_path(f"timestamped/{timestamp}_books.csv.gz")
                 await asyncio.gather(
-                    pipeline.storage.write_file(bucket_path, source_path),
-                    pipeline.storage.write_file(bucket_path_timestamped, source_path),
+                    pipeline.storage.write_file(bucket_path, str(compressed_path)),
+                    pipeline.storage.write_file(bucket_path_timestamped, str(compressed_path)),
                 )
                 logger.info(f"Successfully uploaded latest CSV to {bucket_path} and {bucket_path_timestamped}")
         else:
-            file_extension = ""
-            source_path = str(csv_path)
-
-            # Upload uncompressed files
-            bucket_path = f"{bucket}/{run_name}/{filename}{file_extension}"
-            await pipeline.storage.write_file(bucket_path, source_path)
-            await pipeline.storage.write_file(
-                f"{bucket}/{run_name}/timestamped/books_{timestamp}.csv{file_extension}", source_path
+            # Upload uncompressed file to both locations
+            bucket_path = pipeline.book_manager.meta_path("books_latest.csv")
+            bucket_path_timestamped = pipeline.book_manager.meta_path(f"timestamped/{timestamp}_books.csv")
+            await asyncio.gather(
+                pipeline.storage.write_file(bucket_path, str(csv_path)),
+                pipeline.storage.write_file(bucket_path_timestamped, str(csv_path)),
             )
-            logger.info(f"Successfully uploaded latest CSV to {bucket_path}")
+            logger.info(f"Successfully uploaded latest CSV to {bucket_path} and {bucket_path_timestamped}")
     else:
         logger.info(f"CSV exported as {csv_path}")
 
