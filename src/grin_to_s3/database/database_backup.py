@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 from grin_to_s3.common import BackupManager, compress_file_to_temp, get_compressed_filename
+from grin_to_s3.sync.tasks.task_types import DatabaseBackupData, Result, TaskAction, TaskType
 
 if TYPE_CHECKING:
     from grin_to_s3.storage.book_manager import BookManager
@@ -96,38 +97,29 @@ async def create_local_database_backup(db_path: Path, backup_dir: str | None = N
     return result
 
 
-async def upload_database_to_storage(db_path: Path, book_manager: "BookManager") -> DatabaseBackupResult:
+async def upload_database_to_storage(db_path: Path, book_manager: "BookManager") -> Result[DatabaseBackupData]:
     """Upload database file to metadata bucket with compression.
 
     Args:
         db_path: Path to SQLite database file
         book_manager: BookManager instance for upload operations
-        run_name: Name of the run for path organization
 
     Returns:
-        Dict with upload operation results
+        Result with upload operation data and metadata
     """
     start_time = time.time()
-    result: DatabaseBackupResult = {
-        "status": "pending",
-        "file_size": 0,
-        "compressed_size": 0,
-        "backup_time": 0.0,
-        "backup_filename": None,
-    }
 
     try:
         base_filename = "books_latest.db"
         compressed_filename = get_compressed_filename(base_filename)
         storage_path = book_manager.meta_path(compressed_filename)
-        result["backup_filename"] = compressed_filename
 
         # Get original file size
-        result["file_size"] = db_path.stat().st_size
+        file_size = db_path.stat().st_size
 
         # Upload compressed database to both paths simultaneously
         async with compress_file_to_temp(db_path) as compressed_path:
-            result["compressed_size"] = compressed_path.stat().st_size
+            compressed_size = compressed_path.stat().st_size
             timestamped_path = book_manager.meta_path(f"timestamped/{compressed_filename}")
 
             # Upload to both paths concurrently
@@ -135,18 +127,37 @@ async def upload_database_to_storage(db_path: Path, book_manager: "BookManager")
                 book_manager.storage.write_file(storage_path, str(compressed_path)),
                 book_manager.storage.write_file(timestamped_path, str(compressed_path)),
             )
-        result["status"] = "completed"
-        compression_ratio = (
-            (1 - result["compressed_size"] / result["file_size"]) * 100 if result["file_size"] > 0 else 0
-        )
+
+        backup_time = time.time() - start_time
+        compression_ratio = (1 - compressed_size / file_size) * 100 if file_size > 0 else 0
         logger.info(
             f"Database uploaded to storage: {storage_path} and {timestamped_path} "
-            f"({result['file_size']:,} -> {result['compressed_size']:,} bytes, {compression_ratio:.1f}% compression)"
+            f"({file_size:,} -> {compressed_size:,} bytes, {compression_ratio:.1f}% compression)"
+        )
+
+        data: DatabaseBackupData = {
+            "backup_filename": compressed_filename,
+            "file_size": file_size,
+            "backup_time": backup_time,
+        }
+
+        return Result(
+            task_type=TaskType.FINAL_DATABASE_UPLOAD,
+            action=TaskAction.COMPLETED,
+            data=data,
         )
 
     except Exception as e:
-        result["status"] = "failed"
+        backup_time = time.time() - start_time
         logger.error(f"Database upload failed with exception: {e}", exc_info=True)
 
-    result["backup_time"] = time.time() - start_time
-    return result
+        return Result(
+            task_type=TaskType.FINAL_DATABASE_UPLOAD,
+            action=TaskAction.FAILED,
+            error=f"Database upload failed: {e}",
+            data=DatabaseBackupData(
+                backup_filename=None,
+                file_size=0,
+                backup_time=backup_time,
+            ),
+        )

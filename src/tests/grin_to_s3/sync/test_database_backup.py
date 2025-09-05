@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from grin_to_s3.database.database_backup import create_local_database_backup, upload_database_to_storage
+from grin_to_s3.sync.tasks.task_types import TaskAction
 
 
 @pytest.mark.asyncio
@@ -85,10 +86,10 @@ async def test_upload_database_to_storage_latest():
             mock_book_manager,
         )
 
-        assert result["status"] == "completed"
-        assert result["backup_filename"] == "books_latest.db.gz"
-        assert result["file_size"] > 0
-        assert result["compressed_size"] > 0
+        assert result.action == TaskAction.COMPLETED
+        assert result.data["backup_filename"] == "books_latest.db.gz"
+        assert result.data["file_size"] > 0
+        # Note: compressed_size is not in DatabaseBackupData, it's calculated internally
         assert mock_storage.write_file.call_count == 2
         calls = mock_storage.write_file.call_args_list
         paths_called = [call[0][0] for call in calls]
@@ -117,10 +118,10 @@ async def test_upload_database_to_storage_timestamped():
         # Upload database
         result = await upload_database_to_storage(db_path, mock_book_manager)
 
-        assert result["status"] == "completed"
-        assert result["backup_filename"] == "books_latest.db.gz"
-        assert result["file_size"] > 0
-        assert result["compressed_size"] > 0
+        assert result.action == TaskAction.COMPLETED
+        assert result.data["backup_filename"] == "books_latest.db.gz"
+        assert result.data["file_size"] > 0
+        # Note: compressed_size is not in DatabaseBackupData, it's calculated internally
         assert mock_storage.write_file.call_count == 2
         calls = mock_storage.write_file.call_args_list
         paths_called = [call[0][0] for call in calls]
@@ -149,10 +150,10 @@ async def test_upload_database_to_storage_compression_cleanup():
         # Upload database
         result = await upload_database_to_storage(db_path, mock_book_manager)
 
-        assert result["status"] == "completed"
-        assert result["backup_filename"] == "books_latest.db.gz"
-        assert result["file_size"] > 0
-        assert result["compressed_size"] > 0
+        assert result.action == TaskAction.COMPLETED
+        assert result.data["backup_filename"] == "books_latest.db.gz"
+        assert result.data["file_size"] > 0
+        # Note: compressed_size is not in DatabaseBackupData, it's calculated internally
         assert mock_storage.write_file.call_count == 2
         calls = mock_storage.write_file.call_args_list
         paths_called = [call[0][0] for call in calls]
@@ -184,6 +185,6 @@ async def test_upload_database_to_storage_upload_error():
         # Upload should fail
         result = await upload_database_to_storage(db_path, mock_book_manager)
 
-        assert result["status"] == "failed"
-        assert result["backup_filename"] == "books_latest.db.gz"  # Filename set before failure
-        assert result["file_size"] > 0  # File size calculated before failure
+        assert result.action == TaskAction.FAILED
+        assert result.error is not None  # Error message should be present
+        # Note: For failed results, data may have partial information depending on when failure occurred

@@ -10,18 +10,17 @@ import logging
 import shutil
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from grin_to_s3.sync.pipeline import SyncPipeline
+    from grin_to_s3.sync.tasks.task_types import StagingCleanupResult
+
 
 logger = logging.getLogger(__name__)
 
 
-class StagingDirectoryError(Exception):
-    """Raised when staging directory operations fail."""
-
-    pass
-
-
-class DiskSpaceError(StagingDirectoryError):
+class DiskSpaceError(Exception):
     """Raised when disk space is insufficient."""
 
     pass
@@ -264,3 +263,49 @@ class StagingDirectoryManager(DirectoryManager):
         decrypted_path = self.get_decrypted_file_path(barcode)
         extracted_dir = self.get_extracted_directory_path(barcode)
         return [encrypted_path, decrypted_path, extracted_dir]
+
+
+async def run_staging_cleanup(pipeline: "SyncPipeline") -> "StagingCleanupResult":
+    """Clean up staging directory after batch processing completes."""
+    from grin_to_s3.sync.tasks.task_types import Result, StagingCleanupData, TaskAction, TaskType
+
+    start_time = time.time()
+
+    if pipeline.dry_run:
+        logger.debug("Staging cleanup skipped in dry-run mode")
+        return Result(
+            task_type=TaskType.STAGING_CLEANUP,
+            action=TaskAction.SKIPPED,
+            reason="skip_dry_run",
+        )
+
+    if not pipeline.uses_block_storage:
+        logger.debug("Staging cleanup skipped for local storage")
+        return Result(
+            task_type=TaskType.STAGING_CLEANUP,
+            action=TaskAction.SKIPPED,
+            reason="skip_not_applicable",
+        )
+
+    if pipeline.skip_staging_cleanup:
+        logger.debug("Staging cleanup skipped due to --skip-staging-cleanup flag")
+        return Result(
+            task_type=TaskType.STAGING_CLEANUP,
+            action=TaskAction.SKIPPED,
+            reason="skip_staging_cleanup",
+        )
+
+    shutil.rmtree(pipeline.filesystem_manager.staging_path, ignore_errors=True)
+
+    cleanup_time = time.time() - start_time
+
+    data: StagingCleanupData = {
+        "staging_path": pipeline.filesystem_manager.staging_path,
+        "cleanup_time": cleanup_time,
+    }
+
+    return Result(
+        task_type=TaskType.STAGING_CLEANUP,
+        action=TaskAction.COMPLETED,
+        data=data,
+    )

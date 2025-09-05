@@ -35,7 +35,7 @@ from grin_to_s3.metadata.grin_enrichment import enrich_main
 from grin_to_s3.processing import main as process_main
 from grin_to_s3.reports import main as reports_main
 from grin_to_s3.storage import main as storage_main
-from grin_to_s3.sync import main as sync_main
+from grin_to_s3.sync.__main__ import main as sync_main
 
 
 def create_parser():
