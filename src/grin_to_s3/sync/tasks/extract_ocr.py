@@ -23,9 +23,11 @@ async def upload_ocr_to_storage(
 ) -> str:
     """Store OCR file to the appropriate location based on pipeline configuration."""
     destination_path = pipeline.book_manager.full_text_path(f"{barcode}_ocr.jsonl")
+    if source_path.name.endswith(".gz"):
+        destination_path = f"{destination_path}.gz"
 
     if pipeline.uses_block_storage:
-        logger.info(f"Uploading {source_path} to {destination_path}")
+        logger.info(f"Uploading OCR file to {destination_path}")
         await pipeline.storage.write_file(destination_path, str(source_path), cast(dict[str, str], metadata))
     else:
         # Local storage: move to 'full' subdirectory

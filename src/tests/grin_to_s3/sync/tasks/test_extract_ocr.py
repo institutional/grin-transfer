@@ -146,7 +146,7 @@ async def test_extract_local_storage_moves_file_to_full_directory():
             # Verify the result
             assert result.action == TaskAction.COMPLETED
             assert result.data
-            expected_final_path = output_dir / "full" / "TEST123_ocr.jsonl"  # No barcode directory, no .gz in path
+            expected_final_path = output_dir / "full" / "TEST123_ocr.jsonl.gz"
             assert str(result.data["json_file_path"]) == str(expected_final_path)
 
             # Verify staging file was moved (no longer exists)

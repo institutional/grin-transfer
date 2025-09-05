@@ -528,6 +528,9 @@ class RunSummaryManager:
                     f"({original_size:,} -> {compressed_size:,} bytes, {compression_ratio:.1f}% compression)"
                 )
 
+            # Clean up storage resources to prevent unclosed session warnings
+            await self._book_manager.storage.close()
+
         except Exception as e:
             logger.error(f"Failed to upload process summary to storage: {e}")
             # Don't raise - storage upload failure shouldn't break local summary saving
