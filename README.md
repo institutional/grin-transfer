@@ -24,6 +24,8 @@ In typical usage, you will **collect** a local copy of your library's Google Boo
   - [5. Storage Management: `grin.py storage`](#5-storage-management-grinpy-storage)
 - [File outputs](#file-outputs)
   - [Data dictionary](#data-dictionary)
+- [Database administration](#database-administration)
+  - [SQL queries for admin tasks](#sql-queries-for-admin-tasks)
 - [Storage backends](#storage-backends)
   - [Local filesystem](#local-storage)
   - [AWS S3](#aws-s3)
@@ -389,6 +391,19 @@ The metadata combines information from multiple authoritative sources:
 - Export timestamps and processing metadata
 
 </details>
+
+## Database administration
+
+### SQL queries for admin tasks
+
+The pipeline uses SQLite to track book metadata, processing status, and sync progress. For direct database queries and administrative tasks, see the [SQL queries documentation](docs/sql-queries.md).
+
+This documentation includes:
+- Status breakdown queries for GRIN fields and pipeline stages
+- Barcode list export queries for batch operations
+- Integration with the sync pipeline using exported barcode lists
+- Troubleshooting queries for finding errors and bottlenecks
+- Performance analysis queries for monitoring pipeline throughput
 
 ### Storage backends
 

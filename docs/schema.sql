@@ -72,14 +72,14 @@ CREATE TABLE IF NOT EXISTS books (
     updated_at TEXT NOT NULL
 );
 
--- Progress tracking for collection pipeline
+-- Progress tracking for collection pipeline (deprecated)
 CREATE TABLE IF NOT EXISTS processed (
     barcode TEXT PRIMARY KEY,
     timestamp TEXT NOT NULL,
     session_id INTEGER NOT NULL
 );
 
--- Failed records tracking
+-- Failed records tracking (deprecated)
 CREATE TABLE IF NOT EXISTS failed (
     barcode TEXT PRIMARY KEY,
     timestamp TEXT NOT NULL,
