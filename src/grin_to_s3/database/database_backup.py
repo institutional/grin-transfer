@@ -9,6 +9,7 @@ error handling and cleanup.
 import asyncio
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
@@ -120,7 +121,8 @@ async def upload_database_to_storage(db_path: Path, book_manager: "BookManager")
         # Upload compressed database to both paths simultaneously
         async with compress_file_to_temp(db_path) as compressed_path:
             compressed_size = compressed_path.stat().st_size
-            timestamped_path = book_manager.meta_path(f"timestamped/{compressed_filename}")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            timestamped_path = book_manager.meta_path(f"timestamped/{timestamp}_{compressed_filename}")
 
             # Upload to both paths concurrently
             await asyncio.gather(
