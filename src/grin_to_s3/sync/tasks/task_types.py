@@ -161,7 +161,6 @@ REASONS = Literal[
     "skip_already_available",
     "skip_already_in_process",
     "skip_archive_missing_from_grin",
-    "skip_conversion_requested",
     "skip_csv_export",
     "skip_database_backup_flag",
     "skip_dry_run",
@@ -170,6 +169,7 @@ REASONS = Literal[
     "skip_not_applicable",
     "skip_staging_cleanup",
     "skip_verified_unavailable",
+    "success_conversion_requested",
 ]
 
 

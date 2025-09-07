@@ -64,8 +64,8 @@ async def test_successful_conversion_request(mock_pipeline):
 
         assert result.barcode == "TEST789"
         assert result.task_type == TaskType.REQUEST_CONVERSION
-        assert result.action == TaskAction.SKIPPED  # Success cases are SKIPPED
-        assert result.reason == "skip_conversion_requested"
+        assert result.action == TaskAction.COMPLETED  # Success cases are COMPLETED
+        assert result.reason == "success_conversion_requested"
         assert result.data["conversion_status"] == "requested"
         assert result.data["request_count"] == 43  # Should increment after success
         assert mock_pipeline.conversion_requests_made == 43
@@ -183,5 +183,5 @@ async def test_integration_with_mock_pipeline_attributes(mock_pipeline):
             "INTEGRATION_TEST", mock_pipeline.library_directory, mock_pipeline.secrets_dir
         )
 
-        assert result.action == TaskAction.SKIPPED
+        assert result.action == TaskAction.COMPLETED
         assert mock_pipeline.conversion_requests_made == 1

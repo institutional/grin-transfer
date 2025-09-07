@@ -55,9 +55,9 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
             return RequestConversionResult(
                 barcode=barcode,
                 task_type=TaskType.REQUEST_CONVERSION,
-                action=TaskAction.SKIPPED,
+                action=TaskAction.COMPLETED,
                 data={"conversion_status": "requested", "request_count": pipeline.conversion_requests_made},
-                reason="skip_conversion_requested",
+                reason="success_conversion_requested",
             )
         elif "already" in result_lower and ("process" in result_lower or "available for download" in result_lower):
             if "available for download" in result_lower:

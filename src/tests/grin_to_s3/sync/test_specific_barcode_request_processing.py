@@ -59,8 +59,8 @@ async def test_specific_barcode_triggers_conversion_request(mock_pipeline):
 
         # Verify conversion request was made
         assert conversion_result.task_type == TaskType.REQUEST_CONVERSION
-        assert conversion_result.action == TaskAction.SKIPPED
-        assert conversion_result.reason == "skip_conversion_requested"
+        assert conversion_result.action == TaskAction.COMPLETED
+        assert conversion_result.reason == "success_conversion_requested"
         assert conversion_result.data["conversion_status"] == "requested"
 
         # Verify the request_conversion function was called

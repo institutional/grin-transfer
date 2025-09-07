@@ -136,19 +136,33 @@ async def request_conversion_skipped(result: TaskResult, previous_results: dict[
 
     # Different status based on skip reason
     match result.reason:
-        case "skip_conversion_requested":
-            # Update processing_request_timestamp to prevent duplicate requests
-            current_timestamp = datetime.now(UTC).isoformat()
-            return {
-                "status": ("conversion", "requested", metadata),
-                "books": {"processing_request_timestamp": current_timestamp},
-            }
         case "skip_already_in_process":
             return {"status": ("conversion", "in_process", metadata), "books": {}}
         case "skip_verified_unavailable":
             return {"status": ("conversion", "unavailable", metadata), "books": {}}
         case _:
             return {"status": ("conversion", "skipped", metadata), "books": {}}
+
+
+@on(TaskType.REQUEST_CONVERSION, TaskAction.COMPLETED)
+async def request_conversion_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    metadata = {}
+    if result.data:
+        metadata.update(result.data)
+    if result.reason:
+        metadata["reason"] = result.reason
+
+    # Successful conversion request
+    match result.reason:
+        case "success_conversion_requested":
+            # Update processing_request_timestamp to prevent duplicate requests
+            current_timestamp = datetime.now(UTC).isoformat()
+            return {
+                "status": ("conversion", "requested", metadata),
+                "books": {"processing_request_timestamp": current_timestamp},
+            }
+        case _:
+            return {"status": ("conversion", "completed", metadata), "books": {}}
 
 
 @on(TaskType.REQUEST_CONVERSION, TaskAction.FAILED)
