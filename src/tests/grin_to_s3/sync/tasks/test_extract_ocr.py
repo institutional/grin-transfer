@@ -103,11 +103,12 @@ async def test_extract_with_storage_config():
 
 @pytest.mark.asyncio
 async def test_extract_local_storage_moves_file_to_full_directory():
-    """Extract OCR should move JSONL file to 'full' subdirectory for local storage."""
+    """Extract OCR should upload JSONL file to 'full' subdirectory for local storage."""
 
     filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()
     pipeline.filesystem_manager = filesystem_manager
+    pipeline.storage.write_file = AsyncMock()
 
     unpack_data: UnpackData = {
         "unpacked_path": Path("/tmp/TEST123"),
@@ -129,17 +130,23 @@ async def test_extract_local_storage_moves_file_to_full_directory():
 
         def mock_full_text_path(filename):
             full_dir = output_dir / "full"
-            full_dir.mkdir(parents=True, exist_ok=True)  # Create directory if needed
-            return full_dir / filename
+            return str(full_dir / filename)
 
         pipeline.book_manager.full_text_path.side_effect = mock_full_text_path
 
-        # Create the JSONL file in staging
-        jsonl_staging_path = staging_path / "TEST123_ocr.jsonl"
-        jsonl_staging_path.write_text("test content")
+        with (
+            patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
+            patch("grin_to_s3.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
+        ):
+            # Create staging file when extract_ocr_pages is called
+            async def create_staging_file(unpack_data, jsonl_path):
+                jsonl_path.write_text('["test page"]')
+                return 1
 
-        with patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract:
-            mock_extract.return_value = 1
+            mock_extract.side_effect = create_staging_file
+
+            compressed_path = staging_path / "compressed.gz"
+            mock_compress.return_value.__aenter__.return_value = compressed_path
 
             result = await extract_ocr.main("TEST123", unpack_data, pipeline)
 
@@ -149,11 +156,12 @@ async def test_extract_local_storage_moves_file_to_full_directory():
             expected_final_path = output_dir / "full" / "TEST123_ocr.jsonl.gz"
             assert str(result.data["json_file_path"]) == str(expected_final_path)
 
-            # Verify staging file was moved (no longer exists)
-            assert not jsonl_staging_path.exists()
-
-            # Verify file was moved to final location
-            assert expected_final_path.exists()
+            # Verify write_file was called with correct arguments
+            pipeline.storage.write_file.assert_called_once()
+            call_args = pipeline.storage.write_file.call_args
+            assert call_args[0][0] == str(expected_final_path)  # destination path
+            assert call_args[0][1] == str(compressed_path)  # source path
+            assert "barcode" in call_args[0][2]  # metadata contains barcode
 
 
 @pytest.mark.asyncio
@@ -243,6 +251,7 @@ async def test_extract_ocr_local_storage_with_compression_disabled():
     filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()
     pipeline.filesystem_manager = filesystem_manager
+    pipeline.storage.write_file = AsyncMock()
     pipeline.config.storage_config = {"config": {"base_path": "/tmp/output"}}
     pipeline.config.sync_compression_full_enabled = False
     pipeline.uses_block_storage = False
@@ -265,29 +274,32 @@ async def test_extract_ocr_local_storage_with_compression_disabled():
 
         def mock_full_text_path(filename):
             full_dir = output_dir / "full"
-            full_dir.mkdir(parents=True, exist_ok=True)  # Create directory if needed
-            return full_dir / filename
+            return str(full_dir / filename)
 
         pipeline.book_manager.full_text_path.side_effect = mock_full_text_path
-
-        # Create the JSONL file
-        jsonl_path = staging_path / "TEST123_ocr.jsonl"
-        jsonl_path.write_text("test content")
 
         with (
             patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
             patch("grin_to_s3.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
         ):
-            mock_extract.return_value = 2
+            # Create staging file when extract_ocr_pages is called
+            async def create_staging_file(unpack_data, jsonl_path):
+                jsonl_path.write_text('["test page 1", "test page 2"]')
+                return 2
+
+            mock_extract.side_effect = create_staging_file
 
             result = await extract_ocr.main("TEST123", unpack_data, pipeline)
 
-            # Should not use compression and move file without .gz extension
+            # Should not use compression and upload file without .gz extension
             assert result.action == TaskAction.COMPLETED
-            expected_path = output_dir / "full" / "TEST123_ocr.jsonl"  # No barcode directory in new structure
+            expected_path = output_dir / "full" / "TEST123_ocr.jsonl"  # No .gz extension for uncompressed
             assert str(result.data["json_file_path"]) == str(expected_path)
             mock_compress.assert_not_called()
 
-            # File should be moved to final location
-            assert expected_path.exists()
-            assert not jsonl_path.exists()
+            # Verify write_file was called with correct arguments
+            pipeline.storage.write_file.assert_called_once()
+            call_args = pipeline.storage.write_file.call_args
+            assert call_args[0][0] == str(expected_path)  # destination path
+            assert str(call_args[0][1]).endswith("TEST123_ocr.jsonl")  # source path (staging file)
+            assert "barcode" in call_args[0][2]  # metadata contains barcode
