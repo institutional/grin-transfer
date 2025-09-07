@@ -88,6 +88,9 @@ class TaskManager:
             lambda: {"started": 0, "completed": 0, "skipped": 0, "failed": 0, "needs_conversion": 0}
         )
 
+        # Track last warning time per task type for concurrency limit warnings
+        self.last_warning: dict[TaskType, float] = {}
+
     async def run_task(
         self,
         task_type: TaskType,
@@ -109,6 +112,14 @@ class TaskManager:
         Returns:
             TaskResult from the task
         """
+        # Check if semaphore is at capacity (before acquiring)
+        if self.semaphores[task_type]._value == 0:
+            now = time.time()
+            if now - self.last_warning.get(task_type, 0) > 300:  # Warn every 5 minutes
+                self.last_warning[task_type] = now
+                logger.warning(f"Task concurrency limit reached: {task_type.name} (limit: {self.limits[task_type]})")
+                print(f"⚠️  {task_type.name} concurrency limit hit ({self.limits[task_type]})")
+
         async with self.semaphores[task_type]:
             self.active_tasks[barcode].add(task_type)
             self.stats[task_type]["started"] += 1
