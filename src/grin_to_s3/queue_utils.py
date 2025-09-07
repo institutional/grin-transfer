@@ -31,7 +31,9 @@ async def get_converted_books(grin_client, library_directory: str) -> set[str]:
                 converted_barcodes.add(barcode)
         return converted_barcodes
     except Exception as e:
-        logger.warning(f"Failed to get converted books: {e}")
+        error_type = type(e).__name__
+        error_msg = str(e) if str(e) else "No error message"
+        logger.warning(f"Failed to get converted books: {error_type}: {error_msg}")
         return set()
 
 
@@ -69,5 +71,7 @@ async def get_in_process_set(grin_client, library_directory: str) -> BarcodeSet:
         logger.debug(f"Fetched {len(in_process_barcodes)} in_process books for {library_directory}")
         return in_process_barcodes
     except Exception as e:
-        logger.warning(f"Failed to get in_process books: {e}")
+        error_type = type(e).__name__
+        error_msg = str(e) if str(e) else "No error message"
+        logger.warning(f"Failed to get in_process books: {error_type}: {error_msg}")
         return set()
