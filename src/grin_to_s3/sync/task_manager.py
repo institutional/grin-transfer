@@ -113,7 +113,8 @@ class TaskManager:
             TaskResult from the task
         """
         # Check if semaphore is at capacity (before acquiring)
-        if self.semaphores[task_type]._value == 0:
+        # Skip warnings for CHECK and DOWNLOAD as these are intentionally rate-limited for GRIN API
+        if self.semaphores[task_type]._value == 0 and task_type not in [TaskType.CHECK, TaskType.DOWNLOAD]:
             now = time.time()
             if now - self.last_warning.get(task_type, 0) > 300:  # Warn every 5 minutes
                 self.last_warning[task_type] = now
