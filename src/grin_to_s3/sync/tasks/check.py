@@ -16,9 +16,9 @@ from .task_types import CheckData, CheckResult, TaskAction, TaskType
 logger = logging.getLogger(__name__)
 
 # Retry configuration for CHECK operations
-CHECK_MAX_RETRIES = 5  # Total of 6 attempts
+CHECK_MAX_RETRIES = 12  # Total of 13 attempts
 CHECK_BACKOFF_MIN = 1  # Start at 1 second for proper exponential growth
-CHECK_BACKOFF_MAX = 120  # Cap at 2 minutes
+CHECK_BACKOFF_MAX = 600  # Cap at 10 minutes
 CHECK_BACKOFF_MULTIPLIER = 2
 
 
@@ -47,8 +47,8 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
 
 
 # Retry check requests with exponential backoff to handle GRIN rate limiting
-# Retry schedule: immediate, 1s, 2s, 4s, 8s, 16s (total ~31s across 6 attempts)
-# Note: 404 errors are excluded from retry as they indicate missing files
+# Retry schedule: immediate, 1s, 2s, 4s, 8s, 16s, 32s, 64s, 128s, 256s, 512s, 600s, 600s (total ~37min across 13 attempts)
+# Note: 404 and 429 errors are excluded from retry as they indicate missing files or queue full
 @retry(
     stop=stop_after_attempt(CHECK_MAX_RETRIES + 1),
     retry=lambda retry_state: bool(
@@ -56,7 +56,7 @@ async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
         and retry_state.outcome.failed
         and not (
             isinstance(retry_state.outcome.exception(), aiohttp.ClientResponseError)
-            and getattr(retry_state.outcome.exception(), "status", None) == 404
+            and getattr(retry_state.outcome.exception(), "status", None) in [404, 429]
         )
     ),
     wait=wait_exponential(multiplier=CHECK_BACKOFF_MULTIPLIER, min=CHECK_BACKOFF_MIN, max=CHECK_BACKOFF_MAX),

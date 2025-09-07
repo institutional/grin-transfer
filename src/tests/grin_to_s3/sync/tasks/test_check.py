@@ -98,6 +98,7 @@ async def test_main_storage_exists_grin_404_skip(mock_pipeline):
 
     assert result.action == TaskAction.SKIPPED
     assert result.reason == "skip_found_in_storage_not_grin"
+    assert result.data is not None
     assert result.data["http_status_code"] == 404
 
 
@@ -115,6 +116,7 @@ async def test_main_etag_mismatch_redownload(mock_pipeline):
     result = await check.main("TEST123", mock_pipeline)
 
     assert result.action == TaskAction.COMPLETED
+    assert result.data is not None
     assert result.data["etag"] == "new-etag"
     assert result.data["file_size_bytes"] == 2048
 
@@ -135,6 +137,7 @@ async def test_main_storage_404_grin_available(mock_pipeline):
     result = await check.main("TEST123", mock_pipeline)
 
     assert result.action == TaskAction.COMPLETED
+    assert result.data is not None
     assert result.data["etag"] == "grin-etag"
     assert result.data["file_size_bytes"] == 2048
 
@@ -154,6 +157,7 @@ async def test_main_storage_404_grin_404_fail(mock_pipeline):
 
     assert result.action == TaskAction.FAILED
     assert result.reason == "fail_archive_missing"
+    assert result.data is not None
     assert result.data["http_status_code"] == 404
 
 
@@ -173,3 +177,23 @@ async def test_head_request():
     assert result["etag"] == "test-etag"
     assert result["file_size_bytes"] == 2048
     assert result["http_status_code"] == 200
+
+
+@pytest.mark.asyncio
+async def test_429_error_not_retried():
+    """429 errors should not be retried by the grin_head_request function."""
+    # Create a 429 error
+    error_429 = aiohttp.ClientResponseError(
+        request_info=MagicMock(), history=(), status=429, message="Too Many Requests"
+    )
+
+    grin_client = MagicMock()
+    grin_client.head_archive = AsyncMock(side_effect=error_429)
+
+    # Should not retry and raise the error immediately
+    with pytest.raises(aiohttp.ClientResponseError) as exc_info:
+        await check.grin_head_request("TEST123", grin_client, "TestLib")
+
+    assert exc_info.value.status == 429
+    # Verify head_archive was called only once (no retries)
+    assert grin_client.head_archive.call_count == 1
