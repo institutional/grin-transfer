@@ -196,7 +196,10 @@ class ProcessStageMetrics:
         # Check if conversion was requested (for previous queue)
         if TaskType.REQUEST_CONVERSION in task_results:
             request_result = task_results[TaskType.REQUEST_CONVERSION]
-            if request_result.action == TaskAction.SKIPPED and request_result.reason == "skip_conversion_requested":
+            if (
+                request_result.action == TaskAction.COMPLETED
+                and request_result.reason == "success_conversion_requested"
+            ):
                 return "conversion_requested"
 
         # Check if the book was skipped early (already synced or etag match)

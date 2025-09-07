@@ -356,9 +356,9 @@ class TestRealDatabaseIntegration:
         result = RequestConversionResult(
             barcode="TEST123",
             task_type=TaskType.REQUEST_CONVERSION,
-            action=TaskAction.SKIPPED,
+            action=TaskAction.COMPLETED,
             data={"conversion_status": "requested", "request_count": 1},
-            reason="skip_conversion_requested",
+            reason="success_conversion_requested",
         )
 
         # Get the database updates that would be applied
@@ -425,7 +425,7 @@ class TestRealDatabaseIntegration:
             metadata = json.loads(status_row[2]) if status_row[2] else {}
             assert metadata.get("conversion_status") == "requested"
             assert metadata.get("request_count") == 1
-            assert metadata.get("reason") == "skip_conversion_requested"
+            assert metadata.get("reason") == "success_conversion_requested"
 
     @pytest.mark.asyncio
     async def test_request_conversion_429_limit_reached_database_tracking(self, real_db_pipeline):
