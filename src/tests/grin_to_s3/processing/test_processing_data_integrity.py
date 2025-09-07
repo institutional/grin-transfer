@@ -23,11 +23,11 @@ class MockProcessingClient(MockGRINClient):
         """Set the response body for processing requests"""
         self.processing_response = response_body
 
-    async def fetch_resource(self, directory: str, resource: str):
+    async def fetch_resource(self, directory: str, resource: str, **kwargs):
         """Return mock processing response"""
         if "_process" in resource:
             return self.processing_response
-        return await super().fetch_resource(directory, resource)
+        return await super().fetch_resource(directory, resource, **kwargs)
 
 
 class TestProcessingClientDataIntegrity:
@@ -187,7 +187,7 @@ class TestProcessingClientDataIntegrity:
 
         # Override the mock to return the response for _in_process requests
         class StatusMockClient(MockProcessingClient):
-            async def fetch_resource(self, directory: str, resource: str):
+            async def fetch_resource(self, directory: str, resource: str, **kwargs):
                 if "_in_process" in resource:
                     return "TEST001\n\nTEST002\n  TEST003  \n\n"
                 elif "_process" in resource:
@@ -207,7 +207,7 @@ class TestProcessingClientDataIntegrity:
 
         # Override the mock to return converted books with suffixes
         class ConvertedMockClient(MockProcessingClient):
-            async def fetch_resource(self, directory: str, resource: str):
+            async def fetch_resource(self, directory: str, resource: str, **kwargs):
                 if "_converted" in resource:
                     return "TEST001.tar.gz.gpg\nTEST002.tar.gz.gpg\nTEST003_no_suffix\n"
                 elif "_process" in resource:
@@ -229,7 +229,7 @@ class TestProcessingClientDataIntegrity:
 
         # Override the mock to return malformed filenames
         class MalformedMockClient(MockProcessingClient):
-            async def fetch_resource(self, directory: str, resource: str):
+            async def fetch_resource(self, directory: str, resource: str, **kwargs):
                 if "_converted" in resource:
                     return "TEST001.tar.gz.gpg\n.tar.gz.gpg\nTEST002.tar.gz\nTEST003.tar.gz.gpg\n"
                 elif "_process" in resource:
@@ -252,7 +252,7 @@ class TestProcessingClientDataIntegrity:
 
         # Override the mock to raise an exception
         class ErrorMockClient(MockProcessingClient):
-            async def fetch_resource(self, directory: str, resource: str):
+            async def fetch_resource(self, directory: str, resource: str, **kwargs):
                 if "_process" in resource:
                     raise Exception("Network error")
                 return await super().fetch_resource(directory, resource)

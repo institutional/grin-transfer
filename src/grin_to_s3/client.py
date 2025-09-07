@@ -59,7 +59,9 @@ class GRINClient:
         """Get current bearer token for manual use."""
         return await self.auth.get_bearer_token()
 
-    async def fetch_resource(self, directory: str, resource: str = "?format=text", method: str = "GET") -> str:
+    async def fetch_resource(
+        self, directory: str, resource: str = "?format=text", method: str = "GET", timeout: int | None = None
+    ) -> str:
         """
         Fetch a resource from GRIN directory.
 
@@ -67,13 +69,20 @@ class GRINClient:
             directory: GRIN directory name (e.g., 'Harvard')
             resource: Resource path (e.g., '_all_books?format=text')
             method: HTTP method
+            timeout: Custom timeout in seconds (overrides default)
 
         Returns:
             str: Response text
         """
         url = f"{self.base_url}/{directory}/{resource}"
         session = await self._ensure_session()
-        response = await self.auth.make_authenticated_request(session, url, method=method)
+
+        # Use custom timeout if provided
+        kwargs = {}
+        if timeout is not None:
+            kwargs["timeout"] = aiohttp.ClientTimeout(total=timeout, connect=10)
+
+        response = await self.auth.make_authenticated_request(session, url, method=method, **kwargs)
         return await response.text()
 
     async def download_archive(self, url: str) -> aiohttp.ClientResponse:
