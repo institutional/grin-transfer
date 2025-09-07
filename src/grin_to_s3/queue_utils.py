@@ -22,7 +22,7 @@ async def get_converted_books(grin_client, library_directory: str) -> set[str]:
         set: Set of converted book barcodes
     """
     try:
-        response_text = await grin_client.fetch_resource(library_directory, "_converted?format=text")
+        response_text = await grin_client.fetch_resource(library_directory, "_converted?format=text", timeout=120)
         lines = response_text.strip().split("\n")
         converted_barcodes = set()
         for line in lines:

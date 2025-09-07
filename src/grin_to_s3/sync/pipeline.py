@@ -469,8 +469,8 @@ class SyncPipeline:
                         self.grin_client, self.library_directory, queue_name, self.db_tracker
                     )
                     if len(queue_books) == 0:
-                        print(f"  Warning: '{queue_name}' queue reports no books available")
-                        logger.warning(f"'{queue_name}' queue reports no books available")
+                        print(f"  Warning: '{queue_name}' queue returned no books (check logs for errors)")
+                        logger.warning(f"'{queue_name}' queue returned no books (check for fetch errors above)")
                         continue  # Skip to next queue
                     print(f"  '{queue_name}' queue: {len(queue_books):,} books available")
                     logger.info(f"'{queue_name}' queue: {len(queue_books):,} books available")

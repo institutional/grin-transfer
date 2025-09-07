@@ -113,13 +113,23 @@ class TaskManager:
             TaskResult from the task
         """
         # Check if semaphore is at capacity (before acquiring)
-        # Skip warnings for CHECK and DOWNLOAD as these are intentionally rate-limited for GRIN API
-        if self.semaphores[task_type]._value == 0 and task_type not in [TaskType.CHECK, TaskType.DOWNLOAD]:
+        # Skip warnings for tasks that don't have tunable concurrency or are intentionally rate-limited
+        excluded_tasks = [
+            TaskType.CHECK,
+            TaskType.DOWNLOAD,  # GRIN API rate-limited
+            TaskType.REQUEST_CONVERSION,  # One-off requests, not pipeline tasks
+            TaskType.DATABASE_BACKUP,
+            TaskType.DATABASE_UPLOAD,  # Infrastructure tasks
+        ]
+        if self.semaphores[task_type]._value == 0 and task_type not in excluded_tasks:
             now = time.time()
-            if now - self.last_warning.get(task_type, 0) > 300:  # Warn every 5 minutes
+            if now - self.last_warning.get(task_type, 0) > 120:  # Warn every 2 minutes
                 self.last_warning[task_type] = now
                 logger.warning(f"Task concurrency limit reached: {task_type.name} (limit: {self.limits[task_type]})")
-                print(f"⚠️  {task_type.name} concurrency limit hit ({self.limits[task_type]})")
+                cli_flag = f"--task-{task_type.name.lower().replace('_', '-')}-concurrency"
+                print(
+                    f"⚠️  {task_type.name} concurrency limit hit ({self.limits[task_type]}) — consider increasing with {cli_flag}"
+                )
 
         async with self.semaphores[task_type]:
             self.active_tasks[barcode].add(task_type)

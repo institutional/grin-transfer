@@ -77,7 +77,7 @@ class MockGRINClient:
         for grin_row in self.test_data:
             yield grin_row, set()  # Empty set for known barcodes since this is a mock
 
-    async def fetch_resource(self, directory: str, resource: str):
+    async def fetch_resource(self, directory: str, resource: str, **kwargs):
         """Return mock processing state data"""
         if "_converted" in resource:
             # Return some test barcodes as converted
