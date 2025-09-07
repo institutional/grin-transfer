@@ -14,11 +14,9 @@ import subprocess
 import sys
 import tempfile
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TextIO
 
-import aiofiles
 import aiohttp
 
 from grin_to_s3.docker import is_docker_environment
@@ -386,81 +384,6 @@ class ProgressReporter:
             parts.append(f"total time: {format_duration(total_time)}")
 
             print(f"✓ {' | '.join(parts)}", flush=True)
-
-
-class BackupManager:
-    """Utility class for creating and managing timestamped backups of files."""
-
-    def __init__(self, backup_dir):
-        """Initialize backup manager with target backup directory."""
-        self.backup_dir = Path(backup_dir)
-
-    async def backup_file(self, source_file, file_type: str = "file") -> bool:
-        """Create a timestamped backup of a file.
-
-        Args:
-            source_file: Path to the source file to backup
-            file_type: Type description for user feedback (e.g., "database", "progress file")
-
-        Returns:
-            True if backup was successful or not needed, False if failed.
-        """
-        source_file = Path(source_file)
-
-        if not source_file.exists():
-            logger.debug(f"No existing {file_type} to backup")
-            return True
-
-        try:
-            # Create backups directory
-            self.backup_dir.mkdir(exist_ok=True)
-
-            # Create timestamped backup filename
-            now = datetime.now(UTC)
-            timestamp = now.strftime("%Y%m%d_%H%M%S")
-            backup_filename = f"{source_file.stem}_backup_{timestamp}{source_file.suffix}"
-            backup_path = self.backup_dir / backup_filename
-
-            # Copy the file
-            if source_file.suffix == ".json":
-                # For JSON files, use async file operations
-                async with aiofiles.open(source_file) as src:
-                    content = await src.read()
-                async with aiofiles.open(backup_path, "w") as dst:
-                    await dst.write(content)
-            else:
-                # For other files (like SQLite), use synchronous copy
-                shutil.copy2(source_file, backup_path)
-
-            logger.debug(f"{file_type.title()} backed up: {backup_filename}")
-
-            # Keep only the last 10 backups to prevent disk space issues
-            await self._cleanup_old_backups(source_file.stem, source_file.suffix)
-
-            return True
-
-        except Exception as e:
-            logger.warning(f"Failed to backup {file_type}: {e}")
-            logger.warning(f"Proceeding with execution, but {file_type} corruption risk exists")
-            return False
-
-    async def _cleanup_old_backups(self, file_stem: str, file_suffix: str) -> None:
-        """Keep only the most recent 10 backups for a specific file."""
-        try:
-            backup_pattern = f"{file_stem}_backup_*{file_suffix}"
-            backup_files = list(self.backup_dir.glob(backup_pattern))
-
-            if len(backup_files) > 10:
-                # Sort by modification time (newest first)
-                backup_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
-
-                # Remove old backups beyond the 10 most recent
-                for old_backup in backup_files[10:]:
-                    old_backup.unlink()
-                    logger.debug(f"Removed old backup: {old_backup.name}")
-
-        except Exception as e:
-            logger.warning(f"Failed to cleanup old backups: {e}")
 
 
 def get_gpg_passphrase_file_path(secrets_dir: str | None = None) -> str | None:

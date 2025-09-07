@@ -8,18 +8,68 @@ error handling and cleanup.
 
 import asyncio
 import logging
+import sqlite3
+import tempfile
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
-from grin_to_s3.common import BackupManager, compress_file_to_temp, get_compressed_filename
-from grin_to_s3.sync.tasks.task_types import DatabaseBackupData, Result, TaskAction, TaskType
+from grin_to_s3.common import compress_file_to_temp, get_compressed_filename
 
 if TYPE_CHECKING:
     from grin_to_s3.storage.book_manager import BookManager
 
 logger = logging.getLogger(__name__)
+
+
+async def backup_sqlite_database(source_path: Path, dest_path: Path) -> None:
+    """
+    Backup SQLite database using SQLite's backup API.
+
+    This properly handles WAL mode databases by incorporating all
+    committed transactions into the backup.
+
+    Args:
+        source_path: Path to source database
+        dest_path: Path where backup should be created
+
+    Raises:
+        sqlite3.Error: If backup operation fails
+    """
+
+    def _backup():
+        source_conn = sqlite3.connect(str(source_path))
+        dest_conn = sqlite3.connect(str(dest_path))
+
+        try:
+            with dest_conn:
+                source_conn.backup(dest_conn)
+        finally:
+            source_conn.close()
+            dest_conn.close()
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _backup)
+
+
+async def _cleanup_old_backups(backup_dir: Path, file_stem: str, file_suffix: str) -> None:
+    """Keep only the last 10 backups to prevent disk space issues."""
+    try:
+        backup_pattern = f"{file_stem}_backup_*{file_suffix}"
+        backup_files = list(backup_dir.glob(backup_pattern))
+
+        if len(backup_files) > 10:
+            # Sort by modification time (newest first)
+            backup_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+
+            # Remove old backups beyond the 10 most recent
+            for old_backup in backup_files[10:]:
+                old_backup.unlink()
+                logger.debug(f"Removed old backup: {old_backup.name}")
+
+    except Exception as e:
+        logger.warning(f"Failed to cleanup old backups: {e}")
 
 
 class DatabaseBackupResult(TypedDict):
@@ -65,27 +115,27 @@ async def create_local_database_backup(db_path: Path, backup_dir: str | None = N
         else:
             backup_dir_path = Path(backup_dir)
 
-        backup_manager = BackupManager(backup_dir_path)
+        backup_dir_path.mkdir(exist_ok=True)
 
-        # Create backup
-        backup_success = await backup_manager.backup_file(db_path, "database")
+        # Create timestamped backup filename
+        now = datetime.now(UTC)
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
+        backup_filename = f"{db_path_obj.stem}_backup_{timestamp}{db_path_obj.suffix}"
+        backup_path = backup_dir_path / backup_filename
+
+        # Create backup using SQLite backup API
+        await backup_sqlite_database(db_path_obj, backup_path)
+        backup_success = True
 
         if backup_success:
-            # Find the most recent backup file to get details
-            backup_pattern = f"{db_path_obj.stem}_backup_*{db_path_obj.suffix}"
-            backup_files = list(backup_dir_path.glob(backup_pattern))
+            result["file_size"] = backup_path.stat().st_size
+            result["compressed_size"] = result["file_size"]  # Local backups are not compressed
+            result["backup_filename"] = backup_filename
+            result["status"] = "completed"
+            logger.info(f"Database backup created: {backup_filename} ({result['file_size']} bytes)")
 
-            if backup_files:
-                # Get most recent backup
-                latest_backup = max(backup_files, key=lambda f: f.stat().st_mtime)
-                result["file_size"] = latest_backup.stat().st_size
-                result["compressed_size"] = latest_backup.stat().st_size  # Local backups are not compressed
-                result["backup_filename"] = latest_backup.name
-                result["status"] = "completed"
-                logger.info(f"Database backup created: {latest_backup.name} ({result['file_size']} bytes)")
-            else:
-                result["status"] = "failed"
-                logger.error("Backup appeared to succeed but no backup file found")
+            # Keep only the last 10 backups to prevent disk space issues
+            await _cleanup_old_backups(backup_dir_path, db_path_obj.stem, db_path_obj.suffix)
         else:
             result["status"] = "failed"
             logger.error("Database backup creation failed")
@@ -98,7 +148,7 @@ async def create_local_database_backup(db_path: Path, backup_dir: str | None = N
     return result
 
 
-async def upload_database_to_storage(db_path: Path, book_manager: "BookManager") -> Result[DatabaseBackupData]:
+async def upload_database_to_storage(db_path: Path, book_manager: "BookManager"):
     """Upload database file to metadata bucket with compression.
 
     Args:
@@ -108,6 +158,8 @@ async def upload_database_to_storage(db_path: Path, book_manager: "BookManager")
     Returns:
         Result with upload operation data and metadata
     """
+    from grin_to_s3.sync.tasks.task_types import DatabaseBackupData, Result, TaskAction, TaskType
+
     start_time = time.time()
 
     try:
@@ -118,17 +170,22 @@ async def upload_database_to_storage(db_path: Path, book_manager: "BookManager")
         # Get original file size
         file_size = db_path.stat().st_size
 
-        # Upload compressed database to both paths simultaneously
-        async with compress_file_to_temp(db_path) as compressed_path:
-            compressed_size = compressed_path.stat().st_size
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            timestamped_path = book_manager.meta_path(f"timestamped/{timestamp}_{compressed_filename}")
+        # Create temporary backup using SQLite backup
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=True) as temp_backup:
+            temp_backup_path = Path(temp_backup.name)
+            await backup_sqlite_database(db_path, temp_backup_path)
 
-            # Upload to both paths concurrently
-            await asyncio.gather(
-                book_manager.storage.write_file(storage_path, str(compressed_path)),
-                book_manager.storage.write_file(timestamped_path, str(compressed_path)),
-            )
+            # Upload compressed database to both paths simultaneously
+            async with compress_file_to_temp(temp_backup_path) as compressed_path:
+                compressed_size = compressed_path.stat().st_size
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                timestamped_path = book_manager.meta_path(f"timestamped/{timestamp}_{compressed_filename}")
+
+                # Upload to both paths concurrently
+                await asyncio.gather(
+                    book_manager.storage.write_file(storage_path, str(compressed_path)),
+                    book_manager.storage.write_file(timestamped_path, str(compressed_path)),
+                )
 
         backup_time = time.time() - start_time
         compression_ratio = (1 - compressed_size / file_size) * 100 if file_size > 0 else 0
@@ -137,7 +194,7 @@ async def upload_database_to_storage(db_path: Path, book_manager: "BookManager")
             f"({file_size:,} -> {compressed_size:,} bytes, {compression_ratio:.1f}% compression)"
         )
 
-        data: DatabaseBackupData = {
+        data = {
             "backup_filename": compressed_filename,
             "file_size": file_size,
             "backup_time": backup_time,
