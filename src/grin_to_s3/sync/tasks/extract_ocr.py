@@ -1,5 +1,4 @@
 import logging
-import shutil
 import time
 from datetime import datetime
 from pathlib import Path
@@ -26,12 +25,8 @@ async def upload_ocr_to_storage(
     if source_path.name.endswith(".gz"):
         destination_path = f"{destination_path}.gz"
 
-    if pipeline.uses_block_storage:
-        logger.info(f"Uploading OCR file to {destination_path}")
-        await pipeline.storage.write_file(destination_path, str(source_path), cast(dict[str, str], metadata))
-    else:
-        # Local storage: move to 'full' subdirectory
-        shutil.move(source_path, destination_path)
+    logger.info(f"Uploading OCR file to {destination_path}")
+    await pipeline.storage.write_file(destination_path, str(source_path), cast(dict[str, str], metadata))
 
     return destination_path
 
