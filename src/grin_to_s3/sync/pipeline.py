@@ -16,7 +16,7 @@ from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import (
     pluralize,
 )
-from grin_to_s3.constants import DEFAULT_MAX_SEQUENTIAL_FAILURES
+from grin_to_s3.constants import DEFAULT_MAX_SEQUENTIAL_FAILURES, GRIN_MAX_QUEUE_SIZE
 from grin_to_s3.queue_utils import get_converted_books, get_in_process_set
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config
@@ -79,6 +79,8 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
             f"filtered out {len(in_process)} in_process and {len(verified_unavailable)} unavailable, "
             f"returning {len(filtered_books)} books"
         )
+        # Print GRIN's in-progress queue size
+        print(f"   Approx. {(GRIN_MAX_QUEUE_SIZE - len(filtered_books)):,} will be queued for conversion")
         return filtered_books
     elif queue_name == "changed":
         # TODO: Implement changed queue (books with newer versions in GRIN)
