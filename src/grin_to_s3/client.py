@@ -49,9 +49,17 @@ class GRINClient:
         """Ensure session exists, creating it if necessary."""
         if self.session is None:
             connector = aiohttp.TCPConnector(
-                limit=HTTP_CONNECTION_POOL_LIMITS["limit"], limit_per_host=HTTP_CONNECTION_POOL_LIMITS["limit_per_host"]
+                limit=HTTP_CONNECTION_POOL_LIMITS["limit"],
+                limit_per_host=HTTP_CONNECTION_POOL_LIMITS["limit_per_host"],
+                keepalive_timeout=300,  # Close idle connections after 5 minutes
+                enable_cleanup_closed=True,  # Proactively clean up closed connections
             )
-            timeout_config = aiohttp.ClientTimeout(total=self.timeout, connect=10)
+            timeout_config = aiohttp.ClientTimeout(
+                total=self.timeout,
+                connect=10,
+                sock_connect=5,  # Fail faster on dead sockets
+                sock_read=30,  # Detect hung connections during read
+            )
             self.session = aiohttp.ClientSession(connector=connector, timeout=timeout_config)
         return self.session
 

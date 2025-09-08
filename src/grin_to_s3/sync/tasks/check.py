@@ -16,9 +16,9 @@ from .task_types import CheckData, CheckResult, TaskAction, TaskType
 logger = logging.getLogger(__name__)
 
 # Retry configuration for CHECK operations
-CHECK_MAX_RETRIES = 12  # Total of 13 attempts
-CHECK_BACKOFF_MIN = 1  # Start at 1 second for proper exponential growth
-CHECK_BACKOFF_MAX = 600  # Cap at 10 minutes
+CHECK_MAX_RETRIES = 5
+CHECK_BACKOFF_MIN = 1
+CHECK_BACKOFF_MAX = 300  # Cap at 5 minutes
 CHECK_BACKOFF_MULTIPLIER = 2
 
 

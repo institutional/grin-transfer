@@ -18,13 +18,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Retry configuration for DOWNLOAD operations
-DOWNLOAD_MAX_RETRIES = 12  # Total of 13 attempts
-DOWNLOAD_BACKOFF_MIN = 1  # Start at 1 second for proper exponential growth
+DOWNLOAD_MAX_RETRIES = 5
+DOWNLOAD_BACKOFF_MIN = 1
 DOWNLOAD_BACKOFF_MAX = 600  # Cap at 10 minutes
 DOWNLOAD_BACKOFF_MULTIPLIER = 2
-
-# Download timeout configuration
-DEFAULT_DOWNLOAD_TIMEOUT = 300  # 5 minutes
 
 
 async def main(barcode: Barcode, pipeline: "SyncPipeline") -> DownloadResult:
