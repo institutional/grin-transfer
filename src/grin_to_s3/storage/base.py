@@ -190,6 +190,21 @@ class Storage:
             path = re.sub(r"/+", "/", path)
         return path
 
+    def get_display_uri(self, path: str) -> str:
+        """Get display-friendly URI for a storage path.
+
+        For local storage: returns absolute filesystem path
+        For cloud storage: returns URI with protocol prefix (s3://, gs://, etc)
+        """
+        normalized_path = self._normalize_path(path)
+
+        if self.config.protocol == "file":
+            # For local storage, return absolute path without file:// prefix
+            return normalized_path
+        else:
+            # For cloud storage, use fsspec's unstrip_protocol
+            return self._get_fs().unstrip_protocol(normalized_path)
+
     async def exists(self, path: str) -> bool:
         """Check if object exists at path."""
         loop = asyncio.get_event_loop()

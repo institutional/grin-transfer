@@ -170,6 +170,13 @@ class MockStorage:
         # Copy the file
         shutil.copy2(file_path, dest_path)
 
+    def get_display_uri(self, path: str) -> str:
+        """Mock get_display_uri method for testing."""
+        # For testing, return a simple mock URI based on the path
+        if self.base_path:
+            return f"file://{self.base_path}/{path}"
+        return f"mock://storage/{path}"
+
 
 def get_test_data():
     """Standard test data for consistent testing - kept small for speed"""
