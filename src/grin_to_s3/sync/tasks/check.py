@@ -146,6 +146,7 @@ def _handle_grin_error(
             barcode=barcode,
             task_type=TaskType.CHECK,
             action=TaskAction.FAILED,
+            error="Archive not found in GRIN",
             data={"etag": None, "file_size_bytes": None, "http_status_code": 404},
             reason="fail_archive_missing",
         )
@@ -155,6 +156,7 @@ def _handle_grin_error(
         barcode=barcode,
         task_type=TaskType.CHECK,
         action=TaskAction.FAILED,
+        error=f"HTTP {error.status}: {error.message}",
         data={"etag": None, "file_size_bytes": None, "http_status_code": error.status},
         reason="fail_unexpected_http_status_code",
     )
