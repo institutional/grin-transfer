@@ -82,7 +82,7 @@ async def test_bearer_token():
     client = GRINClient()
 
     try:
-        token = await client.get_bearer_token()
+        token = await client.auth.get_bearer_token()
         print(f"✓ Bearer token: {token[:30]}...")
         return True
 

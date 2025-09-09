@@ -81,10 +81,6 @@ class GRINClient:
             self._consecutive_errors = 0
         return self.session
 
-    async def get_bearer_token(self) -> str:
-        """Get current bearer token for manual use."""
-        return await self.auth.get_bearer_token()
-
     async def fetch_resource(
         self, directory: str, resource: str = "?format=text", method: str = "GET", timeout: int | None = None
     ) -> str:
@@ -161,7 +157,7 @@ class GRINClient:
         # Create new session first
         await self._ensure_session()
 
-        # Then close old session
+        # Then close old session (this may catch an active request, but that will be retried)
         if old_session is not None:
             await old_session.close()
 
@@ -174,44 +170,21 @@ class GRINClient:
             # Get detailed connection pool stats
             total_conns = 0
             acquired_conns = 0
-            hosts_with_conns = 0
-            acquired_per_host = {}
-            connector_closed = getattr(connector, "_closed", False)
-
-            # Analyze _conns (free connections by host)
-            if hasattr(connector, "_conns"):
-                conns_dict = connector._conns
-                total_conns = sum(len(conns) for conns in conns_dict.values())
-                hosts_with_conns = len([host for host, conns in conns_dict.items() if len(conns) > 0])
-                logger.debug(
-                    f"_conns hosts: {list(conns_dict.keys())}, lengths: {[len(conns) for conns in conns_dict.values()]}"
-                )
 
             # Analyze _acquired (active connections)
             if hasattr(connector, "_acquired"):
                 acquired_conns = len(connector._acquired)
 
-            # Analyze _acquired_per_host (active connections by host)
-            if hasattr(connector, "_acquired_per_host"):
-                acquired_per_host = dict(connector._acquired_per_host)
-
             # Calculate available connections
             limit = getattr(connector, "limit", None)
-            limit_per_host = getattr(connector, "limit_per_host", None)
             available_conns = (limit - acquired_conns) if limit else "unlimited"
 
             # Main pool health log
             logger.info(
                 f"Pool health: {total_conns} free connections, {acquired_conns} acquired, "
-                f"{hosts_with_conns} hosts with connections, {available_conns} available slots, "
+                f"{available_conns} available slots, "
                 f"{self._request_count} requests, age {session_age:.0f}s, "
                 f"{self._consecutive_errors} consecutive errors"
-            )
-
-            # Detailed diagnostic log
-            logger.debug(
-                f"Pool details: limit={limit}, limit_per_host={limit_per_host}, "
-                f"closed={connector_closed}, acquired_per_host={acquired_per_host}"
             )
 
     async def _make_request_with_tracking(
@@ -227,10 +200,6 @@ class GRINClient:
 
         # Debug: Log request start with pool state
         logger.debug(f"Request {self._request_count} starting: {method} {url[:100]}...")
-
-        # Log pool state before request (only for first few requests or if debug enabled)
-        if self._request_count <= 10 or logger.isEnabledFor(logging.DEBUG):
-            self._log_pre_request_state()
 
         try:
             response = await self.auth.make_authenticated_request(session, url, method=method, **kwargs)
@@ -267,96 +236,6 @@ class GRINClient:
                 f"{type(e).__name__}: {e}"
             )
             raise
-
-    def _log_pre_request_state(self):
-        """Log connection pool state before making a request (debug level)."""
-        if self.session is not None and self.session.connector is not None:
-            connector = self.session.connector
-
-            # Quick snapshot of pool state
-            total_conns = 0
-            acquired_conns = 0
-
-            if hasattr(connector, "_conns"):
-                total_conns = sum(len(conns) for conns in connector._conns.values())
-            if hasattr(connector, "_acquired"):
-                acquired_conns = len(connector._acquired)
-
-            logger.debug(
-                f"Pre-request pool: {total_conns} free, {acquired_conns} acquired, request #{self._request_count}"
-            )
-
-    async def diagnose_pool(self):
-        """Comprehensive diagnostic dump of connection pool state."""
-        logger.info("=== CONNECTION POOL DIAGNOSTIC ===")
-
-        if self.session is None:
-            logger.info("No session exists yet")
-            return
-
-        if self.session.connector is None:
-            logger.info("Session has no connector")
-            return
-
-        connector = self.session.connector
-        session_age = time.time() - self._session_created_at
-
-        # Basic session info
-        logger.info(
-            f"Session age: {session_age:.1f}s, requests: {self._request_count}, errors: {self._consecutive_errors}"
-        )
-        logger.info(f"Session closed: {getattr(self.session, 'closed', 'unknown')}")
-
-        # Connector configuration
-        logger.info(f"Connector type: {type(connector).__name__}")
-        logger.info(f"Connector limit: {getattr(connector, 'limit', 'unknown')}")
-        logger.info(f"Connector limit_per_host: {getattr(connector, 'limit_per_host', 'unknown')}")
-        logger.info(f"Connector closed: {getattr(connector, '_closed', 'unknown')}")
-        logger.info(f"Connector keepalive_timeout: {getattr(connector, '_keepalive_timeout', 'unknown')}")
-
-        # Connection pools analysis
-        if hasattr(connector, "_conns"):
-            conns_dict = connector._conns
-            logger.info(f"_conns dictionary has {len(conns_dict)} host entries:")
-            for host, conns in conns_dict.items():
-                logger.info(f"  Host {host}: {len(conns)} free connections")
-                for i, conn in enumerate(conns):
-                    conn_info = f"closed={getattr(conn, 'closed', '?')}, transport={type(getattr(conn, 'transport', None)).__name__ if hasattr(conn, 'transport') else 'None'}"
-                    logger.info(f"    Connection {i}: {conn_info}")
-        else:
-            logger.info("No _conns attribute found")
-
-        # Active connections analysis
-        if hasattr(connector, "_acquired"):
-            acquired_set = connector._acquired
-            logger.info(f"_acquired set has {len(acquired_set)} active connections:")
-            for i, conn in enumerate(list(acquired_set)):  # type: ignore[assignment]
-                conn_info = f"closed={getattr(conn, 'closed', '?')}, transport={type(getattr(conn, 'transport', None)).__name__ if hasattr(conn, 'transport') else 'None'}"
-                logger.info(f"  Active connection {i}: {conn_info}")
-        else:
-            logger.info("No _acquired attribute found")
-
-        # Per-host tracking
-        if hasattr(connector, "_acquired_per_host"):
-            per_host = connector._acquired_per_host
-            logger.info(f"_acquired_per_host: {dict(per_host)}")
-        else:
-            logger.info("No _acquired_per_host attribute found")
-
-        # Other internal state
-        other_attrs = ["_waiters", "_closed_per_host", "_dns_cache"]
-        for attr in other_attrs:
-            if hasattr(connector, attr):
-                value = getattr(connector, attr)
-                if hasattr(value, "__len__"):
-                    logger.info(f"{attr}: length={len(value)}")
-                else:
-                    logger.info(f"{attr}: {value}")
-
-        logger.info("=== END DIAGNOSTIC ===")
-
-        # Also trigger the regular health log
-        self._log_pool_health()
 
     async def stream_book_list_html_prefetch(
         self,
