@@ -79,8 +79,11 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
             f"filtered out {len(in_process)} in_process and {len(verified_unavailable)} unavailable, "
             f"returning {len(filtered_books)} books"
         )
-        # Print GRIN's in-progress queue size
-        print(f"   Approx. {(GRIN_MAX_QUEUE_SIZE - len(filtered_books)):,} will be queued for conversion")
+        # Calculate how many books can be queued given GRIN's current capacity
+        available_space = GRIN_MAX_QUEUE_SIZE - len(in_process)
+        books_to_queue = min(available_space, len(filtered_books))
+        print(f"   GRIN queue: {len(in_process):,} in process, {available_space:,} available space")
+        print(f"   Approx. {books_to_queue:,} will be queued for conversion")
         return filtered_books
     elif queue_name == "changed":
         # TODO: Implement changed queue (books with newer versions in GRIN)
