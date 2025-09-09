@@ -228,15 +228,6 @@ class GRINClient:
             self._log_pool_health()
             raise
 
-        except Exception as e:
-            # Catch other exceptions that might not be connection-related
-            request_duration = time.time() - request_start
-            logger.error(
-                f"Request {self._request_count} failed with unexpected error after {request_duration:.3f}s: "
-                f"{type(e).__name__}: {e}"
-            )
-            raise
-
     async def stream_book_list_html_prefetch(
         self,
         directory: str,
