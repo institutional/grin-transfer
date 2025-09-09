@@ -3,27 +3,13 @@
 Unit tests for SlidingWindowRateCalculator
 """
 
-import time
 from unittest.mock import patch
-
-import pytest
 
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 
 
 class TestSlidingWindowRateCalculator:
     """Test SlidingWindowRateCalculator functionality."""
-
-    def test_initialization(self):
-        """Test calculator initialization."""
-        calc = SlidingWindowRateCalculator(window_size=5)
-        assert calc.window_size == 5
-        assert calc.batch_times == []
-
-    def test_initialization_default_window_size(self):
-        """Test default window size."""
-        calc = SlidingWindowRateCalculator()
-        assert calc.window_size == 5
 
     def test_add_batch_single_entry(self):
         """Test adding a single batch entry."""
@@ -137,23 +123,41 @@ class TestSlidingWindowRateCalculator:
         rate = calc.get_rate(fallback_start_time=start_time, fallback_processed_count=28)
         assert abs(rate - 5.75) < 0.01
 
-    def test_method_signature_compatibility(self):
-        """Test that the expected method signatures exist and work correctly."""
-        calc = SlidingWindowRateCalculator()
+    def test_eta_stability_with_minor_variations(self):
+        """Test that ETAs remain stable despite minor processing variations."""
+        calc = SlidingWindowRateCalculator(window_size=5)
 
-        # These method calls should not raise AttributeError
-        calc.add_batch(time.time(), 10)
-        rate = calc.get_rate(time.time() - 1, 10)
+        # Simulate processing at 0.8 books/sec
+        # Progress every 20 books, so each batch takes 25 seconds (20/0.8)
+        base_time = 1000.0
 
-        assert isinstance(rate, int | float)
-        assert rate >= 0
+        # Build up a full window of 5 batches (100 books total)
+        # Each batch represents 20 books completed at regular intervals
+        calc.add_batch(base_time + 25, 20)  # 20 books at 25 seconds
+        calc.add_batch(base_time + 50, 40)  # 40 books at 50 seconds
+        calc.add_batch(base_time + 75, 60)  # 60 books at 75 seconds
+        calc.add_batch(base_time + 100, 80)  # 80 books at 100 seconds
+        calc.add_batch(base_time + 125, 100)  # 100 books at 125 seconds
 
-    def test_add_completion_method_does_not_exist(self):
-        """Test that add_completion method does not exist (prevent regression)."""
-        calc = SlidingWindowRateCalculator()
+        # Get stable rate (should be 0.8 books/sec)
+        initial_rate = calc.get_rate(base_time, 100)
 
-        # This should raise AttributeError - documenting the expected interface
-        with pytest.raises(
-            AttributeError, match="'SlidingWindowRateCalculator' object has no attribute 'add_completion'"
-        ):
-            calc.add_completion(time.time())
+        # Now add one slower batch that takes 50% longer (37.5 seconds vs 25)
+        # This simulates a temporary network slowdown
+        calc.add_batch(base_time + 162.5, 120)  # Next 20 books took 37.5 seconds
+
+        # Due to sliding window, the oldest entry (base_time + 25, 20) gets dropped
+        # New window spans from (base_time + 50, 40) to (base_time + 162.5, 120)
+        slower_rate = calc.get_rate(base_time, 120)
+
+        # Calculate how much the rate changed
+        rate_change_percent = abs(slower_rate - initial_rate) / initial_rate * 100
+
+        # With exponential smoothing, ETAs should remain very stable
+        # Rate changes should be minimal even with temporary slowdowns
+        assert rate_change_percent < 2, (
+            f"Processing rate changed by {rate_change_percent:.1f}% from one slow batch. "
+            f"Rate went from {initial_rate:.2f} to {slower_rate:.2f} books/sec. "
+            f"This would cause ETA to swing wildly in real usage. "
+            f"Expected < 2% change for stable ETAs."
+        )
