@@ -56,7 +56,7 @@ async def upload_csv_to_storage(
     csv_path: Path,
     book_manager,
     compression_enabled: bool = True,
-) -> Path:
+) -> str:
     """Upload a CSV file to storage with optional compression.
 
     Args:
@@ -65,7 +65,7 @@ async def upload_csv_to_storage(
         compression_enabled: Whether to compress for storage upload
 
     Returns:
-        Storage path where the file was uploaded
+        Storage URI where the file was uploaded
     """
 
     # Upload to storage (handles both local and cloud storage)
@@ -82,7 +82,7 @@ async def upload_csv_to_storage(
                 book_manager.storage.write_file(bucket_path_timestamped, str(compressed_path)),
             )
             logger.info(f"Uploaded compressed CSV to {bucket_path} and {bucket_path_timestamped}")
-            return Path(bucket_path)
+            return book_manager.storage.get_display_uri(bucket_path)
     else:
         # Upload uncompressed file to both locations
         bucket_path = book_manager.meta_path("books_latest.csv")
@@ -93,7 +93,7 @@ async def upload_csv_to_storage(
             book_manager.storage.write_file(bucket_path_timestamped, str(csv_path)),
         )
         logger.info(f"Uploaded CSV to {bucket_path} and {bucket_path_timestamped}")
-        return Path(bucket_path)
+        return book_manager.storage.get_display_uri(bucket_path)
 
 
 def create_parser() -> argparse.ArgumentParser:

@@ -13,6 +13,12 @@ import pytest
 
 from grin_to_s3.storage.base import BackendConfig, Storage
 from grin_to_s3.storage.book_manager import BookManager
+from grin_to_s3.storage.factories import (
+    create_gcs_storage,
+    create_local_storage,
+    create_minio_storage,
+    create_s3_storage,
+)
 from grin_to_s3.storage.staging import StagingDirectoryManager
 from tests.test_utils.unified_mocks import standard_storage_config
 
@@ -349,3 +355,36 @@ class TestStorageConfigurationIntegrity:
         # Verify structure is preserved
         assert "storage_type" in edge_deserialized
         assert "credentials" in edge_deserialized
+
+
+class TestDisplayURIFormatting:
+    """Test storage URI formatting for display purposes."""
+
+    @pytest.mark.parametrize(
+        "storage_type,expected_format",
+        [
+            ("local", "/tmp/storage/meta/test_run/books.csv"),  # Full absolute path, no file://
+            ("s3", "s3://bucket-meta/test_run/books.csv"),  # S3 protocol prefix
+            ("minio", "s3://bucket-meta/test_run/books.csv"),  # MinIO uses S3 protocol
+            ("gcs", "gs://bucket-meta/test_run/books.csv"),  # GCS protocol prefix
+        ],
+    )
+    def test_get_display_uri(self, storage_type, expected_format):
+        """Test that storage URIs are formatted correctly for display."""
+        # Create storage instance based on type
+        if storage_type == "local":
+            storage = create_local_storage(base_path="/tmp/storage")
+            path = "meta/test_run/books.csv"
+        elif storage_type == "s3":
+            storage = create_s3_storage(bucket="bucket-meta")
+            path = "bucket-meta/test_run/books.csv"
+        elif storage_type == "minio":
+            storage = create_minio_storage("http://minio:9000", "minioadmin", "minioadmin123")
+            path = "bucket-meta/test_run/books.csv"
+        elif storage_type == "gcs":
+            storage = create_gcs_storage(project="test-project")
+            path = "bucket-meta/test_run/books.csv"
+
+        # Test URI formatting
+        formatted = storage.get_display_uri(path)
+        assert formatted == expected_format
