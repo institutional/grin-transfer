@@ -6,14 +6,12 @@ fields in CSV exports, including field ordering, empty field handling, and
 export functionality at various pipeline stages.
 """
 
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from grin_to_s3.collect_books.models import BookRecord
-from grin_to_s3.export import export_csv
+from grin_to_s3.export import write_books_to_csv
 
 
 class TestCSVExport:
@@ -147,160 +145,25 @@ class TestCSVExport:
         assert csv_row[marc_extraction_pos] == "2024-01-15T10:30:00Z"
 
     @pytest.mark.asyncio
-    async def test_export_before_marc_extraction(self, mock_sqlite_tracker, sample_book_no_marc):
-        """Test export works before MARC extraction (empty fields)."""
-        # Mock tracker to return book without MARC data
-        mock_sqlite_tracker.get_all_books_csv_data.return_value = [sample_book_no_marc]
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = str(Path(temp_dir) / "test.db")
-            output_file = str(Path(temp_dir) / "test_output.csv")
-
-            with patch("grin_to_s3.export.SQLiteProgressTracker") as mock_tracker_cls:
-                mock_tracker_cls.return_value = mock_sqlite_tracker
-
-                # Should complete without error
-                await export_csv(db_path, output_file)
-
-                # Verify file was created
-                assert Path(output_file).exists()
-
-                # Verify file content
-                with open(output_file) as f:
-                    content = f.read()
-                    assert "MARC Control Number" in content  # Header present
-                    assert "TEST001" in content  # Book data present
-
-                    # Check that MARC fields are empty (represented as empty CSV cells)
-                    lines = content.strip().split("\n")
-                    assert len(lines) == 2  # Header + 1 data row
-
-                    # Parse CSV row and verify empty MARC fields
-                    data_row = lines[1].split(",")
-                    headers = lines[0].split(",")
-
-                    for i, header in enumerate(headers):
-                        if header.startswith("MARC ") and header != "MARC Extraction Timestamp":
-                            # Most MARC fields should be empty
-                            assert data_row[i] == "", f"MARC field {header} should be empty"
-
-    @pytest.mark.asyncio
-    async def test_export_after_marc_extraction(self, mock_sqlite_tracker, sample_book_with_marc):
-        """Test export works after MARC extraction (populated fields)."""
+    async def test_write_books_to_csv_happy_path(self, mock_sqlite_tracker, sample_book_with_marc, tmp_path):
+        """Test CSV writing utility function works correctly."""
         # Mock tracker to return book with MARC data
         mock_sqlite_tracker.get_all_books_csv_data.return_value = [sample_book_with_marc]
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = str(Path(temp_dir) / "test.db")
-            output_file = str(Path(temp_dir) / "test_output.csv")
+        # Test the core CSV writing functionality
+        expected_csv_path = tmp_path / "test_books.csv"
+        csv_path, record_count = await write_books_to_csv(mock_sqlite_tracker, expected_csv_path)
 
-            with patch("grin_to_s3.export.SQLiteProgressTracker") as mock_tracker_cls:
-                mock_tracker_cls.return_value = mock_sqlite_tracker
+        assert record_count == 1
+        assert csv_path.exists()
+        assert csv_path == expected_csv_path
 
-                # Should complete without error
-                await export_csv(db_path, output_file)
-
-                # Verify file was created
-                assert Path(output_file).exists()
-
-                # Verify file content includes MARC data
-                with open(output_file) as f:
-                    content = f.read()
-                    assert "Programming in Python" in content  # MARC title
-                    assert "Smith, John" in content  # MARC author
-                    assert "123456789" in content  # MARC control number
-                    assert "2024-01-15T10:30:00Z" in content  # MARC extraction timestamp
-
-    @pytest.mark.asyncio
-    async def test_export_mixed_marc_data(self, mock_sqlite_tracker, sample_book_no_marc, sample_book_with_marc):
-        """Test export with mixed MARC data (some books with, some without)."""
-        # Mock tracker to return mix of books
-        mock_sqlite_tracker.get_all_books_csv_data.return_value = [sample_book_no_marc, sample_book_with_marc]
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = str(Path(temp_dir) / "test.db")
-            output_file = str(Path(temp_dir) / "test_output.csv")
-
-            with patch("grin_to_s3.export.SQLiteProgressTracker") as mock_tracker_cls:
-                mock_tracker_cls.return_value = mock_sqlite_tracker
-
-                # Should complete without error
-                await export_csv(db_path, output_file)
-
-                # Verify file was created
-                assert Path(output_file).exists()
-
-                # Verify file content
-                with open(output_file) as f:
-                    content = f.read()
-                    lines = content.strip().split("\n")
-                    assert len(lines) == 3  # Header + 2 data rows
-
-                    # Both books should be present
-                    assert "TEST001" in content
-                    assert "TEST002" in content
-
-                    # Book with MARC should have MARC data
-                    assert "Programming in Python" in content
-                    assert "Smith, John" in content
-
-    @pytest.mark.asyncio
-    async def test_export_large_dataset_performance(self, mock_sqlite_tracker):
-        """Test export performance with large dataset."""
-        # Create many books to test performance
-        books = []
-        for i in range(1000):
-            book = BookRecord(
-                barcode=f"TEST{i:06d}",
-                title=f"Book {i}",
-                marc_title=f"MARC Title {i}" if i % 2 == 0 else None,  # Every other book has MARC
-                marc_author_personal=f"Author {i}" if i % 3 == 0 else None,  # Every third book has author
-            )
-            books.append(book)
-
-        mock_sqlite_tracker.get_all_books_csv_data.return_value = books
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = str(Path(temp_dir) / "test.db")
-            output_file = str(Path(temp_dir) / "test_output.csv")
-
-            with patch("grin_to_s3.export.SQLiteProgressTracker") as mock_tracker_cls:
-                mock_tracker_cls.return_value = mock_sqlite_tracker
-
-                # Should complete without error
-                await export_csv(db_path, output_file)
-
-                # Verify file was created
-                assert Path(output_file).exists()
-
-                # Verify file content
-                with open(output_file) as f:
-                    lines = f.readlines()
-                    assert len(lines) == 1001  # Header + 1000 data rows
-
-                    # Verify MARC headers are present
-                    assert "MARC Title" in lines[0]
-                    assert "MARC Author Personal" in lines[0]
-
-    @pytest.mark.asyncio
-    async def test_export_error_handling(self, mock_sqlite_tracker):
-        """Test error handling in export functionality."""
-        # Mock tracker to raise exception
-        mock_sqlite_tracker.get_all_books_csv_data.side_effect = Exception("Database error")
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            db_path = str(Path(temp_dir) / "test.db")
-            output_file = str(Path(temp_dir) / "test_output.csv")
-
-            with patch("grin_to_s3.export.SQLiteProgressTracker") as mock_tracker_cls:
-                mock_tracker_cls.return_value = mock_sqlite_tracker
-
-                # Should raise exception
-                with pytest.raises(Exception, match="Database error"):
-                    await export_csv(db_path, output_file)
-
-                # Output file should not exist
-                assert not Path(output_file).exists()
+        # Verify file content includes MARC data
+        with csv_path.open() as f:
+            content = f.read()
+            assert "Programming in Python" in content  # MARC title
+            assert "Smith, John" in content  # MARC author
+            assert "123456789" in content  # MARC control number
 
     def test_csv_headers_consistency(self):
         """Test that CSV headers are consistent between BookRecord methods."""

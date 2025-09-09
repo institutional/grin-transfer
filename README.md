@@ -247,7 +247,7 @@ Manage storage buckets with fast listing and deletion.
 
 Each run creates organized output in `output/{run_name}/`:
 - `books.db` - SQLite database with all book records and sync status
-- `books_{timestamp}.csv` - Timestamped CSV export
+- `books_export.csv` - Local CSV export with all book metadata
 - `process_summary.json` - Previous run history, counts, and timestamps
 - `run_config.json` - Configuration file (generated as part of the collect step)
 

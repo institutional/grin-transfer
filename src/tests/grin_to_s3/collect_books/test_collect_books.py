@@ -569,19 +569,19 @@ class TestBookCollectionIntegration:
     async def test_collect_books_with_mocked_data(self):
         """Test full book collection with mocked GRIN data."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            output_file = Path(temp_dir) / "test_export.csv"
-
-            # Use shared mock setup with limited test data
             test_data = get_test_data()[:3]  # Only first 3 records
             exporter = setup_mock_exporter(temp_dir, test_data)
 
             # Run export with limit
-            await exporter.collect_books(str(output_file), limit=3)
+            await exporter.collect_books(limit=3)
 
-            # Verify CSV file
-            assert output_file.exists()
+            # Verify CSV file was uploaded to storage (local storage in temp_dir)
+            # The MockStorage.write_file places files at: {temp_dir}/{storage_path}
+            # where storage_path is from book_manager.meta_path() = "test_run/books_latest.csv"
+            storage_csv_file = Path(temp_dir) / "test_run" / "books_latest.csv"
+            assert storage_csv_file.exists()
 
-            with open(output_file, newline="") as f:
+            with open(storage_csv_file, newline="") as f:
                 reader = csv.reader(f)
                 headers = next(reader)
                 rows = list(reader)
@@ -593,60 +593,6 @@ class TestBookCollectionIntegration:
             barcodes = {row[0].strip('"') for row in rows}
             expected_barcodes = {"TEST001", "TEST002", "TEST003"}
             assert barcodes == expected_barcodes
-
-            # Ensure all background tasks complete before test ends
-            if hasattr(exporter, "_background_tasks") and exporter._background_tasks:
-                await asyncio.gather(*exporter._background_tasks, return_exceptions=True)
-
-    @pytest.mark.asyncio
-    async def test_collect_books_resume_functionality(self):
-        """Test book collection resume functionality."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            output_file = Path(temp_dir) / "resume_test.csv"
-
-            # Create initial CSV with one record
-            with open(output_file, "w", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow(BookRecord.csv_headers())
-                writer.writerow(
-                    [
-                        "TEST001",
-                        "2023-01-01T12:00:00",
-                        "",
-                        "",
-                        "",
-                        "",
-                        "",
-                        "https://books.google.com/books?id=test001",
-                        "converted",
-                        "False",
-                        "",
-                        "False",
-                        "",
-                        "",
-                        "",
-                        "2023-01-01T12:00:00",
-                        "2023-01-01T12:00:00",
-                    ]
-                )
-
-            # Use shared mock with 2 records (one existing, one new)
-            test_data = get_test_data()[:2]  # TEST001 and TEST002
-            exporter = setup_mock_exporter(temp_dir, test_data)
-
-            # Run export
-            await exporter.collect_books(str(output_file), limit=2)
-
-            # Verify only new record was added
-            with open(output_file, newline="") as f:
-                reader = csv.reader(f)
-                next(reader)  # Skip headers
-                rows = list(reader)
-
-            assert len(rows) == 2  # Original + 1 new
-            barcodes = {row[0].strip('"') for row in rows}
-            assert "TEST001" in barcodes
-            assert "TEST002" in barcodes
 
             # Ensure all background tasks complete before test ends
             if hasattr(exporter, "_background_tasks") and exporter._background_tasks:

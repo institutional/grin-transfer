@@ -13,7 +13,7 @@ from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any, cast
 
-from grin_to_s3.common import Barcode
+from grin_to_s3.common import Barcode, pluralize
 from grin_to_s3.process_summary import ProcessStageMetrics
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator, show_queue_progress
 
@@ -747,7 +747,9 @@ def display_task_statistics(stats: dict[TaskType, dict[str, int]]) -> None:
     # Show needs conversion tasks
     if needs_conversion_tasks:
         for task in needs_conversion_tasks:
-            conversion_detail = f" ({task['needs_conversion']} books need conversion)"
+            conversion_detail = (
+                f" ({task['needs_conversion']} {pluralize(task['needs_conversion'], 'book')} need conversion)"
+            )
             print(
                 f"→ {task['name']:<20} {task['successful_count']}/{task['started']} ({task['success_rate']:5.1f}%){conversion_detail}"
             )
@@ -774,6 +776,8 @@ def display_task_statistics(stats: dict[TaskType, dict[str, int]]) -> None:
     # Add conversion summary if any tasks need conversion
     if needs_conversion_tasks:
         total_needing_conversion = sum(task["needs_conversion"] for task in needs_conversion_tasks)
-        print(f"\nBooks requiring conversion: {total_needing_conversion:,} books need to be processed by GRIN")
+        print(
+            f"\nBooks requiring conversion: {total_needing_conversion:,} {pluralize(total_needing_conversion, 'book')} need to be processed by GRIN"
+        )
 
     print()  # Add spacing after the summary
