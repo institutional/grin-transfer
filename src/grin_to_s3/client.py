@@ -22,7 +22,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # HTTP connection pool limits for GRIN client
-HTTP_CONNECTION_POOL_LIMITS = {"limit": 10, "limit_per_host": 5}
+# Sized for 20 workers with adequate headroom
+HTTP_CONNECTION_POOL_LIMITS = {"limit": 50, "limit_per_host": 50}
 
 
 GRINRow = dict[str, str]  # Type alias for book data with dynamic keys
@@ -45,13 +46,27 @@ class GRINClient:
         # Session will be created lazily when first needed
         self.session: aiohttp.ClientSession | None = None
 
+        # Session lifecycle tracking for proactive recycling
+        self._session_created_at: float = 0
+        self._request_count: int = 0
+        self._consecutive_errors: int = 0
+
+        # Session recycling thresholds
+        self.SESSION_MAX_AGE = 1800  # 30 minutes
+        self.SESSION_MAX_REQUESTS = 5000  # Requests before recycling
+        self.MAX_CONSECUTIVE_ERRORS = 5  # Error threshold for recycling
+
     async def _ensure_session(self) -> aiohttp.ClientSession:
         """Ensure session exists, creating it if necessary."""
+        # Check if we need to recreate an existing session
+        if self.session is not None and self._should_recreate_session():
+            await self._recreate_session()
+
         if self.session is None:
             connector = aiohttp.TCPConnector(
                 limit=HTTP_CONNECTION_POOL_LIMITS["limit"],
                 limit_per_host=HTTP_CONNECTION_POOL_LIMITS["limit_per_host"],
-                keepalive_timeout=300,  # Close idle connections after 5 minutes
+                keepalive_timeout=30,  # Close idle connections after 30 seconds
                 enable_cleanup_closed=True,  # Proactively clean up closed connections
             )
             timeout_config = aiohttp.ClientTimeout(
@@ -61,6 +76,9 @@ class GRINClient:
                 sock_read=30,  # Detect hung connections during read
             )
             self.session = aiohttp.ClientSession(connector=connector, timeout=timeout_config)
+            self._session_created_at = time.time()
+            self._request_count = 0
+            self._consecutive_errors = 0
         return self.session
 
     async def get_bearer_token(self) -> str:
@@ -90,24 +108,255 @@ class GRINClient:
         if timeout is not None:
             kwargs["timeout"] = aiohttp.ClientTimeout(total=timeout, connect=10)
 
-        response = await self.auth.make_authenticated_request(session, url, method=method, **kwargs)
+        response = await self._make_request_with_tracking(session, url, method=method, **kwargs)
         return await response.text()
 
     async def download_archive(self, url: str) -> aiohttp.ClientResponse:
         """Download a book archive - for use by download.py."""
         session = await self._ensure_session()
-        return await self.auth.make_authenticated_request(session, url)
+        return await self._make_request_with_tracking(session, url)
 
     async def head_archive(self, url: str) -> aiohttp.ClientResponse:
         """HEAD request for archive metadata - for use by check.py."""
         session = await self._ensure_session()
-        return await self.auth.make_authenticated_request(session, url, method="HEAD")
+        return await self._make_request_with_tracking(session, url, method="HEAD")
 
     async def close(self):
         """Close the session. Must be called when done with client."""
         if self.session is not None:
             await self.session.close()
             self.session = None
+
+    def _should_recreate_session(self) -> bool:
+        """Check if session should be recreated based on age, requests, or errors."""
+        if self._session_created_at == 0:
+            return False
+
+        # Time-based recycling
+        session_age = time.time() - self._session_created_at
+        if session_age > self.SESSION_MAX_AGE:
+            logger.info(f"Recreating session: age {session_age:.0f}s exceeds {self.SESSION_MAX_AGE}s")
+            return True
+
+        # Request-based recycling
+        if self._request_count > self.SESSION_MAX_REQUESTS:
+            logger.info(f"Recreating session: {self._request_count} requests exceeds {self.SESSION_MAX_REQUESTS}")
+            return True
+
+        # Error-based recycling
+        if self._consecutive_errors >= self.MAX_CONSECUTIVE_ERRORS:
+            logger.warning(
+                f"Recreating session: {self._consecutive_errors} consecutive errors exceeds {self.MAX_CONSECUTIVE_ERRORS}"
+            )
+            return True
+
+        return False
+
+    async def _recreate_session(self):
+        """Gracefully recreate the session to recycle connections."""
+        logger.info("Recreating session to refresh connection pool")
+        old_session = self.session
+        self.session = None
+
+        # Create new session first
+        await self._ensure_session()
+
+        # Then close old session
+        if old_session is not None:
+            await old_session.close()
+
+    def _log_pool_health(self):
+        """Log detailed connection pool health statistics."""
+        if self.session is not None and self.session.connector is not None:
+            connector = self.session.connector
+            session_age = time.time() - self._session_created_at
+
+            # Get detailed connection pool stats
+            total_conns = 0
+            acquired_conns = 0
+            hosts_with_conns = 0
+            acquired_per_host = {}
+            connector_closed = getattr(connector, "_closed", False)
+
+            # Analyze _conns (free connections by host)
+            if hasattr(connector, "_conns"):
+                conns_dict = connector._conns
+                total_conns = sum(len(conns) for conns in conns_dict.values())
+                hosts_with_conns = len([host for host, conns in conns_dict.items() if len(conns) > 0])
+                logger.debug(
+                    f"_conns hosts: {list(conns_dict.keys())}, lengths: {[len(conns) for conns in conns_dict.values()]}"
+                )
+
+            # Analyze _acquired (active connections)
+            if hasattr(connector, "_acquired"):
+                acquired_conns = len(connector._acquired)
+
+            # Analyze _acquired_per_host (active connections by host)
+            if hasattr(connector, "_acquired_per_host"):
+                acquired_per_host = dict(connector._acquired_per_host)
+
+            # Calculate available connections
+            limit = getattr(connector, "limit", None)
+            limit_per_host = getattr(connector, "limit_per_host", None)
+            available_conns = (limit - acquired_conns) if limit else "unlimited"
+
+            # Main pool health log
+            logger.info(
+                f"Pool health: {total_conns} free connections, {acquired_conns} acquired, "
+                f"{hosts_with_conns} hosts with connections, {available_conns} available slots, "
+                f"{self._request_count} requests, age {session_age:.0f}s, "
+                f"{self._consecutive_errors} consecutive errors"
+            )
+
+            # Detailed diagnostic log
+            logger.debug(
+                f"Pool details: limit={limit}, limit_per_host={limit_per_host}, "
+                f"closed={connector_closed}, acquired_per_host={acquired_per_host}"
+            )
+
+    async def _make_request_with_tracking(
+        self, session: aiohttp.ClientSession, url: str, method: str = "GET", **kwargs
+    ):
+        """Make request with error tracking and connection monitoring."""
+        self._request_count += 1
+        request_start = time.time()
+
+        # Log pool health periodically
+        if self._request_count % 500 == 0:
+            self._log_pool_health()
+
+        # Debug: Log request start with pool state
+        logger.debug(f"Request {self._request_count} starting: {method} {url[:100]}...")
+
+        # Log pool state before request (only for first few requests or if debug enabled)
+        if self._request_count <= 10 or logger.isEnabledFor(logging.DEBUG):
+            self._log_pre_request_state()
+
+        try:
+            response = await self.auth.make_authenticated_request(session, url, method=method, **kwargs)
+
+            # Success - reset error counter and log timing
+            self._consecutive_errors = 0
+            request_duration = time.time() - request_start
+
+            logger.debug(
+                f"Request {self._request_count} succeeded in {request_duration:.3f}s: "
+                f"{response.status} {method} {url[:100]}..."
+            )
+
+            return response
+
+        except (aiohttp.ClientConnectionError, aiohttp.ServerTimeoutError, TimeoutError) as e:
+            self._consecutive_errors += 1
+            request_duration = time.time() - request_start
+
+            logger.warning(
+                f"Request {self._request_count} failed after {request_duration:.3f}s "
+                f"(consecutive: {self._consecutive_errors}): {type(e).__name__}: {e}"
+            )
+
+            # Log pool state after error for diagnostics
+            self._log_pool_health()
+            raise
+
+        except Exception as e:
+            # Catch other exceptions that might not be connection-related
+            request_duration = time.time() - request_start
+            logger.error(
+                f"Request {self._request_count} failed with unexpected error after {request_duration:.3f}s: "
+                f"{type(e).__name__}: {e}"
+            )
+            raise
+
+    def _log_pre_request_state(self):
+        """Log connection pool state before making a request (debug level)."""
+        if self.session is not None and self.session.connector is not None:
+            connector = self.session.connector
+
+            # Quick snapshot of pool state
+            total_conns = 0
+            acquired_conns = 0
+
+            if hasattr(connector, "_conns"):
+                total_conns = sum(len(conns) for conns in connector._conns.values())
+            if hasattr(connector, "_acquired"):
+                acquired_conns = len(connector._acquired)
+
+            logger.debug(
+                f"Pre-request pool: {total_conns} free, {acquired_conns} acquired, request #{self._request_count}"
+            )
+
+    async def diagnose_pool(self):
+        """Comprehensive diagnostic dump of connection pool state."""
+        logger.info("=== CONNECTION POOL DIAGNOSTIC ===")
+
+        if self.session is None:
+            logger.info("No session exists yet")
+            return
+
+        if self.session.connector is None:
+            logger.info("Session has no connector")
+            return
+
+        connector = self.session.connector
+        session_age = time.time() - self._session_created_at
+
+        # Basic session info
+        logger.info(
+            f"Session age: {session_age:.1f}s, requests: {self._request_count}, errors: {self._consecutive_errors}"
+        )
+        logger.info(f"Session closed: {getattr(self.session, 'closed', 'unknown')}")
+
+        # Connector configuration
+        logger.info(f"Connector type: {type(connector).__name__}")
+        logger.info(f"Connector limit: {getattr(connector, 'limit', 'unknown')}")
+        logger.info(f"Connector limit_per_host: {getattr(connector, 'limit_per_host', 'unknown')}")
+        logger.info(f"Connector closed: {getattr(connector, '_closed', 'unknown')}")
+        logger.info(f"Connector keepalive_timeout: {getattr(connector, '_keepalive_timeout', 'unknown')}")
+
+        # Connection pools analysis
+        if hasattr(connector, "_conns"):
+            conns_dict = connector._conns
+            logger.info(f"_conns dictionary has {len(conns_dict)} host entries:")
+            for host, conns in conns_dict.items():
+                logger.info(f"  Host {host}: {len(conns)} free connections")
+                for i, conn in enumerate(conns):
+                    conn_info = f"closed={getattr(conn, 'closed', '?')}, transport={type(getattr(conn, 'transport', None)).__name__ if hasattr(conn, 'transport') else 'None'}"
+                    logger.info(f"    Connection {i}: {conn_info}")
+        else:
+            logger.info("No _conns attribute found")
+
+        # Active connections analysis
+        if hasattr(connector, "_acquired"):
+            acquired_set = connector._acquired
+            logger.info(f"_acquired set has {len(acquired_set)} active connections:")
+            for i, conn in enumerate(list(acquired_set)):  # type: ignore[assignment]
+                conn_info = f"closed={getattr(conn, 'closed', '?')}, transport={type(getattr(conn, 'transport', None)).__name__ if hasattr(conn, 'transport') else 'None'}"
+                logger.info(f"  Active connection {i}: {conn_info}")
+        else:
+            logger.info("No _acquired attribute found")
+
+        # Per-host tracking
+        if hasattr(connector, "_acquired_per_host"):
+            per_host = connector._acquired_per_host
+            logger.info(f"_acquired_per_host: {dict(per_host)}")
+        else:
+            logger.info("No _acquired_per_host attribute found")
+
+        # Other internal state
+        other_attrs = ["_waiters", "_closed_per_host", "_dns_cache"]
+        for attr in other_attrs:
+            if hasattr(connector, attr):
+                value = getattr(connector, attr)
+                if hasattr(value, "__len__"):
+                    logger.info(f"{attr}: length={len(value)}")
+                else:
+                    logger.info(f"{attr}: {value}")
+
+        logger.info("=== END DIAGNOSTIC ===")
+
+        # Also trigger the regular health log
+        self._log_pool_health()
 
     async def stream_book_list_html_prefetch(
         self,
@@ -146,7 +395,7 @@ class GRINClient:
                 # First page - fetch normally
                 logger.debug(f"Page {page_count}: Normal fetch (no prefetch available)")
                 session = await self._ensure_session()
-                response = await self.auth.make_authenticated_request(session, current_url)
+                response = await self._make_request_with_tracking(session, current_url)
                 html = await response.text()
 
             if "Your request is unavailable" in html:
@@ -248,7 +497,7 @@ class GRINClient:
             tuple: (html_content, url)
         """
         session = await self._ensure_session()
-        response = await self.auth.make_authenticated_request(session, url)
+        response = await self._make_request_with_tracking(session, url)
         html = await response.text()
         return html, url
 
