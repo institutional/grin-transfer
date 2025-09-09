@@ -6,13 +6,11 @@ Contains the BookCollector class responsible for coordinating the entire book co
 """
 
 import asyncio
-import csv
 import logging
 import signal
 import time
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from pathlib import Path
 
 from grin_to_s3.client import GRINClient, GRINRow
 from grin_to_s3.common import (
@@ -20,7 +18,8 @@ from grin_to_s3.common import (
     pluralize,
     print_oauth_setup_instructions,
 )
-from grin_to_s3.constants import GRIN_RATE_LIMIT_QPS
+from grin_to_s3.constants import BOOKS_EXPORT_CSV_FILENAME, GRIN_RATE_LIMIT_QPS
+from grin_to_s3.export import upload_csv_to_storage, write_books_to_csv
 from grin_to_s3.run_config import RunConfig, StorageConfig
 from grin_to_s3.storage import BookManager, create_storage_from_config
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator, show_progress
@@ -108,12 +107,12 @@ class BookCollector:
 
         print(f"Collection complete: {total_yielded:,} total books collected")
 
-    async def collect_books(self, output_file: Path, limit: int | None = None) -> bool:
+    async def collect_books(self, limit: int | None = None) -> bool:
         """
         Book collection with pagination.
 
         Processes books one at a time with reliable pagination and resume capability.
-        Writes CSV at the end from the SQLite database.
+        Exports CSV to storage at the end from the SQLite database.
 
         Returns:
             True if collection completed successfully, False if interrupted or incomplete
@@ -230,8 +229,22 @@ class BookCollector:
 
             # Export CSV from database if collection completed successfully
             if completed_successfully or processed_count > 0:
-                print(f"\nExporting collection to CSV: {output_file}")
-                await self.export_csv_from_database(output_file)
+                print("\nExporting collection to CSV...")
+
+                # First generate the CSV file in the output directory
+                csv_path, record_count = await write_books_to_csv(
+                    self.sqlite_tracker, self.run_config.output_directory / BOOKS_EXPORT_CSV_FILENAME
+                )
+
+                # Then upload it to storage
+                storage_path = await upload_csv_to_storage(
+                    csv_path=csv_path,
+                    book_manager=self.book_manager,
+                    compression_enabled=False,  # No compression for CLI usage
+                )
+                print(f"CSV export completed: {storage_path} ({record_count:,} records)")
+                if self.storage_config["protocol"] != "file":
+                    print(f"Local CSV available at: {csv_path}")
 
         finally:
             # Remove signal handler
@@ -242,25 +255,6 @@ class BookCollector:
 
         # Return completion status
         return completed_successfully
-
-    async def export_csv_from_database(self, output_file: Path) -> None:
-        """Export all books from SQLite database to CSV file.
-
-        Args:
-            output_file: Path to output CSV file
-        """
-        # Get all books from database
-        books = await self.sqlite_tracker.get_all_books_csv_data()
-
-        # Write CSV file
-        with open(output_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(BookRecord.csv_headers())
-
-            for book in books:
-                writer.writerow(book.to_csv_row())
-
-        print(f"✅ CSV export completed: {output_file}")
 
     async def process_book(self, grin_row: GRINRow) -> BookRecord | None:
         """Process a single GRINRow from GRIN and return its record.

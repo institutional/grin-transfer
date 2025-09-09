@@ -11,6 +11,9 @@ from typing import Literal
 
 OUTPUT_DIR = Path("output")
 
+# File names
+BOOKS_EXPORT_CSV_FILENAME = "books_export.csv"
+
 # GRIN API rate limiting
 GRIN_RATE_LIMIT_QPS = 5.0
 

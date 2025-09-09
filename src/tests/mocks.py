@@ -117,6 +117,7 @@ class MockBookStorage:
     def __init__(self):
         self.archived_barcodes = {"TEST001", "TEST003", "TEST007"}
         self.json_barcodes = {"TEST001", "TEST002"}
+        self.storage = None  # Will be set by setup
 
     async def archive_exists(self, barcode: str) -> bool:
         return barcode in self.archived_barcodes
@@ -124,15 +125,20 @@ class MockBookStorage:
     def _book_path(self, barcode: str, filename: str) -> str:
         return f"mock/{barcode}/{filename}"
 
+    def meta_path(self, filename: str) -> str:
+        """Return the meta bucket path for a filename."""
+        return f"test_run/{filename}"
+
 
 class MockStorage:
     """Mock Storage for testing"""
 
-    def __init__(self):
+    def __init__(self, base_path: str = None):
         self.files = {
             "mock/TEST001/TEST001.tar.gz.gpg.retrieval": "2023-01-01T12:00:00Z",
             "mock/TEST003/TEST003.tar.gz.gpg.retrieval": "2023-01-02T12:00:00Z",
         }
+        self.base_path = base_path
 
     async def read_text(self, path: str) -> str:
         if path in self.files:
@@ -145,6 +151,24 @@ class MockStorage:
     async def close(self) -> None:
         """Mock close method for compatibility with Storage interface."""
         pass
+
+    async def write_file(self, path: str, file_path: str, metadata=None) -> None:
+        """Mock write_file method for testing CSV uploads."""
+        # For testing, we just copy the file to simulate the upload
+        import shutil
+        from pathlib import Path
+
+        # Simulate the real storage's _normalize_path behavior for local files
+        if self.base_path and not path.startswith("/"):
+            dest_path = Path(self.base_path) / path
+        else:
+            dest_path = Path(path)
+
+        # Ensure parent directories exist
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Copy the file
+        shutil.copy2(file_path, dest_path)
 
 
 def get_test_data():
@@ -437,7 +461,7 @@ def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
         storage_config_typed: StorageConfig = {
             "type": "local",
             "protocol": "file",
-            "config": {"base_path": str(temp_dir)},
+            "config": {"base_path": str(temp_dir), "bucket_meta": "meta", "bucket_raw": "raw", "bucket_full": "full"},
             "prefix": "test",
         }
         storage_config = storage_config_typed
@@ -486,7 +510,8 @@ def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
     # Mock book storage if configured
     if storage_config:
         mock_book_manager = MockBookStorage()
-        mock_book_manager.storage = MockStorage()  # type: ignore
+        base_path = storage_config["config"].get("base_path", temp_dir)
+        mock_book_manager.storage = MockStorage(base_path=base_path)  # type: ignore
         exporter.book_manager = mock_book_manager  # type: ignore
 
     return exporter

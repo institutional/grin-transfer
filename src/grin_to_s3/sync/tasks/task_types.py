@@ -95,6 +95,7 @@ class ExportCsvData(TypedDict):
     """Data from EXPORT_CSV task."""
 
     csv_file_path: Path
+    local_csv_path: Path
     record_count: int
 
 

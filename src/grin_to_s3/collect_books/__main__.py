@@ -227,13 +227,12 @@ Examples:
     # Generate timestamp for output files (not resume files)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    output_file = Path(f"{OUTPUT_DIR}/{run_name}/books_{timestamp}.csv")
     log_file = Path(f"{args.log_dir}/grin_pipeline_{run_name}_{timestamp}.log")
     sqlite_db_path = Path(f"{OUTPUT_DIR}/{run_name}/books.db")
 
     # Create directories
     log_file.parent.mkdir(parents=True, exist_ok=True)
-    output_file.parent.mkdir(parents=True, exist_ok=True)
+    sqlite_db_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Build storage configuration
     final_storage_dict = build_storage_config_dict(args)
@@ -320,7 +319,7 @@ Examples:
 
             # Run book collection with pagination
             collect_stage.add_progress_update("Starting book collection")
-            completed = await collector.collect_books(output_file, args.limit)
+            completed = await collector.collect_books(args.limit)
 
             # Track completion status
             if completed:

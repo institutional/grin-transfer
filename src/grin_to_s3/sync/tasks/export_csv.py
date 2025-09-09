@@ -1,12 +1,8 @@
-import asyncio
-import csv
 import logging
-from datetime import datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from grin_to_s3.collect_books.models import BookRecord
-from grin_to_s3.common import compress_file_to_temp
+from grin_to_s3.constants import BOOKS_EXPORT_CSV_FILENAME
+from grin_to_s3.export import upload_csv_to_storage, write_books_to_csv
 
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
@@ -18,62 +14,21 @@ logger = logging.getLogger(__name__)
 
 async def main(pipeline: "SyncPipeline") -> Result[ExportCsvData]:
     """Export book metadata to CSV format."""
-    base_path = pipeline.filesystem_manager.staging_path
-    filename = "books_latest.csv"
+    # First generate the CSV file in the run directory
+    csv_path, record_count = await write_books_to_csv(
+        pipeline.db_tracker, pipeline.config.output_directory / BOOKS_EXPORT_CSV_FILENAME
+    )
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    books = await pipeline.db_tracker.get_all_books_csv_data()
-
-    csv_path = base_path / "meta" / filename
-    timestamped_path = base_path / "meta" / "timestamped" / f"{timestamp}_books.csv"
-    bucket_path = None
-
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    timestamped_path.parent.mkdir(parents=True, exist_ok=True)
-
-    record_count = 0
-
-    with open(csv_path, "w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(BookRecord.csv_headers())
-        for book in books:
-            record_count += 1
-            writer.writerow(book.to_csv_row())
-
-    if pipeline.uses_block_storage:
-        if pipeline.config.sync_compression_meta_enabled:
-            async with compress_file_to_temp(csv_path) as compressed_path:
-                # Get compression statistics
-                original_size = csv_path.stat().st_size
-                compressed_size = compressed_path.stat().st_size
-                compression_ratio = (1 - compressed_size / original_size) * 100 if original_size > 0 else 0
-
-                logger.debug(
-                    f"CSV compression: {original_size:,} -> {compressed_size:,} bytes ({compression_ratio:.1f}% reduction)"
-                )
-
-                # Upload compressed file to both locations
-                bucket_path = pipeline.book_manager.meta_path("books_latest.csv.gz")
-                bucket_path_timestamped = pipeline.book_manager.meta_path(f"timestamped/{timestamp}_books.csv.gz")
-                await asyncio.gather(
-                    pipeline.storage.write_file(bucket_path, str(compressed_path)),
-                    pipeline.storage.write_file(bucket_path_timestamped, str(compressed_path)),
-                )
-                logger.info(f"Successfully uploaded latest CSV to {bucket_path} and {bucket_path_timestamped}")
-        else:
-            # Upload uncompressed file to both locations
-            bucket_path = pipeline.book_manager.meta_path("books_latest.csv")
-            bucket_path_timestamped = pipeline.book_manager.meta_path(f"timestamped/{timestamp}_books.csv")
-            await asyncio.gather(
-                pipeline.storage.write_file(bucket_path, str(csv_path)),
-                pipeline.storage.write_file(bucket_path_timestamped, str(csv_path)),
-            )
-            logger.info(f"Successfully uploaded latest CSV to {bucket_path} and {bucket_path_timestamped}")
-    else:
-        logger.info(f"CSV exported as {csv_path}")
+    # Then upload it to storage
+    bucket_path = await upload_csv_to_storage(
+        csv_path=csv_path,
+        book_manager=pipeline.book_manager,
+        compression_enabled=pipeline.config.sync_compression_meta_enabled,
+    )
 
     data: ExportCsvData = {
-        "csv_file_path": Path(bucket_path) if bucket_path else csv_path,
+        "csv_file_path": bucket_path,
+        "local_csv_path": csv_path,  # Include local path in result data
         "record_count": record_count,
     }
 
