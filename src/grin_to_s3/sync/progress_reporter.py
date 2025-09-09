@@ -21,7 +21,7 @@ class SlidingWindowRateCalculator:
     by using only the most recent batch completions for rate calculation.
     """
 
-    def __init__(self, window_size: int = 5):
+    def __init__(self, window_size: int = 20):
         """
         Initialize the rate calculator.
 
@@ -30,6 +30,7 @@ class SlidingWindowRateCalculator:
         """
         self.window_size = window_size
         self.batch_times: list[tuple[float, int]] = []  # (timestamp, processed_count)
+        self.smoothed_rate: float | None = None  # For exponential moving average
 
     def add_batch(self, timestamp: float, processed_count: int) -> None:
         """
@@ -47,7 +48,7 @@ class SlidingWindowRateCalculator:
 
     def get_rate(self, fallback_start_time: float, fallback_processed_count: int) -> float:
         """
-        Calculate current processing rate based on sliding window.
+        Calculate current processing rate based on sliding window with exponential smoothing.
 
         Args:
             fallback_start_time: Start time for fallback rate calculation
@@ -64,12 +65,25 @@ class SlidingWindowRateCalculator:
             time_span = newest_time - oldest_time
             count_span = newest_count - oldest_count
 
-            return count_span / max(1, time_span)
+            current_rate = count_span / max(1, time_span)
+
+            # Apply exponential moving average for stability
+            if self.smoothed_rate is None:
+                self.smoothed_rate = current_rate
+            else:
+                # α=0.1 gives 10% weight to new data, 90% to historical for very stable ETAs
+                alpha = 0.1
+                self.smoothed_rate = alpha * current_rate + (1 - alpha) * self.smoothed_rate
+
+            return self.smoothed_rate
         else:
             # Fallback to overall rate for first batch
             current_time = time.time()
             overall_elapsed = current_time - fallback_start_time
-            return fallback_processed_count / max(1, overall_elapsed)
+            rate = fallback_processed_count / max(1, overall_elapsed)
+            if self.smoothed_rate is None:
+                self.smoothed_rate = rate
+            return rate
 
 
 def show_progress(
