@@ -17,11 +17,11 @@ In typical usage, you will **collect** a local copy of your library's Google Boo
   - [Staging](#staging)
 - [Pipeline steps](#pipeline-steps)
 - [Core commands](#core-commands)
-  - [1. Book Collection: `grin.py collect`](#1-book-collection-grinpy-collect)
-  - [2. Processing Management: `grin.py process`](#2-processing-management-grinpy-process)
-  - [3. Sync Pipeline: `grin.py sync pipeline`](#3-sync-pipeline-grinpy-sync-pipeline)
-  - [4. Metadata enrichment: `grin.py enrich`](#4-metadata-enrichment-grinpy-enrich)
-  - [5. Storage Management: `grin.py storage`](#5-storage-management-grinpy-storage)
+  - [1. Book Collection: `grin collect`](#1-book-collection-grin-collect)
+  - [2. Processing Management: `grin process`](#2-processing-management-grin-process)
+  - [3. Sync Pipeline: `grin sync pipeline`](#3-sync-pipeline-grin-sync-pipeline)
+  - [4. Metadata enrichment: `grin enrich`](#4-metadata-enrichment-grin-enrich)
+  - [5. Storage Management: `grin storage`](#5-storage-management-grin-storage)
 - [File outputs](#file-outputs)
   - [Data dictionary](#data-dictionary)
 - [Database administration](#database-administration)
@@ -99,27 +99,32 @@ Assuming Docker is running on your local or host machine:
 ### Local installation
 
 - Requires Python 3.12+
-- Python dependencies are managed via `pyproject.toml`
+- Package manager: **uv** (fast Python package installer and resolver)
 - System dependencies: **gpg** for decrypting book archives
 
 ```bash
-# Create and activate a virtual environment
-source ./activate.sh
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.local/bin/env  # Add uv to PATH
 
-# Install dependencies
-pip install -e "."
+# Set up the project and install dependencies
+uv sync
 
 # Interactively configure authentication with the GRIN interface
-python grin.py auth setup
+uv run grin auth setup
 
 # For remote servers, SSH sessions, or cloud instances, use:
-python grin.py auth setup --remote-auth
+uv run grin auth setup --remote-auth
 
 # Then run a sample collection 
-python grin.py collect --run-name test_run --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=/tmp/grin-to-s3-storage --limit 10
+uv run grin collect --run-name test_run --storage local --storage-config base_path=/tmp/grin-to-s3-storage --limit 10 --library-directory YOUR_LIBRARY_DIRECTORY
 
-# And sync those 10 files
-python grin.py sync pipeline --run-name test_run --queue converted
+# And sync 10 files (assuming your collection has some available for download)
+uv run grin sync pipeline --run-name test_run --queue converted --limit 10
+
+# or request processing for them
+uv run grin process request --run-name test_run --limit 10
+
 ```
 
 [↑ Back to the top](#grin-to-s3)
@@ -167,12 +172,12 @@ Collects book metadata from GRIN into the local SQLite database and writes the r
 
 ```bash
 # Basic collection using CloudFlare R2 as the remote storage
-python grin.py collect --run-name RUN_NAME \
+uv run grin collect --run-name RUN_NAME \
   --library-directory YOUR_LIBRARY_DIRECTORY \
   --storage r2 
 
 # Local storage (no buckets required, but you must specify the path to the directory where files will go)
-python grin.py collect --run-name "local_test" --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=/tmp/storage
+uv run grin collect --run-name "local_test" --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=/tmp/storage
 
 ```
 
@@ -187,7 +192,7 @@ python grin.py collect --run-name "local_test" --library-directory YOUR_LIBRARY_
 Request book processing via GRIN conversion system.
 
 ```bash
-python grin.py process request --run-name RUN_NAME --limit 1000
+uv run grin process request --run-name RUN_NAME --limit 1000
 ```
 
 ### 3. Sync Pipeline: `grin.py sync pipeline`
@@ -211,7 +216,7 @@ If a barcode is specified but not immediately available from GRIN, the software 
 
 ```bash
 # Sync converted books to storage 
-python grin.py sync pipeline --run-name RUN_NAME --queue converted
+uv run grin sync pipeline --run-name RUN_NAME --queue converted
 ```
 **Required options**
 
@@ -229,7 +234,7 @@ One of these must be specified
 Iterate over un-enriched titles and download additional metadata.
 
 ```bash
-python grin.py enrich --run-name RUN_NAME
+uv run grin enrich --run-name RUN_NAME
 ```
 
 ### 5. Storage Management: `grin.py storage`
@@ -258,9 +263,9 @@ Each run creates organized output in `output/{run_name}/`:
 
 The CSV export contains comprehensive metadata drawn from multiple sources through a three-step process:
 
-1. **Collection step** (`grin.py collect`) - Gathers basic metadata from GRIN's HTML listing pages, including barcode, timestamps, and processing state
-2. **Enrichment step** (`grin.py enrich`) - Makes additional API calls to retrieve detailed quality metrics, conditions, and analysis scores from GRIN's TSV data export
-3. **Sync pipeline** (`grin.py sync`) - Extracts detailed bibliographic metadata from MARC records embedded in METS XML files during archive syncing
+1. **Collection step** (`grin collect`) - Gathers basic metadata from GRIN's HTML listing pages, including barcode, timestamps, and processing state
+2. **Enrichment step** (`grin enrich`) - Makes additional API calls to retrieve detailed quality metrics, conditions, and analysis scores from GRIN's TSV data export
+3. **Sync pipeline** (`grin sync`) - Extracts detailed bibliographic metadata from MARC records embedded in METS XML files during archive syncing
 
 **Data availability timing:**
 - Collection fields are populated immediately after running the collection step.
@@ -415,7 +420,7 @@ If you have a large enough locally-mounted filesystem, you can sync directly to 
 When using local storage, you must specify a `base_path` as the directory where books and metadata will be stored. The pipeline will organize the raw, full, and metadata files underneath that.
 
 ```bash
-python grin.py collect --run-name "local" --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=/var/grin-books
+uv run grin collect --run-name "local" --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=/var/grin-books
 ```
 </details>
 
@@ -475,7 +480,7 @@ EOF
 
 Then run collection with the appropriate bucket names
 ```
-python grin.py collect --run-name "s3" --library-directory YOUR_LIBRARY_DIRECTORY --storage s3 --bucket-raw YOUR_RAW_BUCKET --bucket-full YOUR_FULL_BUCKET --bucket-meta YOUR_META_BUCKET
+uv run grin collect --run-name "s3" --library-directory YOUR_LIBRARY_DIRECTORY --storage s3 --bucket-raw YOUR_RAW_BUCKET --bucket-full YOUR_FULL_BUCKET --bucket-meta YOUR_META_BUCKET
 ```
 
 Any other boto-compatible access model should also work; for example if run on an EC2 with an instance role that has write access to the bucket.
@@ -490,7 +495,7 @@ For convenience, a sample configuration file has been provided where you can spe
 cp examples/auth/r2-credentials-template.json ~/.config/grin-to-s3/r2_credentials.json
 
 # Edit `r2_credentials.json` with your access information and bucket names, then test with:
-python grin.py collect --run-name "r2" --library-directory YOUR_LIBRARY_DIRECTORY --storage r2
+uv run grin collect --run-name "r2" --library-directory YOUR_LIBRARY_DIRECTORY --storage r2
 ```
 </details>
 
@@ -509,7 +514,7 @@ gsutil mb gs://your-grin-meta
 gsutil mb gs://your-grin-full
 
 # Run collection with GCS storage
-python grin.py collect --run-name "gcs" --library-directory YOUR_LIBRARY_DIRECTORY \
+uv run grin collect --run-name "gcs" --library-directory YOUR_LIBRARY_DIRECTORY \
   --storage gcs \
   --bucket-raw your-grin-raw \
   --bucket-meta your-grin-meta \
@@ -525,17 +530,25 @@ python grin.py collect --run-name "gcs" --library-directory YOUR_LIBRARY_DIRECTO
 If you would like to contribute enhancements or bug-fixes to the tool, you can work on it locally:
 
 ```bash
-# Install with development dependencies
-pip install -e ".[dev]"
+# Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.local/bin/env
+
+# Set up the project with development dependencies
+uv sync
 
 # Run linting and formatting
-ruff check --fix && ruff format
+uv run ruff check --fix && uv run ruff format
 
 # Run type checking
-mypy src/grin_to_s3 --explicit-package-bases
+uv run mypy src/grin_to_s3 --explicit-package-bases
 
 # Run tests
-python -m pytest
+uv run python -m pytest
+
+# Add new dependencies
+uv add package-name           # Runtime dependency
+uv add --dev package-name     # Development dependency
 ```
 
 [↑ Back to the top](#grin-to-s3)

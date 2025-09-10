@@ -17,6 +17,7 @@ from typing import Any, Literal
 import aiofiles
 
 from grin_to_s3.constants import OUTPUT_DIR
+from grin_to_s3.docker.validation import is_docker_environment
 from grin_to_s3.run_config import load_run_config
 from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.factories import create_storage_from_config
@@ -707,13 +708,20 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
         print(f"\n✓ Collected {step.books_collected:,} books in {duration_str}")
         if step.collection_failed > 0:
             print(f"  Failed: {step.collection_failed:,}")
-        next_command = "python grin.py sync pipeline --queue converted"
+
+        # Use appropriate command based on environment
+        if is_docker_environment():
+            next_command = "grin-docker sync pipeline --queue converted"
+        else:
+            next_command = "uv run grin sync pipeline --queue converted"
 
     elif step_name == "process":
         print(f"\n✓ Requested conversion for {step.conversion_requests_made:,} books in {duration_str}")
         if step.conversion_requests_failed > 0:
             print(f"  Failed: {step.conversion_requests_failed:,}")
-        next_command = "python grin.py process monitor"
+
+        # No next command for process request - user should monitor through other means
+        next_command = None
 
     elif step_name == "sync":
         if was_interrupted:
@@ -761,7 +769,11 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
             print(f"  Skipped: {step.enrichment_skipped:,}")
         if step.enrichment_failed > 0:
             print(f"  Failed: {step.enrichment_failed:,}")
-        next_command = "python grin.py export-csv"
+        # Use appropriate command based on environment
+        if is_docker_environment():
+            next_command = "grin-docker export-csv"
+        else:
+            next_command = "uv run grin export"
 
     else:
         # Fallback for unknown stage names

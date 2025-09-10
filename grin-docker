@@ -94,8 +94,8 @@ if [ "$1" = "bash" ]; then
     # Special case: bash opens an interactive shell
     COMMAND="bash"
 else
-    # Default: prepend python grin.py to the command
-    COMMAND="python grin.py $*"
+    # Default: prepend uv run grin to the command
+    COMMAND="uv run grin $*"
 fi
 
 # Start minio service

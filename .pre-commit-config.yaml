@@ -3,21 +3,21 @@ repos:
     hooks:
       - id: ruff-format-and-check
         name: ruff format and check
-        entry: sh -c "ruff format . && ruff check --fix ."
+        entry: sh -c "uv run ruff format . && uv run ruff check --fix ."
         language: system
         pass_filenames: false
         always_run: true
 
       - id: mypy
         name: mypy type checking
-        entry: mypy src/grin_to_s3/ --explicit-package-bases
+        entry: uv run mypy src/grin_to_s3/ --explicit-package-bases
         language: system
         pass_filenames: false
         always_run: true
 
       - id: pytest
         name: pytest (fast tests only)
-        entry: python -m pytest src/tests/ -v --tb=short -n auto -m "not slow"
+        entry: uv run python -m pytest src/tests/ -v --tb=short -n auto -m "not slow"
         language: system
         pass_filenames: false
         always_run: true

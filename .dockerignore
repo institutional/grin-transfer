@@ -87,8 +87,8 @@ docker-compose*.yml
 # Documentation and examples that aren't needed in container
 docs/
 examples/
-README.md
-*.md
+# README.md is needed for hatchling build
+# *.md
 LICENSE
 
 # Test files

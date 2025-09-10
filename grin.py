@@ -47,35 +47,31 @@ def create_parser():
         epilog="""
 Examples:
   # Set up OAuth2 authentication
-  python grin.py auth setup
+  uv run grin auth setup
 
   # Collect books metadata
-  python grin.py collect --run-name harvard_2024 --storage r2 \\
-                         --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
+  uv run grin collect --run-name harvard_2024 --storage r2 \\
+                      --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
   # Request processing for collected books
-  python grin.py process request --run-name harvard_2024 --limit 1000
-
+  uv run grin process request --run-name harvard_2024 --limit 1000
 
   # Sync converted books to storage
-  python grin.py sync pipeline --run-name harvard_2024 --queue converted
-
-
-
+  uv run grin sync pipeline --run-name harvard_2024 --queue converted
 
   # Enrich with detailed metadata
-  python grin.py enrich --run-name harvard_2024
+  uv run grin enrich --run-name harvard_2024
 
   # Export ALL books to CSV (works at any pipeline stage)
-  python grin.py export --run-name harvard_2024 --output books.csv
+  uv run grin export --run-name harvard_2024 --output books.csv
 
   # View process summary (human-readable)
-  python grin.py reports view --run-name harvard_2024
+  uv run grin reports view --run-name harvard_2024
 
   # View raw JSON (can be piped to file)
-  python grin.py reports view --run-name harvard_2024 --raw > summary.json
+  uv run grin reports view --run-name harvard_2024 --raw > summary.json
 
-For more help on each command, use: python grin.py <command> --help
+For more help on each command, use: uv run grin <command> --help
         """,
     )
 
@@ -205,6 +201,11 @@ async def main():
         # Release session lock if acquired
         if session_lock:
             session_lock.release()
+
+
+def entry_point():
+    """Synchronous entry point for console script."""
+    return asyncio.run(main())
 
 
 if __name__ == "__main__":

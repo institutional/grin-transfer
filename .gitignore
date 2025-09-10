@@ -35,6 +35,7 @@ logs/
 
 # Virtual environments
 venv/
+.venv/
 
 # Build artifacts
 *.egg-info/

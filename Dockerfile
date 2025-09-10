@@ -5,19 +5,25 @@ FROM python:3.12-slim as builder
 RUN apt-get update && apt-get install -y \
     build-essential \
     git \
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 # Set working directory
 WORKDIR /app
 
-# Copy dependency files and source code
-COPY pyproject.toml ./
+# Copy dependency files and README (needed by hatchling)
+COPY pyproject.toml uv.lock .python-version README.md ./
+
+# Copy source code (needed for build)
 COPY src/ ./src/
 COPY grin.py ./
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir .
+# Install dependencies with uv
+RUN uv sync --frozen --no-dev
 
 # Production stage
 FROM python:3.12-slim
@@ -35,13 +41,19 @@ RUN groupadd -r grin && useradd -r -g grin -d /app -s /bin/bash grin
 # Set working directory
 WORKDIR /app
 
-# Copy Python packages from builder stage
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+# Install uv in production stage
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# Copy pyproject.toml and uv.lock for uv run to work
+COPY pyproject.toml uv.lock .python-version ./
 
 # Copy application code
 COPY . .
 
-# Create data directories with proper permissions
+# Install production dependencies only
+RUN uv sync --frozen --no-dev
+
+# Create data directories with permissions
 RUN mkdir -p /app/data /app/output /app/config /app/logs /app/staging /app/.gnupg /app/secrets /app/.config/grin-to-s3 && \
     chown -R grin:grin /app
 
@@ -59,6 +71,6 @@ USER grin
 # Create volumes for persistent data
 VOLUME ["/app/data", "/app/output", "/app/config", "/app/logs", "/app/staging"]
 
-# Set default command
-ENTRYPOINT ["python", "grin.py"]
+# Set default command using uv run to ensure virtual environment is used
+ENTRYPOINT ["uv", "run", "python", "grin.py"]
 CMD ["--help"]

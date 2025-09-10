@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "grin-to-s3"
@@ -38,8 +38,16 @@ dependencies = [
     "PyYAML>=6.0.0",
 ]
 
-[project.optional-dependencies]
-dev = [
+[project.scripts]
+grin = "grin_to_s3.cli:entry_point"
+
+[project.urls]
+Homepage = "https://github.com/harvard-idi/grin-to-s3-wip"
+Repository = "https://github.com/harvard-idi/grin-to-s3-wip.git"
+Issues = "https://github.com/harvard-idi/grin-to-s3-wip/issues"
+
+[tool.uv]
+dev-dependencies = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-mock>=3.10.0",
@@ -56,22 +64,9 @@ dev = [
     "aioresponses>=0.7.0",
     "pre-commit>=3.0.0",
 ]
-test = [
-    "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
-    "pytest-mock>=3.10.0",
-    "pytest-xdist>=3.0.0",
-]
 
-
-[project.urls]
-Homepage = "https://github.com/harvard-idi/grin-to-s3-wip"
-Repository = "https://github.com/harvard-idi/grin-to-s3-wip.git"
-Issues = "https://github.com/harvard-idi/grin-to-s3-wip/issues"
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["collect_books*", "csv_export*", "metadata*"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/grin_to_s3"]
 
 [tool.ruff]
 line-length = 120

@@ -12,23 +12,22 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Set up Python
-      uses: actions/setup-python@v4
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
       with:
-        python-version: "3.12"
+        version: "latest"
+    
+    - name: Set up Python
+      run: uv python install 3.12
     
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+      run: uv sync
     
     - name: Run type checking
-      run: |
-        mypy src/grin_to_s3/ --explicit-package-bases
+      run: uv run mypy src/grin_to_s3/ --explicit-package-bases
     
     - name: Run linting
-      run: |
-        ruff check .
+      run: uv run ruff check .
 
   test:
     runs-on: ubuntu-latest
@@ -39,19 +38,19 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+    - name: Install uv
+      uses: astral-sh/setup-uv@v4
       with:
-        python-version: ${{ matrix.python-version }}
+        version: "latest"
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      run: uv python install ${{ matrix.python-version }}
     
     - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+      run: uv sync
     
     - name: Run tests
-      run: |
-        python -m pytest src/tests/ -v --tb=short
+      run: uv run python -m pytest src/tests/ -v --tb=short
 
   docker:
     runs-on: ubuntu-latest
@@ -103,7 +102,7 @@ jobs:
         docker compose ps | grep -q "minio.*Up"
         
         # Verify connectivity using application's MinIO check
-        docker compose exec grin-to-s3 python -c "
+        docker compose exec grin-to-s3 uv run python -c "
         import asyncio
         import sys
         sys.path.append('/app/src')
@@ -140,7 +139,7 @@ jobs:
         done
 
         # Test that MinIO connectivity check works
-        docker compose exec grin-to-s3 python -c "
+        docker compose exec grin-to-s3 uv run python -c "
         import asyncio
         import sys
         sys.path.append('/app/src')
@@ -178,7 +177,7 @@ jobs:
         done
         
         # Test that storage factories work with MinIO auto-configuration
-        docker compose exec grin-to-s3 python -c "
+        docker compose exec grin-to-s3 uv run python -c "
         import sys
         sys.path.append('/app/src')
         from grin_to_s3.storage.factories import create_storage_from_config
