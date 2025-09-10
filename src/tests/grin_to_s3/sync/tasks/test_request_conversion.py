@@ -29,6 +29,7 @@ async def test_429_error_returns_failed_status(mock_pipeline):
         assert result.barcode == "TEST123"
         assert result.task_type == TaskType.REQUEST_CONVERSION
         assert result.action == TaskAction.FAILED  # FAILED triggers sequential failure counter
+        assert "Queue limit reached" in result.error
         assert result.reason == "fail_queue_limit_reached"
         assert result.data["conversion_status"] == "queue_limit_reached"
         assert result.data["request_count"] == 10  # Should not increment on failure

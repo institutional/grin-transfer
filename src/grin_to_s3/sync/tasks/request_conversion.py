@@ -97,6 +97,7 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
                 barcode=barcode,
                 task_type=TaskType.REQUEST_CONVERSION,
                 action=TaskAction.FAILED,  # FAILED triggers sequential failure counter
+                error="Queue limit reached in GRIN",
                 data={"conversion_status": "queue_limit_reached", "request_count": pipeline.conversion_requests_made},
                 reason="fail_queue_limit_reached",
             )
