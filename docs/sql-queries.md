@@ -328,11 +328,11 @@ ORDER BY bsh.timestamp DESC;
 
 ```bash
 # From file
-python grin.py sync pipeline --run-name run-name --barcodes-file converted_barcodes.txt
+uv run grin sync pipeline --run-name run-name --barcodes-file converted_barcodes.txt
 
 # Pipe from SQL
 sqlite3 -separator $'\n' output/run-name/books.db "SELECT barcode FROM books WHERE sync_timestamp IS NULL LIMIT 100;" | \
-  python grin.py sync pipeline --run-name run-name --barcodes-file -
+  uv run grin sync pipeline --run-name run-name --barcodes-file -
 ```
 
 ## Troubleshooting
@@ -376,7 +376,7 @@ FROM books
 WHERE enrichment_timestamp IS NULL;
 ```
 
-Note: It is recommended to just enrich the entire corpus in one go, as bulk enrichment is relatively fast. Use `python grin.py enrich --run-name RUN-NAME`
+Note: It is recommended to just enrich the entire corpus in one go, as bulk enrichment is relatively fast. Use `uv run grin enrich --run-name RUN-NAME`
 
 Missing titles:
 ```sql

@@ -16,7 +16,7 @@ This script performs comprehensive testing across multiple configurations using 
 Each configuration runs both collect and sync pipeline with --limit 20.
 
 Usage:
-    python tests/manual/e2e_test.py --run-name test_e2e
+    uv run python tests/manual/e2e_test.py --run-name test_e2e
 
 This script is designed to be run manually for comprehensive testing.
 """
@@ -114,9 +114,10 @@ class E2ETestRunner:
             "Healthy",  # Docker compose health messages
         ]
 
-        # For pip installs, ignore most stderr noise
-        if command in ["python", "/Users/liza/.pyenv/versions/3.12.11/bin/python"] and any(
-            pattern in stderr for pattern in ["Installing", "Requirement already satisfied", "Building"]
+        # For uv and python commands, ignore most stderr noise
+        if command in ["python", "uv"] and any(
+            pattern in stderr
+            for pattern in ["Installing", "Requirement already satisfied", "Building", "Resolved", "Audited"]
         ):
             return True
 
@@ -157,30 +158,12 @@ class E2ETestRunner:
         return repo_dir
 
     def install_dependencies(self, repo_dir: Path) -> None:
-        """Perform fresh installation from scratch."""
-        logger.info("Installing dependencies from scratch...")
+        """Perform fresh installation using uv."""
+        logger.info("Installing dependencies using uv...")
 
-        # Create a virtual environment in the temp repo
-        venv_dir = repo_dir / "venv"
-        logger.info("Creating virtual environment...")
-        self._run_command([sys.executable, "-m", "venv", str(venv_dir)], cwd=repo_dir, quiet=True)
-
-        # Determine the python executable in the venv (Unix/macOS only)
-        venv_python = venv_dir / "bin" / "python"
-
-        # Install in development mode
-        logger.info("Installing package dependencies...")
-        self._run_command([str(venv_python), "-m", "pip", "install", "-e", "."], cwd=repo_dir, quiet=True)
-
-        # Install test dependencies if they exist
-        requirements_test = repo_dir / "requirements-test.txt"
-        if requirements_test.exists():
-            self._run_command(
-                [str(venv_python), "-m", "pip", "install", "-r", "requirements-test.txt"], cwd=repo_dir, quiet=True
-            )
-
-        # Store the venv python path for later use
-        self.venv_python = str(venv_python)
+        # Sync dependencies using uv
+        logger.info("Syncing dependencies with uv...")
+        self._run_command(["uv", "sync"], cwd=repo_dir, quiet=True)
 
     def check_credentials(self) -> None:
         """Verify that required credentials are available."""
@@ -209,8 +192,9 @@ class E2ETestRunner:
         storage_base = str(repo_dir / "test-data")
         self._run_command(
             [
-                self.venv_python,
-                "grin.py",
+                "uv",
+                "run",
+                "grin",
                 "collect",
                 "--run-name",
                 self.run_name,
@@ -235,8 +219,9 @@ class E2ETestRunner:
         # Sync with local storage - converted queue
         self._run_command(
             [
-                self.venv_python,
-                "grin.py",
+                "uv",
+                "run",
+                "grin",
                 "sync",
                 "pipeline",
                 "--run-name",
@@ -253,8 +238,9 @@ class E2ETestRunner:
         # Sync with local storage - previous queue
         self._run_command(
             [
-                self.venv_python,
-                "grin.py",
+                "uv",
+                "run",
+                "grin",
                 "sync",
                 "pipeline",
                 "--run-name",
@@ -271,8 +257,9 @@ class E2ETestRunner:
         # Enrich with metadata (test the enrich step)
         self._run_command(
             [
-                self.venv_python,
-                "grin.py",
+                "uv",
+                "run",
+                "grin",
                 "enrich",
                 "--run-name",
                 self.run_name,
@@ -287,8 +274,9 @@ class E2ETestRunner:
         csv_output = f"{self.run_name}_books.csv"
         self._run_command(
             [
-                self.venv_python,
-                "grin.py",
+                "uv",
+                "run",
+                "grin",
                 "export",
                 "--run-name",
                 self.run_name,
@@ -306,8 +294,9 @@ class E2ETestRunner:
             # Collect with R2 storage (let it use user's config)
             self._run_command(
                 [
-                    sys.executable,
-                    "grin.py",
+                    "uv",
+                    "run",
+                    "grin",
                     "collect",
                     "--run-name",
                     self.run_name,
@@ -324,8 +313,9 @@ class E2ETestRunner:
             # Sync with R2 storage
             self._run_command(
                 [
-                    self.venv_python,
-                    "grin.py",
+                    "uv",
+                    "run",
+                    "grin",
                     "sync",
                     "pipeline",
                     "--run-name",
@@ -343,8 +333,9 @@ class E2ETestRunner:
             # Enrich with metadata (test the enrich step)
             self._run_command(
                 [
-                    self.venv_python,
-                    "grin.py",
+                    "uv",
+                    "run",
+                    "grin",
                     "enrich",
                     "--run-name",
                     self.run_name,
@@ -359,8 +350,9 @@ class E2ETestRunner:
             csv_output = f"{self.run_name}_books.csv"
             self._run_command(
                 [
-                    self.venv_python,
-                    "grin.py",
+                    "uv",
+                    "run",
+                    "grin",
                     "export",
                     "--run-name",
                     self.run_name,
@@ -459,7 +451,7 @@ class E2ETestRunner:
                 logger.info("Copied OAuth2 credentials to Docker directory")
             else:
                 logger.warning("No OAuth2 credentials found in user config")
-                logger.warning("Run 'python grin.py auth setup' manually first")
+                logger.warning("Run 'uv run grin auth setup' manually first")
                 logger.warning("Skipping Docker tests")
                 return
         except (OSError, PermissionError) as e:
