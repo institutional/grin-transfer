@@ -62,11 +62,16 @@ async def main(barcode: Barcode, unpack_data: UnpackData, pipeline: "SyncPipelin
             jsonl_path.unlink()
 
     duration = time.time() - start_time
+    extraction_time_ms = int(duration * 1000)
     logger.debug(f"EXTRACT_OCR task completed for {barcode} in {duration:.3f}s (manager_id={manager_id})")
 
     return ExtractOcrResult(
         barcode=barcode,
         task_type=TaskType.EXTRACT_OCR,
         action=TaskAction.COMPLETED,
-        data={"json_file_path": Path(jsonl_final_path), "page_count": page_count},
+        data={
+            "json_file_path": Path(jsonl_final_path),
+            "page_count": page_count,
+            "extraction_time_ms": extraction_time_ms,
+        },
     )

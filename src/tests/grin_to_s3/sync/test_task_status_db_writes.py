@@ -15,6 +15,8 @@ from grin_to_s3.sync.db_updates import (
     UPDATE_HANDLERS,
     commit_book_record_updates,
     download_failed,
+    extract_marc_completed,
+    extract_ocr_completed,
     get_updates_for_task,
     on,
     upload_completed,
@@ -149,6 +151,58 @@ class TestDatabaseUpdateOrchestration:
         assert books_updates["is_decrypted"] is True
         assert books_updates["encrypted_etag"] == "abc123"  # From download result
         assert "sync_timestamp" in books_updates
+
+    @pytest.mark.asyncio
+    async def test_extract_ocr_completed_includes_extraction_time_ms(self):
+        """OCR extraction completion handler should include extraction_time_ms in metadata."""
+        result = TaskResult(
+            barcode="TEST123",
+            task_type=TaskType.EXTRACT_OCR,
+            action=TaskAction.COMPLETED,
+            data={
+                "page_count": 5,
+                "extraction_time_ms": 2500,
+                "json_file_path": "/path/to/file.jsonl",
+            },
+        )
+        previous_results = {}
+
+        updates = await extract_ocr_completed(result, previous_results)
+
+        assert updates["status"][0] == "text_extraction"
+        assert updates["status"][1] == "completed"
+
+        metadata = updates["status"][2]
+        assert metadata is not None
+        assert metadata["page_count"] == 5
+        assert metadata["extraction_time_ms"] == 2500
+
+    @pytest.mark.asyncio
+    async def test_extract_marc_completed_includes_field_count(self):
+        """MARC extraction completion handler should include field_count in metadata."""
+        result = TaskResult(
+            barcode="TEST123",
+            task_type=TaskType.EXTRACT_MARC,
+            action=TaskAction.COMPLETED,
+            data={
+                "marc_metadata": {
+                    "title": "Test Book",
+                    "author": "Test Author",
+                    "publisher": "Test Publisher",
+                },
+                "field_count": 3,
+            },
+        )
+        previous_results = {}
+
+        updates = await extract_marc_completed(result, previous_results)
+
+        assert updates["status"][0] == "marc_extraction"
+        assert updates["status"][1] == "completed"
+
+        metadata = updates["status"][2]
+        assert metadata is not None
+        assert metadata["field_count"] == 3
 
     def test_duplicate_handler_prevention(self):
         """System should prevent duplicate handlers for the same task/action."""

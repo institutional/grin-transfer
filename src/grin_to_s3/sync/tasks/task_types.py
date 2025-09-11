@@ -82,6 +82,7 @@ class ExtractMarcData(TypedDict):
     """Data from EXTRACT_MARC task."""
 
     marc_metadata: dict
+    field_count: int
 
 
 class ExtractOcrData(TypedDict):
@@ -89,6 +90,7 @@ class ExtractOcrData(TypedDict):
 
     json_file_path: Path
     page_count: int
+    extraction_time_ms: int
 
 
 class ExportCsvData(TypedDict):
