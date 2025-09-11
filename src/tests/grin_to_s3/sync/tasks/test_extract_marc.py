@@ -148,3 +148,34 @@ async def test_marc_data_written_to_real_database():
         # Cleanup
         await tracker.close()
         Path(db_path).unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_extract_marc_includes_field_count(mock_pipeline):
+    """Extract MARC task should include field_count in result data."""
+    unpack_data: UnpackData = {
+        "unpacked_path": Path("/tmp/TEST123"),
+    }
+
+    with (
+        patch("grin_to_s3.sync.tasks.extract_marc.extract_marc_metadata") as mock_extract,
+        patch("grin_to_s3.sync.tasks.extract_marc.convert_marc_keys_to_db_fields") as mock_convert,
+    ):
+        marc_metadata = {
+            "title": "Test Book",
+            "author": "Test Author",
+            "publisher": "Test Publisher",
+            "isbn": "978-0123456789",
+            "language": "en",
+        }
+        normalized_metadata = {"title_display": "Test Book", "author_display": "Test Author"}
+        mock_extract.return_value = marc_metadata
+        mock_convert.return_value = normalized_metadata
+
+        result = await extract_marc.main("TEST123", unpack_data, mock_pipeline)
+
+        assert result.action == TaskAction.COMPLETED
+        assert result.data
+        assert result.data["marc_metadata"] == marc_metadata
+        assert result.data["field_count"] == 5  # 5 fields in marc_metadata
+        mock_pipeline.db_tracker.update_book_marc_metadata.assert_called_once_with("TEST123", normalized_metadata)

@@ -303,3 +303,29 @@ async def test_extract_ocr_local_storage_with_compression_disabled():
             assert call_args[0][0] == str(expected_path)  # destination path
             assert str(call_args[0][1]).endswith("TEST123_ocr.jsonl")  # source path (staging file)
             assert "barcode" in call_args[0][2]  # metadata contains barcode
+
+
+@pytest.mark.asyncio
+async def test_extract_ocr_includes_extraction_time_ms(mock_pipeline):
+    """Extract OCR task should include extraction_time_ms in result data."""
+    unpack_data: UnpackData = {
+        "unpacked_path": Path("/tmp/TEST123"),
+    }
+
+    with (
+        patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
+        patch("grin_to_s3.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
+    ):
+        mock_extract.return_value = 3
+        compressed_path = Path(mock_pipeline.filesystem_manager.staging_path) / "compressed.gz"
+        mock_compress.return_value.__aenter__.return_value = compressed_path
+        mock_pipeline.storage.write_file = AsyncMock()
+
+        result = await extract_ocr.main("TEST123", unpack_data, mock_pipeline)
+
+        assert result.action == TaskAction.COMPLETED
+        assert result.data
+        assert result.data["page_count"] == 3
+        assert "extraction_time_ms" in result.data  # Just verify the field exists
+        assert isinstance(result.data["extraction_time_ms"], int)  # And that it's an integer
+        assert "TEST123_ocr.jsonl" in str(result.data["json_file_path"])

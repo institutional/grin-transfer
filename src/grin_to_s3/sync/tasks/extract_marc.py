@@ -33,4 +33,6 @@ async def main(barcode: Barcode, unpack_data: UnpackData, pipeline: "SyncPipelin
 
 
 async def extract_marc(barcode: Barcode, unpack_data: UnpackData) -> ExtractMarcData:
-    return {"marc_metadata": extract_marc_metadata(unpack_data["unpacked_path"])}
+    marc_metadata = extract_marc_metadata(unpack_data["unpacked_path"])
+    field_count = len(marc_metadata) if marc_metadata else 0
+    return {"marc_metadata": marc_metadata, "field_count": field_count}
