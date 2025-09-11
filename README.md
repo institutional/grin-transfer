@@ -282,10 +282,10 @@ Each book is represented as a single row with the following fields:
 Dates from Google's GRIN system are in YYYY/MM/DD HH:MM format:
 
 - **Scanned Date** - Datetime (YYYY/MM/DD HH:MM). Date when physical book was scanned by Google *(Collection step)*
-- **Converted Date** - Datetime (YYYY/MM/DD HH:MM). Date when scan was converted to searchable format *(Collection step)*
-- **Downloaded Date** - Datetime (YYYY/MM/DD HH:MM). Date when archive became available for download *(Collection step)*
-- **Processed Date** - Datetime (YYYY/MM/DD HH:MM). Date when Google completed processing *(Collection step)*
-- **Analyzed Date** - Datetime (YYYY/MM/DD HH:MM). Date when Google completed content analysis *(Collection step)*
+- **Converted Date** - Datetime (YYYY/MM/DD HH:MM). Date when volume was converted to library's preferred format for download *(Collection step)*
+- **Downloaded Date** - Datetime (YYYY/MM/DD HH:MM). Most recent date when volume package was downloaded from GRIN *(Collection step)*
+- **Processed Date** - Datetime (YYYY/MM/DD HH:MM). Date when volume was processed (cleaning, cropping, flattening pages, OCR) *(Collection step)*
+- **Analyzed Date** - Datetime (YYYY/MM/DD HH:MM). Date when volume was analyzed (organizing pages, selecting higher-quality pages, ordering) *(Collection step)*
 - **OCR Date** - Datetime (YYYY/MM/DD HH:MM). Date when optical character recognition was last performed on the book images *(Collection step)*
 - **Google Books Link** - URL. Public-facing Google Books URL for this volume *(Collection step)*
 - **Processing Request Timestamp** - ISO8601 Datetime (UTC). When this book was submitted to Google's conversion queue by this tool *(Internal)*
@@ -298,17 +298,17 @@ Most fields populated from Google's detailed enrichment TSV data accessed via th
 - **GRIN Opted Out** - String ("true"/"false"/empty). Whether volume was opted out post-scan *(Enrichment step)*
 - **GRIN Conditions** - String. Comma-separated integers describing physical condition at check-in (see Google's GRIN Overview.pdf) *(Enrichment step)*
 - **GRIN Scannable** - String ("true"/"false"/empty). Whether volume was deemed scannable (note: some non-scannable books still have scans) *(Enrichment step)*
-- **GRIN Tagging** - String ("true"/"false"/empty). Internal Google tagging status *(Enrichment step)*
-- **GRIN Audit** - String. Quality review status - may contain percentage values (e.g., "0%") or be empty *(Enrichment step)*
+- **GRIN Tagging** - String ("true"/"false"/empty). Whether front cover, table of contents, back cover, copyright and other pages of interest have been identified *(Enrichment step)*
+- **GRIN Audit** - String. Aggregated error percentage from human audit (e.g., "0%", "5%") or empty if not audited *(Enrichment step)*
 - **GRIN Material Error %** - String. Percentage format (e.g., "5%") indicating material scanning errors *(Enrichment step)*
 - **GRIN Overall Error %** - String. Percentage format indicating overall processing errors *(Enrichment step)*
-- **GRIN Claimed** - String ("true"/"false"/empty). Whether volume was claimed in Google's system *(Enrichment step)*
+- **GRIN Claimed** - String ("true"/"false"/empty). Whether a rightsholder has claimed this volume and given permission to display in partial or full view *(Enrichment step)*
 - **GRIN OCR Analysis Score** - String. Quality score for optical character recognition [0-100] *(Enrichment step)*
 - **GRIN OCR GTD Score** - String. Google's Garbage Text Detection score for OCR quality [0-100] *(Enrichment step)*
 - **GRIN Digitization Method** - String/Enum. Scanning method used. Values: `NON_DESTRUCTIVE`, `SHEETFED`, `DIGIFEED` *(Enrichment step)*
 - **GRIN Check-In Date** - Datetime (YYYY/MM/DD HH:MM). When volume was checked in to Google's facility *(Enrichment step)*
 - **GRIN Source Library Bibkey** - String. Bibliographic key from originating library *(Enrichment step)*
-- **GRIN Rubbish** - String ("true"/"false"/empty). Whether volume was flagged as unsuitable for processing *(Enrichment step)*
+- **GRIN Rubbish** - String ("true"/"false"/empty). Deprecated field (no description available) *(Enrichment step)*
 - **GRIN Allow Download Updated Date** - Datetime (YYYY/MM/DD HH:MM). When download permissions were last updated *(Enrichment step)*
 - **GRIN Viewability Updated Date** - Datetime (YYYY/MM/DD HH:MM). When viewing permissions were last updated *(Enrichment step)*
 - **Enrichment Timestamp** - ISO8601 Datetime (UTC). When GRIN enrichment data was last retrieved *(Internal)*
