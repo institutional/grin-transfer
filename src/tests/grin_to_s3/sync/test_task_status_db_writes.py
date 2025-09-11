@@ -153,56 +153,60 @@ class TestDatabaseUpdateOrchestration:
         assert "sync_timestamp" in books_updates
 
     @pytest.mark.asyncio
-    async def test_extract_ocr_completed_includes_extraction_time_ms(self):
-        """OCR extraction completion handler should include extraction_time_ms in metadata."""
-        result = TaskResult(
-            barcode="TEST123",
-            task_type=TaskType.EXTRACT_OCR,
-            action=TaskAction.COMPLETED,
-            data={
-                "page_count": 5,
-                "extraction_time_ms": 2500,
-                "json_file_path": "/path/to/file.jsonl",
-            },
-        )
-        previous_results = {}
-
-        updates = await extract_ocr_completed(result, previous_results)
-
-        assert updates["status"][0] == "text_extraction"
-        assert updates["status"][1] == "completed"
-
-        metadata = updates["status"][2]
-        assert metadata is not None
-        assert metadata["page_count"] == 5
-        assert metadata["extraction_time_ms"] == 2500
-
-    @pytest.mark.asyncio
-    async def test_extract_marc_completed_includes_field_count(self):
-        """MARC extraction completion handler should include field_count in metadata."""
-        result = TaskResult(
-            barcode="TEST123",
-            task_type=TaskType.EXTRACT_MARC,
-            action=TaskAction.COMPLETED,
-            data={
-                "marc_metadata": {
-                    "title": "Test Book",
-                    "author": "Test Author",
-                    "publisher": "Test Publisher",
+    @pytest.mark.parametrize(
+        "task_type,handler_func,task_data,expected_status,expected_metadata_keys",
+        [
+            (
+                TaskType.EXTRACT_OCR,
+                extract_ocr_completed,
+                {
+                    "page_count": 5,
+                    "extraction_time_ms": 2500,
+                    "json_file_path": "/path/to/file.jsonl",
                 },
-                "field_count": 3,
-            },
+                ("text_extraction", "completed"),
+                ["page_count", "extraction_time_ms"],
+            ),
+            (
+                TaskType.EXTRACT_MARC,
+                extract_marc_completed,
+                {
+                    "marc_metadata": {
+                        "title": "Test Book",
+                        "author": "Test Author",
+                        "publisher": "Test Publisher",
+                    },
+                    "field_count": 3,
+                },
+                ("marc_extraction", "completed"),
+                ["field_count"],
+            ),
+        ],
+    )
+    async def test_extraction_handlers_include_metadata(
+        self, task_type, handler_func, task_data, expected_status, expected_metadata_keys
+    ):
+        """Extraction completion handlers should include specific metadata fields."""
+        result = TaskResult(
+            barcode="TEST123",
+            task_type=task_type,
+            action=TaskAction.COMPLETED,
+            data=task_data,
         )
         previous_results = {}
 
-        updates = await extract_marc_completed(result, previous_results)
+        updates = await handler_func(result, previous_results)
 
-        assert updates["status"][0] == "marc_extraction"
-        assert updates["status"][1] == "completed"
+        assert updates["status"][0] == expected_status[0]
+        assert updates["status"][1] == expected_status[1]
 
         metadata = updates["status"][2]
         assert metadata is not None
-        assert metadata["field_count"] == 3
+
+        # Verify all expected metadata keys are present with correct values
+        for key in expected_metadata_keys:
+            assert key in metadata
+            assert metadata[key] == task_data[key]
 
     def test_duplicate_handler_prevention(self):
         """System should prevent duplicate handlers for the same task/action."""
@@ -281,132 +285,131 @@ async def real_db_pipeline():
 class TestRealDatabaseIntegration:
     """Test database updates with real SQLite database."""
 
-    @pytest.mark.asyncio
-    async def test_status_updates_written_to_database(self, real_db_pipeline):
-        """Status updates should be written to book_status_history table."""
-        task_manager = TaskManager({TaskType.UPLOAD: 1})
+    async def _commit_updates(self, pipeline, barcode="TEST123"):
+        """Helper to commit accumulated database updates."""
+        conn = await pipeline.db_tracker.get_connection()
+        await commit_book_record_updates(pipeline, barcode, conn)
 
-        async def mock_upload_task():
-            return TaskResult(
-                barcode="TEST123",
-                task_type=TaskType.UPLOAD,
-                action=TaskAction.COMPLETED,
-                data={"upload_path": "/bucket/TEST123.tar.gz"},
-            )
+    def _create_task_result(self, task_type, action, data, error=None, reason=None):
+        """Helper to create TaskResult objects."""
+        result = TaskResult(barcode="TEST123", task_type=task_type, action=action, data=data)
+        if error:
+            result.error = error
+        if reason:
+            result.reason = reason
+        return result
 
-        previous_results = {
-            TaskType.DOWNLOAD: TaskResult(
-                barcode="TEST123",
-                task_type=TaskType.DOWNLOAD,
-                action=TaskAction.COMPLETED,
-                data={"etag": "download_etag_value"},
-            )
-        }
-        await task_manager.run_task(TaskType.UPLOAD, "TEST123", mock_upload_task, real_db_pipeline, previous_results)
+    def _create_download_result(self, etag="real_etag_value"):
+        """Helper for common download result pattern."""
+        return {TaskType.DOWNLOAD: self._create_task_result(TaskType.DOWNLOAD, TaskAction.COMPLETED, {"etag": etag})}
 
-        # Commit accumulated updates to the real database
-        conn = await real_db_pipeline.db_tracker.get_connection()
-        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
-
-        # Verify status was written to database
-        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
-            cursor = await db.execute(
-                "SELECT barcode, status_type, status_value, metadata FROM book_status_history WHERE barcode = ?",
-                ("TEST123",),
-            )
-            row = await cursor.fetchone()
-
-            assert row is not None
-            assert row[0] == "TEST123"  # barcode
-            assert row[1] == "sync"  # status_type
-            assert row[2] == "uploaded"  # status_value
-
-            # Verify metadata contains upload path
-            metadata = json.loads(row[3]) if row[3] else {}
-            assert metadata.get("path") == "/bucket/TEST123.tar.gz"
-
-    @pytest.mark.asyncio
-    async def test_sync_data_updated_in_books_table(self, real_db_pipeline):
-        """Sync data should be updated in the books table."""
-        task_manager = TaskManager({TaskType.UPLOAD: 1})
-
-        async def mock_upload_task():
-            return TaskResult(
-                barcode="TEST123",
-                task_type=TaskType.UPLOAD,
-                action=TaskAction.COMPLETED,
-                data={"upload_path": "/bucket/TEST123.tar.gz"},
-            )
-
-        previous_results = {
-            TaskType.DOWNLOAD: TaskResult(
-                barcode="TEST123",
-                task_type=TaskType.DOWNLOAD,
-                action=TaskAction.COMPLETED,
-                data={"etag": "real_etag_value"},
-            )
-        }
-        await task_manager.run_task(TaskType.UPLOAD, "TEST123", mock_upload_task, real_db_pipeline, previous_results)
-
-        # Commit accumulated updates to the real database
-        conn = await real_db_pipeline.db_tracker.get_connection()
-        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
-
-        # Verify sync data was updated in books table
-        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
-            cursor = await db.execute(
-                "SELECT storage_path, is_decrypted, encrypted_etag FROM books WHERE barcode = ?",
-                ("TEST123",),
-            )
-            row = await cursor.fetchone()
-
-            assert row is not None
-            assert row[0] == "/bucket/TEST123.tar.gz"  # storage_path
-            assert row[1] == 1  # is_decrypted (SQLite stores as integer)
-            assert row[2] == "real_etag_value"  # encrypted_etag
-
-    @pytest.mark.asyncio
-    async def test_failed_task_error_captured_in_database(self, real_db_pipeline):
-        """Failed task errors should be captured in status history."""
-        task_manager = TaskManager({TaskType.DOWNLOAD: 1})
-
-        async def mock_failed_download():
-            return TaskResult(
-                barcode="TEST123",
-                task_type=TaskType.DOWNLOAD,
-                action=TaskAction.FAILED,
-                error="Connection refused after 3 retries",
-            )
-
-        previous_results = {}
-        await task_manager.run_task(
-            TaskType.DOWNLOAD, "TEST123", mock_failed_download, real_db_pipeline, previous_results
-        )
-
-        # Commit accumulated updates to the real database
-        conn = await real_db_pipeline.db_tracker.get_connection()
-        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
-
-        # Verify error was captured in database
-        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
+    async def _query_status_history(self, pipeline, status_type="sync", barcode="TEST123"):
+        """Helper to query status history and return row."""
+        async with connect_async(pipeline.db_tracker.db_path) as db:
             cursor = await db.execute(
                 "SELECT status_type, status_value, metadata FROM book_status_history WHERE barcode = ? AND status_type = ?",
-                ("TEST123", "sync"),
+                (barcode, status_type),
             )
+            return await cursor.fetchone()
+
+    async def _query_books_fields(self, pipeline, *field_names, barcode="TEST123"):
+        """Helper to query multiple fields from books table."""
+        async with connect_async(pipeline.db_tracker.db_path) as db:
+            fields_str = ", ".join(field_names)
+            cursor = await db.execute(f"SELECT {fields_str} FROM books WHERE barcode = ?", (barcode,))
             row = await cursor.fetchone()
+            return row if row else tuple(None for _ in field_names)
 
-            assert row is not None
-            assert row[0] == "sync"  # status_type
-            assert row[1] == "download_failed"  # status_value
+    def _verify_timestamp_recent(self, timestamp_str, test_description=""):
+        """Helper to verify timestamp is valid and recent."""
+        parsed_time = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+        time_diff = abs((datetime.now(UTC) - parsed_time).total_seconds())
+        assert time_diff < 60, f"Timestamp should be recent: {test_description}"
 
-            # Verify error message in metadata
-            metadata = json.loads(row[2]) if row[2] else {}
-            assert metadata.get("error") == "Connection refused after 3 retries"
+    async def _run_upload_task(self, pipeline):
+        """Helper to run upload task with standard setup."""
+        task_manager = TaskManager({TaskType.UPLOAD: 1})
+
+        async def upload_task():
+            return self._create_task_result(
+                TaskType.UPLOAD, TaskAction.COMPLETED, {"upload_path": "/bucket/TEST123.tar.gz"}
+            )
+
+        await task_manager.run_task(TaskType.UPLOAD, "TEST123", upload_task, pipeline, self._create_download_result())
+        await self._commit_updates(pipeline)
+
+    @pytest.mark.asyncio
+    async def test_upload_task_writes_status_to_history(self, real_db_pipeline):
+        """UPLOAD task should write status updates to book_status_history table."""
+        await self._run_upload_task(real_db_pipeline)
+
+        status_type, status_value, metadata_json = await self._query_status_history(real_db_pipeline)
+        assert status_type == "sync"
+        assert status_value == "uploaded"
+
+        metadata = json.loads(metadata_json) if metadata_json else {}
+        assert metadata.get("path") == "/bucket/TEST123.tar.gz"
+
+    @pytest.mark.asyncio
+    async def test_upload_task_updates_books_table(self, real_db_pipeline):
+        """UPLOAD task should update sync data in the books table."""
+        await self._run_upload_task(real_db_pipeline)
+
+        storage_path, is_decrypted, encrypted_etag = await self._query_books_fields(
+            real_db_pipeline, "storage_path", "is_decrypted", "encrypted_etag"
+        )
+
+        assert storage_path == "/bucket/TEST123.tar.gz"
+        assert is_decrypted == 1  # SQLite stores as integer
+        assert encrypted_etag == "real_etag_value"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "task_type,error_message,expected_status_value",
+        [
+            (TaskType.DOWNLOAD, "Connection refused after 3 retries", "download_failed"),
+            (TaskType.UPLOAD, "S3 upload timeout", "upload_failed"),
+        ],
+    )
+    async def test_failed_task_error_captured_in_database(
+        self, real_db_pipeline, task_type, error_message, expected_status_value
+    ):
+        """Failed task errors should be captured in status history."""
+        task_manager = TaskManager({task_type: 1})
+
+        async def failed_task():
+            return self._create_task_result(task_type, TaskAction.FAILED, {}, error=error_message)
+
+        await task_manager.run_task(task_type, "TEST123", failed_task, real_db_pipeline, {})
+        await self._commit_updates(real_db_pipeline)
+
+        status_type, status_value, metadata_json = await self._query_status_history(real_db_pipeline)
+        assert status_type == "sync"
+        assert status_value == expected_status_value
+
+        metadata = json.loads(metadata_json) if metadata_json else {}
+        assert metadata.get("error") == error_message
+
+    async def _apply_updates_to_pipeline(self, pipeline, updates, barcode="TEST123"):
+        """Helper to apply updates to pipeline and commit to database."""
+        from grin_to_s3.sync.db_updates import StatusUpdate
+
+        if barcode not in pipeline.book_record_updates:
+            pipeline.book_record_updates[barcode] = {"status_history": [], "books_fields": {}}
+
+        if updates.get("status"):
+            status_type, status_value, metadata = updates["status"]
+            status_record = StatusUpdate(barcode, status_type, status_value, metadata)
+            pipeline.book_record_updates[barcode]["status_history"].append(status_record)
+
+        if updates.get("books"):
+            pipeline.book_record_updates[barcode]["books_fields"].update(updates["books"])
+
+        await self._commit_updates(pipeline, barcode)
 
     @pytest.mark.asyncio
     async def test_request_conversion_updates_processing_timestamp(self, real_db_pipeline):
-        """Request conversion should update processing_request_timestamp in books table via batching."""
-        # Create a request conversion result for successful conversion request
+        """Request conversion should update processing_request_timestamp in books table."""
         result = RequestConversionResult(
             barcode="TEST123",
             task_type=TaskType.REQUEST_CONVERSION,
@@ -415,71 +418,25 @@ class TestRealDatabaseIntegration:
             reason="success_conversion_requested",
         )
 
-        # Get the database updates that would be applied
         updates = await get_updates_for_task(result, {})
+        assert "processing_request_timestamp" in updates["books"]
 
-        # Verify that processing_request_timestamp is included in books table updates
-        assert "books" in updates
-        books_updates = updates["books"]
-        assert "processing_request_timestamp" in books_updates
+        timestamp = updates["books"]["processing_request_timestamp"]
+        self._verify_timestamp_recent(timestamp)
 
-        # Verify timestamp is a valid ISO format
-        timestamp = books_updates["processing_request_timestamp"]
-        parsed_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-        assert parsed_time is not None
+        await self._apply_updates_to_pipeline(real_db_pipeline, updates)
 
-        # Verify timestamp is recent (within last minute)
-        now = datetime.now(UTC)
-        time_diff = abs((now - parsed_time).total_seconds())
-        assert time_diff < 60, f"Timestamp should be recent, but was {time_diff} seconds ago"
+        # Verify timestamp was written to database
+        (db_timestamp,) = await self._query_books_fields(real_db_pipeline, "processing_request_timestamp")
+        assert db_timestamp == timestamp
 
-        # Simulate the batching process - accumulate updates
-        barcode = "TEST123"
-        if barcode not in real_db_pipeline.book_record_updates:
-            real_db_pipeline.book_record_updates[barcode] = {"status_history": [], "books_fields": {}}
+        # Verify status was recorded
+        status_type, status_value, metadata_json = await self._query_status_history(real_db_pipeline, "conversion")
+        assert status_type == "conversion"
+        assert status_value == "requested"
 
-        # Add status update if present
-        if updates.get("status"):
-            from grin_to_s3.sync.db_updates import StatusUpdate
-
-            status_type, status_value, metadata = updates["status"]
-            status_record = StatusUpdate(barcode, status_type, status_value, metadata)
-            real_db_pipeline.book_record_updates[barcode]["status_history"].append(status_record)
-
-        # Add books table field updates
-        if updates.get("books"):
-            real_db_pipeline.book_record_updates[barcode]["books_fields"].update(updates["books"])
-
-        # Commit accumulated updates to the real database
-        conn = await real_db_pipeline.db_tracker.get_connection()
-        await commit_book_record_updates(real_db_pipeline, barcode, conn)
-
-        # Verify the processing_request_timestamp was updated in the database
-        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
-            cursor = await db.execute("SELECT processing_request_timestamp FROM books WHERE barcode = ?", ("TEST123",))
-            row = await cursor.fetchone()
-
-            assert row is not None
-            db_timestamp = row[0]
-            assert db_timestamp is not None
-            assert db_timestamp == timestamp  # Should match the generated timestamp
-
-            # Also verify status was recorded
-            cursor = await db.execute(
-                "SELECT status_type, status_value, metadata FROM book_status_history WHERE barcode = ? AND status_type = ?",
-                ("TEST123", "conversion"),
-            )
-            status_row = await cursor.fetchone()
-
-            assert status_row is not None
-            assert status_row[0] == "conversion"  # status_type
-            assert status_row[1] == "requested"  # status_value
-
-            # Verify metadata contains conversion details
-            metadata = json.loads(status_row[2]) if status_row[2] else {}
-            assert metadata.get("conversion_status") == "requested"
-            assert metadata.get("request_count") == 1
-            assert metadata.get("reason") == "success_conversion_requested"
+        metadata = json.loads(metadata_json) if metadata_json else {}
+        assert metadata.get("reason") == "success_conversion_requested"
 
     @pytest.mark.asyncio
     async def test_request_conversion_429_limit_reached_database_tracking(self, real_db_pipeline):
@@ -487,97 +444,48 @@ class TestRealDatabaseIntegration:
         task_manager = TaskManager({TaskType.REQUEST_CONVERSION: 1})
 
         async def mock_429_request_conversion():
-            """Simulate 429 response from GRIN queue limit."""
-            from grin_to_s3.sync.tasks.task_types import RequestConversionResult
-
             return RequestConversionResult(
                 barcode="TEST123",
                 task_type=TaskType.REQUEST_CONVERSION,
-                action=TaskAction.FAILED,  # FAILED increments sequential failure counter
+                action=TaskAction.FAILED,
                 data={"conversion_status": "queue_limit_reached", "request_count": 50},
-                reason="fail_queue_limit_reached",  # This is the key reason for 429 responses
+                reason="fail_queue_limit_reached",
             )
 
-        previous_results = {}
         await task_manager.run_task(
-            TaskType.REQUEST_CONVERSION, "TEST123", mock_429_request_conversion, real_db_pipeline, previous_results
+            TaskType.REQUEST_CONVERSION, "TEST123", mock_429_request_conversion, real_db_pipeline, {}
         )
+        await self._commit_updates(real_db_pipeline)
 
-        # Commit accumulated updates to the real database
-        conn = await real_db_pipeline.db_tracker.get_connection()
-        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
+        # Verify limit_reached status was recorded
+        status_type, status_value, metadata_json = await self._query_status_history(real_db_pipeline, "conversion")
+        assert status_type == "conversion"
+        assert status_value == "limit_reached"
 
-        # Verify 429 limit reached status was recorded in database
-        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
-            cursor = await db.execute(
-                "SELECT barcode, status_type, status_value, metadata FROM book_status_history WHERE barcode = ? AND status_type = ?",
-                ("TEST123", "conversion"),
-            )
-            row = await cursor.fetchone()
+        metadata = json.loads(metadata_json) if metadata_json else {}
+        assert metadata.get("conversion_status") == "queue_limit_reached"
+        assert metadata.get("reason") == "fail_queue_limit_reached"
 
-            assert row is not None
-            assert row[0] == "TEST123"  # barcode
-            assert row[1] == "conversion"  # status_type
-            assert row[2] == "limit_reached"  # status_value - this is what we're testing!
-
-            # Verify metadata contains GRIN limit details
-            metadata = json.loads(row[3]) if row[3] else {}
-            assert metadata.get("conversion_status") == "queue_limit_reached"
-            assert metadata.get("request_count") == 50
-            assert metadata.get("reason") == "fail_queue_limit_reached"
-
-        # Also verify that no books table fields were updated (FAILED tasks shouldn't update processing timestamp)
-        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
-            cursor = await db.execute("SELECT processing_request_timestamp FROM books WHERE barcode = ?", ("TEST123",))
-            row = await cursor.fetchone()
-
-            assert row is not None
-            # processing_request_timestamp should remain NULL for failed conversion requests
-            assert row[0] is None
+        # Verify no processing timestamp was updated for failed requests
+        (processing_timestamp,) = await self._query_books_fields(real_db_pipeline, "processing_request_timestamp")
+        assert processing_timestamp is None
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "reason,expected_status,expected_books_updates,test_description",
+        "reason,expected_status_value",
         [
-            (
-                "skip_already_in_process",
-                ("conversion", "in_process"),
-                {},
-                "Books already being processed should have in_process status with no books table updates",
-            ),
-            (
-                "skip_verified_unavailable",
-                ("conversion", "unavailable"),
-                {},
-                "Unavailable books should have unavailable status with no books table updates",
-            ),
-            (
-                "skip_already_available",
-                ("conversion", "skipped"),
-                {},
-                "Books already available should have skipped status with no books table updates",
-            ),
-            (
-                "fail_generic_error",
-                ("conversion", "failed"),
-                {},
-                "Generic conversion failures should have failed status with no books table updates",
-            ),
+            ("skip_already_in_process", "in_process"),
+            ("skip_verified_unavailable", "unavailable"),
+            ("skip_already_available", "skipped"),
+            ("fail_generic_error", "failed"),
         ],
     )
-    async def test_request_conversion_database_write_cases(
-        self, real_db_pipeline, reason, expected_status, expected_books_updates, test_description
-    ):
-        """Test all REQUEST_CONVERSION database write cases with different reasons."""
+    async def test_request_conversion_database_write_cases(self, real_db_pipeline, reason, expected_status_value):
+        """Test REQUEST_CONVERSION database write cases with different reasons."""
         task_manager = TaskManager({TaskType.REQUEST_CONVERSION: 1})
 
         async def mock_request_conversion():
-            """Create REQUEST_CONVERSION result based on the test case."""
-            from grin_to_s3.sync.tasks.task_types import RequestConversionResult
-
-            # Determine action based on reason
             action = TaskAction.FAILED if reason.startswith("fail_") else TaskAction.SKIPPED
-
             return RequestConversionResult(
                 barcode="TEST123",
                 task_type=TaskType.REQUEST_CONVERSION,
@@ -586,133 +494,47 @@ class TestRealDatabaseIntegration:
                 reason=reason,
             )
 
-        previous_results = {}
         await task_manager.run_task(
-            TaskType.REQUEST_CONVERSION, "TEST123", mock_request_conversion, real_db_pipeline, previous_results
+            TaskType.REQUEST_CONVERSION, "TEST123", mock_request_conversion, real_db_pipeline, {}
         )
+        await self._commit_updates(real_db_pipeline)
 
-        # Commit accumulated updates to the real database
-        conn = await real_db_pipeline.db_tracker.get_connection()
-        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
+        # Verify expected status was recorded
+        status_type, status_value, metadata_json = await self._query_status_history(real_db_pipeline, "conversion")
+        assert status_type == "conversion"
+        assert status_value == expected_status_value
 
-        # Verify expected status was recorded in database
-        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
-            cursor = await db.execute(
-                "SELECT barcode, status_type, status_value, metadata FROM book_status_history WHERE barcode = ? AND status_type = ?",
-                ("TEST123", "conversion"),
-            )
-            row = await cursor.fetchone()
+        metadata = json.loads(metadata_json) if metadata_json else {}
+        assert metadata.get("reason") == reason
 
-            assert row is not None, f"Status record not found for {reason}"
-            assert row[0] == "TEST123"  # barcode
-            assert row[1] == expected_status[0]  # status_type
-            assert row[2] == expected_status[1]  # status_value
-
-            # Verify metadata contains the reason
-            metadata = json.loads(row[3]) if row[3] else {}
-            assert metadata.get("reason") == reason
-
-        # Verify books table updates match expectations
-        if expected_books_updates:
-            async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
-                for field_name, expected_value in expected_books_updates.items():
-                    cursor = await db.execute(f"SELECT {field_name} FROM books WHERE barcode = ?", ("TEST123",))
-                    row = await cursor.fetchone()
-
-                    assert row is not None, f"Book record not found for {reason}"
-                    assert row[0] == expected_value, f"{field_name} should be {expected_value} for {reason}"
-        else:
-            # Verify no unexpected books table updates (processing_request_timestamp should remain NULL)
-            async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
-                cursor = await db.execute(
-                    "SELECT processing_request_timestamp FROM books WHERE barcode = ?", ("TEST123",)
-                )
-                row = await cursor.fetchone()
-
-                assert row is not None, f"Book record not found for {reason}"
-                assert row[0] is None, f"processing_request_timestamp should remain NULL for {reason}"
+        # All these cases should leave processing_request_timestamp as NULL
+        (processing_timestamp,) = await self._query_books_fields(real_db_pipeline, "processing_request_timestamp")
+        assert processing_timestamp is None
 
     @pytest.mark.asyncio
-    async def test_check_task_updates_last_etag_check_timestamp(self, real_db_pipeline):
-        """CHECK task should update last_etag_check timestamp in books table."""
+    @pytest.mark.parametrize(
+        "task_action,task_reason",
+        [
+            (TaskAction.COMPLETED, None),
+            (TaskAction.SKIPPED, "skip_etag_match"),
+        ],
+    )
+    async def test_check_task_updates_last_etag_check_timestamp(self, real_db_pipeline, task_action, task_reason):
+        """CHECK tasks should update last_etag_check timestamp in books table."""
         task_manager = TaskManager({TaskType.CHECK: 1})
 
-        # Test CHECK task COMPLETED
-        async def mock_check_task_completed():
-            return TaskResult(
-                barcode="TEST123",
-                task_type=TaskType.CHECK,
-                action=TaskAction.COMPLETED,
-                data={"etag": "new-etag", "file_size_bytes": 2048, "http_status_code": 200},
+        async def mock_check_task():
+            return self._create_task_result(
+                TaskType.CHECK,
+                task_action,
+                {"etag": "test-etag", "file_size_bytes": 2048, "http_status_code": 200},
+                reason=task_reason,
             )
 
-        previous_results = {}
-        await task_manager.run_task(
-            TaskType.CHECK, "TEST123", mock_check_task_completed, real_db_pipeline, previous_results
-        )
+        await task_manager.run_task(TaskType.CHECK, "TEST123", mock_check_task, real_db_pipeline, {})
+        await self._commit_updates(real_db_pipeline)
 
-        # Commit accumulated updates to the real database
-        conn = await real_db_pipeline.db_tracker.get_connection()
-        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
-
-        # Verify last_etag_check timestamp was populated
-        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
-            cursor = await db.execute("SELECT last_etag_check FROM books WHERE barcode = ?", ("TEST123",))
-            row = await cursor.fetchone()
-
-            assert row is not None
-            last_etag_check = row[0]
-            assert last_etag_check is not None, "last_etag_check should be populated after CHECK task"
-
-            # Verify timestamp is a valid ISO format
-            parsed_time = datetime.fromisoformat(last_etag_check.replace("Z", "+00:00"))
-            assert parsed_time is not None
-
-            # Verify timestamp is recent (within last minute)
-            now = datetime.now(UTC)
-            time_diff = abs((now - parsed_time).total_seconds())
-            assert time_diff < 60, f"last_etag_check should be recent, but was {time_diff} seconds ago"
-
-    @pytest.mark.asyncio
-    async def test_check_task_skipped_updates_last_etag_check_timestamp(self, real_db_pipeline):
-        """CHECK task SKIPPED should also update last_etag_check timestamp in books table."""
-        task_manager = TaskManager({TaskType.CHECK: 1})
-
-        # Test CHECK task SKIPPED (etag match)
-        async def mock_check_task_skipped():
-            return TaskResult(
-                barcode="TEST123",
-                task_type=TaskType.CHECK,
-                action=TaskAction.SKIPPED,
-                data={"etag": "matching-etag", "file_size_bytes": 1024, "http_status_code": 200},
-                reason="skip_etag_match",
-            )
-
-        previous_results = {}
-        await task_manager.run_task(
-            TaskType.CHECK, "TEST123", mock_check_task_skipped, real_db_pipeline, previous_results
-        )
-
-        # Commit accumulated updates to the real database
-        conn = await real_db_pipeline.db_tracker.get_connection()
-        await commit_book_record_updates(real_db_pipeline, "TEST123", conn)
-
-        # Verify last_etag_check timestamp was populated even for skipped task
-        async with connect_async(real_db_pipeline.db_tracker.db_path) as db:
-            cursor = await db.execute("SELECT last_etag_check FROM books WHERE barcode = ?", ("TEST123",))
-            row = await cursor.fetchone()
-
-            assert row is not None
-            last_etag_check = row[0]
-            assert last_etag_check is not None, (
-                "last_etag_check should be populated after CHECK task (even when skipped)"
-            )
-
-            # Verify timestamp is a valid ISO format
-            parsed_time = datetime.fromisoformat(last_etag_check.replace("Z", "+00:00"))
-            assert parsed_time is not None
-
-            # Verify timestamp is recent (within last minute)
-            now = datetime.now(UTC)
-            time_diff = abs((now - parsed_time).total_seconds())
-            assert time_diff < 60, f"last_etag_check should be recent, but was {time_diff} seconds ago"
+        # Verify timestamp was populated and is recent
+        (last_etag_check,) = await self._query_books_fields(real_db_pipeline, "last_etag_check")
+        assert last_etag_check is not None
+        self._verify_timestamp_recent(last_etag_check)
