@@ -17,8 +17,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from grin_to_s3.collect_books.collector import BookCollector, RateLimiter
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
-from grin_to_s3.run_config import RunConfig, StorageConfig, SyncConfig
 from tests.mocks import get_test_data, setup_mock_exporter
+from tests.test_utils.database_helpers import get_book_for_testing
 
 
 class TestBookRecord:
@@ -323,7 +323,7 @@ class TestSQLiteProgressTracker:
                 await tracker.save_book(book, refresh_mode=False)
 
                 # Retrieve and verify the book was saved
-                saved_book = await tracker.get_book("TEST001")
+                saved_book = await get_book_for_testing(tracker, "TEST001")
                 assert saved_book is not None
                 assert saved_book.barcode == "TEST001"
                 assert saved_book.title == "Test Book"
@@ -360,7 +360,7 @@ class TestSQLiteProgressTracker:
                 await tracker.save_book(duplicate_book, refresh_mode=False)
 
                 # Verify original data is preserved
-                saved_book = await tracker.get_book("TEST001")
+                saved_book = await get_book_for_testing(tracker, "TEST001")
                 assert saved_book is not None
                 assert saved_book.title == "Original Title"
                 assert saved_book.scanned_date == "2024-01-01T10:00:00"
@@ -395,7 +395,7 @@ class TestSQLiteProgressTracker:
                 await tracker.save_book(update_book, refresh_mode=True)
 
                 # Verify COALESCE behavior
-                saved_book = await tracker.get_book("TEST001")
+                saved_book = await get_book_for_testing(tracker, "TEST001")
                 assert saved_book is not None
                 assert saved_book.title == "Updated Title"  # Updated (COALESCE doesn't preserve non-NULL values)
                 assert saved_book.scanned_date == "2024-01-01T10:00:00"  # Preserved (NULL was passed)
@@ -419,7 +419,7 @@ class TestSQLiteProgressTracker:
                 await tracker.save_book(new_book, refresh_mode=True)
 
                 # Verify the book was inserted
-                saved_book = await tracker.get_book("TEST001")
+                saved_book = await get_book_for_testing(tracker, "TEST001")
                 assert saved_book is not None
                 assert saved_book.title == "New Book"
                 assert saved_book.scanned_date == "2024-01-01T10:00:00"
@@ -446,72 +446,6 @@ class TestBookCollector:
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
     @pytest.mark.asyncio
-    async def test_sqlite_tracker_functionality(self, mock_process_stage):
-        """Test SQLite tracker functionality for progress tracking."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            test_db_path = Path(temp_dir) / "test_books.db"
-
-            # Create minimal sync config for testing
-            sync_config: SyncConfig = {
-                "task_check_concurrency": 1,
-                "task_download_concurrency": 1,
-                "task_decrypt_concurrency": 1,
-                "task_upload_concurrency": 1,
-                "task_unpack_concurrency": 1,
-                "task_extract_marc_concurrency": 1,
-                "task_extract_ocr_concurrency": 1,
-                "task_export_csv_concurrency": 1,
-                "task_cleanup_concurrency": 1,
-                "staging_dir": Path(temp_dir) / "staging",
-                "disk_space_threshold": 0.8,
-                "compression_meta_enabled": True,
-                "compression_full_enabled": True,
-            }
-
-            storage_config: StorageConfig = {
-                "type": "local",
-                "protocol": "file",
-                "config": {"base_path": str(temp_dir)},
-                "prefix": "test",
-            }
-
-            config = RunConfig(
-                run_name="test_run",
-                library_directory="TestLibrary",
-                output_directory=Path(temp_dir) / "output",
-                sqlite_db_path=test_db_path,
-                storage_config=storage_config,
-                sync_config=sync_config,
-                log_file=Path(temp_dir) / "test.log",
-                secrets_dir=None,
-            )
-
-            exporter = BookCollector(
-                process_summary_stage=mock_process_stage,
-                storage_config=storage_config,
-                run_config=config,
-            )
-
-            # Initialize SQLite tracker and test persistence
-            await exporter.sqlite_tracker.init_db()
-            await exporter.sqlite_tracker.mark_processed("TEST001")
-            await exporter.sqlite_tracker.mark_processed("TEST002")
-            await exporter.sqlite_tracker.mark_failed("FAILED001", "Test error")
-
-            # Create new exporter with same database to test persistence
-            exporter2 = BookCollector(
-                process_summary_stage=mock_process_stage,
-                storage_config=storage_config,
-                run_config=config,
-            )
-            await exporter2.sqlite_tracker.init_db()
-
-            # Check that data persisted across instances
-            assert await exporter2.sqlite_tracker.is_processed("TEST001")
-            assert await exporter2.sqlite_tracker.is_processed("TEST002")
-            assert await exporter2.sqlite_tracker.is_failed("FAILED001")
-
-    @pytest.mark.asyncio
     async def test_process_book(self):
         """Test individual book processing."""
         grin_row = {
@@ -529,10 +463,6 @@ class TestBookCollector:
         assert record.title == "Process Book Title"
         # processing state is now tracked in status history, not in the record
         assert record.scanned_date == "2024-01-01T10:00:00"
-
-        # Ensure all background tasks complete before test ends
-        if hasattr(self.exporter, "_background_tasks") and self.exporter._background_tasks:
-            await asyncio.gather(*self.exporter._background_tasks, return_exceptions=True)
 
     @pytest.mark.asyncio
     async def test_process_book_invalid_row(self):
@@ -556,10 +486,6 @@ class TestBookCollector:
         # Normal mode uses ON CONFLICT DO NOTHING, so existing records are preserved
         assert record is not None
         assert record.barcode == "SKIP001"
-
-        # Ensure all background tasks complete before test ends
-        if hasattr(self.exporter, "_background_tasks") and self.exporter._background_tasks:
-            await asyncio.gather(*self.exporter._background_tasks, return_exceptions=True)
 
 
 class TestBookCollectionIntegration:
@@ -593,10 +519,6 @@ class TestBookCollectionIntegration:
             barcodes = {row[0].strip('"') for row in rows}
             expected_barcodes = {"TEST001", "TEST002", "TEST003"}
             assert barcodes == expected_barcodes
-
-            # Ensure all background tasks complete before test ends
-            if hasattr(exporter, "_background_tasks") and exporter._background_tasks:
-                await asyncio.gather(*exporter._background_tasks, return_exceptions=True)
 
     def test_book_collector_with_storage_initialization(self, mock_process_stage):
         """Test BookCollector initialization with storage configuration."""
@@ -658,61 +580,6 @@ class TestBookCollectionIntegration:
             assert collector.book_manager.bucket_meta == "test-meta"
             assert collector.book_manager.bucket_full == "test-full"
             assert collector.book_manager.base_prefix == "test_run"
-
-
-class TestBookCollectorRefreshMode:
-    """Test refresh mode functionality for BookCollector."""
-
-    def setup_method(self):
-        """Set up test fixtures."""
-        self.temp_dir = tempfile.mkdtemp()
-        self.exporter = setup_mock_exporter(self.temp_dir)
-
-    def teardown_method(self):
-        """Clean up test fixtures."""
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
-
-    @pytest.mark.parametrize(
-        "refresh_mode,expected_title",
-        [
-            (False, "Original Title"),  # Normal mode: title should not change
-            (True, "Updated Title"),  # Refresh mode: title should change
-        ],
-    )
-    @pytest.mark.asyncio
-    async def test_refresh_mode_updates_existing_books(self, refresh_mode, expected_title):
-        """Test that refresh mode updates existing books while normal mode skips them."""
-        # Save initial book
-        initial_book = BookRecord(
-            barcode="TEST123", title="Original Title", scanned_date="2024-01-01T10:00:00", grin_state="converted"
-        )
-
-        await self.exporter.sqlite_tracker.save_book(initial_book, refresh_mode=False)
-        await self.exporter.sqlite_tracker.mark_processed("TEST123")
-
-        # Set refresh mode
-        self.exporter.refresh_mode = refresh_mode
-
-        # Simulate processing the same book with updated data
-        grin_row = {
-            "barcode": "TEST123",
-            "title": "Updated Title",
-            "scanned_date": "2024/01/01 10:00",
-            "grin_state": "converted",
-        }
-
-        # Simulate the collector's skip logic
-        known_barcodes = await self.exporter.sqlite_tracker.load_known_barcodes_batch({"TEST123"})
-        should_skip = "TEST123" in known_barcodes and not self.exporter.refresh_mode
-
-        if not should_skip:
-            # Process the book (only happens in refresh mode)
-            await self.exporter.process_book(grin_row)
-
-        # Check final title in database
-        books_data = await self.exporter.sqlite_tracker.get_all_books_csv_data()
-        final_book = next(book for book in books_data if book.barcode == "TEST123")
-        assert final_book.title == expected_title
 
 
 # Pytest configuration for async tests

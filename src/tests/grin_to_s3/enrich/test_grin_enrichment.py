@@ -17,6 +17,7 @@ from grin_to_s3.database.database_utils import batch_write_status_updates
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from grin_to_s3.metadata.tsv_parser import parse_grin_tsv
 from tests.mocks import MockGRINClient
+from tests.test_utils.database_helpers import get_book_for_testing
 
 
 class StatusUpdate(NamedTuple):
@@ -214,7 +215,7 @@ class TestGRINEnrichmentPipeline:
 
         # Verify database was updated
         tracker = SQLiteProgressTracker(temp_db_with_books)
-        book1 = await tracker.get_book("TEST001")
+        book1 = await get_book_for_testing(tracker, "TEST001")
         assert book1.grin_viewability == "VIEW_FULL"
         assert book1.enrichment_timestamp is not None
 
@@ -291,8 +292,8 @@ class TestGRINEnrichmentPipeline:
 
         # Both books should be marked as processed
         tracker = SQLiteProgressTracker(temp_db_with_books)
-        book1 = await tracker.get_book("TEST001")
-        book2 = await tracker.get_book("TEST002")
+        book1 = await get_book_for_testing(tracker, "TEST001")
+        book2 = await get_book_for_testing(tracker, "TEST002")
 
         assert book1.grin_viewability == "VIEW_FULL"
         assert book1.enrichment_timestamp is not None
@@ -350,7 +351,7 @@ class TestGRINEnrichmentPipeline:
 
         # Verify enrichment data exists
         tracker = SQLiteProgressTracker(temp_db_with_books)
-        book1 = await tracker.get_book("TEST001")
+        book1 = await get_book_for_testing(tracker, "TEST001")
         assert book1.enrichment_timestamp is not None
         assert book1.grin_viewability == "VIEW_FULL"
 
@@ -359,7 +360,7 @@ class TestGRINEnrichmentPipeline:
         assert reset_count == 2
 
         # Verify enrichment data was cleared
-        book1_after = await tracker.get_book("TEST001")
+        book1_after = await get_book_for_testing(tracker, "TEST001")
         assert book1_after.enrichment_timestamp is None
         assert book1_after.grin_viewability is None
 

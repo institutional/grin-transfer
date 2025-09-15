@@ -13,6 +13,13 @@ from unittest import IsolatedAsyncioTestCase
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.database.database_utils import batch_write_status_updates
+from tests.test_utils.database_helpers import (
+    get_all_barcodes_for_testing,
+    get_barcodes_from_set_for_testing,
+    get_barcodes_needing_sync_for_testing,
+    get_barcodes_with_sync_status_for_testing,
+    get_latest_status_for_testing,
+)
 
 
 class StatusUpdate(NamedTuple):
@@ -65,7 +72,7 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test get_books_for_sync - should include books with valid processing states
-        sync_books = await self.tracker.get_books_for_sync(limit=10)
+        sync_books = await get_all_barcodes_for_testing(self.tracker, limit=10)
 
         sync_barcodes = set(sync_books)
         expected_barcodes = {"SYNC001", "SYNC002", "SYNC003", "SYNC004"}
@@ -94,7 +101,7 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         # Test with converted_barcodes filter (simulating GRIN's converted list)
         converted_barcodes = {"FILT001", "FILT003"}  # Only some books are actually converted
 
-        sync_books = await self.tracker.get_books_for_sync(limit=10, converted_barcodes=converted_barcodes)
+        sync_books = await get_barcodes_from_set_for_testing(self.tracker, converted_barcodes, limit=10)
 
         # Only books in the converted_barcodes set should be returned
         sync_barcodes = set(sync_books)
@@ -128,7 +135,7 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test get_books_for_sync
-        sync_books = await self.tracker.get_books_for_sync(limit=10)
+        sync_books = await get_all_barcodes_for_testing(self.tracker, limit=10)
 
         self.assertEqual(set(sync_books), {barcode, barcode2})
 
@@ -156,7 +163,7 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         await batch_write_status_updates(str(self.db_path), sync_status_updates)
 
         # Verify latest sync status
-        latest_sync_status = await self.tracker.get_latest_status(barcode, "sync")
+        latest_sync_status = await get_latest_status_for_testing(self.tracker, barcode, "sync")
         self.assertEqual(latest_sync_status, "completed")
 
     async def test_get_books_for_sync_with_status_filter(self):
@@ -190,14 +197,14 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
             await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test with no status filter (default: pending or NULL)
-        all_sync_books = await self.tracker.get_books_for_sync(limit=10)
+        all_sync_books = await get_barcodes_needing_sync_for_testing(self.tracker, limit=10)
 
         # Should include books with no sync status or failed status
         expected_all = {"STAT001", "STAT004"}  # NULL or failed
         self.assertEqual(set(all_sync_books), expected_all)
 
         # Test with specific status filter
-        failed_sync_books = await self.tracker.get_books_for_sync(limit=10, status_filter="failed")
+        failed_sync_books = await get_barcodes_with_sync_status_for_testing(self.tracker, "failed", limit=10)
 
         # Should only include books with failed status
         self.assertEqual(set(failed_sync_books), {"STAT004"})
@@ -221,7 +228,7 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test sync eligibility
-        sync_books = await self.tracker.get_books_for_sync(limit=10)
+        sync_books = await get_all_barcodes_for_testing(self.tracker, limit=10)
 
         # Book should be eligible for sync
         self.assertIn(barcode, sync_books)
@@ -241,7 +248,7 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         await self.tracker.save_book(book)
 
         # Test get_books_for_sync - should include this book even without status history
-        sync_books = await self.tracker.get_books_for_sync(limit=10)
+        sync_books = await get_all_barcodes_for_testing(self.tracker, limit=10)
 
         self.assertIn(barcode, sync_books)
 
@@ -265,10 +272,10 @@ class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
         await batch_write_status_updates(str(self.db_path), status_updates)
 
         # The latest status should be "converted" (last in sequence)
-        latest_status = await self.tracker.get_latest_status(barcode, "processing_request")
+        latest_status = await get_latest_status_for_testing(self.tracker, barcode, "processing_request")
         self.assertEqual(latest_status, "converted")
 
         # Book should be eligible for sync since it has processing history
-        sync_books = await self.tracker.get_books_for_sync(limit=10)
+        sync_books = await get_all_barcodes_for_testing(self.tracker, limit=10)
 
         self.assertIn(barcode, sync_books)

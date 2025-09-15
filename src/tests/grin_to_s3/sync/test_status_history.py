@@ -20,6 +20,11 @@ import aiosqlite
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.database.database_utils import batch_write_status_updates
+from tests.test_utils.database_helpers import (
+    get_all_barcodes_for_testing,
+    get_books_with_latest_status_for_testing,
+    get_latest_status_for_testing,
+)
 
 
 class StatusUpdate(NamedTuple):
@@ -64,7 +69,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Verify status was recorded
-        latest_status = await self.tracker.get_latest_status(barcode, "processing_request")
+        latest_status = await get_latest_status_for_testing(self.tracker, barcode, "processing_request")
         self.assertEqual(latest_status, "requested")
 
     async def test_batch_status_change_with_metadata(self):
@@ -129,7 +134,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Verify latest status is correct
-        latest_status = await self.tracker.get_latest_status(barcode, "processing_request")
+        latest_status = await get_latest_status_for_testing(self.tracker, barcode, "processing_request")
         self.assertEqual(latest_status, "converted")
 
         # Verify all history is preserved
@@ -170,9 +175,9 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Verify each status type has correct latest value
-        processing_status = await self.tracker.get_latest_status(barcode, "processing_request")
-        sync_status = await self.tracker.get_latest_status(barcode, "sync")
-        enrichment_status = await self.tracker.get_latest_status(barcode, "enrichment")
+        processing_status = await get_latest_status_for_testing(self.tracker, barcode, "processing_request")
+        sync_status = await get_latest_status_for_testing(self.tracker, barcode, "sync")
+        enrichment_status = await get_latest_status_for_testing(self.tracker, barcode, "enrichment")
 
         self.assertEqual(processing_status, "requested")
         self.assertEqual(sync_status, "pending")
@@ -204,15 +209,15 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Query books with specific statuses
-        requested_books = await self.tracker.get_books_with_latest_status(
-            status_type="processing_request", status_values=["requested"]
+        requested_books = await get_books_with_latest_status_for_testing(
+            self.tracker, status_type="processing_request", status_values=["requested"]
         )
 
-        processing_books = await self.tracker.get_books_with_latest_status(
-            status_type="processing_request", status_values=["in_process", "converted"]
+        processing_books = await get_books_with_latest_status_for_testing(
+            self.tracker, status_type="processing_request", status_values=["in_process", "converted"]
         )
 
-        all_books = await self.tracker.get_books_with_latest_status(status_type="processing_request")
+        all_books = await get_books_with_latest_status_for_testing(self.tracker, status_type="processing_request")
 
         # Verify results
         requested_barcodes = [book[0] for book in requested_books]
@@ -246,7 +251,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
 
         # Status changes only update status history now
         # Verify processing status is in history
-        processing_status = await self.tracker.get_latest_status(barcode, "processing_request")
+        processing_status = await get_latest_status_for_testing(self.tracker, barcode, "processing_request")
         self.assertEqual(processing_status, "converted")
 
         # Add sync status change using batched approach
@@ -254,12 +259,12 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Verify sync status is in history
-        sync_status = await self.tracker.get_latest_status(barcode, "sync")
+        sync_status = await get_latest_status_for_testing(self.tracker, barcode, "sync")
         self.assertEqual(sync_status, "completed")
 
     async def test_get_latest_status_nonexistent(self):
         """Test getting status for non-existent book/status type."""
-        result = await self.tracker.get_latest_status("NONEXISTENT", "processing_request")
+        result = await get_latest_status_for_testing(self.tracker, "NONEXISTENT", "processing_request")
         self.assertIsNone(result)
 
     async def test_status_change_order_consistency(self):
@@ -284,7 +289,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
         await batch_write_status_updates(str(self.db_path), status_updates)
 
         # The latest status should be "converted" (last added)
-        latest_status = await self.tracker.get_latest_status(barcode, "processing_request")
+        latest_status = await get_latest_status_for_testing(self.tracker, barcode, "processing_request")
         self.assertEqual(latest_status, "converted")
 
     async def test_get_books_for_sync_with_status_history(self):
@@ -323,7 +328,7 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
 
         # Test get_books_for_sync - should find books that have been requested
         # and are in valid processing states (excludes failed books)
-        sync_books = await self.tracker.get_books_for_sync(limit=10)
+        sync_books = await get_all_barcodes_for_testing(self.tracker, limit=10)
 
         sync_barcodes = set(sync_books)
         expected_barcodes = {"SYNC001", "SYNC002", "SYNC003", "SYNC004"}
@@ -346,15 +351,15 @@ class TestStatusHistory(IsolatedAsyncioTestCase):
             await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test with limit
-        limited_books = await self.tracker.get_books_with_latest_status(
-            status_type="processing_request", status_values=["requested"], limit=5
+        limited_books = await get_books_with_latest_status_for_testing(
+            self.tracker, status_type="processing_request", status_values=["requested"], limit=5
         )
 
         self.assertEqual(len(limited_books), 5)
 
         # Test without limit
-        all_books = await self.tracker.get_books_with_latest_status(
-            status_type="processing_request", status_values=["requested"]
+        all_books = await get_books_with_latest_status_for_testing(
+            self.tracker, status_type="processing_request", status_values=["requested"]
         )
 
         self.assertEqual(len(all_books), 10)
