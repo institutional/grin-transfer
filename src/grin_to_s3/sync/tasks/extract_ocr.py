@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
+from tenacity import before_sleep_log, retry, stop_after_attempt, wait_fixed
+
 from grin_to_s3.common import (
     Barcode,
     compress_file_to_temp,
@@ -17,6 +19,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@retry(
+    stop=stop_after_attempt(4),  # 4 total attempts (3 retries)
+    wait=wait_fixed(2),  # 2 second fixed delay between retries
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
 async def upload_ocr_to_storage(
     source_path: Path, barcode: Barcode, pipeline: "SyncPipeline", metadata: ArchiveOcrMetadata
 ) -> str:
