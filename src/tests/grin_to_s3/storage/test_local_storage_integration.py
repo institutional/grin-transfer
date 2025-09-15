@@ -2,7 +2,7 @@
 
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -39,8 +39,6 @@ class TestLocalStorageIntegration:
             )
 
             # Mock database methods
-            pipeline.db_tracker.get_books_for_sync = AsyncMock(return_value=["TEST123"])
-            pipeline.db_tracker.update_sync_data = AsyncMock()
 
             # Mock converted books
             mock_converted_books = {"TEST123"}
@@ -74,7 +72,6 @@ class TestLocalStorageIntegration:
             )
 
             # Mock dependencies for setup_sync_loop startup
-            pipeline.db_tracker.get_books_for_sync = AsyncMock(return_value=[])
 
             # Mock get_converted_books to return empty list so sync exits early
             with patch("grin_to_s3.queue_utils.get_converted_books", return_value=set()):

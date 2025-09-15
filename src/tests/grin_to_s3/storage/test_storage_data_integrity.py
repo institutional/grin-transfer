@@ -8,6 +8,7 @@ incorrect file paths, or metadata inconsistencies in storage operations.
 
 import json
 import tempfile
+import warnings
 
 import pytest
 
@@ -371,20 +372,29 @@ class TestDisplayURIFormatting:
     )
     def test_get_display_uri(self, storage_type, expected_format):
         """Test that storage URIs are formatted correctly for display."""
-        # Create storage instance based on type
-        if storage_type == "local":
-            storage = create_local_storage(base_path="/tmp/storage")
-            path = "meta/test_run/books.csv"
-        elif storage_type == "s3":
-            storage = create_s3_storage(bucket="bucket-meta")
-            path = "bucket-meta/test_run/books.csv"
-        elif storage_type == "minio":
-            storage = create_minio_storage("http://minio:9000", "minioadmin", "minioadmin123")
-            path = "bucket-meta/test_run/books.csv"
-        elif storage_type == "gcs":
-            storage = create_gcs_storage(project="test-project")
-            path = "bucket-meta/test_run/books.csv"
+        # Suppress Google Cloud SDK authentication warnings during testing
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Your application has authenticated using end user credentials.*",
+                category=UserWarning,
+                module="google.auth._default",
+            )
 
-        # Test URI formatting
-        formatted = storage.get_display_uri(path)
-        assert formatted == expected_format
+            # Create storage instance based on type
+            if storage_type == "local":
+                storage = create_local_storage(base_path="/tmp/storage")
+                path = "meta/test_run/books.csv"
+            elif storage_type == "s3":
+                storage = create_s3_storage(bucket="bucket-meta")
+                path = "bucket-meta/test_run/books.csv"
+            elif storage_type == "minio":
+                storage = create_minio_storage("http://minio:9000", "minioadmin", "minioadmin123")
+                path = "bucket-meta/test_run/books.csv"
+            elif storage_type == "gcs":
+                storage = create_gcs_storage(project="test-project")
+                path = "bucket-meta/test_run/books.csv"
+
+            # Test URI formatting
+            formatted = storage.get_display_uri(path)
+            assert formatted == expected_format
