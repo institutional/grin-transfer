@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from tenacity import before_sleep_log, retry, stop_after_attempt, wait_fixed
+
 from grin_to_s3.common import Barcode
 from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.sync.tasks.task_types import (
@@ -52,6 +54,12 @@ async def main(
     )
 
 
+@retry(
+    stop=stop_after_attempt(4),  # 4 total attempts (3 retries)
+    wait=wait_fixed(2),  # 2 second fixed delay between retries
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
 async def upload_book_from_filesystem(
     barcode: Barcode,
     decrypted: DecryptData,
