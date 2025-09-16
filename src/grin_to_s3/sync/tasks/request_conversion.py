@@ -11,8 +11,6 @@ from typing import TYPE_CHECKING
 import aiohttp
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 
-from grin_to_s3.processing import request_conversion
-
 if TYPE_CHECKING:
     from grin_to_s3.sync.pipeline import SyncPipeline
 
@@ -44,12 +42,23 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
     logger.info(f"[{barcode}] Requesting conversion for missing archive")
 
     try:
-        result = await request_conversion(barcode, pipeline.library_directory, pipeline.secrets_dir)
+        process_url = f"_process?barcodes={barcode}"
+        response_text = await pipeline.grin_client.fetch_resource(pipeline.library_directory, process_url)
+
+        # Log full GRIN response for debugging
+        logger.debug(f"[{barcode} Request conversion response: {response_text}")
+
+        # Parse TSV response ("Barcode\tStatus")
+        lines = response_text.strip().split("\n")
+        result_data = lines[1:]  # Skip header
+        assert len(result_data) == 1
+
+        parts = result_data[0].split("\t")
+        _, status = parts  # Let IndexError bubble up for malformed lines
+
         pipeline.conversion_requests_made += 1
 
-        # Process result string
-        result_lower = result.lower()
-
+        result_lower = status.lower()
         if result_lower == "success":
             logger.info(f"[{barcode}] Conversion requested successfully")
             return RequestConversionResult(
@@ -59,7 +68,7 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
                 data={
                     "conversion_status": "requested",
                     "request_count": pipeline.conversion_requests_made,
-                    "grin_response": result,
+                    "grin_response": status,
                 },
                 reason="success_conversion_requested",
             )
@@ -73,12 +82,12 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
                     data={
                         "conversion_status": "already_available",
                         "request_count": pipeline.conversion_requests_made,
-                        "grin_response": result,
+                        "grin_response": status,
                     },
                     reason="skip_already_available",
                 )
             else:
-                logger.warning(f"[{barcode}] GRIN reports title is already being processed: {result}")
+                logger.warning(f"[{barcode}] GRIN reports title is already being processed: {status}")
                 return RequestConversionResult(
                     barcode=barcode,
                     task_type=TaskType.REQUEST_CONVERSION,
@@ -86,13 +95,13 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
                     data={
                         "conversion_status": "in_process",
                         "request_count": pipeline.conversion_requests_made,
-                        "grin_response": result,
+                        "grin_response": status,
                     },
                     reason="skip_already_in_process",
                 )
         else:
             # Any other response from GRIN means the book can't be converted
-            logger.error(f"[{barcode}] Conversion request failed: {result}")
+            logger.error(f"[{barcode}] Conversion request failed: {status}")
             return RequestConversionResult(
                 barcode=barcode,
                 task_type=TaskType.REQUEST_CONVERSION,
@@ -100,7 +109,7 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
                 data={
                     "conversion_status": "unavailable",
                     "request_count": pipeline.conversion_requests_made,
-                    "grin_response": result,
+                    "grin_response": status,
                 },
                 reason="skip_verified_unavailable",
             )

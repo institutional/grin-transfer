@@ -7,7 +7,6 @@ A unified tool for archiving Google Books data from GRIN to S3-compatible storag
 Commands:
   auth           Set up OAuth2 authentication with GRIN
   collect        Collect library book metadata from GRIN with progress tracking
-  process        Request book processing from GRIN
   sync           Sync converted books from GRIN to storage
   storage        Manage storage buckets (ls, rm)
   extract        Extract OCR text from decrypted book archives
@@ -32,7 +31,6 @@ from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.export import main as export_main
 from grin_to_s3.extract import main as extract_main
 from grin_to_s3.metadata.grin_enrichment import enrich_main
-from grin_to_s3.processing import main as process_main
 from grin_to_s3.reports import main as reports_main
 from grin_to_s3.storage import main as storage_main
 from grin_to_s3.sync import main as sync_main
@@ -80,7 +78,6 @@ For more help on each command, use: uv run grin <command> --help
     # Add subcommand parsers (will be populated by individual modules)
     auth_parser = subparsers.add_parser("auth", help="Set up OAuth2 authentication")
     collect_parser = subparsers.add_parser("collect", help="Collect book metadata from GRIN")
-    process_parser = subparsers.add_parser("process", help="Request book processing")
     sync_parser = subparsers.add_parser("sync", help="Sync converted books from GRIN to storage")
     storage_parser = subparsers.add_parser("storage", help="Manage storage buckets and data (ls, rm, cp)")
     extract_parser = subparsers.add_parser("extract", help="Extract OCR text from decrypted book archives")
@@ -91,7 +88,6 @@ For more help on each command, use: uv run grin <command> --help
     return parser, {
         "auth": auth_parser,
         "collect": collect_parser,
-        "process": process_parser,
         "sync": sync_parser,
         "storage": storage_parser,
         "extract": extract_parser,
@@ -152,11 +148,6 @@ async def main():
             # Remove 'collect' from args and pass the rest
             sys.argv = [sys.argv[0]] + sys.argv[2:]
             return await collect_main()
-
-        elif command == "process":
-            # Remove 'process' from args and pass the rest
-            sys.argv = [sys.argv[0]] + sys.argv[2:]
-            return await process_main()
 
         elif command == "sync":
             # Remove 'sync' from args and pass the rest

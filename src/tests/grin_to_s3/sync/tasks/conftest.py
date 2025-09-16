@@ -31,6 +31,10 @@ def mock_pipeline():
         pipeline.grin_client = MagicMock(spec=GRINClient)
         pipeline.grin_client.auth = MagicMock()
         pipeline.grin_client.auth.make_authenticated_request = AsyncMock()
+        pipeline.grin_client.fetch_resource = AsyncMock()
+
+        # Conversion tracking
+        pipeline.conversion_requests_made = 0
 
         # Mock filesystem manager with temp directory paths
         pipeline.filesystem_manager = MagicMock(spec=DirectoryManager)
