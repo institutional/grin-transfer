@@ -6,7 +6,7 @@ Tests that when running sync pipeline with specific barcodes that aren't availab
 in GRIN, the request processing loop is activated to trigger conversion requests.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import pytest
@@ -50,21 +50,20 @@ async def test_specific_barcode_triggers_conversion_request(mock_pipeline):
     next_tasks = check_result.next_tasks()
     assert TaskType.REQUEST_CONVERSION in next_tasks
 
-    # Mock the request_conversion function to simulate successful request
-    with patch("grin_to_s3.sync.tasks.request_conversion.request_conversion") as mock_request:
-        mock_request.return_value = "Success"
+    # Mock the grin_client.fetch_resource to simulate successful request
+    mock_pipeline.grin_client.fetch_resource.return_value = "Barcode\tStatus\n" + barcode + "\tSuccess"
 
-        # Test the REQUEST_CONVERSION task
-        conversion_result = await request_conversion.main(barcode, mock_pipeline)
+    # Test the REQUEST_CONVERSION task
+    conversion_result = await request_conversion.main(barcode, mock_pipeline)
 
-        # Verify conversion request was made
-        assert conversion_result.task_type == TaskType.REQUEST_CONVERSION
-        assert conversion_result.action == TaskAction.COMPLETED
-        assert conversion_result.reason == "success_conversion_requested"
-        assert conversion_result.data["conversion_status"] == "requested"
+    # Verify conversion request was made
+    assert conversion_result.task_type == TaskType.REQUEST_CONVERSION
+    assert conversion_result.action == TaskAction.COMPLETED
+    assert conversion_result.reason == "success_conversion_requested"
+    assert conversion_result.data["conversion_status"] == "requested"
 
-        # Verify the request_conversion function was called
-        mock_request.assert_called_once_with(barcode, "test_library", None)
+    # Verify the grin_client.fetch_resource was called
+    mock_pipeline.grin_client.fetch_resource.assert_called_once_with("test_library", f"_process?barcodes={barcode}")
 
 
 @pytest.mark.asyncio
@@ -141,11 +140,11 @@ async def test_request_conversion_updates_counter(mock_pipeline):
     mock_pipeline.library_directory = "test_library"
     mock_pipeline.secrets_dir = None
 
-    with patch("grin_to_s3.sync.tasks.request_conversion.request_conversion") as mock_request:
-        mock_request.return_value = "Success"
+    # Mock the grin_client.fetch_resource to simulate successful request
+    mock_pipeline.grin_client.fetch_resource.return_value = "Barcode\tStatus\n" + barcode + "\tSuccess"
 
-        result = await request_conversion.main(barcode, mock_pipeline)
+    result = await request_conversion.main(barcode, mock_pipeline)
 
-        # Verify counter was incremented
-        assert mock_pipeline.conversion_requests_made == 6
-        assert result.data["request_count"] == 6
+    # Verify counter was incremented
+    assert mock_pipeline.conversion_requests_made == 6
+    assert result.data["request_count"] == 6

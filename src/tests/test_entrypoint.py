@@ -13,7 +13,6 @@ GRIN_SCRIPT = Path(__file__).parent.parent.parent / "grin.py"
 SUBCOMMANDS = [
     "auth",
     "collect",
-    "process",
     "sync",
     "extract",
     "enrich",
