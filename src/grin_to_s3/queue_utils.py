@@ -6,7 +6,6 @@ import logging
 import time
 
 from grin_to_s3.client import GRINClient
-from grin_to_s3.collect_books.models import SQLiteProgressTracker
 
 logger = logging.getLogger(__name__)
 
@@ -16,15 +15,15 @@ _in_process_cache: dict[str, tuple[set[str], float]] = {}
 BarcodeSet = set[str]
 
 
-async def get_unconverted_books(db: SQLiteProgressTracker) -> set[str]:
+async def get_unconverted_books(db) -> set[str]:
     """Get the barcodes for books which have never been converted for download.
 
     Returns books that:
-    - Have never been requested for processing (processing_request_timestamp IS NULL)
-    - Have never been converted by GRIN (converted_date IS NULL)
-    - Are not checked in (grin_check_in_date IS NULL)
-    - Are not in CHECKED_IN or NOT_AVAILABLE_FOR_DOWNLOAD states
-    - Are not marked as verified_unavailable
+    - Have never been requested for processing (processing_request_timestamp IS NULL or empty string)
+    - Have never been converted by GRIN (converted_date IS NULL or empty string)
+    - Are not checked in (grin_check_in_date IS NULL or empty string)
+    - Have no GRIN state or are not in CHECKED_IN or NOT_AVAILABLE_FOR_DOWNLOAD states
+    - Are not marked as unavailable
 
     Args:
         db: Database tracker instance
@@ -32,17 +31,16 @@ async def get_unconverted_books(db: SQLiteProgressTracker) -> set[str]:
     Returns:
         set: Set of unconverted book barcodes
     """
-    await db.init_db()
 
     query = """
         SELECT barcode FROM books
-        WHERE processing_request_timestamp IS NULL
-        AND converted_date IS NULL
-        AND grin_check_in_date IS NULL
-        AND (grin_state IS NULL OR grin_state NOT IN ('CHECKED_IN', 'NOT_AVAILABLE_FOR_DOWNLOAD'))
+        WHERE NULLIF(processing_request_timestamp, '') IS NULL
+        AND NULLIF(converted_date, '') IS NULL
+        AND NULLIF(grin_check_in_date, '') IS NULL
+        AND (NULLIF(grin_state, '') IS NULL OR grin_state NOT IN ('CHECKED_IN', 'NOT_AVAILABLE_FOR_DOWNLOAD'))
         AND barcode NOT IN (
             SELECT DISTINCT barcode FROM book_status_history
-            WHERE status_type = 'sync' AND status_value = 'verified_unavailable'
+            WHERE status_type = 'conversion' AND status_value = 'unavailable'
         )
     """
 

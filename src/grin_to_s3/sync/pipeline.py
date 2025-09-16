@@ -70,7 +70,7 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
         in_process = await get_in_process_set(grin_client, library_directory)
 
         # Get verified_unavailable books for filtering
-        verified_unavailable = await db_tracker.get_books_with_status("verified_unavailable")
+        verified_unavailable = await db_tracker.get_books_with_status("unavailable", "conversion")
 
         # Return filtered set
         filtered_books = previously_downloaded - in_process - verified_unavailable
@@ -86,7 +86,7 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
         print(f"   Approx. {books_to_queue:,} will be queued for conversion")
         return filtered_books
     elif queue_name == "unconverted":
-        # Get books that have never been converted (already excludes verified_unavailable)
+        # Get books that have never been converted
         unconverted_books = await get_unconverted_books(db_tracker)
 
         # Get in_process queue for filtering

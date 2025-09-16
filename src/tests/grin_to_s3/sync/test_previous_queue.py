@@ -85,7 +85,13 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
             mock_in_process.return_value = {"PREV002"}  # PREV002 is in process
 
             # PREV004 marked as verified_unavailable
-            await self._add_book_with_grin_state("PREV004", "PREVIOUSLY_DOWNLOADED", ["verified_unavailable"])
+            await self._add_book_with_grin_state("PREV004", "PREVIOUSLY_DOWNLOADED")
+            # Add conversion unavailable status to match real system behavior
+            from grin_to_s3.database.database_utils import batch_write_status_updates
+            from grin_to_s3.sync.db_updates import StatusUpdate
+
+            status_updates = [StatusUpdate("PREV004", "conversion", "unavailable")]
+            await batch_write_status_updates(str(self.db_path), status_updates)
 
             # Get previous queue books
             result = await get_books_from_queue(self.mock_grin_client, "test_library", "previous", self.tracker)
@@ -124,8 +130,15 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         """Test that verified_unavailable books are filtered out."""
         # Create test books
         await self._add_book_with_grin_state("PREV001", "PREVIOUSLY_DOWNLOADED")
-        await self._add_book_with_grin_state("PREV002", "PREVIOUSLY_DOWNLOADED", ["verified_unavailable"])
+        await self._add_book_with_grin_state("PREV002", "PREVIOUSLY_DOWNLOADED")
         await self._add_book_with_grin_state("PREV003", "PREVIOUSLY_DOWNLOADED")
+
+        # Add conversion unavailable status to match real system behavior
+        from grin_to_s3.database.database_utils import batch_write_status_updates
+        from grin_to_s3.sync.db_updates import StatusUpdate
+
+        status_updates = [StatusUpdate("PREV002", "conversion", "unavailable")]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         with patch("grin_to_s3.sync.pipeline.get_in_process_set") as mock_in_process:
             mock_in_process.return_value = set()
@@ -140,9 +153,16 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         # Create mix of books
         await self._add_book_with_grin_state("PREV001", "PREVIOUSLY_DOWNLOADED")
         await self._add_book_with_grin_state("PREV002", "PREVIOUSLY_DOWNLOADED")
-        await self._add_book_with_grin_state("PREV003", "PREVIOUSLY_DOWNLOADED", ["verified_unavailable"])
+        await self._add_book_with_grin_state("PREV003", "PREVIOUSLY_DOWNLOADED")
         await self._add_book_with_grin_state("PREV004", "PREVIOUSLY_DOWNLOADED")
         await self._add_book_with_grin_state("PREV005", "CONVERTED")  # Wrong state
+
+        # Add conversion unavailable status to match real system behavior
+        from grin_to_s3.database.database_utils import batch_write_status_updates
+        from grin_to_s3.sync.db_updates import StatusUpdate
+
+        status_updates = [StatusUpdate("PREV003", "conversion", "unavailable")]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         with patch("grin_to_s3.sync.pipeline.get_in_process_set") as mock_in_process:
             # PREV002 and PREV004 are in process
@@ -158,7 +178,14 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         # Create test data
         await self._add_book_with_grin_state("PREV001", "PREVIOUSLY_DOWNLOADED")
         await self._add_book_with_grin_state("PREV002", "CONVERTED")
-        await self._add_book_with_grin_state("PREV003", "PREVIOUSLY_DOWNLOADED", ["verified_unavailable"])
+        await self._add_book_with_grin_state("PREV003", "PREVIOUSLY_DOWNLOADED")
+
+        # Add conversion unavailable status to match real system behavior
+        from grin_to_s3.database.database_utils import batch_write_status_updates
+        from grin_to_s3.sync.db_updates import StatusUpdate
+
+        status_updates = [StatusUpdate("PREV003", "conversion", "unavailable")]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Mock in_process set
         with patch("grin_to_s3.sync.pipeline.get_in_process_set") as mock_in_process:
@@ -176,7 +203,7 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
 
                 # Verify database methods called with correct parameters
                 mock_grin_state.assert_called_once_with("PREVIOUSLY_DOWNLOADED")
-                mock_status.assert_called_once_with("verified_unavailable")
+                mock_status.assert_called_once_with("unavailable", "conversion")
 
     async def test_get_books_by_grin_state_method(self):
         """Test the get_books_by_grin_state method directly."""
@@ -203,11 +230,22 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         # Create books with different sync statuses
         await self._add_book_with_grin_state("BOOK001", "CONVERTED", ["completed"])
         await self._add_book_with_grin_state("BOOK002", "CONVERTED", ["failed"])
-        await self._add_book_with_grin_state("BOOK003", "CONVERTED", ["verified_unavailable"])
-        await self._add_book_with_grin_state("BOOK004", "CONVERTED", ["verified_unavailable"])
+        # Add books with conversion unavailable status to match real system behavior
+        await self._add_book_with_grin_state("BOOK003", "CONVERTED")
+        await self._add_book_with_grin_state("BOOK004", "CONVERTED")
+
+        # Add conversion unavailable status records
+        from grin_to_s3.database.database_utils import batch_write_status_updates
+        from grin_to_s3.sync.db_updates import StatusUpdate
+
+        status_updates = [
+            StatusUpdate("BOOK003", "conversion", "unavailable"),
+            StatusUpdate("BOOK004", "conversion", "unavailable"),
+        ]
+        await batch_write_status_updates(str(self.db_path), status_updates)
 
         # Test querying for verified_unavailable status
-        result = await self.tracker.get_books_with_status("verified_unavailable")
+        result = await self.tracker.get_books_with_status("unavailable", "conversion")
         self.assertEqual(result, {"BOOK003", "BOOK004"})
 
         # Test querying for failed status

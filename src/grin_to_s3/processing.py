@@ -227,15 +227,15 @@ class ProcessingPipeline:
         print("Searching for books that haven't been requested for processing...")
 
         while len(candidate_barcodes) < limit and fetch_offset < total_books:
-            # Fetch next batch of books from database that haven't been requested for conversion ever
+            # Fetch next batch of books from database that haven't been requested
             # Skip books marked as NOT_AVAILABLE_FOR_DOWNLOAD or CHECKED_IN
             async with connect_async(self.db_path) as db:
                 cursor = await db.execute(
                     """
                     SELECT barcode FROM books
-                    WHERE processing_request_timestamp IS NULL -- Our timestamp
-                    AND converted_date IS NULL -- GRIN's timestamp
-                    AND (grin_state IS NULL OR grin_state NOT IN ('NOT_AVAILABLE_FOR_DOWNLOAD', 'CHECKED_IN'))
+                    WHERE NULLIF(processing_request_timestamp, '') IS NULL
+                    AND NULLIF(converted_date, '') IS NULL
+                    AND (NULLIF(grin_state, '') IS NULL OR grin_state NOT IN ('NOT_AVAILABLE_FOR_DOWNLOAD', 'CHECKED_IN'))
                     ORDER BY created_at LIMIT ? OFFSET ?
                     """,
                     (fetch_batch_size, fetch_offset),
@@ -343,8 +343,19 @@ class ProcessingPipeline:
             in_process_books = set()
             if not barcodes:
                 print("Getting current GRIN in-process books to avoid duplicates...")
-                in_process_books = await asyncio.wait_for(self.processing_client.get_in_process_books(), timeout=60.0)
-                print(f"Found {len(in_process_books):,} books currently in GRIN processing queue")
+                try:
+                    in_process_books = await asyncio.wait_for(
+                        self.processing_client.get_in_process_books(), timeout=60.0
+                    )
+                    print(f"Found {len(in_process_books):,} books currently in GRIN processing queue")
+                except TimeoutError:
+                    print("❌ Getting in-process books timed out after 60 seconds")
+                    print("Proceeding without filtering duplicates...")
+                    in_process_books = set()
+                except Exception as e:
+                    print(f"❌ Failed to get in-process books: {e}")
+                    print("Proceeding without filtering duplicates...")
+                    in_process_books = set()
                 print()
 
             # Get candidate barcodes using helper method

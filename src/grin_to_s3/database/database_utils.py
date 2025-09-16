@@ -23,9 +23,6 @@ from . import connect_async, connect_sync
 
 logger = logging.getLogger(__name__)
 
-# Status value constants
-VERIFIED_UNAVAILABLE_STATUS = "verified_unavailable"
-
 
 def retry_database_operation(func):
     """
@@ -54,6 +51,7 @@ def retry_database_operation(func):
     return wrapper
 
 
+# FIXME this is only used in tests
 @retry_database_operation
 async def batch_write_status_updates(db_path: str, status_updates: list) -> None:
     """Write multiple status updates in a single transaction."""
@@ -150,36 +148,3 @@ def validate_database_file(db_path: Path, check_tables: bool = False, check_book
         print(f"Database file: {db_path}")
         print("The file may be corrupted or not a valid SQLite database.")
         sys.exit(1)
-
-
-async def mark_verified_unavailable(db_path: str, barcode: str, reason: str, session_id: str = "sync") -> None:
-    """Mark a book as verified unavailable in the database.
-
-    This is a utility function to centralize the verified_unavailable status update logic.
-
-    Args:
-        db_path: Path to the SQLite database
-        barcode: Book barcode to mark as unavailable
-        reason: Reason why the book is unavailable
-        session_id: Session identifier for tracking (defaults to "sync")
-    """
-    try:
-        async with connect_async(db_path) as conn:
-            await conn.execute(
-                """INSERT INTO book_status_history
-                   (barcode, status_type, status_value, timestamp, session_id, metadata)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (
-                    barcode,
-                    "sync",
-                    VERIFIED_UNAVAILABLE_STATUS,
-                    datetime.now(UTC).isoformat(),
-                    session_id,
-                    json.dumps({"reason": reason}),
-                ),
-            )
-            await conn.commit()
-            logger.info(f"[{barcode}] Marked as {VERIFIED_UNAVAILABLE_STATUS}: {reason}")
-    except Exception as e:
-        logger.error(f"[{barcode}] Failed to mark as {VERIFIED_UNAVAILABLE_STATUS}: {e}")
-        raise

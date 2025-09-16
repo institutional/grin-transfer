@@ -56,7 +56,11 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
                 barcode=barcode,
                 task_type=TaskType.REQUEST_CONVERSION,
                 action=TaskAction.COMPLETED,
-                data={"conversion_status": "requested", "request_count": pipeline.conversion_requests_made},
+                data={
+                    "conversion_status": "requested",
+                    "request_count": pipeline.conversion_requests_made,
+                    "grin_response": result,
+                },
                 reason="success_conversion_requested",
             )
         elif "already" in result_lower and ("process" in result_lower or "available for download" in result_lower):
@@ -66,7 +70,11 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
                     barcode=barcode,
                     task_type=TaskType.REQUEST_CONVERSION,
                     action=TaskAction.SKIPPED,
-                    data={"conversion_status": "already_available", "request_count": pipeline.conversion_requests_made},
+                    data={
+                        "conversion_status": "already_available",
+                        "request_count": pipeline.conversion_requests_made,
+                        "grin_response": result,
+                    },
                     reason="skip_already_available",
                 )
             else:
@@ -75,7 +83,11 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
                     barcode=barcode,
                     task_type=TaskType.REQUEST_CONVERSION,
                     action=TaskAction.SKIPPED,
-                    data={"conversion_status": "in_process", "request_count": pipeline.conversion_requests_made},
+                    data={
+                        "conversion_status": "in_process",
+                        "request_count": pipeline.conversion_requests_made,
+                        "grin_response": result,
+                    },
                     reason="skip_already_in_process",
                 )
         else:
@@ -85,7 +97,11 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
                 barcode=barcode,
                 task_type=TaskType.REQUEST_CONVERSION,
                 action=TaskAction.SKIPPED,
-                data={"conversion_status": "unavailable", "request_count": pipeline.conversion_requests_made},
+                data={
+                    "conversion_status": "unavailable",
+                    "request_count": pipeline.conversion_requests_made,
+                    "grin_response": result,
+                },
                 reason="skip_verified_unavailable",
             )
 
@@ -98,7 +114,11 @@ async def main(barcode: str, pipeline: "SyncPipeline") -> RequestConversionResul
                 task_type=TaskType.REQUEST_CONVERSION,
                 action=TaskAction.FAILED,  # FAILED triggers sequential failure counter
                 error="Queue limit reached in GRIN",
-                data={"conversion_status": "queue_limit_reached", "request_count": pipeline.conversion_requests_made},
+                data={
+                    "conversion_status": "queue_limit_reached",
+                    "request_count": pipeline.conversion_requests_made,
+                    "grin_response": "Queue limit reached in GRIN",
+                },
                 reason="fail_queue_limit_reached",
             )
         else:

@@ -187,15 +187,7 @@ uv run grin collect --run-name "local_test" --library-directory YOUR_LIBRARY_DIR
 - `--storage`: Storage backend (`local`, `minio`, `r2`, `s3`, `gcs`)
 - `--limit`: Limit books for testing
 
-### 2. Processing Management: `grin.py process`
-
-Request book processing via GRIN conversion system.
-
-```bash
-uv run grin process request --run-name RUN_NAME --limit 1000
-```
-
-### 3. Sync Pipeline: `grin.py sync pipeline`
+### 2. Sync Pipeline: `grin.py sync pipeline`
 
 Download converted books from GRIN to storage with database tracking. You must either specify a `queue`, or a list of books by derived status, or `--barcodes`, to pass a short list of barcodes on the command line, or `--barcodes-file`, a path to a file containing barcodes.
 
@@ -235,7 +227,7 @@ One of these must be specified
 - `--force`: Overwrite existing files even if checks think the versions are identical
 - `--dry-run`: Show what would happen in a sync with the provided options, but do no work
 
-### 4. Metadata enrichment: `grin.py enrich` 
+### 3. Metadata enrichment: `grin.py enrich` 
 
 Iterate over un-enriched titles and download additional metadata.
 
@@ -243,7 +235,7 @@ Iterate over un-enriched titles and download additional metadata.
 uv run grin enrich --run-name RUN_NAME
 ```
 
-### 5. Storage Management: `grin.py storage`
+### Storage Management: `grin.py storage`
 
 Manage storage buckets with fast listing and deletion.
 

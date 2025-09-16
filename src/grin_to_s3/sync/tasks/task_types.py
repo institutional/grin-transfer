@@ -106,6 +106,7 @@ class RequestConversionData(TypedDict):
 
     conversion_status: Literal["requested", "in_process", "unavailable", "queue_limit_reached", "already_available"]
     request_count: int
+    grin_response: str
 
 
 class CleanupData(TypedDict):
