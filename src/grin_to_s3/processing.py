@@ -233,9 +233,9 @@ class ProcessingPipeline:
                 cursor = await db.execute(
                     """
                     SELECT barcode FROM books
-                    WHERE processing_request_timestamp IS NULL
-                    AND converted_date IS NULL
-                    AND (grin_state IS NULL OR grin_state NOT IN ('NOT_AVAILABLE_FOR_DOWNLOAD', 'CHECKED_IN'))
+                    WHERE NULLIF(processing_request_timestamp, '') IS NULL
+                    AND NULLIF(converted_date, '') IS NULL
+                    AND (NULLIF(grin_state, '') IS NULL OR grin_state NOT IN ('NOT_AVAILABLE_FOR_DOWNLOAD', 'CHECKED_IN'))
                     ORDER BY created_at LIMIT ? OFFSET ?
                     """,
                     (fetch_batch_size, fetch_offset),

@@ -51,11 +51,32 @@ def _get_failure_details(task_results: dict[TaskType, TaskResult]) -> str:
         String describing which task(s) failed and why
     """
     failed_tasks = []
+
+    # Collect all failed tasks
     for task_type, result in task_results.items():
         if result.action == TaskAction.FAILED:
+            # Filter out CHECK 404 failures - they're just informational, not real failures
+            if task_type == TaskType.CHECK and result.reason == "fail_archive_missing":
+                continue
+
             task_name = task_type.name.lower().replace("_", " ")
             error_detail = result.error or "unknown error"
             failed_tasks.append(f"{task_name} ({error_detail})")
+
+    # If no explicit failures, check for meaningful SKIPPED tasks that indicate permanent issues
+    if not failed_tasks:
+        for result in task_results.values():
+            if result.action == TaskAction.SKIPPED and result.reason in [
+                "skip_verified_unavailable",
+                "skip_already_in_process",
+            ]:
+                # Check if we have the actual GRIN response in the data field
+                if result.data and isinstance(result.data, dict) and "grin_response" in result.data:
+                    return result.data["grin_response"]
+                # Fall back to default message if no GRIN response available
+                if result.reason == "skip_already_in_process":
+                    return "Book is already being processed"
+                return "Book not allowed to be downloaded by Google"
 
     if failed_tasks:
         return f"Failed tasks: {', '.join(failed_tasks)}"
@@ -737,7 +758,8 @@ def display_task_statistics(stats: dict[TaskType, dict[str, int]]) -> None:
             if task["skipped"] > 0:
                 success_parts.append(f"{task['skipped']} skipped")
             if task["needs_conversion"] > 0:
-                success_parts.append(f"{task['needs_conversion']} need conversion")
+                verb = "needs" if task["needs_conversion"] == 1 else "need"
+                success_parts.append(f"{task['needs_conversion']} {verb} conversion")
 
             success_detail = f" ({', '.join(success_parts)})" if success_parts else ""
             print(
@@ -747,8 +769,9 @@ def display_task_statistics(stats: dict[TaskType, dict[str, int]]) -> None:
     # Show needs conversion tasks
     if needs_conversion_tasks:
         for task in needs_conversion_tasks:
+            verb = "needs" if task["needs_conversion"] == 1 else "need"
             conversion_detail = (
-                f" ({task['needs_conversion']} {pluralize(task['needs_conversion'], 'book')} need conversion)"
+                f" ({task['needs_conversion']} {pluralize(task['needs_conversion'], 'book')} {verb} conversion)"
             )
             print(
                 f"→ {task['name']:<20} {task['successful_count']}/{task['started']} ({task['success_rate']:5.1f}%){conversion_detail}"
@@ -772,12 +795,5 @@ def display_task_statistics(stats: dict[TaskType, dict[str, int]]) -> None:
         for task in complete_failure_tasks:
             print(f"   • {task['name']}: All {task['started']} attempts failed")
         print("   Consider checking task configuration and logs for details")
-
-    # Add conversion summary if any tasks need conversion
-    if needs_conversion_tasks:
-        total_needing_conversion = sum(task["needs_conversion"] for task in needs_conversion_tasks)
-        print(
-            f"\nBooks requiring conversion: {total_needing_conversion:,} {pluralize(total_needing_conversion, 'book')} need to be processed by GRIN"
-        )
 
     print()  # Add spacing after the summary

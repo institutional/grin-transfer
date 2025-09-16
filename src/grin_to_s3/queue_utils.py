@@ -5,6 +5,8 @@ Utility functions for querying GRIN queues
 import logging
 import time
 
+from grin_to_s3.client import GRINClient
+
 logger = logging.getLogger(__name__)
 
 # Cache for in_process queue data
@@ -13,7 +15,44 @@ _in_process_cache: dict[str, tuple[set[str], float]] = {}
 BarcodeSet = set[str]
 
 
-async def get_converted_books(grin_client, library_directory: str) -> set[str]:
+async def get_unconverted_books(db) -> set[str]:
+    """Get the barcodes for books which have never been converted for download.
+
+    Returns books that:
+    - Have never been requested for processing (processing_request_timestamp IS NULL or empty string)
+    - Have never been converted by GRIN (converted_date IS NULL or empty string)
+    - Are not checked in (grin_check_in_date IS NULL or empty string)
+    - Have no GRIN state or are not in CHECKED_IN or NOT_AVAILABLE_FOR_DOWNLOAD states
+    - Are not marked as unavailable
+
+    Args:
+        db: Database tracker instance
+
+    Returns:
+        set: Set of unconverted book barcodes
+    """
+
+    query = """
+        SELECT barcode FROM books
+        WHERE NULLIF(processing_request_timestamp, '') IS NULL
+        AND NULLIF(converted_date, '') IS NULL
+        AND NULLIF(grin_check_in_date, '') IS NULL
+        AND (NULLIF(grin_state, '') IS NULL OR grin_state NOT IN ('CHECKED_IN', 'NOT_AVAILABLE_FOR_DOWNLOAD'))
+        AND barcode NOT IN (
+            SELECT DISTINCT barcode FROM book_status_history
+            WHERE status_type = 'conversion' AND status_value = 'unavailable'
+        )
+    """
+
+    cursor = await db._execute_query(query, ())
+    rows = await cursor.fetchall()
+    unconverted_barcodes = {row[0] for row in rows}
+
+    logger.debug(f"Found {len(unconverted_barcodes)} unconverted books in database")
+    return unconverted_barcodes
+
+
+async def get_converted_books(grin_client: GRINClient, library_directory: str) -> set[str]:
     """Get set of books that are converted and ready for download.
     Args:
         grin_client: GRIN client instance
@@ -37,7 +76,7 @@ async def get_converted_books(grin_client, library_directory: str) -> set[str]:
         return set()
 
 
-async def get_in_process_set(grin_client, library_directory: str) -> BarcodeSet:
+async def get_in_process_set(grin_client: GRINClient, library_directory: str) -> BarcodeSet:
     """Get set of books currently in GRIN processing queue with caching.
     Args:
         grin_client: GRIN client instance

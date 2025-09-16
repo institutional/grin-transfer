@@ -187,24 +187,22 @@ uv run grin collect --run-name "local_test" --library-directory YOUR_LIBRARY_DIR
 - `--storage`: Storage backend (`local`, `minio`, `r2`, `s3`, `gcs`)
 - `--limit`: Limit books for testing
 
-### 2. Processing Management: `grin.py process`
-
-Request book processing via GRIN conversion system.
-
-```bash
-uv run grin process request --run-name RUN_NAME --limit 1000
-```
-
-### 3. Sync Pipeline: `grin.py sync pipeline`
+### 2. Sync Pipeline: `grin.py sync pipeline`
 
 Download converted books from GRIN to storage with database tracking. You must either specify a `queue`, or a list of books by derived status, or `--barcodes`, to pass a short list of barcodes on the command line, or `--barcodes-file`, a path to a file containing barcodes.
 
 Unless you specify `--force`, archives which are in storage and are known to be identical to those in GRIN will be skipped.
 
 #### Sync books based on GRIN status
-Provide either `--queue converted` (sync all books in GRIN's `_converted` list which are ready to download) or `--queue previous` (books with GRIN's `PREVIOUSLY_DOWNLOADED` status). 
+Provide one of the following queue options:
+
+- `--queue converted` - Sync all books in GRIN's `_converted` list which are ready to download
+- `--queue previous` - Books with GRIN's `PREVIOUSLY_DOWNLOADED` status
+- `--queue unconverted` - Books that have never been requested for processing or converted by GRIN
 
 If `--queue previous` is supplied, all books marked as unsynced with the GRIN status `PREVIOUSLY_DOWNLOADED` will attempt to be synced. If a book is found ready to download in GRIN, it will be synced. If it is not in the converted state, the pipeline will request that it be added to GRIN's conversion queue. Typically you will use `--queue previous` if you have downloaded archives that predate this tool but would like to gather a unified collection.
+
+If `--queue unconverted` is supplied, books that have never been requested for processing and have never been converted will be queued for conversion by GRIN. This is useful for processing entirely new books that haven't entered the pipeline yet.
 
 You can specify multiple queues and they will be run in order.
 
@@ -221,7 +219,7 @@ uv run grin sync pipeline --run-name RUN_NAME --queue converted
 **Required options**
 
 One of these must be specified
-- `--queue`: Which selection of books to pull from, either `converted` or `previous`
+- `--queue`: Which selection of books to pull from: `converted`, `previous`, or `unconverted`
 - `--barcodes` or `--barcodes-file`: lists of specific barcodes to sync
 
 **Other common pipeline options:**
@@ -229,7 +227,7 @@ One of these must be specified
 - `--force`: Overwrite existing files even if checks think the versions are identical
 - `--dry-run`: Show what would happen in a sync with the provided options, but do no work
 
-### 4. Metadata enrichment: `grin.py enrich` 
+### 3. Metadata enrichment: `grin.py enrich` 
 
 Iterate over un-enriched titles and download additional metadata.
 
@@ -237,7 +235,7 @@ Iterate over un-enriched titles and download additional metadata.
 uv run grin enrich --run-name RUN_NAME
 ```
 
-### 5. Storage Management: `grin.py storage`
+### Storage Management: `grin.py storage`
 
 Manage storage buckets with fast listing and deletion.
 
