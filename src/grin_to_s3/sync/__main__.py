@@ -218,7 +218,7 @@ Examples:
   python grin.py sync pipeline --run-name harvard_2024 --queue converted
 
   # Sync books from multiple queues in order
-  python grin.py sync pipeline --run-name harvard_2024 --queue converted --queue previous
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --queue previous --queue unconverted
 
   # Sync specific books only (no --queue needed)
   python grin.py sync pipeline --run-name harvard_2024 --barcodes "12345,67890,abcde"
@@ -266,7 +266,7 @@ Examples:
     pipeline_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
     pipeline_parser.add_argument(
         "--queue",
-        choices=["converted", "previous", "changed", "all"],
+        choices=["converted", "previous", "unconverted", "changed", "all"],
         action="append",
         help="Queue type to process. Multiple options allowed (e.g., --queue converted --queue previous). Processed in order specified. Required unless --barcodes is provided.",
     )

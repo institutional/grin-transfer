@@ -17,7 +17,7 @@ from grin_to_s3.common import (
     pluralize,
 )
 from grin_to_s3.constants import DEFAULT_MAX_SEQUENTIAL_FAILURES, GRIN_MAX_QUEUE_SIZE
-from grin_to_s3.queue_utils import get_converted_books, get_in_process_set
+from grin_to_s3.queue_utils import get_converted_books, get_in_process_set, get_unconverted_books
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config
 from grin_to_s3.storage.book_manager import BookManager
@@ -54,7 +54,7 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
     Args:
         grin_client: GRIN client instance
         library_directory: Library directory name
-        queue_name: Queue name (converted, previous, changed, all)
+        queue_name: Queue name (converted, previous, unconverted, changed, all)
         db_tracker: Database tracker instance
 
     Returns:
@@ -85,15 +85,36 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
         print(f"   GRIN queue: {len(in_process):,} in process, {available_space:,} available space")
         print(f"   Approx. {books_to_queue:,} will be queued for conversion")
         return filtered_books
+    elif queue_name == "unconverted":
+        # Get books that have never been converted (already excludes verified_unavailable)
+        unconverted_books = await get_unconverted_books(db_tracker)
+
+        # Get in_process queue for filtering
+        in_process = await get_in_process_set(grin_client, library_directory)
+
+        # Return filtered set
+        filtered_books = unconverted_books - in_process
+        logger.info(
+            f"Unconverted queue: {len(unconverted_books)} unconverted books, "
+            f"filtered out {len(in_process)} in_process, "
+            f"returning {len(filtered_books)} books"
+        )
+        # Calculate how many books can be queued given GRIN's current capacity
+        available_space = GRIN_MAX_QUEUE_SIZE - len(in_process)
+        books_to_queue = min(available_space, len(filtered_books))
+        print(f"   GRIN queue: {len(in_process):,} in process, {available_space:,} available space")
+        print(f"   Approx. {books_to_queue:,} will be queued for conversion")
+        return filtered_books
     elif queue_name == "changed":
         # TODO: Implement changed queue (books with newer versions in GRIN)
         logger.warning("Changed queue not yet implemented")
         return set()
     elif queue_name == "all":
-        # Union of converted and previous queues
+        # Union of converted, previous, and unconverted queues
         converted = await get_converted_books(grin_client, library_directory)
         previous = await get_books_from_queue(grin_client, library_directory, "previous", db_tracker)
-        return converted | previous
+        unconverted = await get_books_from_queue(grin_client, library_directory, "unconverted", db_tracker)
+        return converted | previous | unconverted
     else:
         raise ValueError(f"Unknown queue name: {queue_name}")
 
