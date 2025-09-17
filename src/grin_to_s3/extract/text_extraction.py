@@ -31,12 +31,6 @@ class TextExtractionError(Exception):
     pass
 
 
-class CorruptedArchiveError(TextExtractionError):
-    """Raised when archive is corrupted or cannot be opened."""
-
-    pass
-
-
 class InvalidPageFormatError(TextExtractionError):
     """Raised when page files have invalid naming format."""
 

@@ -784,45 +784,6 @@ If you don't have a client_secret.json file, follow these steps to create one:
     print("If you use a custom port, update the redirect_uris accordingly.")
 
 
-def _display_setup_progress(secrets_path: Path, creds_path: Path, is_remote: bool, is_docker: bool) -> None:
-    """Display appropriate progress messages for the setup flow."""
-    print("\nStep 1: OAuth2 Client Configuration")
-    print(f"Looking for client secrets at: {secrets_path}")
-    print("✅ Client secrets file is valid")
-
-    print("\nStep 2: OAuth2 Authorization")
-
-    # Show flow-specific messaging
-    if is_remote:
-        print("Remote shell environment detected - using manual authorization")
-    elif is_docker:
-        print("Running in Docker container - using port forwarding flow")
-        print("\n" + "=" * 60)
-        print("DOCKER OAUTH2 SETUP")
-        print("=" * 60)
-        oauth_port = int(os.environ.get("GRIN_OAUTH_PORT", "58432"))
-        print(f"1. The OAuth2 server will start on port {oauth_port}")
-        print("2. A URL will be displayed for you to visit")
-        print("3. Complete the Google authorization")
-        print(f"4. The browser will redirect to localhost:{oauth_port}")
-        print("   This will complete authentication automatically")
-        print("=" * 60)
-        print("Starting OAuth2 server...")
-    else:
-        print("This will open your browser for Google authentication")
-        print("\nStarting local server for OAuth2 callback...")
-        print("This will open your browser automatically for Google authentication")
-        print("If the browser doesn't open automatically, copy the URL that appears")
-
-    print("Starting OAuth2 flow...")
-    print(f"✅ Credentials saved to: {creds_path}")
-    print("File permissions set to 600 (owner read/write only)")
-
-    print("\nStep 3: Testing Credentials")
-    print("✅ Credentials loaded successfully")
-    print("✅ Bearer token available: [token secured]")
-
-
 def main() -> None:
     """
     Command-line interface for credential setup.
