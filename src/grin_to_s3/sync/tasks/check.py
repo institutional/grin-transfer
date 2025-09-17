@@ -21,6 +21,9 @@ CHECK_BACKOFF_MIN = 1
 CHECK_BACKOFF_MAX = 300  # Cap at 5 minutes
 CHECK_BACKOFF_MULTIPLIER = 2
 
+# Timeout configuration for CHECK operations
+CHECK_TIMEOUT_SECONDS = 30  # 30 seconds for HEAD requests
+
 
 async def main(barcode: Barcode, pipeline: "SyncPipeline") -> CheckResult:
     # Always check storage first, then GRIN
@@ -70,7 +73,7 @@ async def grin_head_request(barcode: Barcode, grin_client: GRINClient, library_d
     logger.debug(f"[{barcode}] Checking encrypted ETag via HEAD request to {grin_url}")
 
     # Make HEAD request to get headers without downloading content
-    head_response = await grin_client.head_archive(grin_url)
+    head_response = await grin_client.head_archive(grin_url, timeout=CHECK_TIMEOUT_SECONDS)
 
     result["http_status_code"] = head_response.status
 

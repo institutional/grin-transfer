@@ -23,6 +23,9 @@ DOWNLOAD_BACKOFF_MIN = 1
 DOWNLOAD_BACKOFF_MAX = 600  # Cap at 10 minutes
 DOWNLOAD_BACKOFF_MULTIPLIER = 2
 
+# Timeout configuration for DOWNLOAD operations
+DOWNLOAD_TIMEOUT_SECONDS = 300  # 5 minutes for downloading large files
+
 
 async def main(barcode: Barcode, pipeline: "SyncPipeline") -> DownloadResult:
     to_path = pipeline.filesystem_manager.get_encrypted_file_path(barcode)
@@ -75,7 +78,7 @@ async def download_book_to_filesystem(
 
     logger.info(f"[{barcode}] Starting download from {grin_url}")
 
-    response = await grin_client.download_archive(grin_url)
+    response = await grin_client.download_archive(grin_url, timeout=DOWNLOAD_TIMEOUT_SECONDS)
 
     total_bytes = 0
     last_check_bytes = 0

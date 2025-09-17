@@ -104,18 +104,24 @@ class GRINClient:
         if timeout is not None:
             kwargs["timeout"] = aiohttp.ClientTimeout(total=timeout, connect=10)
 
-        response = await self._make_request_with_tracking(session, url, method=method, **kwargs)
+        response = await self._request(session, url, method=method, **kwargs)
         return await response.text()
 
-    async def download_archive(self, url: str) -> aiohttp.ClientResponse:
+    async def download_archive(self, url: str, timeout: int | None = None) -> aiohttp.ClientResponse:
         """Download a book archive - for use by download.py."""
         session = await self._ensure_session()
-        return await self._make_request_with_tracking(session, url)
+        kwargs = {}
+        if timeout is not None:
+            kwargs["timeout"] = aiohttp.ClientTimeout(total=timeout, connect=10)
+        return await self._request(session, url, method="GET", **kwargs)
 
-    async def head_archive(self, url: str) -> aiohttp.ClientResponse:
+    async def head_archive(self, url: str, timeout: int | None = None) -> aiohttp.ClientResponse:
         """HEAD request for archive metadata - for use by check.py."""
         session = await self._ensure_session()
-        return await self._make_request_with_tracking(session, url, method="HEAD")
+        kwargs = {}
+        if timeout is not None:
+            kwargs["timeout"] = aiohttp.ClientTimeout(total=timeout, connect=10)
+        return await self._request(session, url, method="HEAD", **kwargs)
 
     async def close(self):
         """Close the session. Must be called when done with client."""
@@ -187,9 +193,7 @@ class GRINClient:
                 f"{self._consecutive_errors} consecutive errors"
             )
 
-    async def _make_request_with_tracking(
-        self, session: aiohttp.ClientSession, url: str, method: str = "GET", **kwargs
-    ):
+    async def _request(self, session: aiohttp.ClientSession, url: str, method: str = "GET", **kwargs):
         """Make request with error tracking and connection monitoring."""
         self._request_count += 1
         request_start = time.time()
@@ -265,7 +269,7 @@ class GRINClient:
                 # First page - fetch normally
                 logger.debug(f"Page {page_count}: Normal fetch (no prefetch available)")
                 session = await self._ensure_session()
-                response = await self._make_request_with_tracking(session, current_url)
+                response = await self._request(session, current_url)
                 html = await response.text()
 
             if "Your request is unavailable" in html:
@@ -367,7 +371,7 @@ class GRINClient:
             tuple: (html_content, url)
         """
         session = await self._ensure_session()
-        response = await self._make_request_with_tracking(session, url)
+        response = await self._request(session, url)
         html = await response.text()
         return html, url
 
