@@ -850,15 +850,3 @@ def _display_sync_details(
             print(f"    ✗ Failed: {session_sync_failed:,}")
 
     # Additional metrics display could be added here if needed
-
-
-def _format_bytes(bytes_count: int) -> str:
-    """Format byte count as human-readable string."""
-    if bytes_count < 1024:
-        return f"{bytes_count} bytes"
-    elif bytes_count < 1024 * 1024:
-        return f"{bytes_count / 1024:.1f} KB"
-    elif bytes_count < 1024 * 1024 * 1024:
-        return f"{bytes_count / (1024 * 1024):.1f} MB"
-    else:
-        return f"{bytes_count / (1024 * 1024 * 1024):.1f} GB"
