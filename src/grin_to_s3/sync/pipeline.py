@@ -408,13 +408,6 @@ class SyncPipeline:
                 logger.info(f"Preflight operation {operation} skipped")
 
         try:
-            # Get already synced books from database
-            if specific_barcodes:
-                books_already_synced = set()  # Skip DB check for specific barcodes
-            else:
-                # Get books that are already synced
-                books_already_synced = await self.db_tracker.get_synced_books()
-
             # Define task functions and limits
             task_funcs = {
                 TaskType.CHECK: check.main,
@@ -437,23 +430,18 @@ class SyncPipeline:
 
             # Handle the two mutually exclusive modes: specific barcodes vs queues
             if specific_barcodes:
-                # Create rate calculator for specific barcodes mode
                 rate_calculator = SlidingWindowRateCalculator(window_size=20)
-                # Process specific barcodes mode
+
                 books_to_process = filter_and_print_barcodes(
                     specific_barcodes=specific_barcodes,
                     queue_books=None,
-                    books_already_synced=books_already_synced,
+                    books_already_synced=set(),
                     limit=limit,
                     queue_name=None,
                 )
 
-                # Handle case where no books to process
                 if not books_to_process:
                     return
-
-                # Set up progress tracking and task management
-                books_to_process_count = len(books_to_process)
 
                 # Handle dry-run mode
                 if self.dry_run:
@@ -462,6 +450,7 @@ class SyncPipeline:
                     self._update_process_summary_metrics({}, queues, limit, specific_barcodes)
                     return
 
+                books_to_process_count = len(books_to_process)
                 print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')}...")
                 print(f"Progress will be shown every {self.progress_interval} books completed")
                 print("---")
@@ -485,8 +474,10 @@ class SyncPipeline:
                     # Reset failure counter at start of each queue
                     logger.info(f"Processing '{queue_name}' queue")
                     self._sequential_failures = 0
+
                     # Create fresh rate calculator for each queue
                     rate_calculator = SlidingWindowRateCalculator(window_size=20)
+
                     # Get books from this specific queue
                     print()
                     print(f"Fetching books from '{queue_name}' queue...")
@@ -498,8 +489,11 @@ class SyncPipeline:
                         print(f"  Warning: '{queue_name}' queue returned no books (check logs for errors)")
                         logger.warning(f"'{queue_name}' queue returned no books (check for fetch errors above)")
                         continue  # Skip to next queue
+
                     print(f"  '{queue_name}' queue: {len(queue_books):,} books available")
                     logger.info(f"'{queue_name}' queue: {len(queue_books):,} books available")
+
+                    books_already_synced = await self.db_tracker.get_synced_books()
 
                     # Filter books and print summary for this queue
                     books_to_process = filter_and_print_barcodes(
@@ -510,20 +504,16 @@ class SyncPipeline:
                         queue_name=queue_name,
                     )
 
-                    # Handle case where no books to process from this queue
                     if not books_to_process:
                         continue  # Skip to next queue
 
-                    # Set up progress tracking for this queue
-                    books_to_process_count = len(books_to_process)
-
-                    # Handle dry-run mode
                     if self.dry_run:
                         await self._show_dry_run_preview(books_to_process, limit, specific_barcodes, queue_name)
                         # Update process summary with current session parameters (but no actual results)
                         self._update_process_summary_metrics({}, [queue_name], limit, specific_barcodes)
                         continue  # Skip to next queue in dry-run
 
+                    books_to_process_count = len(books_to_process)
                     print(
                         f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')} from '{queue_name}' queue..."
                     )
