@@ -10,7 +10,6 @@ import logging
 import signal
 import time
 from collections.abc import AsyncGenerator
-from datetime import datetime
 
 from grin_to_s3.client import GRINClient, GRINRow
 from grin_to_s3.common import (
@@ -82,7 +81,6 @@ class BookCollector:
         print("Collecting all books from GRIN...")
         logger.info("Streaming all books from GRIN...")
 
-        book_count = 0
         total_yielded = 0
 
         async for (
@@ -99,11 +97,10 @@ class BookCollector:
                 break
 
             yield book_row
-            book_count += 1
             total_yielded += 1
 
-            if book_count % 5000 == 0:
-                logger.info(f"Streamed {book_count:,} {pluralize(book_count, 'book')}...")
+            if total_yielded % 5000 == 0:
+                logger.info(f"Streamed {total_yielded:,} {pluralize(total_yielded, 'book')}...")
 
         print(f"Collection complete: {total_yielded:,} total books collected")
 
@@ -157,28 +154,7 @@ class BookCollector:
             processed_count = 0
 
             # Process books one by one using configured data mode
-            last_book_time = time.time()
-            book_count_in_loop = 0
             async for grin_row in self.get_all_books(limit=limit):
-                current_time = time.time()
-                time_since_last = current_time - last_book_time
-                book_count_in_loop += 1
-
-                # Log if there's a significant gap between book yields
-                if time_since_last > 10.0:  # More than 10 seconds between books
-                    gap_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    logger.warning(
-                        f"Long gap detected: {time_since_last:.1f}s between books at {gap_time} "
-                        f"(book #{book_count_in_loop})"
-                    )
-                elif book_count_in_loop % 5000 == 0:
-                    receive_time = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-                    logger.debug(
-                        f"Main loop received book #{book_count_in_loop} at {receive_time} (gap: {time_since_last:.2f}s)"
-                    )
-
-                last_book_time = current_time
-
                 # Check for interrupt
                 if stop_event.is_set():
                     print("Collection interrupted - saving progress...")
@@ -273,11 +249,13 @@ class BookCollector:
             # Create record
             record = BookRecord(**parsed_data)
 
-            # Warn if GRIN returned empty title
+            # Warn if GRIN returned empty title but metadata suggests the book should be downloadable
             if not record.title or record.title.strip() == "":
-                logger.warning(
-                    f"[{barcode}] GRIN returned empty title field; okay only if book is not available for download"
-                )
+                grin_state = record.grin_state or ""
+                if grin_state != "NOT_AVAILABLE_FOR_DOWNLOAD":
+                    logger.warning(
+                        f"[{barcode}] GRIN returned empty title field; grin_state={grin_state or 'None'}; expected only when download is unavailable"
+                    )
 
             # Let the database handle everything via UPSERT
             await self.sqlite_tracker.save_book(record, refresh_mode=self.refresh_mode)

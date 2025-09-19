@@ -343,12 +343,6 @@ class SyncPipeline:
 
         return False
 
-    async def get_sync_status(self) -> dict:
-        """Get current sync status and statistics."""
-        stats = await self.db_tracker.get_sync_stats()
-
-        return stats
-
     async def setup_sync_loop(
         self,
         queues: list[str],

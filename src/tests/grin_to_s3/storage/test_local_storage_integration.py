@@ -8,6 +8,7 @@ import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.sync.pipeline import SyncPipeline
+from grin_to_s3.sync.stats import get_sync_stats
 
 
 class TestLocalStorageIntegration:
@@ -45,7 +46,7 @@ class TestLocalStorageIntegration:
 
             with patch("grin_to_s3.queue_utils.get_converted_books", return_value=mock_converted_books):
                 # This should exercise the complete pipeline
-                status = await pipeline.get_sync_status()
+                status = await get_sync_stats(pipeline.db_tracker)
 
                 # Verify pipeline can be initialized and provide status
                 assert "total_converted" in status
