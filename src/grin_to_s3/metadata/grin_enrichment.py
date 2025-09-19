@@ -352,6 +352,11 @@ class GRINEnrichmentPipeline:
             total_elapsed = time.time() - start_time
             final_enriched = await self.sqlite_tracker.get_enriched_book_count()
 
+            # Calculate and set enrichment rate
+            if total_elapsed > 0:
+                rate_per_second = processed_count / total_elapsed
+                self.process_summary_stage.enrichment_rate_per_hour = rate_per_second * 3600
+
             # Clean up resources
             await self.cleanup()
 
