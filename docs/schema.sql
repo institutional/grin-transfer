@@ -101,21 +101,10 @@ CREATE TABLE IF NOT EXISTS book_status_history (
 );
 
 -- Performance indexes
-CREATE INDEX IF NOT EXISTS idx_books_barcode ON books(barcode);
-CREATE INDEX IF NOT EXISTS idx_books_enrichment ON books(enrichment_timestamp);
-CREATE INDEX IF NOT EXISTS idx_books_marc_extraction ON books(marc_extraction_timestamp);
 CREATE INDEX IF NOT EXISTS idx_books_grin_state ON books(grin_state);
-CREATE INDEX IF NOT EXISTS idx_books_processing_timestamp ON books(processing_request_timestamp);
-
-CREATE INDEX IF NOT EXISTS idx_processed_barcode ON processed(barcode);
 CREATE INDEX IF NOT EXISTS idx_processed_session ON processed(session_id);
-CREATE INDEX IF NOT EXISTS idx_failed_barcode ON failed(barcode);
 CREATE INDEX IF NOT EXISTS idx_failed_session ON failed(session_id);
 
 -- Status history indexes
-CREATE INDEX IF NOT EXISTS idx_status_history_barcode ON book_status_history(barcode);
 CREATE INDEX IF NOT EXISTS idx_status_history_type ON book_status_history(status_type);
-CREATE INDEX IF NOT EXISTS idx_status_history_timestamp ON book_status_history(timestamp);
-CREATE INDEX IF NOT EXISTS idx_status_history_latest ON book_status_history(barcode, status_type, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_status_history_sync_completed ON book_status_history(status_type, status_value, barcode);
-CREATE INDEX IF NOT EXISTS idx_status_history_etag ON book_status_history(barcode, status_type, timestamp DESC) WHERE json_extract(metadata, '$.encrypted_etag') IS NOT NULL;
