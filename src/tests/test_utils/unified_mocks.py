@@ -225,7 +225,10 @@ def create_progress_tracker_mock(db_path: str = "/tmp/test.db") -> MagicMock:
 
     # Configure async methods
     tracker.update_sync_data = AsyncMock()
-    tracker.get_sync_stats = AsyncMock(return_value={"total_converted": 0, "synced": 0, "failed": 0, "pending": 0})
+    tracker.init_db = AsyncMock()
+    cursor_mock = AsyncMock()
+    cursor_mock.fetchone = AsyncMock(return_value=None)
+    tracker._execute_query = AsyncMock(return_value=cursor_mock)
     tracker.update_book_marc_metadata = AsyncMock()
 
     return tracker
@@ -448,7 +451,10 @@ def create_progress_tracker_with_db_mock(db_path: str) -> MagicMock:
     tracker.db_path = db_path
     tracker.add_status_change = AsyncMock(return_value=True)
     tracker.update_sync_data = AsyncMock()
-    tracker.get_sync_stats = AsyncMock(return_value={"total_converted": 0, "synced": 0, "failed": 0, "pending": 0})
+    tracker.init_db = AsyncMock()
+    cursor_mock = AsyncMock()
+    cursor_mock.fetchone = AsyncMock(return_value=None)
+    tracker._execute_query = AsyncMock(return_value=cursor_mock)
     tracker.update_book_marc_metadata = AsyncMock()
     tracker.get_book_count = AsyncMock(return_value=0)
     tracker.get_enriched_book_count = AsyncMock(return_value=0)
