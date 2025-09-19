@@ -249,11 +249,13 @@ class BookCollector:
             # Create record
             record = BookRecord(**parsed_data)
 
-            # Warn if GRIN returned empty title
+            # Warn if GRIN returned empty title but metadata suggests the book should be downloadable
             if not record.title or record.title.strip() == "":
-                logger.warning(
-                    f"[{barcode}] GRIN returned empty title field; okay only if book is not available for download"
-                )
+                grin_state = record.grin_state or ""
+                if grin_state != "NOT_AVAILABLE_FOR_DOWNLOAD":
+                    logger.warning(
+                        f"[{barcode}] GRIN returned empty title field; grin_state={grin_state or 'None'}; expected only when download is unavailable"
+                    )
 
             # Let the database handle everything via UPSERT
             await self.sqlite_tracker.save_book(record, refresh_mode=self.refresh_mode)

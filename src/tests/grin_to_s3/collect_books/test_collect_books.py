@@ -5,6 +5,7 @@ Unit tests for book collection functionality
 
 import asyncio
 import csv
+import logging
 import os
 import shutil
 import sys
@@ -486,6 +487,31 @@ class TestBookCollector:
         # Normal mode uses ON CONFLICT DO NOTHING, so existing records are preserved
         assert record is not None
         assert record.barcode == "SKIP001"
+
+    @pytest.mark.asyncio
+    async def test_process_book_logs_warning_when_download_should_be_available(self, caplog):
+        """Ensure empty titles trigger warning when GRIN state allows download."""
+
+        grin_row = {"barcode": "AVAILABLE001", "grin_state": "CHECKED_IN"}
+
+        with caplog.at_level(logging.WARNING, logger="grin_to_s3.collect_books.collector"):
+            await self.exporter.process_book(grin_row)
+
+        messages = [record.getMessage() for record in caplog.records]
+        assert any("GRIN returned empty title field" in message for message in messages)
+        assert any("grin_state=CHECKED_IN" in message for message in messages)
+
+    @pytest.mark.asyncio
+    async def test_process_book_suppresses_warning_when_download_unavailable(self, caplog):
+        """Ensure empty title does not log warning when download is marked unavailable."""
+
+        grin_row = {"barcode": "UNAVAILABLE001", "grin_state": "NOT_AVAILABLE_FOR_DOWNLOAD"}
+
+        with caplog.at_level(logging.WARNING, logger="grin_to_s3.collect_books.collector"):
+            await self.exporter.process_book(grin_row)
+
+        messages = [record.getMessage() for record in caplog.records]
+        assert all("GRIN returned empty title field" not in message for message in messages)
 
 
 class TestBookCollectionIntegration:

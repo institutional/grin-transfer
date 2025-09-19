@@ -23,7 +23,6 @@ from grin_to_s3.storage import create_storage_from_config
 from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.staging import LocalDirectoryManager, StagingDirectoryManager
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
-from grin_to_s3.sync.stats import get_sync_stats
 from grin_to_s3.sync.task_manager import (
     TaskManager,
     process_books_with_queue,
@@ -343,10 +342,6 @@ class SyncPipeline:
             return True
 
         return False
-
-    async def get_sync_status(self) -> dict[str, int]:
-        """Get current sync status and statistics."""
-        return await get_sync_stats(self.db_tracker)
 
     async def setup_sync_loop(
         self,
