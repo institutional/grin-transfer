@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""
-Shared test utilities for grin-to-s3 test suite.
+"""Shared test utilities for grin-to-s3 test suite."""
 
-This module provides common functionality used across multiple test files
-to eliminate code duplication and ensure consistent test setup.
-"""
-
+import json
 import tarfile
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
+
+from grin_to_s3.database.connections import connect_async
+from grin_to_s3.database.database_utils import retry_database_operation
 
 
 def create_test_archive(pages: dict[str, str], temp_dir: Path, archive_name: str = "test_archive.tar.gz") -> Path:
@@ -82,3 +82,27 @@ def create_extracted_directory(pages: dict[str, str], temp_dir: Path, dir_name: 
         file_path.write_text(content, encoding="utf-8")
 
     return extracted_dir
+
+
+@retry_database_operation
+async def batch_write_status_updates(db_path: str, status_updates: list) -> None:
+    """Write status history rows for tests using runtime schema."""
+    if not status_updates:
+        return
+
+    async with connect_async(db_path) as conn:
+        for status_update in status_updates:
+            await conn.execute(
+                """INSERT INTO book_status_history
+                   (barcode, status_type, status_value, timestamp, session_id, metadata)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    status_update.barcode,
+                    status_update.status_type,
+                    status_update.status_value,
+                    datetime.now(UTC).isoformat(),
+                    status_update.session_id,
+                    json.dumps(status_update.metadata) if status_update.metadata else None,
+                ),
+            )
+        await conn.commit()

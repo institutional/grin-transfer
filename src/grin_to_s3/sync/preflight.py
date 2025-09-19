@@ -7,7 +7,6 @@ including database backup and other initialization tasks.
 """
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -58,13 +57,6 @@ async def run_database_backup(pipeline: "SyncPipeline") -> DatabaseBackupResult:
         action=TaskAction.COMPLETED,
         data=data,
     )
-
-
-async def cleanup_local_backup(db_path: str, backup_filename: str) -> None:
-    """Remove local database backup file after successful upload to block storage."""
-    backup_file = Path(db_path).parent / "backups" / backup_filename
-    backup_file.unlink(missing_ok=True)
-    logger.debug(f"Cleaned up local backup: {backup_filename}")
 
 
 async def run_preflight_operations(pipeline: "SyncPipeline") -> dict[str, DatabaseBackupResult | DatabaseUploadResult]:

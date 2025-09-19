@@ -13,11 +13,11 @@ import pytest_asyncio
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
-from grin_to_s3.database.database_utils import batch_write_status_updates
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from grin_to_s3.metadata.tsv_parser import parse_grin_tsv
 from tests.mocks import MockGRINClient
 from tests.test_utils.database_helpers import get_book_for_testing
+from tests.utils import batch_write_status_updates
 
 
 class StatusUpdate(NamedTuple):

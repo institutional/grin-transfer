@@ -221,12 +221,6 @@ def create_gcs_storage(project: str, **kwargs: Any) -> Storage:
     return Storage(config)
 
 
-def create_azure_storage(account_name: str, **kwargs: Any) -> Storage:
-    """Create Azure Blob Storage instance."""
-    config = BackendConfig(protocol="abfs", account_name=account_name, **kwargs)
-    return Storage(config)
-
-
 async def create_local_storage_directories(storage_config: StorageConfigDict) -> None:
     """Create all required directories for local storage.
 

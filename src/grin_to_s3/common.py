@@ -148,24 +148,6 @@ def format_duration(seconds: float) -> str:
         return f"{hours}h {remaining_minutes}m"
 
 
-def calculate_transfer_speed(bytes_transferred: int, duration_seconds: float) -> str:
-    """
-    Calculate and format transfer speed.
-
-    Args:
-        bytes_transferred: Number of bytes transferred
-        duration_seconds: Time taken in seconds
-
-    Returns:
-        str: Formatted speed (e.g., "15.2 MB/s", "1.3 GB/s")
-    """
-    if duration_seconds <= 0:
-        return "0 B/s"
-
-    bytes_per_second = bytes_transferred / duration_seconds
-    return f"{format_bytes(int(bytes_per_second))}/s"
-
-
 def _validate_barcode(barcode: str) -> None:
     """Validate a single barcode.
 
