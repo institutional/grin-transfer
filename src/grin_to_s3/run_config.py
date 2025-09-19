@@ -143,20 +143,6 @@ def to_storage_config_dict(source: dict[str, Any]) -> StorageConfigDict:
     return cast(StorageConfigDict, filtered)
 
 
-def to_run_storage_config(
-    storage_type: str, protocol: STORAGE_PROTOCOLS, config: dict[str, Any] | StorageConfigDict, prefix: str = ""
-) -> StorageConfig:
-    """Create a properly typed RunStorageConfig."""
-    result: StorageConfig = {
-        "type": cast(STORAGE_TYPES, storage_type),
-        "protocol": protocol,
-        "config": to_storage_config_dict(cast(dict[str, Any], config)),
-    }
-    if prefix:
-        result["prefix"] = prefix
-    return result
-
-
 @dataclass
 class RunConfig:
     """Configuration for a specific collection run."""
@@ -328,37 +314,6 @@ def apply_run_config_to_args(args: Any, config: RunConfig) -> None:
         attr_name = arg_name.replace("-", "_")
         if hasattr(args, attr_name) and not getattr(args, attr_name, None):
             setattr(args, attr_name, value)
-
-
-def validate_bucket_arguments(args: Any, storage_type: str | None = None) -> list[str]:
-    """
-    Validate that required bucket arguments are present.
-
-    Args:
-        args: Arguments object containing bucket attributes
-        storage_type: Optional storage type for error messages
-
-    Returns:
-        List of missing bucket argument names (empty if all present)
-    """
-    # For R2, bucket names are optional as they can be specified in the config file
-    if storage_type in ["r2"]:
-        return []
-
-    # For local storage, buckets are not needed
-    if storage_type == "local":
-        return []
-
-    # For other cloud storage, bucket names are required
-    missing_buckets: list[str] = []
-    if not getattr(args, "bucket_raw", None):
-        missing_buckets.append("--bucket-raw")
-    if not getattr(args, "bucket_meta", None):
-        missing_buckets.append("--bucket-meta")
-    if not getattr(args, "bucket_full", None):
-        missing_buckets.append("--bucket-full")
-
-    return missing_buckets
 
 
 def build_storage_config_dict(args: Any) -> StorageConfigDict:

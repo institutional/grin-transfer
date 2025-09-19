@@ -18,13 +18,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def get_barcode_from_path(archive_path: str) -> str:
-    """Extract barcode from archive filename."""
-    # Get the basename by taking everything before the first dot
-    # This handles: .tar.gz, .tar.gz.gpg, .decrypted.tar.gz, etc.
-    return Path(archive_path).name.split(".")[0]
-
-
 class TextExtractionError(Exception):
     """Raised when text extraction fails due to archive issues."""
 

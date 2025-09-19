@@ -12,7 +12,6 @@ from typing import NamedTuple
 from unittest import IsolatedAsyncioTestCase
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
-from grin_to_s3.database.database_utils import batch_write_status_updates
 from tests.test_utils.database_helpers import (
     get_all_barcodes_for_testing,
     get_barcodes_from_set_for_testing,
@@ -20,6 +19,7 @@ from tests.test_utils.database_helpers import (
     get_barcodes_with_sync_status_for_testing,
     get_latest_status_for_testing,
 )
+from tests.utils import batch_write_status_updates
 
 
 class StatusUpdate(NamedTuple):

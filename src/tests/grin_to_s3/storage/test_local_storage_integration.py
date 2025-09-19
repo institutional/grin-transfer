@@ -8,7 +8,6 @@ import pytest
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.sync.pipeline import SyncPipeline
-from grin_to_s3.sync.stats import get_sync_stats
 
 
 class TestLocalStorageIntegration:
@@ -39,17 +38,10 @@ class TestLocalStorageIntegration:
                 process_summary_stage=mock_process_stage,
             )
 
-            # Mock database methods
-
-            # Mock converted books
-            mock_converted_books = {"TEST123"}
-
-            with patch("grin_to_s3.queue_utils.get_converted_books", return_value=mock_converted_books):
-                # This should exercise the complete pipeline
-                status = await get_sync_stats(pipeline.db_tracker)
-
-                # Verify pipeline can be initialized and provide status
-                assert "total_converted" in status
+            # Basic sanity check that DB tracker is wired up
+            await pipeline.db_tracker.init_db()
+            books = await pipeline.db_tracker.get_books_by_grin_state("PREVIOUSLY_DOWNLOADED")
+            assert isinstance(books, set)
 
     @pytest.mark.asyncio
     async def test_local_storage_startup_configuration_display(self, mock_process_stage, test_config_builder):
