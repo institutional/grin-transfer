@@ -49,3 +49,4 @@ GPG_KEY_GRIN
 *.passphrase
 
 .coverage
+AGENTS.md
