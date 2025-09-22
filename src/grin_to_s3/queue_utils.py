@@ -60,14 +60,20 @@ async def get_converted_books(grin_client: GRINClient, library_directory: str) -
     Returns:
         set: Set of converted book barcodes
     """
-    response_text = await grin_client.fetch_resource(library_directory, "_converted?format=text", timeout=120)
-    lines = response_text.strip().split("\n")
-    converted_barcodes = set()
-    for line in lines:
-        if line.strip() and ".tar.gz.gpg" in line:
-            barcode = line.strip().replace(".tar.gz.gpg", "")
-            converted_barcodes.add(barcode)
-    return converted_barcodes
+    try:
+        response_text = await grin_client.fetch_resource(library_directory, "_converted?format=text", timeout=240)
+        lines = response_text.strip().split("\n")
+        converted_barcodes = set()
+        for line in lines:
+            if line.strip() and ".tar.gz.gpg" in line:
+                barcode = line.strip().replace(".tar.gz.gpg", "")
+                converted_barcodes.add(barcode)
+        return converted_barcodes
+    except Exception as e:
+        error_type = type(e).__name__
+        error_msg = str(e) if str(e) else "No error message"
+        logger.warning(f"Failed to get converted books: {error_type}: {error_msg}")
+        return set()
 
 
 async def get_in_process_set(grin_client: GRINClient, library_directory: str) -> BarcodeSet:
