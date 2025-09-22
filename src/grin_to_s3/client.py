@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import aiohttp
 from selectolax.lexbor import LexborHTMLParser
-from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential, wait_fixed
+from tenacity import before_sleep_log, retry, stop_after_attempt, wait_fixed
 
 from grin_to_s3.auth import GRINAuth
 
@@ -81,17 +81,11 @@ class GRINClient:
             self._consecutive_errors = 0
         return self.session
 
-    @retry(
-        stop=stop_after_attempt(4),  # Total 4 attempts (1 + 3 retries)
-        wait=wait_exponential(multiplier=2, min=2, max=30),  # 2s, 4s, 8s, 16s, 30s
-        before_sleep=before_sleep_log(logger, logging.WARNING),
-        reraise=True,
-    )
     async def fetch_resource(
         self, directory: str, resource: str = "?format=text", method: str = "GET", timeout: int | None = None
     ) -> str:
         """
-        Fetch a resource from GRIN directory with retry logic.
+        Fetch a resource from GRIN directory.
 
         Args:
             directory: GRIN directory name (e.g., 'Harvard')
