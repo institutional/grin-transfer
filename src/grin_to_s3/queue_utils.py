@@ -61,13 +61,12 @@ async def get_converted_books(grin_client: GRINClient, library_directory: str) -
         set: Set of converted book barcodes
     """
     try:
-        response_text = await grin_client.fetch_resource(library_directory, "_converted?format=text", timeout=240)
-        lines = response_text.strip().split("\n")
-        converted_barcodes = set()
-        for line in lines:
-            if line.strip() and ".tar.gz.gpg" in line:
-                barcode = line.strip().replace(".tar.gz.gpg", "")
-                converted_barcodes.add(barcode)
+        # Use streaming approach to avoid materializing large responses
+        converted_barcodes = {
+            line.strip().removesuffix(".tar.gz.gpg")
+            async for line in grin_client.stream_text_lines(library_directory, "_converted?format=text", timeout=240)
+            if line.strip() and ".tar.gz.gpg" in line
+        }
         return converted_barcodes
     except Exception as e:
         error_type = type(e).__name__
@@ -93,18 +92,18 @@ async def get_in_process_set(grin_client: GRINClient, library_directory: str) ->
             logger.debug(f"Using cached in_process data for {library_directory}")
             return books
 
-    response_text = await grin_client.fetch_resource(library_directory, "_in_process?format=text")
-    lines = response_text.strip().split("\n")
+    # Use streaming approach to avoid materializing large responses
     in_process_barcodes = set()
-    for line in lines:
+    async for line in grin_client.stream_text_lines(library_directory, "_in_process?format=text"):
         clean_line = line.strip()
         if clean_line:
             if ".tar.gz.gpg" in clean_line:
-                barcode = clean_line.replace(".tar.gz.gpg", "")
+                barcode = clean_line.removesuffix(".tar.gz.gpg")
                 in_process_barcodes.add(barcode)
             else:
                 # Handle bare barcode format
                 in_process_barcodes.add(clean_line)
+
     # Update cache
     _in_process_cache[cache_key] = (in_process_barcodes, current_time)
     logger.debug(f"Fetched {len(in_process_barcodes)} in_process books for {library_directory}")

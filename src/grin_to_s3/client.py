@@ -113,6 +113,49 @@ class GRINClient:
         response = await self._request(session, url, method=method, **kwargs)
         return await response.text()
 
+    async def stream_text_lines(
+        self, directory: str, resource: str = "?format=text", method: str = "GET", timeout: int | None = None
+    ) -> AsyncGenerator[str, None]:
+        """
+        Stream lines from a GRIN resource without materializing the entire response.
+
+        Note: Retry logic is handled at the HTTP request level via _request method.
+
+        Args:
+            directory: GRIN directory name (e.g., 'Harvard')
+            resource: Resource path (e.g., '_converted?format=text')
+            method: HTTP method
+            timeout: Custom timeout in seconds (overrides default)
+
+        Yields:
+            str: Individual lines from the response
+        """
+        url = f"{self.base_url}/{directory}/{resource}"
+        session = await self._ensure_session()
+
+        # Use custom timeout if provided
+        kwargs = {}
+        if timeout is not None:
+            kwargs["timeout"] = aiohttp.ClientTimeout(total=timeout, connect=10)
+
+        response = await self._request(session, url, method=method, **kwargs)
+
+        # Stream lines from the response
+        buffer = ""
+        async for chunk in response.content.iter_chunked(8192):  # 8KB chunks
+            chunk_text = chunk.decode("utf-8")
+            buffer += chunk_text
+
+            # Split buffer on newlines and yield complete lines
+            while "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                if line:  # Skip empty lines
+                    yield line
+
+        # Yield any remaining content in buffer
+        if buffer.strip():
+            yield buffer.strip()
+
     async def download_archive(self, url: str, timeout: int | None = None) -> aiohttp.ClientResponse:
         """Download a book archive - for use by download.py."""
         session = await self._ensure_session()
