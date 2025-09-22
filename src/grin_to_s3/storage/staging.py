@@ -147,13 +147,6 @@ class StagingDirectoryManager(DirectoryManager):
             print("⚠️ Disk space limit reached ({usage_ratio:.1%} used) — new downloads paused until space freed")
             return False
 
-        # Log disk usage occasionally
-        if usage_ratio > 0.7:  # Log when >70% full
-            logger.debug(
-                f"Staging disk usage: {usage_ratio:.1%} "
-                f"({used_bytes / (1024**3):.1f}GB / {total_bytes / (1024**3):.1f}GB)"
-            )
-
         return True
 
     async def wait_for_disk_space(self, required_bytes: int = 0, check_interval: int = 30, timeout: int = 600) -> None:
