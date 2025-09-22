@@ -12,6 +12,7 @@ import pytest
 
 from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.process_summary import (
+    ProcessStageMetrics,
     RunSummary,
     create_process_summary,
     save_process_summary,
@@ -131,6 +132,106 @@ class TestRunSummary:
         assert stage_data["books_collected"] == 8
         assert stage_data["collection_failed"] == 2
         assert stage_data["is_completed"] is True
+
+
+class TestProcessStageMetricsQueueTracking:
+    """Test queue tracking features in ProcessStageMetrics."""
+
+    def test_queue_fields_initialization(self):
+        """Test that progress_updates are properly initialized."""
+        stage = ProcessStageMetrics("sync")
+
+        assert stage.progress_updates == []
+
+    def test_increment_by_outcome_without_queue(self):
+        """Test increment_by_outcome works for stage-level counters."""
+        stage = ProcessStageMetrics("sync")
+
+        stage.increment_by_outcome("synced")
+        stage.increment_by_outcome("failed")
+        stage.increment_by_outcome("skipped")
+        stage.increment_by_outcome("conversion_requested")
+
+        assert stage.books_synced == 1
+        assert stage.sync_failed == 1
+        assert stage.sync_skipped == 1
+        assert stage.conversions_requested_during_sync == 1
+
+    def test_progress_updates_with_queue_data(self):
+        """Test adding progress updates with queue tracking data."""
+        stage = ProcessStageMetrics("sync")
+        stage.start_stage()
+
+        # Add progress update with queue counts
+        stage.add_progress_update(
+            "Fetched books from converted queue",
+            queue_name="converted",
+            queue_counts={"converted": {"books_available": 100, "count_returned": 100}},
+        )
+
+        # Add progress update with queue outcomes
+        stage.add_progress_update(
+            "Queue outcomes for converted",
+            queue_name="converted",
+            queue_outcomes={"converted": {"synced": 2, "skipped": 0, "conversion_requested": 0, "failed": 1}},
+        )
+
+        # Check progress updates contain queue data
+        assert len(stage.progress_updates) == 2
+
+        # Check first update
+        first_update = stage.progress_updates[0]
+        assert first_update["message"] == "Fetched books from converted queue"
+        assert first_update["queue_name"] == "converted"
+        assert "queue_counts" in first_update
+        assert first_update["queue_counts"]["converted"]["books_available"] == 100
+
+        # Check second update
+        second_update = stage.progress_updates[1]
+        assert second_update["message"] == "Queue outcomes for converted"
+        assert second_update["queue_name"] == "converted"
+        assert "queue_outcomes" in second_update
+        assert second_update["queue_outcomes"]["converted"]["synced"] == 2
+
+    def test_get_summary_dict_includes_queue_data_in_progress_updates(self):
+        """Test that get_summary_dict includes queue tracking data in progress_updates."""
+        summary = RunSummary(run_name="test_run")
+        stage = summary.start_stage("sync")
+
+        # Add queue data via progress updates
+        stage.add_progress_update(
+            "Fetched books",
+            queue_name="converted",
+            queue_counts={"converted": {"books_available": 100, "books_processed": 50}},
+        )
+        stage.add_progress_update(
+            "Queue outcomes",
+            queue_name="converted",
+            queue_outcomes={"converted": {"synced": 1, "skipped": 0, "conversion_requested": 0, "failed": 0}},
+        )
+
+        summary.end_stage("sync")
+        summary_dict = summary.get_summary_dict()
+
+        # Check that queue data is included in progress_updates
+        sync_stage = summary_dict["stages"]["sync"]
+        assert "progress_updates" in sync_stage
+        assert len(sync_stage["progress_updates"]) == 2
+
+        # Find the progress update with queue_counts
+        queue_counts_update = None
+        queue_outcomes_update = None
+        for update in sync_stage["progress_updates"]:
+            if "queue_counts" in update:
+                queue_counts_update = update
+            if "queue_outcomes" in update:
+                queue_outcomes_update = update
+
+        # Check specific values
+        assert queue_counts_update is not None
+        assert queue_counts_update["queue_counts"]["converted"]["books_available"] == 100
+        assert queue_outcomes_update is not None
+        assert queue_outcomes_update["queue_outcomes"]["converted"]["synced"] == 1
 
 
 @pytest.mark.asyncio
