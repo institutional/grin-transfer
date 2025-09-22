@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import aiohttp
+
 from grin_to_s3.client import GRINClient
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
 from grin_to_s3.common import (
@@ -54,11 +56,15 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
     Args:
         grin_client: GRIN client instance
         library_directory: Library directory name
-        queue_name: Queue name (converted, previous, unconverted, changed, all)
+        queue_name: Queue name (converted, previous, unconverted, changed)
         db_tracker: Database tracker instance
 
     Returns:
         set: Set of barcodes for the specified queue
+
+    Raises:
+        aiohttp.ClientError: If there's a network error communicating with GRIN
+        TimeoutError: If the request times out
     """
     if queue_name == "converted":
         return await get_converted_books(grin_client, library_directory)
@@ -109,12 +115,6 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
         # TODO: Implement changed queue (books with newer versions in GRIN)
         logger.warning("Changed queue not yet implemented")
         return set()
-    elif queue_name == "all":
-        # Union of converted, previous, and unconverted queues
-        converted = await get_converted_books(grin_client, library_directory)
-        previous = await get_books_from_queue(grin_client, library_directory, "previous", db_tracker)
-        unconverted = await get_books_from_queue(grin_client, library_directory, "unconverted", db_tracker)
-        return converted | previous | unconverted
     else:
         raise ValueError(f"Unknown queue name: {queue_name}")
 
@@ -354,7 +354,7 @@ class SyncPipeline:
         Args:
             limit: Optional limit on number of books to sync
             specific_barcodes: Optional list of specific barcodes to sync
-            queues: List of queue types to process (converted, previous, changed, all)
+            queues: List of queue types to process (converted, previous, changed)
         """
 
         if self.dry_run:
@@ -476,12 +476,56 @@ class SyncPipeline:
                     print()
                     print(f"Fetching books from '{queue_name}' queue...")
                     logger.info(f"Fetching books from '{queue_name}' queue")
-                    queue_books = await get_books_from_queue(
-                        self.grin_client, self.library_directory, queue_name, self.db_tracker
+
+                    try:
+                        queue_books = await get_books_from_queue(
+                            self.grin_client, self.library_directory, queue_name, self.db_tracker
+                        )
+                    except (aiohttp.ClientError, TimeoutError) as e:
+                        error_type = type(e).__name__
+                        error_msg = str(e) if str(e) else "No error message"
+                        logger.warning(f"Failed to fetch '{queue_name}' queue: {error_type}: {error_msg}")
+                        queue_books = None
+
+                    # Handle fetch failure
+                    if queue_books is None:
+                        # Store fetch failure in progress update
+                        queue_count_data = {
+                            "books_available": 0,
+                            "fetch_error": f"Failed to fetch '{queue_name}' queue",
+                        }
+                        if queue_name == "converted":
+                            queue_count_data["count_returned"] = None
+
+                        self.process_summary_stage.add_progress_update(
+                            f"Failed to fetch '{queue_name}' queue",
+                            queue_name=queue_name,
+                            queue_counts={queue_name: queue_count_data},
+                        )
+
+                        print(f"  Error: Failed to fetch '{queue_name}' queue (check logs for details)")
+                        logger.error(f"Failed to fetch '{queue_name}' queue, skipping to next queue")
+                        continue  # Skip to next queue
+
+                    # Store queue counts in progress update
+                    queue_count_data = {"books_available": len(queue_books)}
+                    if queue_name == "converted":
+                        queue_count_data["count_returned"] = len(queue_books)
+                    elif queue_name in ["previous", "unconverted"]:
+                        # Get available space for these queues (calculated in get_books_from_queue)
+                        in_process = await get_in_process_set(self.grin_client, self.library_directory)
+                        if in_process is not None:  # Only calculate if we got valid data
+                            queue_count_data["available_space"] = GRIN_MAX_QUEUE_SIZE - len(in_process)
+
+                    self.process_summary_stage.add_progress_update(
+                        f"Fetched {len(queue_books):,} books from '{queue_name}' queue",
+                        queue_name=queue_name,
+                        queue_counts={queue_name: queue_count_data},
                     )
+
                     if len(queue_books) == 0:
-                        print(f"  Warning: '{queue_name}' queue returned no books (check logs for errors)")
-                        logger.warning(f"'{queue_name}' queue returned no books (check for fetch errors above)")
+                        print(f"  Warning: '{queue_name}' queue returned no books")
+                        logger.warning(f"'{queue_name}' queue returned no books")
                         continue  # Skip to next queue
 
                     print(f"  '{queue_name}' queue: {len(queue_books):,} books available")
@@ -504,7 +548,7 @@ class SyncPipeline:
                     if self.dry_run:
                         await self._show_dry_run_preview(books_to_process, limit, specific_barcodes, queue_name)
                         # Update process summary with current session parameters (but no actual results)
-                        self._update_process_summary_metrics({}, [queue_name], limit, specific_barcodes)
+                        self._update_process_summary_metrics({}, [queue_name], limit, specific_barcodes, queue_name)
                         continue  # Skip to next queue in dry-run
 
                     books_to_process_count = len(books_to_process)
@@ -529,8 +573,18 @@ class SyncPipeline:
                         progress_interval=self.progress_interval,
                     )
 
+                    # Store books processed count in progress update
+                    queue_count_data = {"books_processed": len(book_results)}
+                    self.process_summary_stage.add_progress_update(
+                        f"Completed processing {len(book_results):,} books from '{queue_name}' queue",
+                        queue_name=queue_name,
+                        queue_counts={queue_name: queue_count_data},
+                    )
+
                     # Update process summary with detailed metrics from book results
-                    self._update_process_summary_metrics(book_results, [queue_name], limit, specific_barcodes)
+                    self._update_process_summary_metrics(
+                        book_results, [queue_name], limit, specific_barcodes, queue_name
+                    )
 
                     # If pipeline requested shutdown due to failures, stop processing remaining queues
                     if self._shutdown_requested:
@@ -619,14 +673,26 @@ class SyncPipeline:
         queues: list[str] | None,
         limit: int | None,
         specific_barcodes: list[str] | None,
+        queue_name: str | None = None,
     ) -> None:
         """Update process summary stage with book-level outcome metrics."""
         # Analyze book results to determine outcomes
         # Count book outcomes and update stage-specific counters
+        queue_outcomes = {"synced": 0, "skipped": 0, "conversion_requested": 0, "failed": 0}
+
         for task_results in book_results.values():
             # Determine the overall outcome for this book and increment appropriate counter
             book_outcome = self.process_summary_stage.determine_book_outcome(task_results)
             self.process_summary_stage.increment_by_outcome(book_outcome)
+            queue_outcomes[book_outcome] += 1
+
+        # Store queue outcomes in progress update if we processed any books
+        if book_results and queue_name:
+            self.process_summary_stage.add_progress_update(
+                f"Queue outcomes for '{queue_name}': {sum(queue_outcomes.values())} books processed",
+                queue_name=queue_name,
+                queue_outcomes={queue_name: queue_outcomes},
+            )
 
         # Store queue information
         if queues:

@@ -266,7 +266,7 @@ Examples:
     pipeline_parser.add_argument("--run-name", required=True, help="Run name (e.g., harvard_2024)")
     pipeline_parser.add_argument(
         "--queue",
-        choices=["converted", "previous", "unconverted", "changed", "all"],
+        choices=["converted", "previous", "unconverted", "changed"],
         action="append",
         help="Queue type to process. Multiple options allowed (e.g., --queue converted --queue previous). Processed in order specified. Required unless --barcodes is provided.",
     )
