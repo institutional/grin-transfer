@@ -16,6 +16,7 @@ from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import Any
 
+import aiofiles
 import fsspec
 
 from ..constants import DEFAULT_S3_MAX_POOL_CONNECTIONS
@@ -267,11 +268,29 @@ class Storage:
             )
             raise
 
+    def _calculate_part_size(self, file_size: int) -> int:
+        """Calculate optimal part size based on file size."""
+        if file_size < 100 * 1024 * 1024:  # < 100MB
+            return 10 * 1024 * 1024  # 10MB parts
+        elif file_size < 1024 * 1024 * 1024:  # < 1GB
+            return 16 * 1024 * 1024  # 16MB parts
+        elif file_size < 5 * 1024 * 1024 * 1024:  # < 5GB
+            return 32 * 1024 * 1024  # 32MB parts
+        else:
+            # Target ~100 parts for very large files, cap at 100MB per part
+            target_part_size = file_size // 100
+            return min(target_part_size, 100 * 1024 * 1024)
+
     async def _multipart_upload_from_file(
         self, s3_client, bucket: str, key: str, file_path: str, metadata: dict[str, str] | None = None
     ) -> None:
-        """Upload large files using multipart upload directly from file for better performance."""
-        import aiofiles
+        """Upload large files using streaming parallel multipart upload with bounded memory."""
+
+        # Get file size for adaptive part sizing
+        file_size = Path(file_path).stat().st_size
+        chunk_size = self._calculate_part_size(file_size)
+        max_concurrent_parts = 5  # Parallel part uploads for performance
+        queue_size = 10  # Maximum chunks in memory at once
 
         # Initiate multipart upload
         create_kwargs = {"Bucket": bucket, "Key": key}
@@ -280,39 +299,111 @@ class Storage:
         response = await s3_client.create_multipart_upload(**create_kwargs)
 
         upload_id = response["UploadId"]
-        parts = []
-        part_number = 1
-        chunk_size = 10 * 1024 * 1024  # 10MB chunks for better throughput
+        estimated_parts = (file_size + chunk_size - 1) // chunk_size  # Ceiling division
+
+        logger.debug(
+            f"Starting streaming multipart upload for {key} "
+            f"(upload_id={upload_id}, file_size={file_size // 1024 // 1024}MB, "
+            f"chunk_size={chunk_size // 1024 // 1024}MB, estimated_parts={estimated_parts}, "
+            f"storage_id={self._instance_id})"
+        )
 
         try:
-            async with aiofiles.open(file_path, "rb") as f:
+            # Queue for chunks with bounded size to limit memory usage
+            chunk_queue: asyncio.Queue[tuple[int, bytes] | None] = asyncio.Queue(maxsize=queue_size)
+            # Shared list for collecting results (list.append is atomic in CPython)
+            results: list[tuple[int, str]] = []
+
+            async def producer():
+                """Read file and add chunks to queue."""
+                part_number = 1
+                try:
+                    async with aiofiles.open(file_path, "rb") as f:
+                        while True:
+                            chunk = await f.read(chunk_size)
+                            if not chunk:
+                                break
+                            await chunk_queue.put((part_number, chunk))
+                            part_number += 1
+                finally:
+                    # Signal end of file with one None per consumer
+                    for _ in range(max_concurrent_parts):
+                        await chunk_queue.put(None)
+
+            async def consumer():
+                """Take chunks from queue and upload them."""
                 while True:
-                    chunk = await f.read(chunk_size)
-                    if not chunk:
+                    item = await chunk_queue.get()
+                    if item is None:
+                        # End of file signal - mark sentinel as done before breaking
+                        chunk_queue.task_done()
                         break
 
-                    # Upload part
-                    part_response = await s3_client.upload_part(
-                        Bucket=bucket, Key=key, PartNumber=part_number, UploadId=upload_id, Body=chunk
-                    )
+                    part_number, chunk = item
+                    try:
+                        logger.debug(
+                            f"Starting upload of part {part_number} ({len(chunk) // 1024 // 1024}MB) for {key}"
+                        )
+                        etag = await self._upload_part(s3_client, bucket, key, part_number, upload_id, chunk)
+                        results.append((part_number, etag))  # Atomic append
+                        logger.debug(f"Completed upload of part {part_number} for {key}")
+                    except Exception as e:
+                        logger.error(f"Failed to upload part {part_number} for {key}: {e}")
+                        raise
+                    finally:
+                        chunk_queue.task_done()
 
-                    parts.append({"ETag": part_response["ETag"], "PartNumber": part_number})
+            # Create tasks
+            producer_task = asyncio.create_task(producer())
+            consumer_tasks = [asyncio.create_task(consumer()) for _ in range(max_concurrent_parts)]
 
-                    part_number += 1
+            # Wait for producer to finish
+            await producer_task
 
-                # Complete multipart upload
-                await s3_client.complete_multipart_upload(
-                    Bucket=bucket, Key=key, UploadId=upload_id, MultipartUpload={"Parts": parts}
-                )
+            # Wait for all chunks to be processed
+            await chunk_queue.join()
+
+            # Wait for all consumers to finish
+            await asyncio.gather(*consumer_tasks)
+
+            # Sort results by part number and build parts list
+            results.sort(key=lambda x: x[0])  # Sort by part number
+            parts = [{"ETag": etag, "PartNumber": part_number} for part_number, etag in results]
+            total_parts = len(parts)
+
+            logger.debug(f"All {total_parts} parts uploaded successfully, completing multipart upload ({key})")
+
+            # Complete multipart upload
+            await s3_client.complete_multipart_upload(
+                Bucket=bucket, Key=key, UploadId=upload_id, MultipartUpload={"Parts": parts}
+            )
+
+            logger.debug(f"Multipart upload completed successfully ({key}, upload_id={upload_id})")
 
         except Exception as e:
             # Abort multipart upload on error
             try:
                 await s3_client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
+                logger.error(f"Aborted multipart upload ({key}, upload_id={upload_id})")
             except Exception:
                 pass  # Ignore errors when aborting
 
             raise e
+
+    async def _upload_part(
+        self, s3_client, bucket: str, key: str, part_number: int, upload_id: str, chunk: bytes
+    ) -> str:
+        """Upload a single part and return its ETag."""
+        chunk_size_mb = len(chunk) / (1024 * 1024)
+        logger.debug(f"Uploading part {part_number} ({chunk_size_mb:.1f}MB) for {key}")
+
+        part_response = await s3_client.upload_part(
+            Bucket=bucket, Key=key, PartNumber=part_number, UploadId=upload_id, Body=chunk
+        )
+
+        etag = part_response["ETag"]
+        logger.debug(f"Part {part_number} upload completed for {key} (ETag={etag})")
+        return etag
 
     async def write_text(self, path: str, text: str, encoding: str = "utf-8") -> None:
         """
