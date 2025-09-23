@@ -83,7 +83,7 @@ Assuming Docker is running on your local or host machine:
 ./grin-docker auth setup
 
 # Then run a sample collection using filesystem storage
-./grin-docker collect --run-name test_run --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=docker-data/storage --limit 5
+./grin-docker collect --run-name test_run --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-path docker-data/storage --limit 5
 
 # Then run a sample sync using that collection (assuming GRIN has titles available for download)
 ./grin-docker sync pipeline --run-name test_run --queue converted
@@ -117,7 +117,7 @@ uv run grin auth setup
 uv run grin auth setup --remote-auth
 
 # Then run a sample collection 
-uv run grin collect --run-name test_run --storage local --storage-config base_path=/tmp/grin-to-s3-storage --limit 10 --library-directory YOUR_LIBRARY_DIRECTORY
+uv run grin collect --run-name test_run --storage local --storage-path /tmp/grin-to-s3-storage --limit 10 --library-directory YOUR_LIBRARY_DIRECTORY
 
 # And sync 10 files (assuming your collection has some available for download)
 uv run grin sync pipeline --run-name test_run --queue converted --limit 10
@@ -177,7 +177,7 @@ uv run grin collect --run-name RUN_NAME \
   --storage r2 
 
 # Local storage (no buckets required, but you must specify the path to the directory where files will go)
-uv run grin collect --run-name "local_test" --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=/tmp/storage
+uv run grin collect --run-name "local_test" --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-path /tmp/storage
 
 ```
 
@@ -418,7 +418,7 @@ If you have a large enough locally-mounted filesystem, you can sync directly to 
 When using local storage, you must specify a `base_path` as the directory where books and metadata will be stored. The pipeline will organize the raw, full, and metadata files underneath that.
 
 ```bash
-uv run grin collect --run-name "local" --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-config base_path=/var/grin-books
+uv run grin collect --run-name "local" --library-directory YOUR_LIBRARY_DIRECTORY --storage local --storage-path /var/grin-books
 ```
 </details>
 

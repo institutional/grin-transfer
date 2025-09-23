@@ -80,8 +80,8 @@ Examples:
   # With rate limiting and storage checking
   python grin.py collect --rate-limit 0.5 --storage s3 --bucket-raw my-raw --bucket-meta my-meta --bucket-full my-full
 
-  # Local storage (requires base_path, no buckets needed)
-  python grin.py collect --storage local --run-name "local_test" --storage-config base_path=/path/to/storage
+  # Local storage (requires storage_path, no buckets needed)
+  python grin.py collect --storage local --run-name "local_test" --storage-path /path/to/storage
 
   # Resume interrupted collection (uses run-specific progress files and saved config)
   python grin.py collect --run-name "harvard_fall_2024" --storage r2 --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
@@ -135,6 +135,10 @@ Examples:
         help="Full-text bucket (for OCR outputs, required for MinIO, GCS, or S3, optional for R2 if in config file)",
     )
     parser.add_argument("--storage-config", action="append", help="Additional storage config key=value")
+    parser.add_argument(
+        "--storage-path",
+        help="Base directory path for local storage (simpler alternative to --storage-config base_path=...)",
+    )
 
     parser.add_argument(
         "--secrets-dir",
