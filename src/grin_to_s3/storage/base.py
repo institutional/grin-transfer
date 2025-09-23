@@ -104,11 +104,14 @@ class Storage:
                     config = aiobotocore.config.AioConfig(
                         max_pool_connections=max_pool_connections,
                         retries={"max_attempts": 3, "mode": "adaptive"},
+                        read_timeout=300,  # 5 minutes for read operations (matches DOWNLOAD_TIMEOUT)
+                        connect_timeout=120,  # 2 minutes to establish connection
                     )
 
                     logger.info(
                         f"Creating S3 client (storage_id={self._instance_id}, "
-                        f"max_pool_connections={max_pool_connections})"
+                        f"max_pool_connections={max_pool_connections}, "
+                        f"read_timeout=300s, connect_timeout=120s)"
                     )
 
                     # Use the credentials from the storage config
