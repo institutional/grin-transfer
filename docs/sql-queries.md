@@ -115,7 +115,7 @@ Books flagged as not being available for conversion in GRIN:
 ```sql
 SELECT COUNT(*) as unavailable_count
 FROM book_status_history 
-WHERE status_type = 'sync' 
+WHERE status_type = 'conversion' 
   AND status_value = 'unavailable';
 ```
 
@@ -247,7 +247,8 @@ SELECT
     COUNT(*),
     MAX(timestamp)
 FROM book_status_history
-WHERE status_type = 'processing_request';
+WHERE status_type = 'conversion'
+  AND status_value = 'requested';
 ```
 
 Recent pipeline activity (last 7 days):
@@ -348,7 +349,7 @@ SELECT
     json_extract(bsh.metadata, '$.reason') as error_reason
 FROM books b
 JOIN book_status_history bsh ON b.barcode = bsh.barcode
-WHERE bsh.status_type = 'sync' 
+WHERE bsh.status_type = 'conversion' 
   AND bsh.status_value = 'unavailable'
 ORDER BY bsh.timestamp DESC;
 ```

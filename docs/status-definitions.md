@@ -33,16 +33,11 @@ The system uses different status types to categorise processing stages:
 
 ## Conversion Pipeline Statuses
 
-### Request Statuses
+Conversion requests and responses from GRIN are tracked under the `conversion` status type:
 - **`requested`** - Conversion successfully requested from GRIN
-- **`failed`** - Conversion request failed (generic failure)
 - **`limit_reached`** - GRIN queue limit reached, request rejected
-- **`unavailable`** - Book verified as unavailable for conversion in GRIN
-
-### Response Statuses
-These reflect GRIN's response to conversion status queries:
-- **`in_process`** - Book is being processed by GRIN
 - **`skipped`** - Conversion request skipped (already requested, already available, etc.)
+- **`unavailable`** - Book verified as unavailable for conversion in GRIN
 
 ## Extraction Pipeline Statuses
 
