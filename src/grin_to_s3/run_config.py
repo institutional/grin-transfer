@@ -345,6 +345,14 @@ def build_storage_config_dict(args: Any) -> StorageConfigDict:
                 key, value = item.split("=", 1)
                 storage_dict[key] = value
 
+    # Handle --storage-path argument
+    storage_path = getattr(args, "storage_path", None)
+    if storage_path:
+        # Check for conflict with --storage-config base_path
+        if "base_path" in storage_dict:
+            raise ValueError("Cannot specify both --storage-path and --storage-config base_path")
+        storage_dict["base_path"] = storage_path
+
     # For R2 storage, always load credentials from file
     storage_type = getattr(args, "storage", None)
     if storage_type == "r2":

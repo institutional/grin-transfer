@@ -9,6 +9,7 @@ from grin_to_s3.run_config import (
     RunConfig,
     StorageConfig,
     SyncConfig,
+    build_storage_config_dict,
     load_run_config,
     save_run_config,
     serialize_paths,
@@ -195,3 +196,61 @@ def test_load_run_config_returns_dataclass():
         assert loaded_config.log_file == Path("/tmp/log.txt")
         assert loaded_config.secrets_dir == Path("/tmp/secrets")
         assert loaded_config.sync_config["staging_dir"] == Path("/tmp/staging")
+
+
+class MockArgs:
+    """Mock arguments object for testing build_storage_config_dict."""
+
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+
+def test_build_storage_config_dict_with_storage_path():
+    """build_storage_config_dict should handle --storage-path argument."""
+    args = MockArgs(
+        storage_path="/tmp/test-storage",
+        storage_config=None,
+        bucket_raw=None,
+        bucket_meta=None,
+        bucket_full=None,
+        storage="local",
+    )
+
+    result = build_storage_config_dict(args)
+
+    assert result["base_path"] == "/tmp/test-storage"
+
+
+def test_build_storage_config_dict_with_storage_config_base_path():
+    """build_storage_config_dict should handle --storage-config base_path for backward compatibility."""
+    args = MockArgs(
+        storage_path=None,
+        storage_config=["base_path=/tmp/legacy-storage"],
+        bucket_raw=None,
+        bucket_meta=None,
+        bucket_full=None,
+        storage="local",
+    )
+
+    result = build_storage_config_dict(args)
+
+    assert result["base_path"] == "/tmp/legacy-storage"
+
+
+def test_build_storage_config_dict_conflicts_storage_path_and_base_path():
+    """build_storage_config_dict should raise error when both --storage-path and --storage-config base_path are specified."""
+    args = MockArgs(
+        storage_path="/tmp/new-storage",
+        storage_config=["base_path=/tmp/legacy-storage"],
+        bucket_raw=None,
+        bucket_meta=None,
+        bucket_full=None,
+        storage="local",
+    )
+
+    try:
+        build_storage_config_dict(args)
+        raise AssertionError("Expected ValueError to be raised")
+    except ValueError as e:
+        assert "Cannot specify both --storage-path and --storage-config base_path" in str(e)
