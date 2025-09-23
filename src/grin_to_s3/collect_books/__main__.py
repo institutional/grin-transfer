@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import logging
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -62,6 +63,38 @@ if hasattr(sys.stderr, "reconfigure"):
 
 # Set up module logger
 logger = logging.getLogger(__name__)
+
+
+def valid_library_directory(value: str) -> str:
+    """Validate library directory is a simple string, not a URL or path."""
+    # Check for empty string
+    if not value or not value.strip():
+        raise argparse.ArgumentTypeError("Library directory cannot be empty")
+
+    # Check for URL
+    if "://" in value or value.startswith(("http:", "https:")):
+        raise argparse.ArgumentTypeError(
+            f"Library directory should be the library name from your GRIN URL path.\n\n"
+            f"For example, given 'https://books.google.com/libraries/Harvard/_all_books', "
+            f"use 'Harvard' (case sensitive).\n\n"
+            f"You provided: '{value}'"
+        )
+
+    # Check for path separators - user may have included path components
+    if "/" in value or "\\" in value:
+        raise argparse.ArgumentTypeError(
+            f"Library directory should be just the directory name (e.g., 'Harvard'), not a path.\nYou provided: {value}"
+        )
+
+    # Check for valid characters
+    if not re.match(r"^[a-zA-Z0-9_-]+$", value):
+        raise argparse.ArgumentTypeError(
+            f"Library directory can only contain letters, numbers, hyphens, and underscores.\n"
+            f"Examples: Harvard, MIT, Yale\n"
+            f"You provided: {value}"
+        )
+
+    return value
 
 
 async def main():
@@ -143,9 +176,11 @@ Examples:
     )
     parser.add_argument(
         "--library-directory",
-        type=str,
+        type=valid_library_directory,
         required=True,
-        help="Library directory name for GRIN API requests (e.g., Harvard, MIT, Yale)",
+        help="Library directory name from your GRIN URL (e.g., Harvard, MIT, Yale). "
+        "This is case-sensitive and should match the directory in "
+        "https://books.google.com/libraries/YOUR_DIRECTORY/",
     )
 
     # Sync configuration options (stored in run config for later use)
