@@ -5,6 +5,8 @@ Utility functions for querying GRIN queues
 import logging
 import time
 
+from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
+
 from grin_to_s3.client import GRINClient
 
 logger = logging.getLogger(__name__)
@@ -52,6 +54,15 @@ async def get_unconverted_books(db) -> set[str]:
     return unconverted_barcodes
 
 
+# Retry queue requests with exponential backoff for transient failures
+# Retry schedule: immediate, 2s, 4s, 8s (total ~14s across 4 attempts)
+@retry(
+    stop=stop_after_attempt(4),
+    retry=lambda retry_state: bool(retry_state.outcome and retry_state.outcome.failed),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
 async def get_converted_books(grin_client: GRINClient, library_directory: str) -> set[str]:
     """Get set of books that are converted and ready for download.
     Args:
@@ -75,6 +86,13 @@ async def get_converted_books(grin_client: GRINClient, library_directory: str) -
         return set()
 
 
+@retry(
+    stop=stop_after_attempt(4),
+    retry=lambda retry_state: bool(retry_state.outcome and retry_state.outcome.failed),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
 async def get_in_process_set(grin_client: GRINClient, library_directory: str) -> BarcodeSet:
     """Get set of books currently in GRIN processing queue with caching.
     Args:
