@@ -675,6 +675,65 @@ class SQLiteProgressTracker:
             (),
         )
 
+    async def check_barcodes_exist(self, barcodes: list[str]) -> tuple[set[str], set[str]]:
+        """Check which barcodes exist in the database using a temporary table.
+
+        Args:
+            barcodes: List of barcodes to check
+
+        Returns:
+            Tuple of (existing_barcodes, missing_barcodes) as sets
+        """
+        if not barcodes:
+            return set(), set()
+
+        await self.init_db()
+
+        # Use persistent connection for efficiency
+        await self._ensure_connection()
+        assert self._persistent_conn is not None
+
+        # Create temp table with requested barcodes
+        await self._persistent_conn.execute("CREATE TEMP TABLE requested_barcodes (barcode TEXT PRIMARY KEY)")
+
+        try:
+            # Insert barcodes in batches for efficiency (use INSERT OR IGNORE to handle duplicates)
+            await self._persistent_conn.executemany(
+                "INSERT OR IGNORE INTO requested_barcodes VALUES (?)", [(b,) for b in barcodes]
+            )
+
+            # Find existing barcodes via JOIN
+            query = """
+                SELECT b.barcode
+                FROM books b
+                INNER JOIN requested_barcodes r ON b.barcode = r.barcode
+            """
+            existing = set()
+            async with self._persistent_conn.execute(query) as cursor:
+                async for row in cursor:
+                    existing.add(row[0])
+        finally:
+            # Clean up temp table
+            await self._persistent_conn.execute("DROP TABLE requested_barcodes")
+
+        requested = set(barcodes)
+        missing = requested - existing
+        return existing, missing
+
+    async def create_empty_book_entries(self, barcodes: list[str]) -> None:
+        """Create empty database entries for barcodes that don't exist yet.
+
+        Args:
+            barcodes: List of barcodes to create empty entries for
+        """
+        if not barcodes:
+            return
+
+        # Create minimal BookRecord entries and save them using existing method
+        for barcode in barcodes:
+            empty_book = BookRecord(barcode=barcode)
+            await self.save_book(empty_book)
+
     async def get_all_books_csv_data(self) -> list[BookRecord]:
         """Get all books from database as BookRecord objects for CSV export.
 

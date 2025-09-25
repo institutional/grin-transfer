@@ -429,6 +429,175 @@ class TestSQLiteProgressTracker:
             finally:
                 os.unlink(tmp_db.name)
 
+    async def _seed_test_books(self, tracker: SQLiteProgressTracker, barcodes: list[str]):
+        """Helper to seed the database with test book records."""
+        for barcode in barcodes:
+            book = BookRecord(barcode=barcode, title=f"Test Book {barcode}")
+            await tracker.save_book(book)
+
+    @pytest.mark.parametrize(
+        "seed_barcodes,test_barcodes,expected_existing,expected_missing",
+        [
+            # Mixed existing/missing barcodes
+            (
+                ["BOOK001", "BOOK002", "BOOK003"],
+                ["BOOK001", "MISSING1", "BOOK003", "MISSING2"],
+                {"BOOK001", "BOOK003"},
+                {"MISSING1", "MISSING2"},
+            ),
+            # Duplicates in input list
+            (
+                ["BOOK001", "BOOK002"],
+                ["BOOK001", "BOOK001", "MISSING1", "MISSING1", "BOOK002"],
+                {"BOOK001", "BOOK002"},
+                {"MISSING1"},
+            ),
+            # Empty list
+            (["BOOK001"], [], set(), set()),
+            # All existing
+            (
+                ["BOOK001", "BOOK002", "BOOK003"],
+                ["BOOK001", "BOOK002", "BOOK003"],
+                {"BOOK001", "BOOK002", "BOOK003"},
+                set(),
+            ),
+            # All missing
+            ([], ["MISSING1", "MISSING2", "MISSING3"], set(), {"MISSING1", "MISSING2", "MISSING3"}),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_check_barcodes_exist(self, seed_barcodes, test_barcodes, expected_existing, expected_missing):
+        """Test check_barcodes_exist with various barcode combinations."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+
+                # Seed database with specified books
+                await self._seed_test_books(tracker, seed_barcodes)
+
+                # Test barcode validation
+                existing, missing = await tracker.check_barcodes_exist(test_barcodes)
+
+                assert existing == expected_existing
+                assert missing == expected_missing
+
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
+    @pytest.mark.asyncio
+    async def test_check_barcodes_exist_large_list(self):
+        """Test check_barcodes_exist with >999 barcodes (SQLite IN limit)."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+
+                # Create 1500 barcodes to exceed SQLite's IN limit
+                existing_barcodes = [f"EXIST{i:04d}" for i in range(750)]
+                missing_barcodes = [f"MISS{i:04d}" for i in range(750)]
+
+                # Seed database with existing barcodes
+                await self._seed_test_books(tracker, existing_barcodes)
+
+                # Test with large mixed list
+                test_barcodes = existing_barcodes + missing_barcodes
+                existing, missing = await tracker.check_barcodes_exist(test_barcodes)
+
+                assert len(existing) == 750
+                assert len(missing) == 750
+                assert existing == set(existing_barcodes)
+                assert missing == set(missing_barcodes)
+
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
+    @pytest.mark.asyncio
+    async def test_create_empty_book_entries_creates_records(self):
+        """Test create_empty_book_entries creates stub records with timestamps."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+                missing_barcodes = ["NEW001", "NEW002", "NEW003"]
+
+                # Verify barcodes don't exist initially
+                existing, missing = await tracker.check_barcodes_exist(missing_barcodes)
+                assert len(existing) == 0
+                assert len(missing) == 3
+
+                # Create empty entries
+                await tracker.create_empty_book_entries(missing_barcodes)
+
+                # Verify barcodes now exist in database
+                existing, missing = await tracker.check_barcodes_exist(missing_barcodes)
+                assert len(existing) == 3
+                assert len(missing) == 0
+
+                # Verify records have timestamps and minimal data
+                all_books = await tracker.get_all_books_csv_data()
+                created_books = {book.barcode: book for book in all_books if book.barcode in missing_barcodes}
+
+                assert len(created_books) == 3
+                for barcode in missing_barcodes:
+                    book = created_books[barcode]
+                    assert book.barcode == barcode
+                    assert book.created_at is not None
+                    assert book.updated_at is not None
+                    # Other fields should be defaults/None
+                    assert book.title == ""
+                    assert book.grin_state is None
+
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
+    @pytest.mark.asyncio
+    async def test_create_empty_book_entries_idempotent(self):
+        """Test create_empty_book_entries is idempotent (safe to run multiple times)."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+                missing_barcodes = ["IDEM001", "IDEM002"]
+
+                # Create entries first time
+                await tracker.create_empty_book_entries(missing_barcodes)
+
+                # Get initial state
+                books_after_first = await tracker.get_all_books_csv_data()
+                first_count = len([b for b in books_after_first if b.barcode in missing_barcodes])
+
+                # Create entries second time (should not error or duplicate)
+                await tracker.create_empty_book_entries(missing_barcodes)
+
+                # Verify no duplicates created
+                books_after_second = await tracker.get_all_books_csv_data()
+                second_count = len([b for b in books_after_second if b.barcode in missing_barcodes])
+
+                assert first_count == 2
+                assert second_count == 2  # Should not increase
+
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
+    @pytest.mark.asyncio
+    async def test_create_empty_book_entries_empty_list(self):
+        """Test create_empty_book_entries handles empty list gracefully."""
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
+            try:
+                tracker = SQLiteProgressTracker(tmp_db.name)
+
+                # Should not raise any errors
+                await tracker.create_empty_book_entries([])
+
+                # Should not create any records
+                all_books = await tracker.get_all_books_csv_data()
+                assert len(all_books) == 0
+
+                await tracker.close()
+            finally:
+                os.unlink(tmp_db.name)
+
 
 class TestBookCollector:
     """Test BookCollector functionality with mocking."""
