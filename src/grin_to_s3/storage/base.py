@@ -309,7 +309,7 @@ class Storage:
             part_size: Size of the part in bytes
 
         Returns:
-            Timeout in seconds (240s baseline + 1s per MB)
+            Timeout in seconds (480s baseline + 2s per MB)
         """
         part_size_mb = max(1, math.ceil(part_size / (1024 * 1024)))
         base_timeout = 480  # 8 minute baseline keeps uploads moving
