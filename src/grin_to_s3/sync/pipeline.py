@@ -426,6 +426,17 @@ class SyncPipeline:
             if specific_barcodes:
                 rate_calculator = SlidingWindowRateCalculator(window_size=20)
 
+                # Validate that barcodes exist in database (read-only check)
+                _, missing_barcodes = await self.db_tracker.check_barcodes_exist(specific_barcodes)
+
+                if missing_barcodes:
+                    print(f"\n⚠️  Warning: {len(missing_barcodes)} barcode(s) not found in database:")
+                    for barcode in sorted(missing_barcodes)[:10]:  # Show first 10
+                        print(f"    - {barcode}")
+                    if len(missing_barcodes) > 10:
+                        print(f"    ... and {len(missing_barcodes) - 10} more")
+                    print("\n  These barcodes may not have been collected yet.")
+
                 books_to_process = filter_and_print_barcodes(
                     specific_barcodes=specific_barcodes,
                     queue_books=None,
@@ -439,10 +450,17 @@ class SyncPipeline:
 
                 # Handle dry-run mode
                 if self.dry_run:
+                    if missing_barcodes:
+                        print("  (Dry-run: would create database entries)\n")
                     await self._show_dry_run_preview(books_to_process, limit, specific_barcodes)
                     # Update process summary with current session parameters (but no actual results)
                     self._update_process_summary_metrics({}, queues, limit, specific_barcodes)
                     return
+
+                # Now that we know it's not a dry-run, create database entries for missing barcodes
+                if missing_barcodes:
+                    print("  Creating empty database entries and continuing...\n")
+                    await self.db_tracker.create_empty_book_entries(list(missing_barcodes))
 
                 books_to_process_count = len(books_to_process)
                 print(f"Starting sync of {books_to_process_count:,} {pluralize(books_to_process_count, 'book')}...")
