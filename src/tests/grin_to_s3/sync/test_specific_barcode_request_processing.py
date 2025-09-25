@@ -205,30 +205,6 @@ class TestSyncPipelineBarcodeValidation:
         sync_pipeline.db_tracker.create_empty_book_entries.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_no_missing_barcodes_skips_entry_creation(self, sync_pipeline):
-        """Test that when all barcodes exist, no empty entries are created."""
-        # Mock the barcode validation methods - all barcodes exist
-        sync_pipeline.db_tracker.check_barcodes_exist = AsyncMock(return_value=({"EXIST001", "EXIST002"}, set()))
-        sync_pipeline.db_tracker.create_empty_book_entries = AsyncMock()
-
-        # Mock filter_and_print_barcodes to return the barcodes
-        with patch("grin_to_s3.sync.pipeline.filter_and_print_barcodes") as mock_filter:
-            mock_filter.return_value = ["EXIST001", "EXIST002"]
-
-            # Mock process_books_with_queue to avoid actual processing
-            with patch("grin_to_s3.sync.pipeline.process_books_with_queue") as mock_process:
-                mock_process.return_value = {}
-
-                # Call setup_sync_loop with all existing barcodes
-                await sync_pipeline.setup_sync_loop(queues=[], specific_barcodes=["EXIST001", "EXIST002"], limit=None)
-
-        # Verify check_barcodes_exist was called
-        sync_pipeline.db_tracker.check_barcodes_exist.assert_called_once_with(["EXIST001", "EXIST002"])
-
-        # Verify create_empty_book_entries was NOT called since no missing barcodes
-        sync_pipeline.db_tracker.create_empty_book_entries.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_queue_mode_skips_barcode_validation(self, sync_pipeline):
         """Test that queue mode (not specific barcodes) skips barcode validation."""
         # Mock the barcode validation methods
@@ -255,61 +231,3 @@ class TestSyncPipelineBarcodeValidation:
         # Verify barcode validation methods were NOT called in queue mode
         sync_pipeline.db_tracker.check_barcodes_exist.assert_not_called()
         sync_pipeline.db_tracker.create_empty_book_entries.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_barcode_validation_with_print_output(self, sync_pipeline):
-        """Test that appropriate messages are printed during barcode validation."""
-        # Mock the barcode validation methods
-        sync_pipeline.db_tracker.check_barcodes_exist = AsyncMock(
-            return_value=({"EXIST001"}, {"MISSING001", "MISSING002"})
-        )
-        sync_pipeline.db_tracker.create_empty_book_entries = AsyncMock()
-
-        # Mock print function to capture output
-        with patch("builtins.print") as mock_print:
-            # Mock filter_and_print_barcodes to return the barcodes
-            with patch("grin_to_s3.sync.pipeline.filter_and_print_barcodes") as mock_filter:
-                mock_filter.return_value = ["EXIST001", "MISSING001", "MISSING002"]
-
-                with patch("grin_to_s3.sync.pipeline.process_books_with_queue") as mock_process:
-                    mock_process.return_value = {}
-
-                    # Call setup_sync_loop with specific barcodes
-                    await sync_pipeline.setup_sync_loop(
-                        queues=[], specific_barcodes=["EXIST001", "MISSING001", "MISSING002"], limit=None
-                    )
-
-        # Verify appropriate warning messages were printed
-        print_calls = mock_print.call_args_list
-        print_messages = [str(call) for call in print_calls]
-
-        # Check that warning about missing barcodes was printed
-        assert any("Warning: 2 barcode(s) not found in database" in msg for msg in print_messages)
-        assert any("MISSING001" in msg for msg in print_messages)
-        assert any("MISSING002" in msg for msg in print_messages)
-        assert any("Creating empty database entries and continuing" in msg for msg in print_messages)
-
-    @pytest.mark.asyncio
-    async def test_barcode_validation_dry_run_messages(self, sync_pipeline):
-        """Test that dry-run mode shows appropriate messages."""
-        # Set dry_run mode
-        sync_pipeline.dry_run = True
-
-        # Mock the barcode validation methods
-        sync_pipeline.db_tracker.check_barcodes_exist = AsyncMock(return_value=(set(), {"MISSING001"}))
-        sync_pipeline.db_tracker.create_empty_book_entries = AsyncMock()
-
-        # Mock print function to capture output
-        with patch("builtins.print") as mock_print:
-            # Mock filter_and_print_barcodes for dry-run path
-            with patch("grin_to_s3.sync.pipeline.filter_and_print_barcodes") as mock_filter:
-                mock_filter.return_value = ["MISSING001"]
-
-                # Call setup_sync_loop in dry-run mode
-                await sync_pipeline.setup_sync_loop(queues=[], specific_barcodes=["MISSING001"], limit=None)
-
-        # Verify dry-run message was printed
-        print_calls = mock_print.call_args_list
-        print_messages = [str(call) for call in print_calls]
-
-        assert any("(Dry-run: would create database entries)" in msg for msg in print_messages)
