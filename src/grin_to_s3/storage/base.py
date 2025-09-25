@@ -300,8 +300,8 @@ class Storage:
         """
         Calculate generous timeout for uploading a single part.
 
-        Uses a conservative approach: base timeout of 240 seconds plus
-        1 second per MB of part data, allowing roughly 1 MB/s minimum speed.
+        Uses a conservative approach: base timeout of 480 seconds plus
+        2 seconds per MB of part data, allowing roughly 0.5 MB/s minimum speed.
         This provides substantial headroom for slow connections while still
         preventing indefinite hangs.
 
@@ -312,8 +312,8 @@ class Storage:
             Timeout in seconds (240s baseline + 1s per MB)
         """
         part_size_mb = max(1, math.ceil(part_size / (1024 * 1024)))
-        base_timeout = 240  # 4 minute baseline keeps uploads moving
-        size_allowance = part_size_mb  # 1 second per MB gives headroom for slower links
+        base_timeout = 480  # 8 minute baseline keeps uploads moving
+        size_allowance = part_size_mb * 2  # 2 seconds per MB gives headroom for slower links
         return base_timeout + size_allowance
 
     async def _multipart_upload_from_file(
