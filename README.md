@@ -208,7 +208,7 @@ You can specify multiple queues and they will be run in order.
 
 #### Sync books by barcode
 
-Alternatively, regardless of GRIN status, you can request specific barcodes be synced. For small numbers of barcodes, you can pass them on the command line as `--barcodes`. For larger sets, pass `--barcodes-files` with a path to a file containing one barcode per line.
+Alternatively, regardless of GRIN status, you can request specific barcodes be synced. For small numbers of barcodes, you can pass them on the command line as `--barcodes`. For larger sets, pass `--barcodes-file` with a path to a file containing one barcode per line.
 
 If a barcode is specified but not immediately available from GRIN, the software will issue a request to convert it.
 
