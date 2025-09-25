@@ -7,6 +7,7 @@ Supports S3, Azure Blob, GCS, local filesystem, and more through fsspec.
 
 import asyncio
 import logging
+import math
 import os
 import re
 import shutil
@@ -28,6 +29,17 @@ class StorageNotFoundError(Exception):
     """Raised when storage object doesn't exist."""
 
     pass
+
+
+class UploadPartTimeoutError(TimeoutError):
+    """Raised when a multipart upload part times out."""
+
+    def __init__(self, key: str, part_number: int, timeout: int) -> None:
+        message = f"Multipart upload for {key} timed out while uploading part {part_number} after {timeout}s"
+        super().__init__(message)
+        self.key = key
+        self.part_number = part_number
+        self.timeout = timeout
 
 
 class BackendConfig:
@@ -284,6 +296,26 @@ class Storage:
             target_part_size = file_size // 100
             return min(target_part_size, 100 * 1024 * 1024)
 
+    def _calculate_upload_timeout(self, part_size: int) -> int:
+        """
+        Calculate generous timeout for uploading a single part.
+
+        Uses a conservative approach: base timeout of 480 seconds plus
+        2 seconds per MB of part data, allowing roughly 0.5 MB/s minimum speed.
+        This provides substantial headroom for slow connections while still
+        preventing indefinite hangs.
+
+        Args:
+            part_size: Size of the part in bytes
+
+        Returns:
+            Timeout in seconds (480s baseline + 2s per MB)
+        """
+        part_size_mb = max(1, math.ceil(part_size / (1024 * 1024)))
+        base_timeout = 480  # 8 minute baseline keeps uploads moving
+        size_allowance = part_size_mb * 2  # 2 seconds per MB gives headroom for slower links
+        return base_timeout + size_allowance
+
     async def _multipart_upload_from_file(
         self, s3_client, bucket: str, key: str, file_path: str, metadata: dict[str, str] | None = None
     ) -> None:
@@ -292,6 +324,7 @@ class Storage:
         # Get file size for adaptive part sizing
         file_size = Path(file_path).stat().st_size
         chunk_size = self._calculate_part_size(file_size)
+        part_timeout = self._calculate_upload_timeout(chunk_size)
         max_concurrent_parts = 5  # Parallel part uploads for performance
         queue_size = 10  # Maximum chunks in memory at once
 
@@ -304,16 +337,17 @@ class Storage:
         upload_id = response["UploadId"]
         estimated_parts = (file_size + chunk_size - 1) // chunk_size  # Ceiling division
 
-        logger.debug(
-            f"Starting streaming multipart upload for {key} "
-            f"(upload_id={upload_id}, file_size={file_size // 1024 // 1024}MB, "
+        logger.info(
+            f"Starting multipart upload for {key} "
+            f"(file_size={file_size // 1024 // 1024}MB, "
             f"chunk_size={chunk_size // 1024 // 1024}MB, estimated_parts={estimated_parts}, "
-            f"storage_id={self._instance_id})"
+            f"timeout={part_timeout}s, storage_id={self._instance_id})"
         )
 
         try:
             # Queue for chunks with bounded size to limit memory usage
             chunk_queue: asyncio.Queue[tuple[int, bytes] | None] = asyncio.Queue(maxsize=queue_size)
+            queue_active = asyncio.Event()
             # Shared list for collecting results (list.append is atomic in CPython)
             results: list[tuple[int, str]] = []
 
@@ -327,9 +361,11 @@ class Storage:
                             if not chunk:
                                 break
                             await chunk_queue.put((part_number, chunk))
+                            queue_active.set()
                             part_number += 1
                 finally:
                     # Signal end of file with one None per consumer
+                    queue_active.set()
                     for _ in range(max_concurrent_parts):
                         await chunk_queue.put(None)
 
@@ -347,9 +383,15 @@ class Storage:
                         logger.debug(
                             f"Starting upload of part {part_number} ({len(chunk) // 1024 // 1024}MB) for {key}"
                         )
-                        etag = await self._upload_part(s3_client, bucket, key, part_number, upload_id, chunk)
+                        etag = await asyncio.wait_for(
+                            self._upload_part(s3_client, bucket, key, part_number, upload_id, chunk),
+                            timeout=part_timeout,
+                        )
                         results.append((part_number, etag))  # Atomic append
                         logger.debug(f"Completed upload of part {part_number} for {key}")
+                    except TimeoutError as exc:
+                        logger.warning(f"Part {part_number} upload timeout ({part_timeout}s) for {key}")
+                        raise UploadPartTimeoutError(key, part_number, part_timeout) from exc
                     except Exception as e:
                         logger.error(f"Failed to upload part {part_number} for {key}: {e}")
                         raise
@@ -360,14 +402,67 @@ class Storage:
             producer_task = asyncio.create_task(producer())
             consumer_tasks = [asyncio.create_task(consumer()) for _ in range(max_concurrent_parts)]
 
-            # Wait for producer to finish
-            await producer_task
+            # Track queue draining in parallel so we can cancel cleanly on errors
+            async def wait_for_queue_completion() -> None:
+                await queue_active.wait()
+                await chunk_queue.join()
 
-            # Wait for all chunks to be processed
-            await chunk_queue.join()
+            queue_task = asyncio.create_task(wait_for_queue_completion())
+            # Include the producer so we never wait on it separately and re-create hangs
+            all_tasks = [queue_task, producer_task, *consumer_tasks]
 
-            # Wait for all consumers to finish
-            await asyncio.gather(*consumer_tasks)
+            try:
+                # Use asyncio.wait with FIRST_EXCEPTION for immediate failure detection
+                done, pending = await asyncio.wait(all_tasks, return_when=asyncio.FIRST_EXCEPTION)
+
+                # Check if any task in 'done' has an exception
+                for task in done:
+                    exception = task.exception()
+                    if exception:
+                        # Special logging for timeout errors to ensure visibility
+                        if isinstance(exception, UploadPartTimeoutError):
+                            logger.warning(
+                                f"Upload part {exception.part_number} timed out after {exception.timeout}s "
+                                f"during multipart upload for {key}"
+                            )
+
+                        # Cancel all pending tasks immediately
+                        for pending_task in pending:
+                            pending_task.cancel()
+
+                        # Wait for all tasks to complete/cancel cleanly
+                        await asyncio.gather(*all_tasks, return_exceptions=True)
+
+                        # Re-raise the first exception
+                        raise exception
+
+                # If we reach here, all completed tasks had no exceptions
+                if pending:
+                    # Wait for any remaining tasks to complete
+                    pending_results = await asyncio.gather(*pending, return_exceptions=True)
+
+                    # Check for real failures (ignore CancelledError from cancelled tasks)
+                    for result in pending_results:
+                        if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
+                            # Special logging for timeout errors to ensure visibility
+                            if isinstance(result, UploadPartTimeoutError):
+                                logger.warning(
+                                    f"Upload part {result.part_number} timed out after {result.timeout}s "
+                                    f"during multipart upload for {key}"
+                                )
+                            # Found a real failure - re-raise it inside try block
+                            # This ensures the outer except catches it and aborts the multipart upload
+                            raise result
+
+            except Exception:
+                # Fallback: cancel any tasks that might still be running
+                for task in all_tasks:
+                    if not task.done():
+                        task.cancel()
+
+                # Wait for clean shutdown
+                await asyncio.gather(*all_tasks, return_exceptions=True)
+                raise
 
             # Sort results by part number and build parts list
             results.sort(key=lambda x: x[0])  # Sort by part number
