@@ -3,9 +3,7 @@ Utility functions for querying GRIN queues
 """
 
 import logging
-import os
 import time
-import tracemalloc
 
 from tenacity import before_sleep_log, retry, stop_after_attempt, wait_exponential
 
@@ -73,14 +71,6 @@ async def get_converted_books(grin_client: GRINClient, library_directory: str) -
     Returns:
         set: Set of converted book barcodes
     """
-    trace_memory = os.getenv("GRIN_TRACE_MEMORY") == "1"
-    started_trace = False
-    converted_barcodes: set[str] = set()
-
-    if trace_memory and not tracemalloc.is_tracing():
-        tracemalloc.start()
-        started_trace = True
-
     try:
         # Use streaming approach to avoid materializing large responses
         converted_barcodes = {
@@ -94,17 +84,6 @@ async def get_converted_books(grin_client: GRINClient, library_directory: str) -
         error_msg = str(e) if str(e) else "No error message"
         logger.warning(f"Failed to get converted books: {error_type}: {error_msg}")
         return set()
-    finally:
-        if trace_memory and tracemalloc.is_tracing():
-            current_bytes, peak_bytes = tracemalloc.get_traced_memory()
-            logger.info(
-                "Converted queue memory usage: current %.2f MiB, peak %.2f MiB, barcodes %d",
-                current_bytes / (1024 * 1024),
-                peak_bytes / (1024 * 1024),
-                len(converted_barcodes),
-            )
-            if started_trace:
-                tracemalloc.stop()
 
 
 @retry(
