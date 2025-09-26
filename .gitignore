@@ -50,3 +50,4 @@ GPG_KEY_GRIN
 
 .coverage
 AGENTS.md
+.mcp.json

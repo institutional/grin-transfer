@@ -14,6 +14,7 @@ from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.queue_utils import get_previous_queue_books
 from grin_to_s3.sync.pipeline import get_books_from_queue
 from tests.utils import batch_write_status_updates
 
@@ -179,19 +180,17 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         with patch("grin_to_s3.sync.pipeline.get_in_process_set") as mock_in_process:
             mock_in_process.return_value = set()
 
-            # Mock the database methods to verify they're called correctly
-            with (
-                patch.object(self.tracker, "get_books_by_grin_state") as mock_grin_state,
-                patch.object(self.tracker, "get_books_with_status") as mock_status,
-            ):
-                mock_grin_state.return_value = {"PREV001", "PREV002"}  # Note: PREV002 wrong state
-                mock_status.return_value = {"PREV003"}
+            # Mock the new get_previous_queue_books function
+            with patch("grin_to_s3.sync.pipeline.get_previous_queue_books") as mock_previous_queue:
+                mock_previous_queue.return_value = {"PREV001"}  # Only PREV001 should be returned
 
-                await get_books_from_queue(self.mock_grin_client, "test_library", "previous", self.tracker)
+                result = await get_books_from_queue(self.mock_grin_client, "test_library", "previous", self.tracker)
 
-                # Verify database methods called with correct parameters
-                mock_grin_state.assert_called_once_with("PREVIOUSLY_DOWNLOADED")
-                mock_status.assert_called_once_with("unavailable", "conversion")
+                # Verify the new function was called with correct parameters
+                mock_previous_queue.assert_called_once_with(self.tracker)
+
+                # Result should be the filtered set
+                self.assertEqual(result, {"PREV001"})
 
     async def test_get_books_by_grin_state_method(self):
         """Test the get_books_by_grin_state method directly."""
@@ -262,3 +261,32 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         # get_in_process_set should be called for both since each call is independent
         # (caching is within get_in_process_set itself, not at the queue level)
         self.assertEqual(mock_in_process.call_count, 2)
+
+    async def test_get_previous_queue_books_filtering(self):
+        """Test the get_previous_queue_books function directly."""
+        # Create books with different states and processing status
+        await self._add_book_with_grin_state("PREV001", "PREVIOUSLY_DOWNLOADED")  # Should be included
+        await self._add_book_with_grin_state(
+            "PREV002", "PREVIOUSLY_DOWNLOADED"
+        )  # Should be excluded (has processing_request_timestamp)
+        await self._add_book_with_grin_state("PREV003", "PREVIOUSLY_DOWNLOADED")  # Should be excluded (unavailable)
+        await self._add_book_with_grin_state("PREV004", "CONVERTED")  # Should be excluded (wrong state)
+
+        # Add processing_request_timestamp to PREV002
+        book_with_timestamp = BookRecord(
+            barcode="PREV002",
+            title="Test Book PREV002",
+            grin_state="PREVIOUSLY_DOWNLOADED",
+            processing_request_timestamp="2024-01-01T00:00:00Z",
+        )
+        await self.tracker.save_book(book_with_timestamp, refresh_mode=True)
+
+        # Mark PREV003 as unavailable
+        status_updates = [StatusUpdate("PREV003", "conversion", "unavailable")]
+        await batch_write_status_updates(str(self.db_path), status_updates)
+
+        # Test the function
+        result = await get_previous_queue_books(self.tracker)
+
+        # Only PREV001 should be returned
+        self.assertEqual(result, {"PREV001"})

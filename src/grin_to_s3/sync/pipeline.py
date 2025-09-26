@@ -19,7 +19,12 @@ from grin_to_s3.common import (
     pluralize,
 )
 from grin_to_s3.constants import DEFAULT_MAX_SEQUENTIAL_FAILURES, GRIN_MAX_QUEUE_SIZE
-from grin_to_s3.queue_utils import get_converted_books, get_in_process_set, get_unconverted_books
+from grin_to_s3.queue_utils import (
+    get_converted_books,
+    get_in_process_set,
+    get_previous_queue_books,
+    get_unconverted_books,
+)
 from grin_to_s3.run_config import RunConfig
 from grin_to_s3.storage import create_storage_from_config
 from grin_to_s3.storage.book_manager import BookManager
@@ -66,30 +71,32 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
         aiohttp.ClientError: If there's a network error communicating with GRIN
         TimeoutError: If the request times out
     """
+    # Ensure database schema exists before any database operations
+    await db_tracker.init_db()
+
     if queue_name == "converted":
         return await get_converted_books(grin_client, library_directory)
     elif queue_name == "previous":
-        # Get books with PREVIOUSLY_DOWNLOADED status
-        previously_downloaded = await db_tracker.get_books_by_grin_state("PREVIOUSLY_DOWNLOADED")
+        # Get books from previous queue (PREVIOUSLY_DOWNLOADED, not yet requested, not unavailable)
+        previously_downloaded = await get_previous_queue_books(db_tracker)
 
         # Get in_process queue for filtering
         in_process = await get_in_process_set(grin_client, library_directory)
 
-        # Get verified_unavailable books for filtering
-        verified_unavailable = await db_tracker.get_books_with_status("unavailable", "conversion")
+        # Calculate intersections for detailed reporting
+        in_process_from_queue = previously_downloaded & in_process
 
-        # Return filtered set
-        filtered_books = previously_downloaded - in_process - verified_unavailable
+        # Return filtered set (only need to filter by in_process now)
+        filtered_books = previously_downloaded - in_process
         logger.info(
-            f"Previous queue: {len(previously_downloaded)} PREVIOUSLY_DOWNLOADED books, "
-            f"filtered out {len(in_process)} in_process and {len(verified_unavailable)} unavailable, "
+            f"Previous queue: {len(previously_downloaded)} eligible books (already-requested and unavailable excluded), "
+            f"filtered out {len(in_process_from_queue)} in_process, "
             f"returning {len(filtered_books)} books"
         )
-        # Calculate how many books can be queued given GRIN's current capacity
+        # Show queue status information
         available_space = GRIN_MAX_QUEUE_SIZE - len(in_process)
-        books_to_queue = min(available_space, len(filtered_books))
         print(f"   GRIN queue: {len(in_process):,} in process, {available_space:,} available space")
-        print(f"   Approx. {books_to_queue:,} will be queued for conversion")
+        print(f"   From this queue: {len(in_process_from_queue):,} already in process")
         return filtered_books
     elif queue_name == "unconverted":
         # Get books that have never been converted

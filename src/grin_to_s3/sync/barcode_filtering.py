@@ -20,7 +20,10 @@ def filter_and_print_barcodes(
         using_specific = True
     elif queue_books:
         books_from_source = queue_books
-        source_description = f"{len(books_from_source):,} {pluralize(len(books_from_source), 'book')} from queues"
+        if queue_name == "previous":
+            source_description = f"{len(books_from_source):,} {pluralize(len(books_from_source), 'book')} from queues (already-requested and unavailable excluded)"
+        else:
+            source_description = f"{len(books_from_source):,} {pluralize(len(books_from_source), 'book')} from queues"
         using_specific = False
     else:
         books_from_source = set()
@@ -53,10 +56,14 @@ def filter_and_print_barcodes(
         print(f"     -> {len(books_needing_sync):,} {pluralize(len(books_needing_sync), 'book')} to process")
     elif already_synced_count > 0:
         print(f"  2. Sync filter: Removed {already_synced_count:,} already synced")
-        print(f"     -> {len(books_needing_sync):,} {pluralize(len(books_needing_sync), 'book')} need syncing")
+        print(
+            f"     -> {len(books_needing_sync):,} {pluralize(len(books_needing_sync), 'book')} will be processed by this queue"
+        )
     else:
         print("  2. Sync filter: No books already synced")
-        print(f"     -> {len(books_needing_sync):,} {pluralize(len(books_needing_sync), 'book')} need syncing")
+        print(
+            f"     -> {len(books_needing_sync):,} {pluralize(len(books_needing_sync), 'book')} will be processed by this queue"
+        )
 
     if limit_applied:
         print(f"  3. Limit: Applied limit of {limit_applied:,}")
@@ -69,6 +76,11 @@ def filter_and_print_barcodes(
             print(f"No books available{queue_msg}")
         else:
             queue_msg = f" from '{queue_name}' queue" if queue_name else ""
-            print(f"No books{queue_msg} need syncing (all may already be synced)")
+            if queue_name == "previous":
+                print(
+                    f"No books{queue_msg} will be processed (remaining books have already been requested for processing or are synced)"
+                )
+            else:
+                print(f"No books{queue_msg} will be processed (all may already be synced)")
 
     return books_to_process
