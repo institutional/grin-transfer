@@ -1,0 +1,21 @@
+{
+  "theme": "base",
+  "themeVariables": {
+    "background": "transparent",
+    "mainBkg": "transparent",
+    "secondBkg": "transparent",
+    "tertiaryColor": "transparent",
+    "primaryColor": "transparent",
+    "secondaryColor": "transparent",
+    "primaryTextColor": "#1e293b",
+    "primaryBorderColor": "#475569",
+    "lineColor": "#64748b",
+    "clusterBkg": "transparent",
+    "clusterBorder": "transparent",
+    "defaultLinkColor": "#64748b",
+    "titleColor": "#1e293b",
+    "edgeLabelBackground": "transparent",
+    "nodeTextColor": "#1e293b",
+    "labelBackgroundColor": "transparent"
+  }
+}

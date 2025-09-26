@@ -1,0 +1,38 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryTextColor": "#1e293b", "primaryBorderColor": "#475569", "lineColor": "#64748b", "background": "transparent", "mainBkg": "transparent", "secondBkg": "transparent"}}}%%
+flowchart TD
+    subgraph Sync Pipeline
+        SyncStart([Sync pipeline entry<br/>from collect handoff]):::terminal --> I[/Barcode selection<br/>queues, file, or CLI list/]:::io
+        I --> J[Check task<br/>HEAD request & status lookup]:::process
+        J --> K{File package ready in GRIN?}:::decision
+        K -->|No| L[Request conversion if needed<br/>record pending status]:::process
+        L -->|Google converting to file package| I
+        K -->|Yes| M{File package already in storage?}:::decision
+        M -->|No| O[/Download encrypted file package/]:::io
+        M -->|Yes| N{ETag matches stored copy?}:::decision
+        N -->|Yes| P[Skip download<br/>update status & timestamps]:::process
+        P --> P_done([Download already satisfied]):::terminal
+        N -->|No| O
+        P_done --> Q[/Export metadata CSV & upload/]:::io
+        O --> R[Decrypt with GPG passphrase]:::process
+        R --> S[Unpack gzip contents]:::process
+        S --> Fork[Parallel extraction dispatch]:::process
+        Fork --> T{Extract MARC metadata?}:::decision
+        Fork --> X{Extract OCR text?}:::decision
+        T -->|Yes| U[/Extract MARC & update metadata record in db/]:::io
+        T -->|No| Merge[Extraction converges]:::process
+        U --> Merge
+        X -->|Yes| Y[/Extract OCR & upload derivatives/]:::io
+        X -->|No| Merge
+        Y --> FullBucket[/full bucket<br/>OCR derivatives/]:::storage
+        Y --> Merge
+        Merge --> AA[/Upload decrypted file package to storage/]:::io
+        AA --> RawBucket[/raw bucket<br/>file packages & page images/]:::storage
+        AA --> Q
+        Q --> MetaBucket[/meta bucket<br/>metadata CSV & status reports/]:::storage
+    end
+
+    classDef terminal fill:none,stroke:#6b7280,stroke-width:2px,color:#374151
+    classDef process fill:none,stroke:#3b82f6,stroke-width:2px,color:#1e40af
+    classDef decision fill:none,stroke:#f59e0b,stroke-width:2px,color:#92400e
+    classDef storage fill:none,stroke:#10b981,stroke-width:2px,color:#047857
+    classDef io fill:none,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6
