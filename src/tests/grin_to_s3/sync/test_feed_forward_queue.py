@@ -110,48 +110,27 @@ def mock_task_functions():
 class TestQueueBasics:
     """Test basic queue functionality and setup."""
 
+    @pytest.mark.parametrize(
+        "book_count,expected_calls,workers,progress_interval",
+        [
+            (1, 1, 2, 1),  # Single book
+            (5, 5, 3, 2),  # Multiple books
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_queue_processes_single_book(
-        self, mock_pipeline, mock_task_manager, mock_rate_calculator, mock_task_functions
+    async def test_queue_processes_books_successfully(
+        self,
+        mock_pipeline,
+        mock_task_manager,
+        mock_rate_calculator,
+        mock_task_functions,
+        book_count,
+        expected_calls,
+        workers,
+        progress_interval,
     ):
-        """Queue should process a single book successfully."""
-        barcodes = ["TEST001"]
-
-        with (
-            patch("grin_to_s3.sync.task_manager.process_download_phase") as mock_download,
-            patch("grin_to_s3.sync.task_manager.process_processing_phase") as mock_processing,
-        ):
-            download_result = TaskResult(
-                "TEST001", TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": "/tmp/test001.tar.gz"}
-            )
-
-            mock_download.return_value = {TaskType.DOWNLOAD: download_result}
-            mock_processing.return_value = {
-                TaskType.DOWNLOAD: download_result,
-                TaskType.UPLOAD: TaskResult("TEST001", TaskType.UPLOAD, TaskAction.COMPLETED),
-            }
-
-            results = await process_books_with_queue(
-                barcodes,
-                mock_pipeline,
-                mock_task_functions,
-                mock_task_manager,
-                mock_rate_calculator,
-                workers=2,
-                progress_interval=1,
-            )
-
-            assert len(results) == 1
-            assert "TEST001" in results
-            mock_download.assert_called_once()
-            mock_processing.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_queue_processes_multiple_books(
-        self, mock_pipeline, mock_task_manager, mock_rate_calculator, mock_task_functions
-    ):
-        """Queue should process multiple books correctly."""
-        barcodes = [f"TEST{i:03d}" for i in range(5)]
+        """Queue should process books successfully (single or multiple)."""
+        barcodes = [f"TEST{i:03d}" for i in range(book_count)]
 
         with (
             patch("grin_to_s3.sync.task_manager.process_download_phase") as mock_download,
@@ -176,14 +155,14 @@ class TestQueueBasics:
                 mock_task_functions,
                 mock_task_manager,
                 mock_rate_calculator,
-                workers=3,
-                progress_interval=2,
+                workers=workers,
+                progress_interval=progress_interval,
             )
 
-            assert len(results) == 5
-            assert all(f"TEST{i:03d}" in results for i in range(5))
-            assert mock_download.call_count == 5
-            assert mock_processing.call_count == 5
+            assert len(results) == book_count
+            assert all(f"TEST{i:03d}" in results for i in range(book_count))
+            assert mock_download.call_count == expected_calls
+            assert mock_processing.call_count == expected_calls
 
 
 class TestConcurrentProcessing:

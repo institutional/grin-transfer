@@ -19,7 +19,6 @@ from grin_to_s3.sync.db_updates import (
     extract_ocr_completed,
     get_updates_for_task,
     on,
-    upload_completed,
 )
 from grin_to_s3.sync.task_manager import TaskManager
 from grin_to_s3.sync.tasks.task_types import RequestConversionResult, TaskAction, TaskResult, TaskType
@@ -61,38 +60,6 @@ class TestHandlerRegistration:
 
 class TestHandlerBehavior:
     """Test individual handler functions."""
-
-    @pytest.mark.asyncio
-    async def test_handler_returns_data(self):
-        """upload_completed handler should return status and books structures."""
-        result = TaskResult(
-            barcode="TEST123",
-            task_type=TaskType.UPLOAD,
-            action=TaskAction.COMPLETED,
-            data={"upload_path": "/bucket/TEST123.tar.gz"},
-        )
-        previous_results = {
-            TaskType.DOWNLOAD: TaskResult(
-                barcode="TEST123", task_type=TaskType.DOWNLOAD, action=TaskAction.COMPLETED, data={"etag": "abc123"}
-            )
-        }
-
-        handler_result = await upload_completed(result, previous_results)
-
-        # Should return both status and books
-        assert "status" in handler_result
-        assert "books" in handler_result
-
-        # Verify status tuple structure (type, value, metadata)
-        status_type, status_value, metadata = handler_result["status"]
-        assert status_type == "sync"
-        assert status_value == "uploaded"
-        assert metadata["path"] == "/bucket/TEST123.tar.gz"
-
-        # Verify books data
-        assert handler_result["books"]["storage_path"] == "/bucket/TEST123.tar.gz"
-        assert handler_result["books"]["is_decrypted"] is True
-        assert handler_result["books"]["encrypted_etag"] == "abc123"
 
     @pytest.mark.asyncio
     async def test_handler_with_error(self):
@@ -339,10 +306,11 @@ class TestRealDatabaseIntegration:
         await self._commit_updates(pipeline)
 
     @pytest.mark.asyncio
-    async def test_upload_task_writes_status_to_history(self, real_db_pipeline):
-        """UPLOAD task should write status updates to book_status_history table."""
+    async def test_upload_task_database_integration(self, real_db_pipeline):
+        """UPLOAD task should write status to history and update books table."""
         await self._run_upload_task(real_db_pipeline)
 
+        # Verify status history update
         status_type, status_value, metadata_json = await self._query_status_history(real_db_pipeline)
         assert status_type == "sync"
         assert status_value == "uploaded"
@@ -350,11 +318,7 @@ class TestRealDatabaseIntegration:
         metadata = json.loads(metadata_json) if metadata_json else {}
         assert metadata.get("path") == "/bucket/TEST123.tar.gz"
 
-    @pytest.mark.asyncio
-    async def test_upload_task_updates_books_table(self, real_db_pipeline):
-        """UPLOAD task should update sync data in the books table."""
-        await self._run_upload_task(real_db_pipeline)
-
+        # Verify books table update
         storage_path, is_decrypted, encrypted_etag = await self._query_books_fields(
             real_db_pipeline, "storage_path", "is_decrypted", "encrypted_etag"
         )
