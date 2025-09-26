@@ -17,6 +17,38 @@ _in_process_cache: dict[str, tuple[set[str], float]] = {}
 BarcodeSet = set[str]
 
 
+async def get_previous_queue_books(db) -> set[str]:
+    """Get the barcodes for books in the previous queue.
+
+    Returns books that:
+    - Have GRIN state = 'PREVIOUSLY_DOWNLOADED'
+    - Have never been requested for processing (processing_request_timestamp IS NULL or empty)
+    - Are not marked as unavailable in conversion status history
+
+    Args:
+        db: Database tracker instance
+
+    Returns:
+        set: Set of previous queue book barcodes
+    """
+    query = """
+        SELECT barcode FROM books
+        WHERE grin_state = 'PREVIOUSLY_DOWNLOADED'
+        AND NULLIF(processing_request_timestamp, '') IS NULL
+        AND barcode NOT IN (
+            SELECT DISTINCT barcode FROM book_status_history
+            WHERE status_type = 'conversion' AND status_value = 'unavailable'
+        )
+    """
+
+    cursor = await db._execute_query(query, ())
+    rows = await cursor.fetchall()
+    previous_queue_barcodes = {row[0] for row in rows}
+
+    logger.debug(f"Found {len(previous_queue_barcodes)} previous queue books in database")
+    return previous_queue_barcodes
+
+
 async def get_unconverted_books(db) -> set[str]:
     """Get the barcodes for books which have never been converted for download.
 
