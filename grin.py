@@ -51,9 +51,6 @@ Examples:
   uv run grin collect --run-name harvard_2024 --storage r2 \\
                       --bucket-raw grin-raw --bucket-meta grin-meta --bucket-full grin-full
 
-  # Request processing for collected books
-  uv run grin process request --run-name harvard_2024 --limit 1000
-
   # Sync converted books to storage
   uv run grin sync pipeline --run-name harvard_2024 --queue converted
 

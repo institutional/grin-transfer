@@ -18,10 +18,9 @@ In typical usage, you will **collect** a local copy of your library's Google Boo
 - [Pipeline steps](#pipeline-steps)
 - [Core commands](#core-commands)
   - [1. Book Collection: `grin collect`](#1-book-collection-grin-collect)
-  - [2. Processing Management: `grin process`](#2-processing-management-grin-process)
-  - [3. Sync Pipeline: `grin sync pipeline`](#3-sync-pipeline-grin-sync-pipeline)
-  - [4. Metadata enrichment: `grin enrich`](#4-metadata-enrichment-grin-enrich)
-  - [5. Storage Management: `grin storage`](#5-storage-management-grin-storage)
+  - [2. Sync Pipeline: `grin sync pipeline`](#2-sync-pipeline-grin-sync-pipeline)
+  - [3. Metadata enrichment: `grin enrich`](#3-metadata-enrichment-grin-enrich)
+  - [4. Storage Management: `grin storage`](#4-storage-management-grin-storage)
 - [File outputs](#file-outputs)
   - [Data dictionary](#data-dictionary)
 - [Database administration](#database-administration)
@@ -121,9 +120,6 @@ uv run grin collect --run-name test_run --storage local --storage-path /tmp/grin
 
 # And sync 10 files (assuming your collection has some available for download)
 uv run grin sync pipeline --run-name test_run --queue converted --limit 10
-
-# or request processing for them
-uv run grin process request --run-name test_run --limit 10
 
 ```
 
