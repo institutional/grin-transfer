@@ -6,6 +6,8 @@ import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+import pytest
+
 from grin_to_s3.metadata.marc_extraction import (
     _extract_date1_from_008,
     _extract_date2_from_008,
@@ -97,38 +99,25 @@ METS_NO_MARC = """<?xml version="1.0" encoding="UTF-8"?>
 class TestMARCFieldExtraction:
     """Test individual MARC field extraction functions."""
 
-    def test_extract_dates_from_008_field(self):
-        """Test date extraction from MARC 008 field."""
-        # Format: positions 0-5 (entry date), 6 (date type), 7-10 (date1), 11-14 (date2), etc.
-        field_008 = "750727c17909999gw br p       0   b1gerdd"
-
-        assert _extract_date1_from_008(field_008) == "1790"
-        assert _extract_date2_from_008(field_008) is None  # 9999 is filtered out
-        assert _extract_date_type_from_008(field_008) == "c"
-        assert _extract_language_from_008(field_008) == "ger"
-
-    def test_extract_dates_with_placeholder_values(self):
-        """Test that placeholder values like 9999 are filtered out."""
-        field_008 = "750727s19999999en            000 0 eng d"
-
-        assert _extract_date1_from_008(field_008) is None  # 9999 filtered
-        assert _extract_date2_from_008(field_008) is None  # 9999 filtered
-        assert _extract_date_type_from_008(field_008) == "s"
-        assert _extract_language_from_008(field_008) == "eng"
-
-    def test_extract_dates_short_field(self):
-        """Test date extraction with short 008 field."""
-        field_008_short = "750727"
-
-        assert _extract_date1_from_008(field_008_short) is None
-        assert _extract_date2_from_008(field_008_short) is None
-        assert _extract_date_type_from_008(field_008_short) is None
-        assert _extract_language_from_008(field_008_short) is None
-
-    def test_extract_language_with_spaces(self):
-        """Test language extraction when field contains spaces."""
-        field_008 = "750727s1990    en            000 0    d"
-        assert _extract_language_from_008(field_008) is None  # Spaces filtered
+    @pytest.mark.parametrize(
+        "field_008,expected_date1,expected_date2,expected_type,expected_lang",
+        [
+            # Regular extraction with filtered 9999
+            ("750727c17909999gw br p       0   b1gerdd", "1790", None, "c", "ger"),
+            # Placeholder values filtered
+            ("750727s19999999en            000 0 eng d", None, None, "s", "eng"),
+            # Short field returns None for all
+            ("750727", None, None, None, None),
+            # Language with spaces filtered
+            ("750727s1990    en            000 0    d", "1990", None, "s", None),
+        ],
+    )
+    def test_extract_008_fields(self, field_008, expected_date1, expected_date2, expected_type, expected_lang):
+        """Test extraction of date and language from MARC 008 field."""
+        assert _extract_date1_from_008(field_008) == expected_date1
+        assert _extract_date2_from_008(field_008) == expected_date2
+        assert _extract_date_type_from_008(field_008) == expected_type
+        assert _extract_language_from_008(field_008) == expected_lang
 
 
 class TestMETSParsing:

@@ -3,27 +3,26 @@
 Tests for GRIN parsing functions.
 """
 
+import pytest
+
 from grin_to_s3.collect_books.grin_parser import parse_grin_date, parse_grin_row
 
 
 class TestGrinParser:
     """Test GRIN data parsing functions."""
 
-    def test_parse_grin_date_valid(self):
-        """parse_grin_date should convert valid GRIN dates to ISO format."""
-        result = parse_grin_date("2024/01/15 14:30")
-        assert result == "2024-01-15T14:30:00"
-
-    def test_parse_grin_date_invalid(self):
-        """parse_grin_date should return original string for invalid dates."""
-        invalid_date = "not-a-date"
-        result = parse_grin_date(invalid_date)
-        assert result == invalid_date
-
-    def test_parse_grin_date_empty(self):
-        """parse_grin_date should handle empty strings."""
-        result = parse_grin_date("")
-        assert result == ""
+    @pytest.mark.parametrize(
+        "input_date,expected",
+        [
+            ("2024/01/15 14:30", "2024-01-15T14:30:00"),
+            ("not-a-date", "not-a-date"),
+            ("", ""),
+        ],
+    )
+    def test_parse_grin_date(self, input_date, expected):
+        """parse_grin_date should convert valid dates to ISO format and handle invalid inputs."""
+        result = parse_grin_date(input_date)
+        assert result == expected
 
     def test_parse_grin_row_basic(self):
         """parse_grin_row should map basic GRIN row data."""
@@ -36,10 +35,16 @@ class TestGrinParser:
         assert result["scanned_date"] == "2024-01-15T10:00:00"
         assert result["grin_state"] == "scanned"
 
-    def test_parse_grin_row_empty(self):
+    @pytest.mark.parametrize(
+        "row_data,expected",
+        [
+            ({}, {}),
+            ({"title": "No barcode"}, {}),
+        ],
+    )
+    def test_parse_grin_row_empty(self, row_data, expected):
         """parse_grin_row should handle empty or invalid input."""
-        assert parse_grin_row({}) == {}
-        assert parse_grin_row({"title": "No barcode"}) == {}
+        assert parse_grin_row(row_data) == expected
 
     def test_parse_grin_row_google_books_link(self):
         """parse_grin_row should extract Google Books links."""

@@ -26,7 +26,7 @@ class TestBookRecord:
     """Test BookRecord data class functionality."""
 
     def test_to_csv_row(self):
-        """Test CSV row conversion."""
+        """CSV row conversion should have correct length and field ordering."""
         record = BookRecord(
             barcode="TEST456",
             title="Test Book Title",
@@ -42,65 +42,26 @@ class TestBookRecord:
         assert row[2] == "2024-01-01T10:00:00"  # Scanned Date
         assert row[9] == "2024-01-02T10:00:00"  # Processing Request Timestamp
 
-    def test_boolean_fields_in_csv_row(self):
-        """Test that boolean fields output TRUE/FALSE in CSV format."""
-        # Test with False value (simulating SQLite 0)
-        record_false = BookRecord(barcode="TEST_BOOL_FALSE")
-        record_false.is_decrypted = 0  # Simulating SQLite integer storage
-        row_false = record_false.to_csv_row()
+    @pytest.mark.parametrize(
+        "input_value,expected_text",
+        [
+            (0, "FALSE"),  # SQLite integer False
+            (1, "TRUE"),  # SQLite integer True
+            (True, "TRUE"),  # Python boolean True
+            (False, "FALSE"),  # Python boolean False
+        ],
+    )
+    def test_boolean_fields_in_csv_row(self, input_value, expected_text):
+        """BookRecord should convert boolean fields to TRUE/FALSE in CSV format."""
+        record = BookRecord(barcode="TEST_BOOL")
+        record.is_decrypted = input_value
+        row = record.to_csv_row()
         headers = BookRecord.csv_headers()
         is_decrypted_pos = headers.index("Is Decrypted")
-        assert row_false[is_decrypted_pos] == "FALSE"
-
-        # Test with True value (simulating SQLite 1)
-        record_true = BookRecord(barcode="TEST_BOOL_TRUE")
-        record_true.is_decrypted = 1  # Simulating SQLite integer storage
-        row_true = record_true.to_csv_row()
-        assert row_true[is_decrypted_pos] == "TRUE"
-
-        # Test with Python boolean True
-        record_bool_true = BookRecord(barcode="TEST_BOOL_PY_TRUE")
-        record_bool_true.is_decrypted = True
-        row_bool_true = record_bool_true.to_csv_row()
-        assert row_bool_true[is_decrypted_pos] == "TRUE"
-
-        # Test with Python boolean False
-        record_bool_false = BookRecord(barcode="TEST_BOOL_PY_FALSE")
-        record_bool_false.is_decrypted = False
-        row_bool_false = record_bool_false.to_csv_row()
-        assert row_bool_false[is_decrypted_pos] == "FALSE"
-
-    def test_marc_fields_in_csv_headers(self):
-        """Test that MARC fields are included in CSV headers."""
-        headers = BookRecord.csv_headers()
-
-        # Check that all expected MARC headers are present
-        expected_marc_headers = [
-            "MARC Control Number",
-            "MARC Date Type",
-            "MARC Date 1",
-            "MARC Date 2",
-            "MARC Language",
-            "MARC LCCN",
-            "MARC LC Call Number",
-            "MARC ISBN",
-            "MARC OCLC Numbers",
-            "MARC Title",
-            "MARC Title Remainder",
-            "MARC Author Personal",
-            "MARC Author Corporate",
-            "MARC Author Meeting",
-            "MARC Subjects",
-            "MARC Genres",
-            "MARC General Note",
-            "MARC Extraction Timestamp",
-        ]
-
-        for expected_header in expected_marc_headers:
-            assert expected_header in headers, f"Missing MARC header: {expected_header}"
+        assert row[is_decrypted_pos] == expected_text
 
     def test_marc_fields_in_csv_row(self):
-        """Test that MARC fields are properly included in CSV row output."""
+        """MARC fields should be properly mapped to CSV row with None converted to empty strings."""
         record = BookRecord(
             barcode="MARC123",
             title="Test Book",
@@ -126,8 +87,32 @@ class TestBookRecord:
         assert data_dict["MARC Date Type"] == ""
         assert data_dict["MARC Author Personal"] == ""
 
+        # Verify exact MARC header list exists
+        expected_marc_headers = [
+            "MARC Control Number",
+            "MARC Date Type",
+            "MARC Date 1",
+            "MARC Date 2",
+            "MARC Language",
+            "MARC LCCN",
+            "MARC LC Call Number",
+            "MARC ISBN",
+            "MARC OCLC Numbers",
+            "MARC Title",
+            "MARC Title Remainder",
+            "MARC Author Personal",
+            "MARC Author Corporate",
+            "MARC Author Meeting",
+            "MARC Subjects",
+            "MARC Genres",
+            "MARC General Note",
+            "MARC Extraction Timestamp",
+        ]
+        for expected_header in expected_marc_headers:
+            assert expected_header in headers, f"Missing MARC header: {expected_header}"
+
     def test_build_update_marc_sql(self):
-        """Test that MARC update SQL is properly generated."""
+        """MARC update SQL should be properly generated with correct placeholder count."""
         sql = BookRecord.build_update_marc_sql()
 
         # Check that SQL contains all MARC fields
@@ -145,7 +130,7 @@ class TestBookRecord:
         assert placeholder_count == 20, f"Expected 20 placeholders, got {placeholder_count}"
 
     def test_marc_field_types(self):
-        """Test that all MARC fields accept string or None values."""
+        """All MARC fields should accept string or None values (Optional[str] contract)."""
         # Test with all None values
         record = BookRecord(barcode="TEST")
         assert record.marc_control_number is None
@@ -198,49 +183,45 @@ class TestRateLimiter:
 class TestSQLiteProgressTracker:
     """Test SQLiteProgressTracker functionality."""
 
+    @pytest.mark.parametrize(
+        "seed_barcodes,query_barcodes,expected_known",
+        [
+            # Empty set
+            ([], set(), set()),
+            # All unknown barcodes
+            ([], {"UNKNOWN1", "UNKNOWN2", "UNKNOWN3"}, set()),
+            # Mix of known and unknown
+            (
+                ["PROCESSED1", "PROCESSED2", "FAILED1"],
+                {"PROCESSED1", "PROCESSED2", "FAILED1", "UNKNOWN1", "UNKNOWN2"},
+                {"PROCESSED1", "PROCESSED2", "FAILED1"},
+            ),
+            # All existing
+            (
+                ["BOOK001", "BOOK002", "BOOK003"],
+                {"BOOK001", "BOOK002", "BOOK003"},
+                {"BOOK001", "BOOK002", "BOOK003"},
+            ),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_load_known_barcodes_batch_empty_set(self):
-        """Test load_known_barcodes_batch with empty set."""
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
-            try:
-                tracker = SQLiteProgressTracker(tmp_db.name)
-                result = await tracker.load_known_barcodes_batch(set())
-                assert result == set()
-                await tracker.close()
-            finally:
-                os.unlink(tmp_db.name)
-
-    @pytest.mark.asyncio
-    async def test_load_known_barcodes_batch_all_unknown(self):
-        """Test load_known_barcodes_batch with all unknown barcodes."""
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
-            try:
-                tracker = SQLiteProgressTracker(tmp_db.name)
-                barcodes = {"UNKNOWN1", "UNKNOWN2", "UNKNOWN3"}
-                result = await tracker.load_known_barcodes_batch(barcodes)
-                assert result == set()
-                await tracker.close()
-            finally:
-                os.unlink(tmp_db.name)
-
-    @pytest.mark.asyncio
-    async def test_load_known_barcodes_batch_mixed_known_unknown(self):
-        """Test load_known_barcodes_batch with mix of known and unknown barcodes."""
+    async def test_load_known_barcodes_batch_basic_scenarios(self, seed_barcodes, query_barcodes, expected_known):
+        """Test load_known_barcodes_batch with basic barcode combinations."""
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp_db:
             try:
                 tracker = SQLiteProgressTracker(tmp_db.name)
 
-                # Mark some barcodes as processed and failed
-                await tracker.mark_processed("PROCESSED1")
-                await tracker.mark_processed("PROCESSED2")
-                await tracker.mark_failed("FAILED1", "Test error")
+                # Seed database with processed/failed barcodes
+                for barcode in seed_barcodes:
+                    if barcode == "FAILED1":
+                        await tracker.mark_failed(barcode, "Test error")
+                    else:
+                        await tracker.mark_processed(barcode)
 
-                # Test with mix of known and unknown barcodes
-                barcodes = {"PROCESSED1", "PROCESSED2", "FAILED1", "UNKNOWN1", "UNKNOWN2"}
-                result = await tracker.load_known_barcodes_batch(barcodes)
+                # Test the load operation
+                result = await tracker.load_known_barcodes_batch(query_barcodes)
+                assert result == expected_known
 
-                expected = {"PROCESSED1", "PROCESSED2", "FAILED1"}
-                assert result == expected
                 await tracker.close()
             finally:
                 os.unlink(tmp_db.name)

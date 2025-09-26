@@ -11,12 +11,18 @@ from grin_to_s3.common import (
 )
 
 
-def test_get_compressed_filename():
+@pytest.mark.parametrize(
+    "filename,expected",
+    [
+        ("books.csv", "books.csv.gz"),
+        ("test.db", "test.db.gz"),
+        ("data.jsonl", "data.jsonl.gz"),
+        ("file.txt.backup", "file.txt.backup.gz"),
+    ],
+)
+def test_get_compressed_filename(filename, expected):
     """Test filename compression extension."""
-    assert get_compressed_filename("books.csv") == "books.csv.gz"
-    assert get_compressed_filename("test.db") == "test.db.gz"
-    assert get_compressed_filename("data.jsonl") == "data.jsonl.gz"
-    assert get_compressed_filename("file.txt.backup") == "file.txt.backup.gz"
+    assert get_compressed_filename(filename) == expected
 
 
 @pytest.mark.asyncio

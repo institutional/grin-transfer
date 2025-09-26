@@ -5,6 +5,8 @@ import tempfile
 from dataclasses import asdict
 from pathlib import Path
 
+import pytest
+
 from grin_to_s3.run_config import (
     RunConfig,
     StorageConfig,
@@ -16,7 +18,16 @@ from grin_to_s3.run_config import (
 )
 
 
-def test_serialize_paths_handles_path_objects():
+@pytest.mark.parametrize(
+    "field_path,expected",
+    [
+        (["path_field"], "/tmp/test"),
+        (["string_field"], "hello"),
+        (["nested", "another_path"], "/home/user"),
+        (["nested", "number"], 42),
+    ],
+)
+def test_serialize_paths_handles_path_objects(field_path, expected):
     """serialize_paths should convert Path objects to strings."""
     data = {
         "path_field": Path("/tmp/test"),
@@ -26,10 +37,12 @@ def test_serialize_paths_handles_path_objects():
 
     result = serialize_paths(data)
 
-    assert result["path_field"] == "/tmp/test"
-    assert result["string_field"] == "hello"
-    assert result["nested"]["another_path"] == "/home/user"
-    assert result["nested"]["number"] == 42
+    # Navigate to the field using the path
+    value = result
+    for key in field_path:
+        value = value[key]
+
+    assert value == expected
 
 
 def test_serialization_converts_paths_to_strings():

@@ -63,86 +63,93 @@ class TestCSVExport:
         mock_tracker.close = AsyncMock()
         return mock_tracker
 
-    def test_marc_fields_in_csv_headers(self):
-        """Test that all MARC fields are present in CSV headers."""
+    @pytest.mark.parametrize(
+        "test_scenario,book_fixture,field_expectations",
+        [
+            # Test MARC fields presence and order
+            (
+                "marc_fields_present_and_ordered",
+                "sample_book_no_marc",
+                {
+                    "expected_marc_fields": [
+                        "MARC Control Number",
+                        "MARC Date Type",
+                        "MARC Date 1",
+                        "MARC Date 2",
+                        "MARC Language",
+                        "MARC LCCN",
+                        "MARC LC Call Number",
+                        "MARC ISBN",
+                        "MARC OCLC Numbers",
+                        "MARC Title",
+                        "MARC Title Remainder",
+                        "MARC Author Personal",
+                        "MARC Author Corporate",
+                        "MARC Author Meeting",
+                        "MARC Subjects",
+                        "MARC Genres",
+                        "MARC General Note",
+                        "MARC Extraction Timestamp",
+                    ],
+                    "check_ordering": True,
+                    "check_empty_display": True,
+                },
+            ),
+            # Test populated MARC fields display correctly
+            (
+                "marc_fields_populated_display",
+                "sample_book_with_marc",
+                {
+                    "specific_field_values": {
+                        "MARC Control Number": "123456789",
+                        "MARC Title": "Programming in Python",
+                        "MARC Author Personal": "Smith, John",
+                        "MARC Extraction Timestamp": "2024-01-15T10:30:00Z",
+                    },
+                },
+            ),
+        ],
+    )
+    def test_marc_fields_comprehensive(self, test_scenario, book_fixture, field_expectations, request):
+        """Comprehensive MARC field testing: presence, ordering, and display."""
         headers = BookRecord.csv_headers()
+        book = request.getfixturevalue(book_fixture)
+        csv_row = book.to_csv_row()
 
-        # Verify all expected MARC fields are present
-        expected_marc_fields = [
-            "MARC Control Number",
-            "MARC Date Type",
-            "MARC Date 1",
-            "MARC Date 2",
-            "MARC Language",
-            "MARC LCCN",
-            "MARC LC Call Number",
-            "MARC ISBN",
-            "MARC OCLC Numbers",
-            "MARC Title",
-            "MARC Title Remainder",
-            "MARC Author Personal",
-            "MARC Author Corporate",
-            "MARC Author Meeting",
-            "MARC Subjects",
-            "MARC Genres",
-            "MARC General Note",
-            "MARC Extraction Timestamp",
-        ]
+        # Test MARC field presence and count
+        if "expected_marc_fields" in field_expectations:
+            expected_fields = field_expectations["expected_marc_fields"]
+            for field in expected_fields:
+                assert field in headers, f"MARC field '{field}' missing from CSV headers"
 
-        for field in expected_marc_fields:
-            assert field in headers, f"MARC field '{field}' missing from CSV headers"
-
-    def test_marc_fields_ordering(self):
-        """Test that MARC fields are in correct order (grouped with metadata)."""
-        headers = BookRecord.csv_headers()
-
-        # Find positions of MARC fields
-        marc_positions = []
-        for i, header in enumerate(headers):
-            if header.startswith("MARC "):
-                marc_positions.append(i)
-
-        # Verify MARC fields are grouped together (consecutive positions)
-        assert len(marc_positions) > 0, "No MARC fields found in headers"
-
-        # All MARC fields should be consecutive
-        for i in range(1, len(marc_positions)):
-            assert marc_positions[i] == marc_positions[i - 1] + 1, (
-                f"MARC fields not consecutive at positions {marc_positions[i - 1]} and {marc_positions[i]}"
+            # Verify no extra unexpected MARC fields
+            actual_marc_fields = [h for h in headers if h.startswith("MARC ")]
+            assert len(actual_marc_fields) == len(expected_fields), (
+                f"Expected {len(expected_fields)} MARC fields, found {len(actual_marc_fields)}"
             )
 
-    def test_empty_marc_fields_display(self, sample_book_no_marc):
-        """Test that empty MARC fields display as empty strings."""
-        csv_row = sample_book_no_marc.to_csv_row()
-        headers = BookRecord.csv_headers()
+        # Test MARC field ordering (consecutive positions)
+        if field_expectations.get("check_ordering"):
+            marc_positions = [i for i, header in enumerate(headers) if header.startswith("MARC ")]
+            assert len(marc_positions) > 0, "No MARC fields found in headers"
+            for i in range(1, len(marc_positions)):
+                assert marc_positions[i] == marc_positions[i - 1] + 1, (
+                    f"MARC fields not consecutive at positions {marc_positions[i - 1]} and {marc_positions[i]}"
+                )
 
-        # Find all MARC field positions
-        marc_positions = []
-        for i, header in enumerate(headers):
-            if header.startswith("MARC "):
-                marc_positions.append(i)
+        # Test empty MARC fields display as empty strings
+        if field_expectations.get("check_empty_display"):
+            marc_positions = [i for i, header in enumerate(headers) if header.startswith("MARC ")]
+            for pos in marc_positions:
+                assert csv_row[pos] == "", f"MARC field at position {pos} should be empty string, got '{csv_row[pos]}'"
 
-        # Verify all MARC fields are empty strings
-        for pos in marc_positions:
-            assert csv_row[pos] == "", f"MARC field at position {pos} should be empty string, got '{csv_row[pos]}'"
-
-    def test_populated_marc_fields_display(self, sample_book_with_marc):
-        """Test that populated MARC fields display correctly."""
-        csv_row = sample_book_with_marc.to_csv_row()
-        headers = BookRecord.csv_headers()
-
-        # Test specific MARC fields
-        marc_control_pos = headers.index("MARC Control Number")
-        assert csv_row[marc_control_pos] == "123456789"
-
-        marc_title_pos = headers.index("MARC Title")
-        assert csv_row[marc_title_pos] == "Programming in Python"
-
-        marc_author_pos = headers.index("MARC Author Personal")
-        assert csv_row[marc_author_pos] == "Smith, John"
-
-        marc_extraction_pos = headers.index("MARC Extraction Timestamp")
-        assert csv_row[marc_extraction_pos] == "2024-01-15T10:30:00Z"
+        # Test specific field values
+        if "specific_field_values" in field_expectations:
+            for field_name, expected_value in field_expectations["specific_field_values"].items():
+                field_pos = headers.index(field_name)
+                assert csv_row[field_pos] == expected_value, (
+                    f"{field_name} should be '{expected_value}', got '{csv_row[field_pos]}'"
+                )
 
     @pytest.mark.asyncio
     async def test_write_books_to_csv_happy_path(self, mock_sqlite_tracker, sample_book_with_marc, tmp_path):
@@ -165,8 +172,8 @@ class TestCSVExport:
             assert "Smith, John" in content  # MARC author
             assert "123456789" in content  # MARC control number
 
-    def test_csv_headers_consistency(self):
-        """Test that CSV headers are consistent between BookRecord methods."""
+    def test_csv_headers_consistency_and_coverage(self):
+        """Test CSV header consistency and MARC field requirements."""
         headers = BookRecord.csv_headers()
 
         # Create a sample book and verify row length matches headers
@@ -183,11 +190,7 @@ class TestCSVExport:
             assert header.strip() == header, f"Header '{header}' has extra whitespace"
             assert header != "", "Empty header found"
 
-    def test_marc_field_coverage(self):
-        """Test that all MARC fields from issue requirements are covered."""
-        headers = BookRecord.csv_headers()
-
-        # These are the exact fields from the GitHub issue
+        # Test MARC field requirements
         required_marc_fields = [
             "MARC Control Number",
             "MARC Date Type",
