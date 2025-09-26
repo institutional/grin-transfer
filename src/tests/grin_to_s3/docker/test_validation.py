@@ -33,17 +33,20 @@ class TestIsDockerEnvironment:
 class TestTranslateDockerDataPath:
     """Test Docker data path translation."""
 
-    def test_translate_docker_data_path(self):
-        """Test translation of docker-data paths."""
-        assert translate_docker_data_path_for_local_storage("docker-data/test") == "/app/docker-data/test"
-        assert translate_docker_data_path_for_local_storage("docker-data/foo/bar") == "/app/docker-data/foo/bar"
-
-    def test_translate_docker_data_subdirectories(self):
-        """Test translation of specific docker-data subdirectories."""
-        assert translate_docker_data_path_for_local_storage("docker-data/data/test") == "/app/data/test"
-        assert translate_docker_data_path_for_local_storage("docker-data/output/test") == "/app/output/test"
-        assert translate_docker_data_path_for_local_storage("docker-data/logs/test") == "/app/logs/test"
-        assert translate_docker_data_path_for_local_storage("docker-data/staging/test") == "/app/staging/test"
+    @pytest.mark.parametrize(
+        "input_path,expected_path",
+        [
+            ("docker-data/test", "/app/docker-data/test"),
+            ("docker-data/foo/bar", "/app/docker-data/foo/bar"),
+            ("docker-data/data/test", "/app/data/test"),
+            ("docker-data/output/test", "/app/output/test"),
+            ("docker-data/logs/test", "/app/logs/test"),
+            ("docker-data/staging/test", "/app/staging/test"),
+        ],
+    )
+    def test_translate_docker_data_paths(self, input_path, expected_path):
+        """Test translation of docker-data paths and subdirectories."""
+        assert translate_docker_data_path_for_local_storage(input_path) == expected_path
 
     def test_non_docker_data_paths(self):
         """Test that non-docker-data paths are not translated."""
