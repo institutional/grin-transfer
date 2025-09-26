@@ -4,8 +4,10 @@ flowchart TD
         SyncStart([Sync pipeline entry<br/>from collect handoff]):::terminal --> I[/Barcode selection<br/>queues, file, or CLI list/]:::io
         I --> J[Check task<br/>HEAD request & status lookup]:::process
         J --> K{File package ready in GRIN?}:::decision
-        K -->|No| L[Request conversion if needed<br/>record pending status]:::process
-        L -->|Google converting to file package| I
+        K -->|No| ConversionCheck{Conversions > 50,000?}:::decision
+        ConversionCheck -->|Yes| Terminate([Flow terminated:<br/>Conversion limit exceeded]):::terminal
+        ConversionCheck -->|No| L[Request conversion to file package]:::process
+        L --> Waiting([Task waiting:<br/>Google converting file package]):::terminal
         K -->|Yes| M{File package already in storage?}:::decision
         M -->|No| O[/Download encrypted file package/]:::io
         M -->|Yes| N{ETag matches stored copy?}:::decision

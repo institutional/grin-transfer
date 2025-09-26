@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Generate SVG diagrams for pipeline documentation
-# Usage: ./docs/generate-svgs.sh
+# Usage: ./docs/diagrams/generate-svgs.sh
 
 set -e
 
@@ -41,7 +41,20 @@ mmdc \
     --height 550 \
     --scale 1.5
 
+# Generate lifecycle summary SVG
+echo "  - lifecycle-summary.svg"
+mmdc \
+    --input docs/diagrams/lifecycle-summary.mmd \
+    --output docs/diagrams/lifecycle-summary.svg \
+    --configFile docs/diagrams/mermaid-config.json \
+    --cssFile docs/diagrams/mermaid-transparent.css \
+    -b transparent \
+    --width 900 \
+    --height 550 \
+    --scale 1.5
+
 echo "SVG generation complete!"
 echo "Files generated:"
 echo "  - docs/diagrams/collect-pipeline.svg"
 echo "  - docs/diagrams/sync-pipeline.svg"
+echo "  - docs/diagrams/lifecycle-summary.svg"
