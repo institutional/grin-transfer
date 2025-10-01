@@ -290,3 +290,26 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
 
         # Only PREV001 should be returned
         self.assertEqual(result, {"PREV001"})
+
+    async def test_get_previous_queue_books_excludes_conversion_failed(self):
+        """get_previous_queue_books should exclude books marked as conversion_failed."""
+        # Create books with different states
+        await self._add_book_with_grin_state("PREV001", "PREVIOUSLY_DOWNLOADED")  # Should be included
+        await self._add_book_with_grin_state(
+            "PREV002", "PREVIOUSLY_DOWNLOADED"
+        )  # Should be excluded (conversion_failed)
+        await self._add_book_with_grin_state("PREV003", "PREVIOUSLY_DOWNLOADED")  # Should be excluded (unavailable)
+        await self._add_book_with_grin_state("PREV004", "PREVIOUSLY_DOWNLOADED")  # Should be included
+
+        # Mark PREV002 as conversion_failed
+        status_updates = [
+            StatusUpdate("PREV002", "conversion", "conversion_failed"),
+            StatusUpdate("PREV003", "conversion", "unavailable"),
+        ]
+        await batch_write_status_updates(str(self.db_path), status_updates)
+
+        # Test the function
+        result = await get_previous_queue_books(self.tracker)
+
+        # Only PREV001 and PREV004 should be returned (PREV002 and PREV003 excluded)
+        self.assertEqual(result, {"PREV001", "PREV004"})

@@ -21,13 +21,14 @@ from grin_to_s3.docker.validation import is_docker_environment
 from grin_to_s3.run_config import load_run_config
 from grin_to_s3.storage.book_manager import BookManager
 from grin_to_s3.storage.factories import create_storage_from_config
+from grin_to_s3.sync.tasks.task_types import TaskAction, TaskType
 
 from .common import compress_file_to_temp, format_duration, get_compressed_filename
 
 logger = logging.getLogger(__name__)
 
 # Book processing outcome types
-BookOutcome = Literal["conversion_requested", "skipped", "synced", "failed"]
+BookOutcome = Literal["conversion_requested", "skipped", "synced", "conversion_failure_tracked", "failed"]
 
 
 @dataclass
@@ -55,6 +56,7 @@ class ProcessStageMetrics:
     sync_skipped: int = 0  # Already synced/etag match
     sync_failed: int = 0
     conversions_requested_during_sync: int = 0  # Sent for conversion
+    conversion_failures_tracked: int = 0  # Conversion failures recorded from conversion-failed queue
     sync_rate_per_hour: float = 0.0
 
     # Snapshot of cumulative metrics at start of current run
@@ -130,8 +132,8 @@ class ProcessStageMetrics:
             successful = self.conversion_requests_made
             failed = self.conversion_requests_failed
         elif self.stage_name == "sync":
-            total = self.books_synced + self.sync_skipped + self.sync_failed + self.conversions_requested_during_sync
-            successful = self.books_synced + self.sync_skipped + self.conversions_requested_during_sync
+            total = self.sync_total
+            successful = self.sync_total - self.sync_failed
             failed = self.sync_failed
         elif self.stage_name == "enrich":
             total = self.books_enriched + self.enrichment_skipped + self.enrichment_failed
@@ -162,10 +164,8 @@ class ProcessStageMetrics:
                 "sync_skipped": self.sync_skipped,
                 "sync_failed": self.sync_failed,
                 "conversions_requested_during_sync": self.conversions_requested_during_sync,
-                "total_books_processed": self.books_synced
-                + self.sync_skipped
-                + self.sync_failed
-                + self.conversions_requested_during_sync,
+                "conversion_failures_tracked": self.conversion_failures_tracked,
+                "total_books_processed": self.sync_total,
             }
         elif self.stage_name == "enrich":
             return {
@@ -185,6 +185,17 @@ class ProcessStageMetrics:
         self.last_error_time = datetime.now(UTC).isoformat()
         logger.debug(f"{self.stage_name} error: {error_type} - {error_message}")
 
+    @property
+    def sync_total(self) -> int:
+        """Total sync operations across all outcome types."""
+        return (
+            self.books_synced
+            + self.sync_skipped
+            + self.sync_failed
+            + self.conversions_requested_during_sync
+            + self.conversion_failures_tracked
+        )
+
     def set_command_arg(self, key: str, value: Any) -> None:
         """Set a command-line argument or configuration value for this stage."""
         self.command_args[key] = value
@@ -192,9 +203,8 @@ class ProcessStageMetrics:
     @staticmethod
     def determine_book_outcome(task_results: dict) -> BookOutcome:
         """Determine the overall outcome for a book based on its task results."""
-        from grin_to_s3.sync.tasks.task_types import TaskAction, TaskType
 
-        # Check if conversion was requested (for previous queue)
+        # Check if conversion was requested
         if TaskType.REQUEST_CONVERSION in task_results:
             request_result = task_results[TaskType.REQUEST_CONVERSION]
             if (
@@ -202,6 +212,9 @@ class ProcessStageMetrics:
                 and request_result.reason == "success_conversion_requested"
             ):
                 return "conversion_requested"
+            # If REQUEST_CONVERSION was skipped (already in process), count as skipped
+            if request_result.action == TaskAction.SKIPPED:
+                return "skipped"
 
         # Check if the book was skipped early (already synced or etag match)
         if TaskType.CHECK in task_results:
@@ -215,6 +228,12 @@ class ProcessStageMetrics:
             if upload_result.action == TaskAction.COMPLETED:
                 return "synced"
 
+        # Check if conversion failure was tracked
+        if TaskType.TRACK_CONVERSION_FAILURE in task_results:
+            track_result = task_results[TaskType.TRACK_CONVERSION_FAILURE]
+            if track_result.action == TaskAction.COMPLETED:
+                return "conversion_failure_tracked"
+
         # If we got here, something failed
         return "failed"
 
@@ -226,6 +245,8 @@ class ProcessStageMetrics:
             self.sync_skipped += 1
         elif outcome == "conversion_requested":
             self.conversions_requested_during_sync += 1
+        elif outcome == "conversion_failure_tracked":
+            self.conversion_failures_tracked += 1
         elif outcome == "failed":
             self.sync_failed += 1
 
@@ -237,6 +258,7 @@ class ProcessStageMetrics:
                 "sync_skipped": self.sync_skipped,
                 "sync_failed": self.sync_failed,
                 "conversions_requested_during_sync": self.conversions_requested_during_sync,
+                "conversion_failures_tracked": self.conversion_failures_tracked,
             }
 
 
@@ -329,7 +351,6 @@ class RunSummary:
             total_items_failed += stage_failed
 
         total_errors = sum(stage.error_count for stage in self.stages.values())
-        total_errors = sum(stage.error_count for stage in self.stages.values())
 
         # Calculate success rate
         success_rate = (
@@ -384,6 +405,7 @@ class RunSummary:
                         "sync_skipped": stage.sync_skipped,
                         "sync_failed": stage.sync_failed,
                         "conversions_requested_during_sync": stage.conversions_requested_during_sync,
+                        "conversion_failures_tracked": stage.conversion_failures_tracked,
                         "sync_rate_per_hour": stage.sync_rate_per_hour,
                         "metrics_snapshot_at_start": stage.metrics_snapshot_at_start,
                     }
@@ -588,6 +610,7 @@ class RunSummaryManager:
                 sync_skipped=stage_data.get("sync_skipped", 0),
                 sync_failed=stage_data.get("sync_failed", 0),
                 conversions_requested_during_sync=stage_data.get("conversions_requested_during_sync", 0),
+                conversion_failures_tracked=stage_data.get("conversion_failures_tracked", 0),
                 sync_rate_per_hour=stage_data.get("sync_rate_per_hour", 0.0),
                 # Metrics snapshot from start of current run
                 metrics_snapshot_at_start=stage_data.get("metrics_snapshot_at_start", {}),
@@ -734,15 +757,23 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
             session_conversions_requested = step.conversions_requested_during_sync - step.metrics_snapshot_at_start.get(
                 "conversions_requested_during_sync", 0
             )
-
-            session_total = (
-                session_books_synced + session_sync_skipped + session_sync_failed + session_conversions_requested
+            session_conversion_failures_tracked = step.conversion_failures_tracked - step.metrics_snapshot_at_start.get(
+                "conversion_failures_tracked", 0
             )
 
             if session_books_synced > 0:
                 # Books were actually synced this session
                 print(f"\n✓ Synced {session_books_synced:,} in {duration_str}")
-            elif session_total == 0:
+            elif session_conversion_failures_tracked > 0:
+                # Conversion failures were tracked this session
+                print(f"\n✓ Tracked {session_conversion_failures_tracked:,} conversion failures in {duration_str}")
+            elif (
+                session_books_synced
+                + session_sync_skipped
+                + session_sync_failed
+                + session_conversions_requested
+                + session_conversion_failures_tracked
+            ) == 0:
                 # No books processed this session
                 print(f"\n✓ Process completed in {duration_str}")
             elif session_sync_failed > 0:
@@ -760,6 +791,7 @@ def display_step_summary(summary: RunSummary, step_name: str) -> None:
             session_sync_skipped=session_sync_skipped,
             session_sync_failed=session_sync_failed,
             session_conversions_requested=session_conversions_requested,
+            session_conversion_failures_tracked=session_conversion_failures_tracked,
         )
         next_command = None
 
@@ -798,6 +830,7 @@ def _display_sync_details(
     session_sync_skipped: int = 0,
     session_sync_failed: int = 0,
     session_conversions_requested: int = 0,
+    session_conversion_failures_tracked: int = 0,
 ) -> None:
     """Display detailed sync metrics for the sync stage focused on user outcomes."""
     # Display queue information
@@ -830,20 +863,28 @@ def _display_sync_details(
         print(f"    ✓ Total synced: {step.books_synced:,}")
     if step.conversions_requested_during_sync > 0:
         print(f"    → Total sent for conversion: {step.conversions_requested_during_sync:,}")
+    if step.conversion_failures_tracked > 0:
+        print(f"    ⊗ Total conversion failures tracked: {step.conversion_failures_tracked:,}")
     if step.sync_skipped > 0:
         print(f"    ⊘ Total skipped (already synced): {step.sync_skipped:,}")
     if step.sync_failed > 0:
         print(f"    ✗ Total failed: {step.sync_failed:,}")
 
     # Show current session data if there were any operations in this session
-    session_total = session_books_synced + session_sync_skipped + session_sync_failed + session_conversions_requested
-
-    if session_total > 0:
+    if (
+        session_books_synced
+        + session_sync_skipped
+        + session_sync_failed
+        + session_conversions_requested
+        + session_conversion_failures_tracked
+    ) > 0:
         print("  This session:")
         if session_books_synced > 0:
             print(f"    ✓ Successfully synced: {session_books_synced:,}")
         if session_conversions_requested > 0:
             print(f"    → Conversion requested: {session_conversions_requested:,}")
+        if session_conversion_failures_tracked > 0:
+            print(f"    ⊗ Conversion failures tracked: {session_conversion_failures_tracked:,}")
         if session_sync_skipped > 0:
             print(f"    ⊘ Skipped (already synced): {session_sync_skipped:,}")
         if session_sync_failed > 0:

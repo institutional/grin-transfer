@@ -137,25 +137,25 @@ class TestRunSummary:
 class TestProcessStageMetricsQueueTracking:
     """Test queue tracking features in ProcessStageMetrics."""
 
-    def test_queue_fields_initialization(self):
-        """Test that progress_updates are properly initialized."""
+    def test_increment_by_outcome_conversion_failure_tracked(self):
+        """Test that increment_by_outcome properly increments conversion_failures_tracked counter."""
         stage = ProcessStageMetrics("sync")
 
-        assert stage.progress_updates == []
+        # Initial value should be 0
+        assert stage.conversion_failures_tracked == 0
 
-    def test_increment_by_outcome_without_queue(self):
-        """Test increment_by_outcome works for stage-level counters."""
-        stage = ProcessStageMetrics("sync")
+        # Increment by conversion_failure_tracked outcome
+        stage.increment_by_outcome("conversion_failure_tracked")
+        assert stage.conversion_failures_tracked == 1
 
+        # Increment again
+        stage.increment_by_outcome("conversion_failure_tracked")
+        assert stage.conversion_failures_tracked == 2
+
+        # Other outcomes should not affect this counter
         stage.increment_by_outcome("synced")
         stage.increment_by_outcome("failed")
-        stage.increment_by_outcome("skipped")
-        stage.increment_by_outcome("conversion_requested")
-
-        assert stage.books_synced == 1
-        assert stage.sync_failed == 1
-        assert stage.sync_skipped == 1
-        assert stage.conversions_requested_during_sync == 1
+        assert stage.conversion_failures_tracked == 2
 
     def test_progress_updates_with_queue_data(self):
         """Test adding progress updates with queue tracking data."""
@@ -279,3 +279,120 @@ class TestProcessSummaryFunctions:
         finally:
             # Restore original directory
             os.chdir(original_cwd)
+
+
+class TestDetermineBookOutcome:
+    """Test ProcessStageMetrics.determine_book_outcome static method."""
+
+    def test_request_conversion_skipped_returns_skipped_outcome(self):
+        """REQUEST_CONVERSION SKIPPED (already in process) should return 'skipped' outcome."""
+        from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
+
+        task_results = {
+            TaskType.CHECK: TaskResult(
+                barcode="TEST",
+                task_type=TaskType.CHECK,
+                action=TaskAction.FAILED,
+                reason="fail_archive_missing",
+                error="Archive not available in GRIN",
+            ),
+            TaskType.REQUEST_CONVERSION: TaskResult(
+                barcode="TEST",
+                task_type=TaskType.REQUEST_CONVERSION,
+                action=TaskAction.SKIPPED,
+                reason="skip_already_in_process",
+            ),
+        }
+
+        outcome = ProcessStageMetrics.determine_book_outcome(task_results)
+        assert outcome == "skipped"
+
+    def test_request_conversion_completed_returns_conversion_requested(self):
+        """REQUEST_CONVERSION COMPLETED should return 'conversion_requested' outcome."""
+        from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
+
+        task_results = {
+            TaskType.CHECK: TaskResult(
+                barcode="TEST",
+                task_type=TaskType.CHECK,
+                action=TaskAction.FAILED,
+                reason="fail_archive_missing",
+                error="Archive not available in GRIN",
+            ),
+            TaskType.REQUEST_CONVERSION: TaskResult(
+                barcode="TEST",
+                task_type=TaskType.REQUEST_CONVERSION,
+                action=TaskAction.COMPLETED,
+                reason="success_conversion_requested",
+            ),
+        }
+
+        outcome = ProcessStageMetrics.determine_book_outcome(task_results)
+        assert outcome == "conversion_requested"
+
+    def test_check_skipped_returns_skipped_outcome(self):
+        """CHECK SKIPPED should return 'skipped' outcome."""
+        from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
+
+        task_results = {
+            TaskType.CHECK: TaskResult(
+                barcode="TEST",
+                task_type=TaskType.CHECK,
+                action=TaskAction.SKIPPED,
+                reason="skip_etag_match",
+            ),
+        }
+
+        outcome = ProcessStageMetrics.determine_book_outcome(task_results)
+        assert outcome == "skipped"
+
+    def test_upload_completed_returns_synced_outcome(self):
+        """UPLOAD COMPLETED should return 'synced' outcome."""
+        from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
+
+        task_results = {
+            TaskType.CHECK: TaskResult(barcode="TEST", task_type=TaskType.CHECK, action=TaskAction.COMPLETED),
+            TaskType.DOWNLOAD: TaskResult(barcode="TEST", task_type=TaskType.DOWNLOAD, action=TaskAction.COMPLETED),
+            TaskType.UPLOAD: TaskResult(barcode="TEST", task_type=TaskType.UPLOAD, action=TaskAction.COMPLETED),
+        }
+
+        outcome = ProcessStageMetrics.determine_book_outcome(task_results)
+        assert outcome == "synced"
+
+    def test_track_conversion_failure_returns_conversion_failure_tracked(self):
+        """TRACK_CONVERSION_FAILURE COMPLETED should return 'conversion_failure_tracked' outcome."""
+        from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
+
+        task_results = {
+            TaskType.CHECK: TaskResult(
+                barcode="TEST",
+                task_type=TaskType.CHECK,
+                action=TaskAction.FAILED,
+                reason="fail_known_conversion_failure",
+            ),
+            TaskType.TRACK_CONVERSION_FAILURE: TaskResult(
+                barcode="TEST",
+                task_type=TaskType.TRACK_CONVERSION_FAILURE,
+                action=TaskAction.COMPLETED,
+            ),
+        }
+
+        outcome = ProcessStageMetrics.determine_book_outcome(task_results)
+        assert outcome == "conversion_failure_tracked"
+
+    def test_no_matching_outcome_returns_failed(self):
+        """When no matching outcome pattern, should return 'failed'."""
+        from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
+
+        task_results = {
+            TaskType.CHECK: TaskResult(
+                barcode="TEST",
+                task_type=TaskType.CHECK,
+                action=TaskAction.FAILED,
+                reason="fail_unexpected_http_status_code",
+                error="HTTP 500",
+            ),
+        }
+
+        outcome = ProcessStageMetrics.determine_book_outcome(task_results)
+        assert outcome == "failed"

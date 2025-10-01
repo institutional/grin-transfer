@@ -144,14 +144,24 @@ def _handle_grin_error(
                 data={"etag": None, "file_size_bytes": None, "http_status_code": 404},
                 reason="skip_found_in_storage_not_grin",
             )
-        # Book not in storage, not in GRIN download queue → request conversion
+        # Book not in storage and not in GRIN download queue → check failed
+        # Downstream tasks will request conversion or track known failures
+        is_known_conversion_failure = barcode in pipeline.conversion_failure_metadata
+        force_reconversion = pipeline.force
+
         return CheckResult(
             barcode=barcode,
             task_type=TaskType.CHECK,
             action=TaskAction.FAILED,
-            error="Archive not found in GRIN",
-            data={"etag": None, "file_size_bytes": None, "http_status_code": 404},
-            reason="fail_archive_missing",
+            error="Archive not available in GRIN",
+            data={
+                "etag": None,
+                "file_size_bytes": None,
+                "http_status_code": 404,
+            },
+            reason="fail_known_conversion_failure"
+            if is_known_conversion_failure and not force_reconversion
+            else "fail_archive_missing",
         )
 
     # Other HTTP errors

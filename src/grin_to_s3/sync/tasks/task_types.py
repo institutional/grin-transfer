@@ -27,6 +27,7 @@ class TaskType(Enum):
     EXTRACT_OCR = auto()
     EXPORT_CSV = auto()
     CLEANUP = auto()
+    TRACK_CONVERSION_FAILURE = auto()
 
     # Teardown operations
     FINAL_DATABASE_UPLOAD = auto()
@@ -109,6 +110,14 @@ class RequestConversionData(TypedDict):
     grin_response: str
 
 
+class TrackConversionFailureData(TypedDict):
+    """Data from TRACK_CONVERSION_FAILURE task."""
+
+    grin_convert_failed_date: str
+    grin_convert_failed_info: str
+    grin_detailed_convert_failed_info: str
+
+
 class CleanupData(TypedDict):
     """Data from CLEANUP task."""
 
@@ -159,6 +168,7 @@ TData = TypeVar("TData")
 REASONS = Literal[
     "completed_match_with_force",
     "fail_archive_missing",
+    "fail_known_conversion_failure",
     "fail_no_marc_metadata",
     "fail_queue_limit_reached",
     "fail_unexpected_http_status_code",
@@ -217,10 +227,12 @@ class TaskResult(Generic[TData]):
     def next_tasks(self) -> list[TaskType]:
         """Return tasks that should run after this one."""
 
-        # Handle recovery paths for failed tasks
-        if self.action == TaskAction.FAILED:
-            match self.task_type:
-                case TaskType.CHECK if self.reason == "fail_archive_missing":
+        # Handle FAILED CHECK tasks - route to conversion or failure tracking
+        if self.action == TaskAction.FAILED and self.task_type == TaskType.CHECK:
+            match self.reason:
+                case "fail_known_conversion_failure":
+                    return [TaskType.TRACK_CONVERSION_FAILURE]
+                case "fail_archive_missing":
                     return [TaskType.REQUEST_CONVERSION]
                 case _:
                     return []
@@ -229,7 +241,7 @@ class TaskResult(Generic[TData]):
         if not self.should_continue_pipeline:
             return []
 
-        # Dependency chain
+        # Dependency chain for other tasks
         match self.task_type:
             case TaskType.CHECK:
                 return [TaskType.DOWNLOAD]
@@ -256,6 +268,7 @@ UnpackResult = TaskResult[UnpackData]
 UploadResult = TaskResult[UploadData]
 ExtractMarcResult = TaskResult[ExtractMarcData]
 ExtractOcrResult = TaskResult[ExtractOcrData]
+TrackConversionFailureResult = TaskResult[TrackConversionFailureData]
 CleanupResult = TaskResult[CleanupData]
 
 # Preflight operation results
@@ -273,6 +286,10 @@ class CheckTaskFunc(Protocol):
 
 class RequestConversionTaskFunc(Protocol):
     async def __call__(self, barcode: str, pipeline: SyncPipeline) -> RequestConversionResult: ...
+
+
+class TrackConversionFailureTaskFunc(Protocol):
+    async def __call__(self, barcode: str, pipeline: SyncPipeline) -> TrackConversionFailureResult: ...
 
 
 class DownloadTaskFunc(Protocol):

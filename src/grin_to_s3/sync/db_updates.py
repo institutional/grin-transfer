@@ -285,6 +285,25 @@ async def cleanup_completed(result: TaskResult, previous_results: dict[TaskType,
     return {"status": ("sync", "completed", None), "books": {}}
 
 
+@on(TaskType.TRACK_CONVERSION_FAILURE, TaskAction.COMPLETED, "conversion", "conversion_failed")
+async def track_conversion_failure_completed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    """Record conversion failure metadata in database."""
+    metadata = None
+    if result.data:
+        metadata = {
+            "grin_convert_failed_date": result.data.get("grin_convert_failed_date"),
+            "grin_convert_failed_info": result.data.get("grin_convert_failed_info"),
+            "grin_detailed_convert_failed_info": result.data.get("grin_detailed_convert_failed_info"),
+        }
+    return {"status": ("conversion", "conversion_failed", metadata), "books": {}}
+
+
+@on(TaskType.TRACK_CONVERSION_FAILURE, TaskAction.FAILED, "conversion", "tracking_failed")
+async def track_conversion_failure_failed(result: TaskResult, previous_results: dict[TaskType, TaskResult]):
+    """Handle failure to track conversion failure."""
+    return {"status": ("conversion", "tracking_failed", {"error": result.error} if result.error else None), "books": {}}
+
+
 async def get_updates_for_task(result: TaskResult, previous_results: dict[TaskType, TaskResult]) -> dict[str, Any]:
     """Get database updates from registered handlers."""
     handlers = UPDATE_HANDLERS.get((result.task_type, result.action))

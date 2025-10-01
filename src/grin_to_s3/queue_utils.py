@@ -23,7 +23,7 @@ async def get_previous_queue_books(db) -> set[str]:
     Returns books that:
     - Have GRIN state = 'PREVIOUSLY_DOWNLOADED'
     - Have never been requested for processing (processing_request_timestamp IS NULL or empty)
-    - Are not marked as unavailable in conversion status history
+    - Are not marked as unavailable or conversion_failed in conversion status history
 
     Args:
         db: Database tracker instance
@@ -37,7 +37,7 @@ async def get_previous_queue_books(db) -> set[str]:
         AND NULLIF(processing_request_timestamp, '') IS NULL
         AND barcode NOT IN (
             SELECT DISTINCT barcode FROM book_status_history
-            WHERE status_type = 'conversion' AND status_value = 'unavailable'
+            WHERE status_type = 'conversion' AND status_value IN ('unavailable', 'conversion_failed')
         )
     """
 
@@ -57,7 +57,7 @@ async def get_unconverted_books(db) -> set[str]:
     - Have never been converted by GRIN (converted_date IS NULL or empty string)
     - Are not checked in (grin_check_in_date IS NULL or empty string)
     - Have no GRIN state or are not in CHECKED_IN or NOT_AVAILABLE_FOR_DOWNLOAD states
-    - Are not marked as unavailable
+    - Are not marked as unavailable or conversion_failed
 
     Args:
         db: Database tracker instance
@@ -74,7 +74,7 @@ async def get_unconverted_books(db) -> set[str]:
         AND (NULLIF(grin_state, '') IS NULL OR grin_state NOT IN ('CHECKED_IN', 'NOT_AVAILABLE_FOR_DOWNLOAD'))
         AND barcode NOT IN (
             SELECT DISTINCT barcode FROM book_status_history
-            WHERE status_type = 'conversion' AND status_value = 'unavailable'
+            WHERE status_type = 'conversion' AND status_value IN ('unavailable', 'conversion_failed')
         )
     """
 
@@ -158,3 +158,48 @@ async def get_in_process_set(grin_client: GRINClient, library_directory: str) ->
     _in_process_cache[cache_key] = (in_process_barcodes, current_time)
     logger.debug(f"Fetched {len(in_process_barcodes)} in_process books for {library_directory}")
     return in_process_barcodes
+
+
+@retry(
+    stop=stop_after_attempt(2),
+    retry=lambda retry_state: bool(retry_state.outcome and retry_state.outcome.failed),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=True,
+)
+async def get_all_conversion_failed_books(grin_client: GRINClient, library_directory: str) -> dict[str, dict[str, str]]:
+    """Get ALL books currently in GRIN's _failed endpoint.
+
+    Used by the pipeline to identify known conversion failures during CHECK task.
+
+    Args:
+        grin_client: GRIN client instance
+        library_directory: Library directory name
+
+    Returns:
+        Dict mapping barcode to failure metadata dict with keys:
+        - grin_convert_failed_date
+        - grin_convert_failed_info
+        - grin_detailed_convert_failed_info
+    """
+    # Fetch and parse HTML from _failed endpoint (result_count=-1 returns all results; this
+    # page is typically not long enough to need pagination)
+    html = await grin_client.fetch_resource(library_directory, "_failed?result_count=-1")
+    failed_books = grin_client._parse_books_from_html(html)
+
+    logger.debug(f"Parsed {len(failed_books)} books from _failed endpoint")
+
+    # Convert to metadata dict
+    all_failures = {}
+    for book in failed_books:
+        barcode = book.get("barcode")
+        if not barcode:
+            continue
+
+        all_failures[barcode] = {
+            "grin_convert_failed_date": book.get("convert_failed_date", ""),
+            "grin_convert_failed_info": book.get("convert_failed_info", ""),
+            "grin_detailed_convert_failed_info": book.get("detailed_convert_failed_info", ""),
+        }
+
+    logger.info(f"Loaded {len(all_failures)} conversion failures from GRIN")
+    return all_failures

@@ -220,8 +220,12 @@ One of these must be specified
 
 **Other common pipeline options:**
 - `--limit`: Limit number of books to sync
-- `--force`: Overwrite existing files even if checks think the versions are identical
+- `--force`: Overwrite existing files even if checks think the versions are identical; also retry conversion requests for books that previously failed
 - `--dry-run`: Show what would happen in a sync with the provided options, but do no work
+
+#### Conversion failure handling
+
+Books that fail GRIN conversion are tracked to avoid repeated failed requests. When a book is not found in GRIN (404) and GRIN has reported a failure reason, the pipeline skips re-requesting conversion. Use `--force` to override this and retry conversions that previously failed as some GRIN failures are transient.
 
 ### 3. Metadata enrichment: `grin.py enrich` 
 
