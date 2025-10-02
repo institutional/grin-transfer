@@ -5,13 +5,13 @@ Tests for sync tasks cleanup module.
 
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
 from grin_to_s3.storage.staging import LocalDirectoryManager, StagingDirectoryManager
 from grin_to_s3.sync.tasks import cleanup
 from grin_to_s3.sync.tasks.task_types import TaskAction
+from tests.test_utils.unified_mocks import create_test_pipeline
 
 
 def test_local_directory_manager_get_paths_for_cleanup():
@@ -69,8 +69,7 @@ async def test_cleanup_removes_staging_files_for_local_storage():
         filesystem_manager = LocalDirectoryManager(staging_path=base_path)
 
         # Create a mock pipeline for local storage
-        pipeline = MagicMock()
-        pipeline.filesystem_manager = filesystem_manager
+        pipeline = create_test_pipeline(filesystem_manager=filesystem_manager)
         pipeline.skip_staging_cleanup = False
 
         # Create an encrypted file in staging
@@ -112,8 +111,7 @@ async def test_cleanup_removes_staging_files_for_staging_storage():
         filesystem_manager = StagingDirectoryManager(staging_path=base_path)
 
         # Create a mock pipeline
-        pipeline = MagicMock()
-        pipeline.filesystem_manager = filesystem_manager
+        pipeline = create_test_pipeline(filesystem_manager=filesystem_manager)
         pipeline.skip_staging_cleanup = False
 
         barcode = "TEST123"
@@ -158,8 +156,7 @@ async def test_cleanup_respects_skip_staging_cleanup_flag():
         filesystem_manager = StagingDirectoryManager(staging_path=base_path)
 
         # Create a mock pipeline with cleanup disabled
-        pipeline = MagicMock()
-        pipeline.filesystem_manager = filesystem_manager
+        pipeline = create_test_pipeline(filesystem_manager=filesystem_manager)
         pipeline.skip_staging_cleanup = True
 
         barcode = "TEST123"
@@ -189,8 +186,7 @@ async def test_cleanup_handles_missing_files_gracefully():
         filesystem_manager = LocalDirectoryManager(staging_path=base_path)
 
         # Create a mock pipeline
-        pipeline = MagicMock()
-        pipeline.filesystem_manager = filesystem_manager
+        pipeline = create_test_pipeline(filesystem_manager=filesystem_manager)
         pipeline.skip_staging_cleanup = False
 
         barcode = "NONEXISTENT123"

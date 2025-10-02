@@ -12,7 +12,7 @@ import pytest
 from grin_to_s3.client import GRINClient
 from grin_to_s3.storage.staging import DirectoryManager
 from grin_to_s3.sync.tasks.task_types import DecryptData, DownloadData, UnpackData
-from tests.test_utils.unified_mocks import configure_pipeline_storage
+from tests.test_utils.unified_mocks import configure_pipeline_storage, create_test_pipeline
 
 
 @pytest.fixture
@@ -35,7 +35,7 @@ def temp_filesystem_manager():
 def mock_pipeline():
     """Mock SyncPipeline for task testing with common attributes."""
     with tempfile.TemporaryDirectory() as temp_dir:
-        pipeline = MagicMock()
+        pipeline = create_test_pipeline()
 
         # Common pipeline attributes
         pipeline.library_directory = "TestLib"

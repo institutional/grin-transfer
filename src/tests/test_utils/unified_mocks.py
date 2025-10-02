@@ -242,6 +242,60 @@ def create_progress_tracker_mock(db_path: str = "/tmp/test.db") -> MagicMock:
     return tracker
 
 
+def create_test_pipeline(
+    filesystem_manager: MagicMock | None = None,
+    book_manager: MagicMock | None = None,
+    storage_type: str = "s3",
+    bucket_raw: str = "test-raw",
+    bucket_full: str = "test-full",
+    bucket_meta: str = "test-meta",
+    base_path: str = "/tmp/output",
+    compression_meta_enabled: bool = True,
+    compression_full_enabled: bool = True,
+) -> MagicMock:
+    """
+    Create a configured test pipeline mock.
+
+    Args:
+        filesystem_manager: Filesystem manager (created if None)
+        book_manager: Book manager (created if None)
+        storage_type: Storage type (s3, local, r2, minio)
+        bucket_raw: Raw archive bucket name
+        bucket_full: Full text bucket name
+        bucket_meta: Metadata bucket name
+        base_path: Base path for local storage
+        compression_meta_enabled: Enable metadata compression
+        compression_full_enabled: Enable full-text compression
+
+    Returns:
+        Configured pipeline mock
+    """
+    pipeline = MagicMock()
+
+    # Set up filesystem manager
+    pipeline.filesystem_manager = filesystem_manager or create_staging_manager_mock()
+
+    # Set up book manager
+    pipeline.book_manager = book_manager or create_book_manager_mock()
+
+    # Set up config
+    pipeline.config = MagicMock()
+    pipeline.config.sync_compression_meta_enabled = compression_meta_enabled
+    pipeline.config.sync_compression_full_enabled = compression_full_enabled
+
+    # Configure storage
+    configure_pipeline_storage(
+        pipeline,
+        storage_type=storage_type,
+        bucket_raw=bucket_raw,
+        bucket_full=bucket_full,
+        bucket_meta=bucket_meta,
+        base_path=base_path,
+    )
+
+    return pipeline
+
+
 def configure_pipeline_storage(
     pipeline: MagicMock,
     storage_type: str = "s3",

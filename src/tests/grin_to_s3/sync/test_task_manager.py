@@ -1,11 +1,12 @@
 """Tests for task manager statistics tracking."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from grin_to_s3.sync.task_manager import TaskManager
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
+from tests.test_utils.unified_mocks import create_test_pipeline
 
 
 @pytest.mark.asyncio
@@ -33,7 +34,7 @@ class TestTaskManagerStatistics:
                 error="Archive not available in GRIN",
             )
 
-        mock_pipeline = MagicMock()
+        mock_pipeline = create_test_pipeline()
         mock_pipeline.book_record_updates = {}
 
         with patch(

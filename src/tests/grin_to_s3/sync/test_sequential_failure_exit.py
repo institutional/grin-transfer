@@ -8,12 +8,13 @@ import pytest
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 from grin_to_s3.sync.task_manager import TaskManager, process_books_with_queue
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
+from tests.test_utils.unified_mocks import create_test_pipeline
 
 
 @pytest.fixture
 def mock_pipeline():
     """Create mock pipeline for testing failure tracking."""
-    pipeline = MagicMock()
+    pipeline = create_test_pipeline()
     pipeline.max_sequential_failures = 3  # Lower limit for faster tests
     pipeline._sequential_failures = 0
     pipeline._shutdown_requested = False
@@ -67,7 +68,7 @@ def task_manager():
 async def test_pipeline_exits_after_consecutive_failures():
     """Pipeline should exit after max_sequential_failures consecutive failures."""
     # Test the failure tracking logic more directly
-    pipeline = MagicMock()
+    pipeline = create_test_pipeline()
     pipeline.max_sequential_failures = 3
     pipeline._sequential_failures = 0
     pipeline._shutdown_requested = False

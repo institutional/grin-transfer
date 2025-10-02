@@ -11,6 +11,7 @@ import pytest
 
 from grin_to_s3.sync.tasks import upload
 from grin_to_s3.sync.tasks.task_types import TaskAction
+from tests.test_utils.unified_mocks import create_test_pipeline
 
 
 @pytest.fixture
@@ -55,15 +56,12 @@ async def test_upload_with_storage_types(
     storage_type, bucket_raw, base_path, expected_path, sample_download_data, sample_decrypt_data
 ):
     """Upload should work with local and cloud storage types."""
-    from tests.test_utils.unified_mocks import configure_pipeline_storage
-
-    pipeline = MagicMock()
-    pipeline.storage = MagicMock()
-    pipeline.config = MagicMock()
-
-    configure_pipeline_storage(
-        pipeline, storage_type=storage_type, bucket_raw=bucket_raw or "test-raw", base_path=base_path or "/tmp/output"
+    pipeline = create_test_pipeline(
+        storage_type=storage_type,
+        bucket_raw=bucket_raw or "test-raw",
+        base_path=base_path or "/tmp/output",
     )
+    pipeline.storage = MagicMock()
 
     with tempfile.TemporaryDirectory() as temp_dir:
         decrypted_path = Path(temp_dir) / "TEST123.tar.gz"
@@ -99,14 +97,9 @@ async def test_upload_with_storage_types(
 @pytest.mark.asyncio
 async def test_upload_metadata_includes_etag_and_barcode(sample_download_data, sample_decrypt_data, mock_book_manager):
     """Upload should include ETag and barcode in metadata."""
-    from tests.test_utils.unified_mocks import configure_pipeline_storage
-
     _, mock_manager = mock_book_manager
-    pipeline = MagicMock()
+    pipeline = create_test_pipeline(bucket_raw="test-bucket")
     pipeline.storage = MagicMock()
-    pipeline.config = MagicMock()
-
-    configure_pipeline_storage(pipeline, bucket_raw="test-bucket")
 
     # Set up book_manager on the pipeline
     pipeline.book_manager = mock_manager

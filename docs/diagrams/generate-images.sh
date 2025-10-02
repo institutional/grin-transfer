@@ -20,11 +20,15 @@ diagrams=(
     sync-pipeline
     lifecycle-summary
 <<<<<<< HEAD
+<<<<<<< HEAD
     check-conversion
     sync-detail
     upload-step
 =======
 >>>>>>> 53cd8e3 (Move helper)
+=======
+    check-conversion
+>>>>>>> 2c9898f (Consolidate pipeline fixtures)
 )
 
 render_diagram() {

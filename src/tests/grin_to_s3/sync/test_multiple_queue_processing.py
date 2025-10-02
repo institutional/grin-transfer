@@ -9,12 +9,13 @@ import pytest
 from grin_to_s3.sync.progress_reporter import SlidingWindowRateCalculator
 from grin_to_s3.sync.task_manager import TaskManager, process_books_with_queue
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskResult, TaskType
+from tests.test_utils.unified_mocks import create_test_pipeline
 
 
 @pytest.fixture
 def mock_pipeline():
     """Create mock pipeline for testing failure tracking in multiple queue scenarios."""
-    pipeline = MagicMock()
+    pipeline = create_test_pipeline()
     pipeline.max_sequential_failures = 2  # Lower limit for faster tests
     pipeline._sequential_failures = 0
     pipeline._shutdown_requested = False
@@ -200,7 +201,7 @@ async def test_global_shutdown_still_works(mock_pipeline, mock_task_funcs, task_
 async def test_counter_reset_between_queues():
     """Failure counter should reset between queue processing sessions."""
     # This test simulates what happens in pipeline.py when processing multiple queues
-    mock_pipeline = MagicMock()
+    mock_pipeline = create_test_pipeline()
     mock_pipeline.max_sequential_failures = 2
 
     # Simulate processing first queue with failures
@@ -286,7 +287,7 @@ async def test_failure_counter_reset_with_realistic_scenarios(mock_pipeline, moc
 async def test_failure_limit_does_not_trigger_global_shutdown():
     """Test that reaching failure limit sets local flag, not global shutdown."""
     # This directly tests the changed behavior in task_manager.py
-    mock_pipeline = MagicMock()
+    mock_pipeline = create_test_pipeline()
     mock_pipeline.max_sequential_failures = 1  # Immediate failure
     mock_pipeline._sequential_failures = 0
     mock_pipeline._shutdown_requested = False
@@ -325,7 +326,7 @@ async def test_multiple_queues_independent_processing():
         with patch("grin_to_s3.sync.pipeline.process_books_with_queue"):
             with patch("grin_to_s3.sync.pipeline.filter_and_print_barcodes"):
                 # Set up mock pipeline
-                mock_pipeline = MagicMock()
+                mock_pipeline = create_test_pipeline()
                 mock_pipeline.max_sequential_failures = 2
                 mock_pipeline._sequential_failures = 0
                 mock_pipeline._shutdown_requested = False

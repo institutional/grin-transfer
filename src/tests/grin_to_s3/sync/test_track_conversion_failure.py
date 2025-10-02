@@ -11,12 +11,13 @@ from grin_to_s3.sync.db_updates import (
 )
 from grin_to_s3.sync.tasks import track_conversion_failure
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskType
+from tests.test_utils.unified_mocks import create_test_pipeline
 
 
 @pytest.fixture
 def mock_pipeline():
     """Mock pipeline with conversion failure metadata."""
-    pipeline = MagicMock()
+    pipeline = create_test_pipeline()
     pipeline.conversion_failure_metadata = {
         "FAIL001": {
             "grin_convert_failed_date": "2024-01-15",

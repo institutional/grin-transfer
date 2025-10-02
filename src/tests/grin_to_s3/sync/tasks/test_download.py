@@ -17,7 +17,7 @@ from grin_to_s3.storage.staging import DirectoryManager
 from grin_to_s3.sync.tasks import download
 from grin_to_s3.sync.tasks.task_types import TaskAction
 from tests.test_utils.parametrize_helpers import meaningful_storage_parametrize
-from tests.test_utils.unified_mocks import create_aiohttp_response, create_client_response_error
+from tests.test_utils.unified_mocks import create_aiohttp_response, create_client_response_error, create_test_pipeline
 
 
 @pytest.fixture
@@ -291,10 +291,9 @@ class TestDownloadStorageParametrization:
     ):
         """Main download task should return consistent results across storage types."""
         # Create a mock pipeline that represents the storage type
-        pipeline = MagicMock()
+        pipeline = create_test_pipeline(filesystem_manager=filesystem_manager)
         pipeline.grin_client = mock_grin_client
         pipeline.library_directory = "TestLib"
-        pipeline.filesystem_manager = filesystem_manager
 
         with tempfile.TemporaryDirectory() as temp_dir:
             download_path = Path(temp_dir) / f"{storage_type}_test.tar.gz.gpg"

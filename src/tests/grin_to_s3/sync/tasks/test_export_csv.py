@@ -4,32 +4,30 @@ Tests for sync tasks export_csv module.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 
 from grin_to_s3.sync.tasks import export_csv
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskType
-from tests.test_utils.unified_mocks import create_book_manager_mock, standard_storage_config
+from tests.test_utils.unified_mocks import create_book_manager_mock, create_test_pipeline, standard_storage_config
 
 
 @pytest.mark.asyncio
 async def test_export_csv_with_compression_enabled(temp_filesystem_manager):
     """CSV export should compress files when compression is enabled."""
-    from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_export_csv_operations
+    from tests.test_utils.unified_mocks import mock_export_csv_operations
 
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
         custom_config={"csv_paths": ("books_latest.csv.gz", "books_timestamped.csv.gz")},
     )
 
-    pipeline = MagicMock()
-    pipeline.filesystem_manager = temp_filesystem_manager
-    pipeline.book_manager = book_manager
-    pipeline.config = MagicMock()
-    pipeline.config.sync_compression_meta_enabled = True
-
-    configure_pipeline_storage(pipeline, bucket_meta="test-meta-bucket")
+    pipeline = create_test_pipeline(
+        filesystem_manager=temp_filesystem_manager,
+        book_manager=book_manager,
+        bucket_meta="test-meta-bucket",
+        compression_meta_enabled=True,
+    )
 
     staging_path = temp_filesystem_manager.staging_path
 
@@ -58,20 +56,19 @@ async def test_export_csv_with_compression_enabled(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_export_csv_with_compression_disabled(temp_filesystem_manager):
     """CSV export should not compress files when compression is disabled."""
-    from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_export_csv_operations
+    from tests.test_utils.unified_mocks import mock_export_csv_operations
 
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
         custom_config={"csv_paths": ("books_latest.csv", "books_timestamped.csv")},
     )
 
-    pipeline = MagicMock()
-    pipeline.filesystem_manager = temp_filesystem_manager
-    pipeline.book_manager = book_manager
-    pipeline.config = MagicMock()
-    pipeline.config.sync_compression_meta_enabled = False
-
-    configure_pipeline_storage(pipeline, bucket_meta="test-meta-bucket")
+    pipeline = create_test_pipeline(
+        filesystem_manager=temp_filesystem_manager,
+        book_manager=book_manager,
+        bucket_meta="test-meta-bucket",
+        compression_meta_enabled=False,
+    )
 
     staging_path = temp_filesystem_manager.staging_path
 
@@ -100,20 +97,20 @@ async def test_export_csv_with_compression_disabled(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_export_csv_local_storage(temp_filesystem_manager):
     """CSV export should work with local storage."""
-    from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_export_csv_operations
+    from tests.test_utils.unified_mocks import mock_export_csv_operations
 
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(storage_type="local", bucket_meta="meta"),
         custom_config={"csv_paths": ("books_latest.csv.gz", "books_timestamped.csv.gz")},
     )
 
-    pipeline = MagicMock()
-    pipeline.filesystem_manager = temp_filesystem_manager
-    pipeline.book_manager = book_manager
-    pipeline.config = MagicMock()
-    pipeline.config.sync_compression_meta_enabled = True
-
-    configure_pipeline_storage(pipeline, storage_type="local", base_path="/tmp/output")
+    pipeline = create_test_pipeline(
+        filesystem_manager=temp_filesystem_manager,
+        book_manager=book_manager,
+        storage_type="local",
+        base_path="/tmp/output",
+        compression_meta_enabled=True,
+    )
 
     staging_path = temp_filesystem_manager.staging_path
 
@@ -143,20 +140,19 @@ async def test_export_csv_local_storage(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_export_csv_with_sample_data(temp_filesystem_manager):
     """CSV export should handle sample data correctly."""
-    from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_export_csv_operations
+    from tests.test_utils.unified_mocks import mock_export_csv_operations
 
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
         custom_config={"csv_paths": ("books_latest.csv", "books_timestamped.csv")},
     )
 
-    pipeline = MagicMock()
-    pipeline.filesystem_manager = temp_filesystem_manager
-    pipeline.book_manager = book_manager
-    pipeline.config = MagicMock()
-    pipeline.config.sync_compression_meta_enabled = False
-
-    configure_pipeline_storage(pipeline, bucket_meta="test-meta-bucket")
+    pipeline = create_test_pipeline(
+        filesystem_manager=temp_filesystem_manager,
+        book_manager=book_manager,
+        bucket_meta="test-meta-bucket",
+        compression_meta_enabled=False,
+    )
 
     staging_path = temp_filesystem_manager.staging_path
 
