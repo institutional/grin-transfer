@@ -4,7 +4,7 @@ import sqlite3
 import tempfile
 from pathlib import Path
 from typing import cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -17,6 +17,40 @@ from tests.test_utils.unified_mocks import (
     create_storage_mock,
     mock_upload_operations,
 )
+
+
+def _no_sleep(seconds):
+    """Synchronous sleep stub used to short-circuit tenacity waits in tests."""
+    # Deliberately do nothing to avoid real delays during retry backoff.
+    return None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def disable_retry_delays():
+    """Disable retry delays globally for all tests to speed up test suite.
+
+    Retries will still happen (testing retry logic), but without wait times.
+    Only patches tenacity's internal sleep functions, not asyncio.sleep globally.
+    """
+    import tenacity
+
+    original_base_run_wait = tenacity.BaseRetrying._run_wait
+    original_async_run_wait = tenacity.AsyncRetrying._run_wait
+
+    def _zero_wait(self, retry_state):
+        """Invoke original wait logic but force the computed delay to zero."""
+        original_base_run_wait(self, retry_state)
+        retry_state.upcoming_sleep = 0.0
+
+    async def _zero_wait_async(self, retry_state):
+        """Async equivalent that still computes retry metadata without sleeping."""
+        await original_async_run_wait(self, retry_state)
+        retry_state.upcoming_sleep = 0.0
+
+    with patch("tenacity.nap.sleep", side_effect=_no_sleep):
+        with patch.object(tenacity.BaseRetrying, "_run_wait", _zero_wait):
+            with patch.object(tenacity.AsyncRetrying, "_run_wait", _zero_wait_async):
+                yield
 
 
 class ConfigBuilder:

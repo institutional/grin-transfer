@@ -24,6 +24,7 @@ diagrams=(
     check-conversion
     sync-detail
 <<<<<<< HEAD
+<<<<<<< HEAD
     upload-step
 =======
 >>>>>>> 53cd8e3 (Move helper)
@@ -32,6 +33,9 @@ diagrams=(
 >>>>>>> 2c9898f (Consolidate pipeline fixtures)
 =======
 >>>>>>> d2dba2b (Add barcode filtering test coverage)
+=======
+    upload-step
+>>>>>>> 5289d1d (Reduce needless waiting)
 )
 
 render_diagram() {
