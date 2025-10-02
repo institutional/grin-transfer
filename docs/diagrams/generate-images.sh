@@ -19,9 +19,12 @@ diagrams=(
     collect-pipeline
     sync-pipeline
     lifecycle-summary
+<<<<<<< HEAD
     check-conversion
     sync-detail
     upload-step
+=======
+>>>>>>> 53cd8e3 (Move helper)
 )
 
 render_diagram() {
@@ -31,6 +34,7 @@ render_diagram() {
 
     for extension in svg png; do
         local output="${base_output}.${extension}"
+<<<<<<< HEAD
         local scale="1"
         if [[ "${extension}" == "png" ]]; then
             # Produce 3x size PNGs for higher resolution embeddings
@@ -38,6 +42,9 @@ render_diagram() {
         fi
 
         echo "  - ${name}.${extension} (scale ${scale})"
+=======
+        echo "  - ${name}.${extension}"
+>>>>>>> 53cd8e3 (Move helper)
         mmdc \
             --input "${input}" \
             --output "${output}" \
@@ -46,11 +53,19 @@ render_diagram() {
             -b transparent \
             --width 900 \
             --height 550 \
+<<<<<<< HEAD
             --scale "${scale}"
     done
 }
 
 echo "Generating pipeline diagrams (SVG + 3x PNG)..."
+=======
+            --scale 1.5
+    done
+}
+
+echo "Generating pipeline diagrams (SVG + PNG)..."
+>>>>>>> 53cd8e3 (Move helper)
 
 for diagram in "${diagrams[@]}"; do
     render_diagram "${diagram}"
@@ -60,5 +75,9 @@ echo "Diagram generation complete!"
 echo "Files generated:"
 for diagram in "${diagrams[@]}"; do
     echo "  - docs/diagrams/${diagram}.svg"
+<<<<<<< HEAD
     echo "  - docs/diagrams/${diagram}.png (3x scale)"
+=======
+    echo "  - docs/diagrams/${diagram}.png"
+>>>>>>> 53cd8e3 (Move helper)
 done

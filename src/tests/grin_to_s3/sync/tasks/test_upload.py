@@ -68,7 +68,7 @@ async def test_main_successful_upload(mock_pipeline, sample_download_data, sampl
 @pytest.mark.asyncio
 async def test_upload_with_storage_types(storage_type, bucket_raw, base_path, expected_path):
     """Upload should work with local and cloud storage types."""
-    from .conftest import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage
 
     pipeline = MagicMock()
     pipeline.storage = MagicMock()
@@ -114,7 +114,7 @@ async def test_upload_with_storage_types(storage_type, bucket_raw, base_path, ex
 @pytest.mark.asyncio
 async def test_upload_metadata_includes_etag_and_barcode(sample_download_data, sample_decrypt_data, mock_book_manager):
     """Upload should include ETag and barcode in metadata."""
-    from .conftest import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage
 
     _, mock_manager = mock_book_manager
     pipeline = MagicMock()

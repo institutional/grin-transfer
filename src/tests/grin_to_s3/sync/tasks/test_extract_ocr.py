@@ -66,7 +66,7 @@ async def test_extract_ocr_creates_staging_file(mock_pipeline):
 @pytest.mark.asyncio
 async def test_extract_with_storage_config(temp_filesystem_manager):
     """Extract OCR should upload to storage when bucket configured."""
-    from .conftest import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage
 
     pipeline = MagicMock()
     pipeline.filesystem_manager = temp_filesystem_manager
@@ -106,7 +106,7 @@ async def test_extract_with_storage_config(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_extract_local_storage_moves_file_to_full_directory():
     """Extract OCR should upload JSONL file to 'full' subdirectory for local storage."""
-    from .conftest import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage
 
     filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()
@@ -171,7 +171,7 @@ async def test_extract_local_storage_moves_file_to_full_directory():
 @pytest.mark.asyncio
 async def test_extract_ocr_with_compression_enabled(temp_filesystem_manager):
     """Extract OCR should compress JSONL when compression is enabled."""
-    from .conftest import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage
 
     pipeline = MagicMock()
     pipeline.filesystem_manager = temp_filesystem_manager
@@ -210,7 +210,7 @@ async def test_extract_ocr_with_compression_enabled(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_extract_ocr_with_compression_disabled(temp_filesystem_manager):
     """Extract OCR should not compress JSONL when compression is disabled."""
-    from .conftest import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage
 
     pipeline = MagicMock()
     pipeline.filesystem_manager = temp_filesystem_manager
@@ -256,7 +256,7 @@ async def test_extract_ocr_with_compression_disabled(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_extract_ocr_local_storage_with_compression_disabled():
     """Extract OCR should handle local storage without compression."""
-    from .conftest import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage
 
     filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()

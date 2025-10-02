@@ -16,7 +16,7 @@ from tests.test_utils.unified_mocks import create_book_manager_mock, standard_st
 @pytest.mark.asyncio
 async def test_export_csv_with_compression_enabled(temp_filesystem_manager):
     """CSV export should compress files when compression is enabled."""
-    from .conftest import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage
 
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
@@ -61,7 +61,7 @@ async def test_export_csv_with_compression_enabled(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_export_csv_with_compression_disabled(temp_filesystem_manager):
     """CSV export should not compress files when compression is disabled."""
-    from .conftest import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage
 
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
@@ -106,7 +106,7 @@ async def test_export_csv_with_compression_disabled(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_export_csv_local_storage(temp_filesystem_manager):
     """CSV export should work with local storage."""
-    from .conftest import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage
 
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(storage_type="local", bucket_meta="meta"),
@@ -152,7 +152,7 @@ async def test_export_csv_local_storage(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_export_csv_with_sample_data(temp_filesystem_manager):
     """CSV export should handle sample data correctly."""
-    from .conftest import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage
 
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),

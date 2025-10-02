@@ -242,6 +242,42 @@ def create_progress_tracker_mock(db_path: str = "/tmp/test.db") -> MagicMock:
     return tracker
 
 
+def configure_pipeline_storage(
+    pipeline: MagicMock,
+    storage_type: str = "s3",
+    bucket_raw: str = "test-raw",
+    bucket_full: str = "test-full",
+    bucket_meta: str = "test-meta",
+    base_path: str = "/tmp/output",
+) -> None:
+    """Configure pipeline storage settings.
+
+    Args:
+        pipeline: Mock pipeline to configure
+        storage_type: Storage type (s3, r2, local, etc.)
+        bucket_raw: Raw archive bucket name
+        bucket_full: Full text bucket name
+        bucket_meta: Metadata bucket name
+        base_path: Base path for local storage
+    """
+    is_local = storage_type == "local"
+
+    pipeline.config.storage_config = {
+        "protocol": storage_type,
+        "type": storage_type,
+        "config": (
+            {"base_path": base_path}
+            if is_local
+            else {"bucket_raw": bucket_raw, "bucket_full": bucket_full, "bucket_meta": bucket_meta}
+        ),
+    }
+
+    pipeline.uses_block_storage = not is_local
+
+    # Update uses_local_storage property
+    type(pipeline).uses_local_storage = property(lambda self: self.config.storage_config.get("protocol") == "local")
+
+
 def create_fresh_tracker():
     """Create a fresh tracker with empty database for testing."""
 
