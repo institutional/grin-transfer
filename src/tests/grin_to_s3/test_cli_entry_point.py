@@ -19,11 +19,8 @@ class TestCLIEntryPoint:
         with patch.object(sys, "argv", ["grin", "--help"]):
             from grin import main
 
-            result = await main()
-
+            assert await main() == 0
             captured = capsys.readouterr()
-
-            assert result == 0
             assert "GRIN-to-S3" in captured.out
             assert "Available commands" in captured.out or "Commands:" in captured.out
 
@@ -35,11 +32,8 @@ class TestCLIEntryPoint:
         with patch.object(sys, "argv", ["grin"]):
             from grin import main
 
-            result = await main()
-
+            assert await main() == 1
             captured = capsys.readouterr()
-
-            assert result == 1
             assert "GRIN-to-S3" in captured.out or "usage:" in captured.out
 
     @pytest.mark.asyncio
@@ -50,11 +44,8 @@ class TestCLIEntryPoint:
         with patch.object(sys, "argv", ["grin", "unknown-command"]):
             from grin import main
 
-            result = await main()
-
+            assert await main() == 1
             captured = capsys.readouterr()
-
-            assert result == 1
             assert "Unknown command" in captured.out or "usage:" in captured.out
 
     @pytest.mark.asyncio
@@ -140,9 +131,7 @@ class TestCLIEntryPoint:
                 with patch("grin.OUTPUT_DIR", tmp_path):
                     from grin import main
 
-                    result = await main()
-
-                    assert result == 1
+                    assert await main() == 1
         finally:
             lock.release()
 
@@ -158,8 +147,5 @@ class TestCLIEntryPoint:
 
                 from grin import main
 
-                result = await main()
-
-                # Should succeed without lock
-                assert result == 0
+                assert await main() == 0
                 mock_sync.assert_called_once()

@@ -16,10 +16,9 @@ from tests.test_utils.unified_mocks import (
 
 def setup_storage_metadata(mock_pipeline, etag: str | None) -> None:
     """Configure mock storage metadata response."""
-    if etag is None:
-        mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={})
-    else:
-        mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(return_value={"encrypted_etag": etag})
+    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(
+        return_value={} if etag is None else {"encrypted_etag": etag}
+    )
 
 
 @pytest.mark.parametrize(

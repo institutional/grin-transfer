@@ -21,21 +21,17 @@ async def add_book_with_grin_state(
     tracker: SQLiteProgressTracker, db_path: str, barcode: str, grin_state: str, sync_statuses: list[str] = None
 ) -> None:
     """Helper to add a book with given GRIN state and optional sync statuses."""
-    book = BookRecord(
-        barcode=barcode,
-        title=f"Test Book {barcode}",
-        grin_state=grin_state,
+    await tracker.save_book(
+        BookRecord(
+            barcode=barcode,
+            title=f"Test Book {barcode}",
+            grin_state=grin_state,
+        )
     )
-    await tracker.save_book(book)
 
     # Add sync status history if provided
     if sync_statuses:
-        status_updates = []
-        for status in sync_statuses:
-            status_updates.append(StatusUpdate(barcode, "sync", status))
-
-        if status_updates:
-            await batch_write_status_updates(db_path, status_updates)
+        await batch_write_status_updates(db_path, [StatusUpdate(barcode, "sync", status) for status in sync_statuses])
 
 
 @pytest.mark.asyncio

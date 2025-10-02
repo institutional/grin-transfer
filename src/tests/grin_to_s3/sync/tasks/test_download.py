@@ -30,12 +30,8 @@ def temp_download_path():
 
 def setup_download_mock(mock_grin_client, response=None, error=None):
     """Helper to setup download mocks consistently."""
-    if error:
-        mock_grin_client.auth.make_authenticated_request = AsyncMock(side_effect=error)
-        mock_grin_client.download_archive = AsyncMock(side_effect=error)
-    else:
-        mock_grin_client.auth.make_authenticated_request = AsyncMock(return_value=response)
-        mock_grin_client.download_archive = AsyncMock(return_value=response)
+    mock_grin_client.auth.make_authenticated_request = AsyncMock(side_effect=error, return_value=response)
+    mock_grin_client.download_archive = AsyncMock(side_effect=error, return_value=response)
 
 
 class TestDownloadMain:
@@ -108,8 +104,10 @@ class TestDownloadBookToFilesystem:
             "TEST123", temp_download_path, mock_grin_client, "TestLib", temp_filesystem_manager
         )
 
-        assert result["http_status_code"] == 200 and result["etag"] == "abc123"
-        assert temp_download_path.exists() and temp_download_path.read_bytes() == test_content
+        assert result["http_status_code"] == 200
+        assert result["etag"] == "abc123"
+        assert temp_download_path.exists()
+        assert temp_download_path.read_bytes() == test_content
 
     @pytest.mark.asyncio
     async def test_http_404_error_no_retry(self, temp_download_path, mock_grin_client, temp_filesystem_manager):

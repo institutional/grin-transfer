@@ -314,19 +314,17 @@ def configure_pipeline_storage(
         bucket_meta: Metadata bucket name
         base_path: Base path for local storage
     """
-    is_local = storage_type == "local"
-
     pipeline.config.storage_config = {
         "protocol": storage_type,
         "type": storage_type,
         "config": (
             {"base_path": base_path}
-            if is_local
+            if storage_type == "local"
             else {"bucket_raw": bucket_raw, "bucket_full": bucket_full, "bucket_meta": bucket_meta}
         ),
     }
 
-    pipeline.uses_block_storage = not is_local
+    pipeline.uses_block_storage = storage_type != "local"
 
     # Update uses_local_storage property
     type(pipeline).uses_local_storage = property(lambda self: self.config.storage_config.get("protocol") == "local")

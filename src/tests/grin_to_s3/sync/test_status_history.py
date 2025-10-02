@@ -103,14 +103,10 @@ async def test_status_progression(db_tracker, temp_db):
     # Add sequence of status changes
     statuses = ["requested", "in_process", "converted"]
 
-    # Add sequence of status changes using batched approach
-    status_updates = []
+    # Add sequence of status changes with delays to ensure different timestamps
     for status in statuses:
-        status_updates.append(StatusUpdate(barcode, "processing_request", status))
-        # Small delay to ensure different timestamps
-        await asyncio.sleep(0.001)
-
-    await batch_write_status_updates(temp_db, status_updates)
+        await batch_write_status_updates(temp_db, [StatusUpdate(barcode, "processing_request", status)])
+        await asyncio.sleep(0.001)  # Small delay to ensure different timestamps
 
     # Verify latest status is correct
     latest_status = await get_latest_status_for_testing(db_tracker, barcode, "processing_request")

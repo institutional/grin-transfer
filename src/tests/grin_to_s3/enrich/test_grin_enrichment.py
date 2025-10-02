@@ -109,13 +109,11 @@ class TestTSVParser:
 
     def test_parse_basic_tsv(self):
         """TSV parser should handle basic valid data"""
-        tsv_data = (
+        result = parse_grin_tsv(
             "Barcode\tState\tViewability\tScannable\n"
             "TEST001\tACTIVE\tVIEW_FULL\ttrue\n"
             "TEST002\tINACTIVE\tVIEW_METADATA\tfalse"
         )
-
-        result = parse_grin_tsv(tsv_data)
 
         assert len(result) == 2
         assert result["TEST001"]["grin_state"] == "ACTIVE"

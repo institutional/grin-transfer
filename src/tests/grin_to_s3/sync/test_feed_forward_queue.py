@@ -139,10 +139,11 @@ class TestQueueBasics:
         ):
 
             def download_side_effect(manager, barcode, pipeline, task_funcs):
-                result = TaskResult(
-                    barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
-                )
-                return {TaskType.DOWNLOAD: result}
+                return {
+                    TaskType.DOWNLOAD: TaskResult(
+                        barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
+                    )
+                }
 
             def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
                 return {**download_results, TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)}
@@ -179,10 +180,11 @@ class TestConcurrentProcessing:
 
         def track_download_time(manager, barcode, pipeline, task_funcs):
             processing_times.append((barcode, time.time()))
-            result = TaskResult(
-                barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
-            )
-            return {TaskType.DOWNLOAD: result}
+            return {
+                TaskType.DOWNLOAD: TaskResult(
+                    barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
+                )
+            }
 
         def track_processing_time(manager, barcode, download_results, pipeline, task_funcs):
             return {**download_results, TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)}
@@ -228,10 +230,11 @@ class TestConcurrentProcessing:
         async def slow_download(*args):
             await asyncio.sleep(0.01)
             barcode = args[1]
-            result = TaskResult(
-                barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
-            )
-            return {TaskType.DOWNLOAD: result}
+            return {
+                TaskType.DOWNLOAD: TaskResult(
+                    barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
+                )
+            }
 
         async def slow_processing(*args):
             barcode = args[1]
@@ -272,10 +275,11 @@ class TestWorkerManagement:
             worker_counts.append(
                 len(current_task.get_name()) if current_task and hasattr(current_task, "get_name") else 1
             )
-            result = TaskResult(
-                barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
-            )
-            return {TaskType.DOWNLOAD: result}
+            return {
+                TaskType.DOWNLOAD: TaskResult(
+                    barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
+                )
+            }
 
         def track_processing_workers(manager, barcode, download_results, pipeline, task_funcs):
             return {**download_results, TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)}
@@ -311,10 +315,11 @@ class TestWorkerManagement:
         ):
 
             def download_side_effect(manager, barcode, pipeline, task_funcs):
-                result = TaskResult(
-                    barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
-                )
-                return {TaskType.DOWNLOAD: result}
+                return {
+                    TaskType.DOWNLOAD: TaskResult(
+                        barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
+                    )
+                }
 
             def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
                 return {**download_results, TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)}
@@ -356,10 +361,11 @@ class TestProgressReporting:
         ):
 
             def download_side_effect(manager, barcode, pipeline, task_funcs):
-                result = TaskResult(
-                    barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
-                )
-                return {TaskType.DOWNLOAD: result}
+                return {
+                    TaskType.DOWNLOAD: TaskResult(
+                        barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
+                    )
+                }
 
             def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
                 return {**download_results, TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)}
@@ -398,10 +404,11 @@ class TestProgressReporting:
         ):
 
             def download_side_effect(manager, barcode, pipeline, task_funcs):
-                result = TaskResult(
-                    barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
-                )
-                return {TaskType.DOWNLOAD: result}
+                return {
+                    TaskType.DOWNLOAD: TaskResult(
+                        barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
+                    )
+                }
 
             def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
                 return {**download_results, TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)}
@@ -443,10 +450,11 @@ class TestErrorHandling:
             # Make every 3rd book fail
             if int(barcode[-3:]) % 3 == 0:
                 raise RuntimeError(f"Simulated failure for {barcode}")
-            result = TaskResult(
-                barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
-            )
-            return {TaskType.DOWNLOAD: result}
+            return {
+                TaskType.DOWNLOAD: TaskResult(
+                    barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
+                )
+            }
 
         def normal_processing(manager, barcode, download_results, pipeline, task_funcs):
             return {**download_results, TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)}
@@ -508,10 +516,11 @@ class TestErrorHandling:
         ):
 
             def download_side_effect(manager, barcode, pipeline, task_funcs):
-                result = TaskResult(
-                    barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
-                )
-                return {TaskType.DOWNLOAD: result}
+                return {
+                    TaskType.DOWNLOAD: TaskResult(
+                        barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
+                    )
+                }
 
             def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
                 return {**download_results, TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)}
@@ -564,10 +573,11 @@ class TestEndToEndIntegration:
         ):
 
             def download_side_effect(manager, barcode, pipeline, task_funcs):
-                result = TaskResult(
-                    barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
-                )
-                return {TaskType.DOWNLOAD: result}
+                return {
+                    TaskType.DOWNLOAD: TaskResult(
+                        barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
+                    )
+                }
 
             def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
                 return {**download_results, TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)}
@@ -618,10 +628,11 @@ class TestEndToEndIntegration:
         ):
 
             def download_side_effect(manager, barcode, pipeline, task_funcs):
-                result = TaskResult(
-                    barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
-                )
-                return {TaskType.DOWNLOAD: result}
+                return {
+                    TaskType.DOWNLOAD: TaskResult(
+                        barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
+                    )
+                }
 
             def processing_side_effect(manager, barcode, download_results, pipeline, task_funcs):
                 return {**download_results, TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)}
@@ -657,10 +668,11 @@ class TestEndToEndIntegration:
         def download_with_db_updates(manager, barcode, pipeline, task_funcs):
             # Simulate database updates being accumulated
             pipeline.book_record_updates[barcode] = {"status": "processed"}
-            result = TaskResult(
-                barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
-            )
-            return {TaskType.DOWNLOAD: result}
+            return {
+                TaskType.DOWNLOAD: TaskResult(
+                    barcode, TaskType.DOWNLOAD, TaskAction.COMPLETED, data={"file_path": f"/tmp/{barcode}.tar.gz"}
+                )
+            }
 
         def processing_with_updates(manager, barcode, download_results, pipeline, task_funcs):
             return {**download_results, TaskType.UPLOAD: TaskResult(barcode, TaskType.UPLOAD, TaskAction.COMPLETED)}
