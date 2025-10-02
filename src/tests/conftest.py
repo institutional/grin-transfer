@@ -271,6 +271,21 @@ def mock_grin_client():
 
 
 @pytest.fixture
+async def db_tracker(temp_db):
+    """Create and initialize a progress tracker for async database testing.
+
+    This fixture replaces the AsyncDatabaseTestCase pattern, allowing
+    pytest-asyncio tests to use the centralized database setup.
+    """
+    from grin_to_s3.collect_books.models import SQLiteProgressTracker
+
+    tracker = SQLiteProgressTracker(temp_db)
+    await tracker.init_db()
+    yield tracker
+    await tracker.close()
+
+
+@pytest.fixture
 def fast_retry_download(monkeypatch):
     """Mock the specific download function with fast retry for slow tests.
 
