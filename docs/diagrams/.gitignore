@@ -1,0 +1,4 @@
+# Generated Mermaid artifacts
+*.svg
+*.png
+output/

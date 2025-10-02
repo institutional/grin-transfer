@@ -1,9 +1,13 @@
-%%{init: {"theme": "base", "themeVariables": {"primaryTextColor": "#1e293b", "primaryBorderColor": "#475569", "lineColor": "#64748b", "background": "transparent", "mainBkg": "transparent", "secondBkg": "transparent"}}}%%
+%%{init: {"theme": "base", "themeVariables": {"primaryTextColor": "#1e293b", "primaryBorderColor": "#475569", "lineColor": "#64748b", "background": "transparent", "mainBkg": "transparent", "secondBkg": "transparent"}, "flowchart": {"defaultRenderer": "elk", "elk": {"elk.direction": "DOWN"}}}}%%
 flowchart TD
     subgraph Sync Pipeline
-        SyncStart([Sync pipeline entry<br/>from collect handoff]):::terminal --> I[/Barcode selection<br/>queues, file, or CLI list/]:::io
+        SyncStart([Sync pipeline entry<br/>from collect handoff]):::terminal --> FailureCatalog[Load known conversion<br/>failures from GRIN]:::process
+        FailureCatalog --> I[/Barcode selection<br/>queues, file, or CLI list/]:::io
         I --> J[Check task<br/>HEAD request & status lookup]:::process
-        J --> K{File package ready in GRIN?}:::decision
+        J --> FailureCheck{Known conversion<br/>failure detected?}:::decision
+        FailureCheck -->|Yes| FailureTrack[Record conversion failure<br/>metadata in run summary]:::process
+        FailureTrack --> FailureExit([Skip volume<br/>await GRIN fix]):::terminal
+        FailureCheck -->|No| K{File package ready in GRIN?}:::decision
         K -->|No| ConversionCheck{Conversions > 50,000?}:::decision
         ConversionCheck -->|Yes| Terminate([Flow terminated:<br/>Conversion limit exceeded]):::terminal
         ConversionCheck -->|No| L[Request conversion to file package]:::process
