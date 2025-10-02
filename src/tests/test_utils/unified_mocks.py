@@ -598,6 +598,104 @@ def mock_minimal_upload():
         yield
 
 
+@contextmanager
+def mock_extract_ocr_operations(page_count: int = 3, compression_enabled: bool = True):
+    """
+    Context manager for mocking OCR extraction task dependencies.
+
+    Args:
+        page_count: Number of pages to return from extraction
+        compression_enabled: Whether to mock compression operations
+
+    Yields:
+        MockBundle with extract_ocr_pages and compress_file_to_temp mocks
+    """
+    with (
+        patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
+        patch("grin_to_s3.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
+    ):
+        # Configure extraction mock
+        mock_extract.return_value = page_count
+
+        # Configure compression mock
+        if compression_enabled:
+            # Mock compress_file_to_temp as an async context manager
+            mock_compress.return_value.__aenter__ = AsyncMock()
+            mock_compress.return_value.__aexit__ = AsyncMock()
+
+        class MockBundle:
+            def __init__(self):
+                self.extract_ocr_pages = mock_extract
+                self.compress_file_to_temp = mock_compress
+
+        yield MockBundle()
+
+
+@contextmanager
+def mock_export_csv_operations(record_count: int = 0, csv_content: str = "barcode,title\n"):
+    """
+    Context manager for mocking CSV export task dependencies.
+
+    Args:
+        record_count: Number of records written to CSV
+        csv_content: Content to write to the temporary CSV file
+
+    Yields:
+        MockBundle with upload_csv_to_storage and write_books_to_csv mocks
+    """
+    with (
+        patch("grin_to_s3.sync.tasks.export_csv.upload_csv_to_storage") as mock_upload,
+        patch("grin_to_s3.sync.tasks.export_csv.write_books_to_csv") as mock_write_csv,
+    ):
+        # Configure write_csv mock - returns (Path, record_count)
+        mock_write_csv.return_value = (None, record_count)  # Path will be set by test
+
+        # Configure upload mock
+        mock_upload.return_value = None  # Path will be set by test
+
+        class MockBundle:
+            def __init__(self):
+                self.upload_csv_to_storage = mock_upload
+                self.write_books_to_csv = mock_write_csv
+
+        yield MockBundle()
+
+
+@contextmanager
+def mock_extract_marc_operations(
+    marc_metadata: dict[str, str] | None = None, normalized_metadata: dict[str, str] | None = None
+):
+    """
+    Context manager for mocking MARC extraction task dependencies.
+
+    Args:
+        marc_metadata: Raw MARC metadata to return from extraction
+        normalized_metadata: Normalized metadata for database storage
+
+    Yields:
+        MockBundle with extract_marc_metadata and convert_marc_keys_to_db_fields mocks
+    """
+    if marc_metadata is None:
+        marc_metadata = {"title": "Test Book", "author": "Test Author"}
+    if normalized_metadata is None:
+        normalized_metadata = {"title_display": "Test Book", "author_display": "Test Author"}
+
+    with (
+        patch("grin_to_s3.sync.tasks.extract_marc.extract_marc_metadata") as mock_extract,
+        patch("grin_to_s3.sync.tasks.extract_marc.convert_marc_keys_to_db_fields") as mock_convert,
+    ):
+        # Configure mocks
+        mock_extract.return_value = marc_metadata
+        mock_convert.return_value = normalized_metadata
+
+        class MockBundle:
+            def __init__(self):
+                self.extract_marc_metadata = mock_extract
+                self.convert_marc_keys_to_db_fields = mock_convert
+
+        yield MockBundle()
+
+
 # =============================================================================
 # Test Data Utilities
 # =============================================================================

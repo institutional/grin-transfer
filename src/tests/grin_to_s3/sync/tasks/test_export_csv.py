@@ -4,7 +4,7 @@ Tests for sync tasks export_csv module.
 """
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -16,7 +16,7 @@ from tests.test_utils.unified_mocks import create_book_manager_mock, standard_st
 @pytest.mark.asyncio
 async def test_export_csv_with_compression_enabled(temp_filesystem_manager):
     """CSV export should compress files when compression is enabled."""
-    from tests.test_utils.unified_mocks import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_export_csv_operations
 
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
@@ -33,18 +33,15 @@ async def test_export_csv_with_compression_enabled(temp_filesystem_manager):
 
     staging_path = temp_filesystem_manager.staging_path
 
-    with (
-        patch("grin_to_s3.sync.tasks.export_csv.upload_csv_to_storage") as mock_upload,
-        patch("grin_to_s3.sync.tasks.export_csv.write_books_to_csv") as mock_write_csv,
-    ):
+    with mock_export_csv_operations(record_count=0) as mocks:
         # Mock CSV generation
         temp_csv = staging_path / "temp.csv"
         temp_csv.write_text("barcode,title\nTEST123,Test Book")
-        mock_write_csv.return_value = (temp_csv, 0)
+        mocks.write_books_to_csv.return_value = (temp_csv, 0)
 
         # Mock upload result
         bucket_path = Path("test-meta-bucket/books_latest.csv.gz")
-        mock_upload.return_value = bucket_path
+        mocks.upload_csv_to_storage.return_value = bucket_path
 
         result = await export_csv.main(pipeline)
 
@@ -53,7 +50,7 @@ async def test_export_csv_with_compression_enabled(temp_filesystem_manager):
         assert result.action == TaskAction.COMPLETED
 
         # Should call upload with compression enabled
-        mock_upload.assert_called_once_with(
+        mocks.upload_csv_to_storage.assert_called_once_with(
             csv_path=temp_csv, book_manager=pipeline.book_manager, compression_enabled=True
         )
 
@@ -61,7 +58,7 @@ async def test_export_csv_with_compression_enabled(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_export_csv_with_compression_disabled(temp_filesystem_manager):
     """CSV export should not compress files when compression is disabled."""
-    from tests.test_utils.unified_mocks import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_export_csv_operations
 
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
@@ -78,18 +75,15 @@ async def test_export_csv_with_compression_disabled(temp_filesystem_manager):
 
     staging_path = temp_filesystem_manager.staging_path
 
-    with (
-        patch("grin_to_s3.sync.tasks.export_csv.upload_csv_to_storage") as mock_upload,
-        patch("grin_to_s3.sync.tasks.export_csv.write_books_to_csv") as mock_write_csv,
-    ):
+    with mock_export_csv_operations(record_count=0) as mocks:
         # Mock CSV generation
         temp_csv = staging_path / "temp.csv"
         temp_csv.write_text("barcode,title\nTEST123,Test Book")
-        mock_write_csv.return_value = (temp_csv, 0)
+        mocks.write_books_to_csv.return_value = (temp_csv, 0)
 
         # Mock upload result
         bucket_path = Path("test-meta-bucket/books_latest.csv")
-        mock_upload.return_value = bucket_path
+        mocks.upload_csv_to_storage.return_value = bucket_path
 
         result = await export_csv.main(pipeline)
 
@@ -98,7 +92,7 @@ async def test_export_csv_with_compression_disabled(temp_filesystem_manager):
         assert result.action == TaskAction.COMPLETED
 
         # Should call upload with compression disabled
-        mock_upload.assert_called_once_with(
+        mocks.upload_csv_to_storage.assert_called_once_with(
             csv_path=temp_csv, book_manager=pipeline.book_manager, compression_enabled=False
         )
 
@@ -106,7 +100,7 @@ async def test_export_csv_with_compression_disabled(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_export_csv_local_storage(temp_filesystem_manager):
     """CSV export should work with local storage."""
-    from tests.test_utils.unified_mocks import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_export_csv_operations
 
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(storage_type="local", bucket_meta="meta"),
@@ -123,18 +117,15 @@ async def test_export_csv_local_storage(temp_filesystem_manager):
 
     staging_path = temp_filesystem_manager.staging_path
 
-    with (
-        patch("grin_to_s3.sync.tasks.export_csv.upload_csv_to_storage") as mock_upload,
-        patch("grin_to_s3.sync.tasks.export_csv.write_books_to_csv") as mock_write_csv,
-    ):
+    with mock_export_csv_operations(record_count=0) as mocks:
         # Mock CSV generation
         temp_csv = staging_path / "temp.csv"
         temp_csv.write_text("barcode,title\nTEST123,Test Book")
-        mock_write_csv.return_value = (temp_csv, 0)
+        mocks.write_books_to_csv.return_value = (temp_csv, 0)
 
         # Mock upload result
         bucket_path = Path("meta/books_latest.csv.gz")
-        mock_upload.return_value = bucket_path
+        mocks.upload_csv_to_storage.return_value = bucket_path
 
         result = await export_csv.main(pipeline)
 
@@ -144,7 +135,7 @@ async def test_export_csv_local_storage(temp_filesystem_manager):
         assert result.data["record_count"] == 0
 
         # Should call upload with compression enabled for local storage
-        mock_upload.assert_called_once_with(
+        mocks.upload_csv_to_storage.assert_called_once_with(
             csv_path=temp_csv, book_manager=pipeline.book_manager, compression_enabled=True
         )
 
@@ -152,7 +143,7 @@ async def test_export_csv_local_storage(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_export_csv_with_sample_data(temp_filesystem_manager):
     """CSV export should handle sample data correctly."""
-    from tests.test_utils.unified_mocks import configure_pipeline_storage
+    from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_export_csv_operations
 
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
@@ -169,18 +160,15 @@ async def test_export_csv_with_sample_data(temp_filesystem_manager):
 
     staging_path = temp_filesystem_manager.staging_path
 
-    with (
-        patch("grin_to_s3.sync.tasks.export_csv.upload_csv_to_storage") as mock_upload,
-        patch("grin_to_s3.sync.tasks.export_csv.write_books_to_csv") as mock_write_csv,
-    ):
+    with mock_export_csv_operations(record_count=1) as mocks:
         # Mock CSV generation with sample data
         temp_csv = staging_path / "temp.csv"
         temp_csv.write_text("barcode,title\nTEST456,Another Book")
-        mock_write_csv.return_value = (temp_csv, 1)
+        mocks.write_books_to_csv.return_value = (temp_csv, 1)
 
         # Mock upload result
         bucket_path = Path("test-meta-bucket/books_latest.csv")
-        mock_upload.return_value = bucket_path
+        mocks.upload_csv_to_storage.return_value = bucket_path
 
         result = await export_csv.main(pipeline)
 
@@ -190,6 +178,6 @@ async def test_export_csv_with_sample_data(temp_filesystem_manager):
         assert result.data["record_count"] == 1
 
         # Should call upload with compression disabled
-        mock_upload.assert_called_once_with(
+        mocks.upload_csv_to_storage.assert_called_once_with(
             csv_path=temp_csv, book_manager=pipeline.book_manager, compression_enabled=False
         )
