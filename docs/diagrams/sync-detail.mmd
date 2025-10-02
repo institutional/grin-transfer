@@ -1,0 +1,25 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryTextColor": "#1e293b", "primaryBorderColor": "#475569", "lineColor": "#64748b", "background": "transparent", "mainBkg": "transparent", "secondBkg": "transparent"}, "flowchart": {"defaultRenderer": "elk", "elk": {"elk.direction": "RIGHT"}}}}%%
+flowchart LR
+classDef terminal fill:none,stroke:#6b7280,stroke-width:2px,color:#374151
+classDef process fill:none,stroke:#3b82f6,stroke-width:2px,color:#1e40af
+classDef decision fill:none,stroke:#f97316,stroke-width:2px,color:#7c2d12
+classDef io fill:none,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6
+classDef storage fill:none,stroke:#10b981,stroke-width:2px,color:#047857
+
+Start([Sync detail entry<br/>ready to download]):::terminal --> DownloadEncrypted[/Download encrypted archive<br/>to staging/]:::io
+DownloadEncrypted --> VerifySize{Staging file size<br/>matches GRIN header?}:::decision
+VerifySize -->|no| DownloadRetry([Retry download or abort volume]):::terminal
+VerifySize -->|yes| Decrypt[Decrypt archive with GPG<br/>passphrase & keyring]:::process
+Decrypt --> Unpack[Unpack tarball to staging<br/>folders]:::process
+Unpack --> ExtractMARC{Run MARC extraction?}:::decision
+ExtractMARC -->|yes| MarcOut[/Extract MARC, update<br/>metadata database/]:::io
+ExtractMARC -->|no| UploadPackage[/Upload decrypted package<br/>to raw bucket/]:::io
+MarcOut --> UploadPackage
+ExtractOCR{Run OCR extraction?}:::decision
+ExtractOCR -->|yes| OcrOut[/Extract OCR,<br/> upload JSONL/]:::io
+ExtractOCR -->|no| UploadPackage
+OcrOut --> FullBucket[(full bucket)]:::storage
+OcrOut --> UploadPackage
+UploadPackage --> RawBucket[(raw bucket)]:::storage
+FullBucket --> Complete([Sync detail stage complete]):::terminal
+RawBucket --> Complete
