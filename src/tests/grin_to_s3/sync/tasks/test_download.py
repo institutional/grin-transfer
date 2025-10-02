@@ -123,10 +123,7 @@ class TestDownloadBookToFilesystem:
         assert mock_grin_client.download_archive.call_count == 1
 
     @pytest.mark.asyncio
-    @pytest.mark.slow
-    async def test_http_500_error_with_retry(
-        self, temp_download_path, mock_grin_client, temp_filesystem_manager, fast_retry_download
-    ):
+    async def test_http_500_error_with_retry(self, temp_download_path, mock_grin_client, temp_filesystem_manager):
         """500 errors should be retried with exponential backoff."""
         error_500 = create_client_response_error(500, "Internal Server Error")
         setup_download_mock(mock_grin_client, error=error_500)
@@ -136,7 +133,7 @@ class TestDownloadBookToFilesystem:
                 "TEST123", temp_download_path, mock_grin_client, "TestLib", temp_filesystem_manager
             )
 
-        assert mock_grin_client.download_archive.call_count == 3
+        assert mock_grin_client.download_archive.call_count == 6  # DOWNLOAD_MAX_RETRIES + 1
 
     @pytest.mark.asyncio
     async def test_disk_space_exhaustion_recovery(self, temp_download_path, mock_grin_client):
@@ -175,10 +172,7 @@ class TestDownloadBookToFilesystem:
         filesystem_manager.wait_for_disk_space.assert_called_once_with(check_interval=60)
 
     @pytest.mark.asyncio
-    @pytest.mark.slow
-    async def test_file_size_verification(
-        self, temp_download_path, mock_grin_client, temp_filesystem_manager, fast_retry_download
-    ):
+    async def test_file_size_verification(self, temp_download_path, mock_grin_client, temp_filesystem_manager):
         """Download should verify file size matches bytes written and clean up on mismatch."""
         response = create_aiohttp_response(headers={"ETag": '"abc123"'})
         setup_download_mock(mock_grin_client, response)
@@ -195,7 +189,7 @@ class TestDownloadBookToFilesystem:
                     "TEST123", temp_download_path, mock_grin_client, "TestLib", temp_filesystem_manager
                 )
 
-            assert mock_unlink.call_count == 3  # Called 3 times due to retries
+            assert mock_unlink.call_count == 6  # Called on each retry (DOWNLOAD_MAX_RETRIES + 1)
 
     @pytest.mark.asyncio
     async def test_etag_handling_quoted_and_unquoted(
@@ -220,10 +214,7 @@ class TestDownloadBookToFilesystem:
         assert result["etag"] == "unquoted-etag"
 
     @pytest.mark.asyncio
-    @pytest.mark.slow
-    async def test_missing_etag_header(
-        self, temp_download_path, mock_grin_client, temp_filesystem_manager, fast_retry_download
-    ):
+    async def test_missing_etag_header(self, temp_download_path, mock_grin_client, temp_filesystem_manager):
         """Downloads should raise exception when ETag header is missing."""
         response = create_aiohttp_response(headers={})
         setup_download_mock(mock_grin_client, response)

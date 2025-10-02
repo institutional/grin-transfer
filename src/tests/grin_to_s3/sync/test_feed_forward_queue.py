@@ -220,7 +220,6 @@ class TestConcurrentProcessing:
             assert end_time - start_time < 5.0, "Total time suggests sequential processing"
 
     @pytest.mark.asyncio
-    @pytest.mark.slow
     async def test_bounded_queue_provides_backpressure(
         self, mock_pipeline, mock_task_manager, mock_rate_calculator, mock_task_functions
     ):
@@ -615,7 +614,6 @@ class TestEndToEndIntegration:
                     pass
 
     @pytest.mark.asyncio
-    @pytest.mark.slow
     async def test_memory_bounded_with_large_book_list(
         self, mock_pipeline, mock_task_manager, mock_rate_calculator, mock_task_functions
     ):

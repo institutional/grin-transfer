@@ -16,8 +16,8 @@ repos:
         always_run: true
 
       - id: pytest
-        name: pytest (fast tests only)
-        entry: uv run python -m pytest src/tests/ -v --tb=short -n auto -m "not slow"
+        name: pytest
+        entry: uv run python -m pytest src/tests/ -v --tb=short -n auto
         language: system
         pass_filenames: false
         always_run: true

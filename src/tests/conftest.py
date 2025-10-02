@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from grin_to_s3.run_config import RunConfig, StorageConfig, StorageConfigDict, SyncConfig
-from grin_to_s3.sync.tasks import download
 from tests.test_utils.unified_mocks import (
     create_book_manager_mock,
     create_progress_tracker_mock,
@@ -317,29 +316,3 @@ async def db_tracker(temp_db):
     await tracker.init_db()
     yield tracker
     await tracker.close()
-
-
-@pytest.fixture
-def fast_retry_download(monkeypatch):
-    """Mock the specific download function with fast retry for slow tests.
-
-    This fixture can be used by tests that need to avoid retry delays.
-    Usage: add 'fast_retry_download' as a parameter to slow download tests.
-    """
-
-    # Store the original function
-    original_func = download.download_book_to_filesystem
-
-    # Create wrapper that preserves the original logic but removes delays
-    async def fast_download_wrapper(*args, **kwargs):
-        try:
-            return await original_func.__wrapped__(*args, **kwargs)
-        except Exception:
-            # On first failure, try once more immediately
-            try:
-                return await original_func.__wrapped__(*args, **kwargs)
-            except Exception:
-                # Final attempt
-                return await original_func.__wrapped__(*args, **kwargs)
-
-    monkeypatch.setattr("grin_to_s3.sync.tasks.download.download_book_to_filesystem", fast_download_wrapper)
