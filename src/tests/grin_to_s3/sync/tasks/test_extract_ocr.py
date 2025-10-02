@@ -66,11 +66,17 @@ async def test_extract_ocr_creates_staging_file(mock_pipeline):
 @pytest.mark.asyncio
 async def test_extract_with_storage_config(temp_filesystem_manager):
     """Extract OCR should upload to storage when bucket configured."""
+    from .conftest import configure_pipeline_storage
+
     pipeline = MagicMock()
     pipeline.filesystem_manager = temp_filesystem_manager
+    pipeline.storage = MagicMock()
     pipeline.storage.write_file = AsyncMock()
-    pipeline.config.storage_config = {"config": {"bucket_full": "test-bucket"}}
+    pipeline.config = MagicMock()
     pipeline.config.sync_compression_full_enabled = True
+
+    configure_pipeline_storage(pipeline, bucket_full="test-bucket")
+
     pipeline.book_manager = MagicMock()
     pipeline.book_manager.full_text_path = MagicMock(side_effect=lambda filename: f"test-bucket/{filename}")
 
@@ -100,11 +106,14 @@ async def test_extract_with_storage_config(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_extract_local_storage_moves_file_to_full_directory():
     """Extract OCR should upload JSONL file to 'full' subdirectory for local storage."""
+    from .conftest import configure_pipeline_storage
 
     filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()
     pipeline.filesystem_manager = filesystem_manager
+    pipeline.storage = MagicMock()
     pipeline.storage.write_file = AsyncMock()
+    pipeline.config = MagicMock()
 
     unpack_data: UnpackData = {
         "unpacked_path": Path("/tmp/TEST123"),
@@ -117,9 +126,8 @@ async def test_extract_local_storage_moves_file_to_full_directory():
         filesystem_manager.staging_path = staging_path
 
         # Configure for local storage
-        pipeline.config.storage_config = {"config": {"base_path": str(output_dir)}}  # No bucket_full = local storage
+        configure_pipeline_storage(pipeline, storage_type="local", base_path=str(output_dir))
         pipeline.config.sync_compression_full_enabled = True
-        pipeline.uses_block_storage = False
 
         # Mock book_manager with proper path method
         pipeline.book_manager = MagicMock()
@@ -163,12 +171,17 @@ async def test_extract_local_storage_moves_file_to_full_directory():
 @pytest.mark.asyncio
 async def test_extract_ocr_with_compression_enabled(temp_filesystem_manager):
     """Extract OCR should compress JSONL when compression is enabled."""
+    from .conftest import configure_pipeline_storage
+
     pipeline = MagicMock()
     pipeline.filesystem_manager = temp_filesystem_manager
+    pipeline.storage = MagicMock()
     pipeline.storage.write_file = AsyncMock()
-    pipeline.config.storage_config = {"config": {"bucket_full": "test-bucket"}}
+    pipeline.config = MagicMock()
     pipeline.config.sync_compression_full_enabled = True
-    pipeline.uses_block_storage = True
+
+    configure_pipeline_storage(pipeline, bucket_full="test-bucket")
+
     pipeline.book_manager = MagicMock()
     pipeline.book_manager.full_text_path = MagicMock(side_effect=lambda filename: f"test-bucket/{filename}")
 
@@ -197,12 +210,17 @@ async def test_extract_ocr_with_compression_enabled(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_extract_ocr_with_compression_disabled(temp_filesystem_manager):
     """Extract OCR should not compress JSONL when compression is disabled."""
+    from .conftest import configure_pipeline_storage
+
     pipeline = MagicMock()
     pipeline.filesystem_manager = temp_filesystem_manager
+    pipeline.storage = MagicMock()
     pipeline.storage.write_file = AsyncMock()
-    pipeline.config.storage_config = {"config": {"bucket_full": "test-bucket"}}
+    pipeline.config = MagicMock()
     pipeline.config.sync_compression_full_enabled = False
-    pipeline.uses_block_storage = True
+
+    configure_pipeline_storage(pipeline, bucket_full="test-bucket")
+
     pipeline.book_manager = MagicMock()
     pipeline.book_manager.full_text_path = MagicMock(side_effect=lambda filename: f"test-bucket/{filename}")
 
@@ -238,13 +256,15 @@ async def test_extract_ocr_with_compression_disabled(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_extract_ocr_local_storage_with_compression_disabled():
     """Extract OCR should handle local storage without compression."""
+    from .conftest import configure_pipeline_storage
+
     filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()
     pipeline.filesystem_manager = filesystem_manager
+    pipeline.storage = MagicMock()
     pipeline.storage.write_file = AsyncMock()
-    pipeline.config.storage_config = {"config": {"base_path": "/tmp/output"}}
+    pipeline.config = MagicMock()
     pipeline.config.sync_compression_full_enabled = False
-    pipeline.uses_block_storage = False
 
     unpack_data: UnpackData = {
         "unpacked_path": Path("/tmp/TEST123"),
@@ -256,8 +276,8 @@ async def test_extract_ocr_local_storage_with_compression_disabled():
         staging_path.mkdir()
         filesystem_manager.staging_path = staging_path
 
-        # Update pipeline config to use temp output dir
-        pipeline.config.storage_config = {"config": {"base_path": str(output_dir)}}
+        # Configure for local storage
+        configure_pipeline_storage(pipeline, storage_type="local", base_path=str(output_dir))
 
         # Mock book_manager with proper path method
         pipeline.book_manager = MagicMock()

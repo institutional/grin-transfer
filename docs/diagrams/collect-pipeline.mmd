@@ -1,42 +1,17 @@
-%%{init: {"theme": "base", "themeVariables": {"primaryTextColor": "#1e293b", "primaryBorderColor": "#475569", "lineColor": "#64748b", "background": "transparent", "mainBkg": "transparent", "secondBkg": "transparent"}, "flowchart": {"defaultRenderer": "elk", "elk": {"elk.direction": "DOWN"}}}}%%
-flowchart TB
+%%{init: {"theme": "base", "themeVariables": {"primaryTextColor": "#1e293b", "primaryBorderColor": "#475569", "lineColor": "#64748b", "background": "transparent", "mainBkg": "transparent", "secondBkg": "transparent"}}}%%
+flowchart TD
     subgraph Collect Pipeline
-        Start([Start<br/>grin collect]):::terminal --> Parse[Parse CLI arguments]:::process
-        Parse --> Configure[Build run configuration]:::process
-        Configure --> WriteConfig[Write run_config.json to run directory]:::process
-        WriteConfig --> RunConfig[/run_config.json/]:::io
-        RunConfig --> UploadConfig[Upload run configuration to meta bucket]:::process
-        Configure --> Init[Initialize collectors and storage adapters]:::process
-        Init --> Validate[Validate GRIN credentials]:::process
-        Validate --> Creds{Credentials valid?}:::decision
-        Creds -->|no| Abort([Prompt OAuth setup and exit]):::terminal
-        Creds -->|yes| Stream[Stream GRIN volumes]:::process
-        Stream --> Interrupt{Interrupt received?}:::decision
-        Interrupt -->|yes| Graceful([Persist progress and exit]):::terminal
-        Interrupt -->|no| ProcessRecord[Normalize book metadata and enqueue upsert]:::process
-        ProcessRecord --> BooksDB[(books.db)]:::storage
-        ProcessRecord --> Summary[Increment process summary metrics]:::process
-        ProcessRecord -->|next record| Stream
-        Stream -->|complete| ExportCSV[Generate books_export.csv from books.db]:::process
-        BooksDB --> ExportCSV
-        ExportCSV --> BooksCSV[/books_export.csv/]:::io
-        Summary --> PersistSummary[Persist process summary]:::process
-        PersistSummary --> SummaryJson[/process_summary.json/]:::io
-        SummaryJson --> CompressSummary[Compress summary for upload]:::process
-        CompressSummary --> SummaryGz[(process_summary.json.gz)]:::storage
-        BooksCSV --> UploadCSV[Upload books_export.csv to meta bucket]:::process
-        BooksDB --> BackupDB[Create SQLite backup]:::process
-        BackupDB --> CompressDB[Compress books database for upload]:::process
-        CompressDB --> DatabaseGz[(books_latest.db.gz)]:::storage
-        UploadConfig --> MetaBucket[(Meta bucket)]:::storage
-        UploadCSV --> MetaBucket
-        SummaryGz --> MetaBucket
-        DatabaseGz --> MetaBucket
-        MetaBucket --> Handoff([Hand off artifacts to sync pipeline]):::terminal
+        A([Start run<br/>grin collect]):::terminal --> B[Init run config & storage settings]:::process
+        B --> C[Validate GRIN auth]:::process
+        C --> D[Stream all_books metadata pages]:::process
+        D --> E[(books.db<br/>Parsed rows upserted)]:::storage
+        E --> F[/Update process summary<br/>export books_export.csv/]:::io
+        F --> G[Package run artifacts]:::process
+        G --> MetaBucket[/Upload artifacts to meta bucket<br/>books.db, CSV, run metadata/]:::io
+        MetaBucket --> Handoff([Handoff artifacts<br/>to sync pipeline]):::terminal
     end
 
     classDef terminal fill:none,stroke:#6b7280,stroke-width:2px,color:#374151
     classDef process fill:none,stroke:#3b82f6,stroke-width:2px,color:#1e40af
     classDef storage fill:none,stroke:#10b981,stroke-width:2px,color:#047857
     classDef io fill:none,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6
-    classDef decision fill:none,stroke:#f97316,stroke-width:2px,color:#7c2d12

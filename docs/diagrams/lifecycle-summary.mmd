@@ -1,19 +1,24 @@
-%%{init: {"theme": "base", "themeVariables": {"primaryTextColor": "#1e293b", "primaryBorderColor": "#475569", "lineColor": "#64748b", "background": "transparent", "mainBkg": "transparent", "secondBkg": "transparent"}, "flowchart": {"defaultRenderer": "elk", "elk": {"elk.direction": "RIGHT"}}}}%%
+%%{init: {"theme": "base", "themeVariables": {"primaryTextColor": "#1e293b", "primaryBorderColor": "#475569", "lineColor": "#64748b", "background": "transparent", "mainBkg": "transparent", "secondBkg": "transparent"}}}%%
 flowchart LR
-    Start([Kick off run<br/>via grin CLI]):::terminal --> Collect[Harvest GRIN volume metadata<br/>into run database]:::process
-    Collect --> Download{File package available<br/>for download?}:::decision
-    Download -->|no| Convert[Request conversion and wait<br/>for file package availability]:::process
-    Convert --> Download
-    Download -->|yes| Retrieve[Retrieve file package and decrypt<br/>for staging]:::process
-    Retrieve --> Publish[Publish normalized artifacts<br/>to storage buckets]:::process
-    Publish --> Meta[(Metadata<br/>bucket)]:::storage
-    Publish --> Raw[(Raw file package<br/>bucket)]:::storage
-    Publish --> Full[(Full fidelity<br/>bucket)]:::storage
-    Meta --> Complete([Artifacts ready<br/>for downstream use]):::terminal
-    Raw --> Complete
-    Full --> Complete
+    subgraph collect [Collect Stage]
+        C1([Start run<br/>grin collect<br/>with CLI args]):::terminal
+        C1 --> C2[Authenticate with GRIN]:::process
+        C2 --> C3[Stream GRIN catalog]:::process
+        C3 --> C4[(Populate local database)]:::io
+    end
+
+    subgraph sync [Sync Stage]
+        S1[/Select barcodes<br/>from queues or CLI/]:::io --> S2[Resolve package status<br/>and trigger conversions when needed]:::process
+        S2 --> S3[/Download encrypted packages/]:::io
+        S3 --> S4[Decrypt and unpack package contents]:::process
+        S4 --> S5[/Extract metadata & OCR/]:::io
+        S5 --> Buckets[/Deliver assets to <br/>meta, raw, full <br/>storage buckets or folders/]:::storage
+    end
+
+    C4 --> S1
+    Buckets --> Complete([Book artifacts ready<br/>for downstream use]):::terminal
 
     classDef terminal fill:none,stroke:#6b7280,stroke-width:2px,color:#374151
     classDef process fill:none,stroke:#3b82f6,stroke-width:2px,color:#1e40af
+    classDef io fill:none,stroke:#8b5cf6,stroke-width:2px,color:#5b21b6
     classDef storage fill:none,stroke:#10b981,stroke-width:2px,color:#047857
-    classDef decision fill:none,stroke:#f97316,stroke-width:2px,color:#7c2d12

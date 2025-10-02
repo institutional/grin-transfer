@@ -59,20 +59,24 @@ async def test_main_successful_upload(mock_pipeline, sample_download_data, sampl
 
 
 @pytest.mark.parametrize(
-    "storage_config,expected_path",
+    "storage_type,bucket_raw,base_path,expected_path",
     [
-        ({"protocol": "s3", "config": {"bucket_raw": "test-bucket"}}, "test-bucket/TEST123/TEST123.tar.gz"),
-        ({"protocol": "local", "base_path": "/tmp/local"}, "/tmp/local/TEST123/TEST123.tar.gz"),
+        ("s3", "test-bucket", None, "test-bucket/TEST123/TEST123.tar.gz"),
+        ("local", None, "/tmp/local", "/tmp/local/TEST123/TEST123.tar.gz"),
     ],
 )
 @pytest.mark.asyncio
-async def test_upload_with_storage_types(storage_config, expected_path):
+async def test_upload_with_storage_types(storage_type, bucket_raw, base_path, expected_path):
     """Upload should work with local and cloud storage types."""
+    from .conftest import configure_pipeline_storage
+
     pipeline = MagicMock()
     pipeline.storage = MagicMock()
-    pipeline.config.storage_config = storage_config
-    # Add uses_local_storage property that checks protocol
-    type(pipeline).uses_local_storage = property(lambda self: self.config.storage_config.get("protocol") == "local")
+    pipeline.config = MagicMock()
+
+    configure_pipeline_storage(
+        pipeline, storage_type=storage_type, bucket_raw=bucket_raw or "test-raw", base_path=base_path or "/tmp/output"
+    )
 
     with tempfile.TemporaryDirectory() as temp_dir:
         decrypted_path = Path(temp_dir) / "TEST123.tar.gz"
@@ -110,14 +114,17 @@ async def test_upload_with_storage_types(storage_config, expected_path):
 @pytest.mark.asyncio
 async def test_upload_metadata_includes_etag_and_barcode(sample_download_data, sample_decrypt_data, mock_book_manager):
     """Upload should include ETag and barcode in metadata."""
+    from .conftest import configure_pipeline_storage
+
     _, mock_manager = mock_book_manager
     pipeline = MagicMock()
     pipeline.storage = MagicMock()
-    pipeline.config.storage_config = {"protocol": "s3", "config": {"bucket_raw": "test-bucket"}}
+    pipeline.config = MagicMock()
+
+    configure_pipeline_storage(pipeline, bucket_raw="test-bucket")
+
     # Set up book_manager on the pipeline
     pipeline.book_manager = mock_manager
-    # Let uses_local_storage be a property that returns False for s3 protocol
-    type(pipeline).uses_local_storage = property(lambda self: self.config.storage_config["protocol"] == "local")
 
     await upload.main("METADATA123", sample_download_data, sample_decrypt_data, pipeline)
 

@@ -16,6 +16,8 @@ from tests.test_utils.unified_mocks import create_book_manager_mock, standard_st
 @pytest.mark.asyncio
 async def test_export_csv_with_compression_enabled(temp_filesystem_manager):
     """CSV export should compress files when compression is enabled."""
+    from .conftest import configure_pipeline_storage
+
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
         custom_config={"csv_paths": ("books_latest.csv.gz", "books_timestamped.csv.gz")},
@@ -24,9 +26,10 @@ async def test_export_csv_with_compression_enabled(temp_filesystem_manager):
     pipeline = MagicMock()
     pipeline.filesystem_manager = temp_filesystem_manager
     pipeline.book_manager = book_manager
-    pipeline.config.storage_config = {"config": {"bucket_meta": "test-meta-bucket"}}
+    pipeline.config = MagicMock()
     pipeline.config.sync_compression_meta_enabled = True
-    pipeline.uses_block_storage = True
+
+    configure_pipeline_storage(pipeline, bucket_meta="test-meta-bucket")
 
     staging_path = temp_filesystem_manager.staging_path
 
@@ -58,6 +61,8 @@ async def test_export_csv_with_compression_enabled(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_export_csv_with_compression_disabled(temp_filesystem_manager):
     """CSV export should not compress files when compression is disabled."""
+    from .conftest import configure_pipeline_storage
+
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
         custom_config={"csv_paths": ("books_latest.csv", "books_timestamped.csv")},
@@ -66,9 +71,10 @@ async def test_export_csv_with_compression_disabled(temp_filesystem_manager):
     pipeline = MagicMock()
     pipeline.filesystem_manager = temp_filesystem_manager
     pipeline.book_manager = book_manager
-    pipeline.config.storage_config = {"config": {"bucket_meta": "test-meta-bucket"}}
+    pipeline.config = MagicMock()
     pipeline.config.sync_compression_meta_enabled = False
-    pipeline.uses_block_storage = True
+
+    configure_pipeline_storage(pipeline, bucket_meta="test-meta-bucket")
 
     staging_path = temp_filesystem_manager.staging_path
 
@@ -100,6 +106,8 @@ async def test_export_csv_with_compression_disabled(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_export_csv_local_storage(temp_filesystem_manager):
     """CSV export should work with local storage."""
+    from .conftest import configure_pipeline_storage
+
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(storage_type="local", bucket_meta="meta"),
         custom_config={"csv_paths": ("books_latest.csv.gz", "books_timestamped.csv.gz")},
@@ -108,9 +116,10 @@ async def test_export_csv_local_storage(temp_filesystem_manager):
     pipeline = MagicMock()
     pipeline.filesystem_manager = temp_filesystem_manager
     pipeline.book_manager = book_manager
-    pipeline.config.storage_config = {"config": {"base_path": "/tmp/output"}}
+    pipeline.config = MagicMock()
     pipeline.config.sync_compression_meta_enabled = True
-    pipeline.uses_block_storage = False
+
+    configure_pipeline_storage(pipeline, storage_type="local", base_path="/tmp/output")
 
     staging_path = temp_filesystem_manager.staging_path
 
@@ -143,6 +152,8 @@ async def test_export_csv_local_storage(temp_filesystem_manager):
 @pytest.mark.asyncio
 async def test_export_csv_with_sample_data(temp_filesystem_manager):
     """CSV export should handle sample data correctly."""
+    from .conftest import configure_pipeline_storage
+
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
         custom_config={"csv_paths": ("books_latest.csv", "books_timestamped.csv")},
@@ -151,9 +162,10 @@ async def test_export_csv_with_sample_data(temp_filesystem_manager):
     pipeline = MagicMock()
     pipeline.filesystem_manager = temp_filesystem_manager
     pipeline.book_manager = book_manager
-    pipeline.config.storage_config = {"config": {"bucket_meta": "test-meta-bucket"}}
+    pipeline.config = MagicMock()
     pipeline.config.sync_compression_meta_enabled = False
-    pipeline.uses_block_storage = True
+
+    configure_pipeline_storage(pipeline, bucket_meta="test-meta-bucket")
 
     staging_path = temp_filesystem_manager.staging_path
 

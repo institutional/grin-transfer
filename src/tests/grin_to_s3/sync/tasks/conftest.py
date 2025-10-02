@@ -29,6 +29,42 @@ def temp_filesystem_manager():
         yield manager
 
 
+def configure_pipeline_storage(
+    pipeline: MagicMock,
+    storage_type: str = "s3",
+    bucket_raw: str = "test-raw",
+    bucket_full: str = "test-full",
+    bucket_meta: str = "test-meta",
+    base_path: str = "/tmp/output",
+) -> None:
+    """Configure pipeline storage settings.
+
+    Args:
+        pipeline: Mock pipeline to configure
+        storage_type: Storage type (s3, r2, local, etc.)
+        bucket_raw: Raw archive bucket name
+        bucket_full: Full text bucket name
+        bucket_meta: Metadata bucket name
+        base_path: Base path for local storage
+    """
+    is_local = storage_type == "local"
+
+    pipeline.config.storage_config = {
+        "protocol": storage_type,
+        "type": storage_type,
+        "config": (
+            {"base_path": base_path}
+            if is_local
+            else {"bucket_raw": bucket_raw, "bucket_full": bucket_full, "bucket_meta": bucket_meta}
+        ),
+    }
+
+    pipeline.uses_block_storage = not is_local
+
+    # Update uses_local_storage property
+    type(pipeline).uses_local_storage = property(lambda self: self.config.storage_config.get("protocol") == "local")
+
+
 @pytest.fixture
 def mock_pipeline():
     """Mock SyncPipeline for task testing with common attributes."""
@@ -71,11 +107,9 @@ def mock_pipeline():
         pipeline.storage = MagicMock()
         pipeline.storage.write_file = AsyncMock()
         pipeline.config = MagicMock()
-        pipeline.config.storage_config = {
-            "protocol": "s3",  # Default to non-local storage
-            "type": "s3",
-            "config": {"bucket_raw": "test-raw", "bucket_full": "test-full", "bucket_meta": "test-meta"},
-        }
+
+        # Use helper to configure default storage
+        configure_pipeline_storage(pipeline)
 
         # Mock book manager
         pipeline.book_manager = MagicMock()
@@ -83,9 +117,6 @@ def mock_pipeline():
         pipeline.book_manager.full_text_path = MagicMock(side_effect=lambda filename: f"test-bucket/{filename}")
         pipeline.book_manager.storage = pipeline.storage
         pipeline.book_manager._manager_id = "test-mgr"
-
-        # Add uses_local_storage property that checks protocol
-        type(pipeline).uses_local_storage = property(lambda self: self.config.storage_config.get("protocol") == "local")
 
         # Mock database tracker
         pipeline.db_tracker = MagicMock()
