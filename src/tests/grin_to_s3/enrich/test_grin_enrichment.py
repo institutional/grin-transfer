@@ -5,7 +5,6 @@ GRIN enrichment tests
 
 import os
 import sys
-from typing import NamedTuple
 
 import pytest
 import pytest_asyncio
@@ -16,18 +15,8 @@ from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from grin_to_s3.metadata.tsv_parser import parse_grin_tsv
 from tests.mocks import MockGRINClient
-from tests.test_utils.database_helpers import get_book_for_testing
+from tests.test_utils.database_helpers import StatusUpdate, get_book_for_testing
 from tests.utils import batch_write_status_updates
-
-
-class StatusUpdate(NamedTuple):
-    """Status update tuple for collecting updates before writing."""
-
-    barcode: str
-    status_type: str
-    status_value: str
-    metadata: dict | None = None
-    session_id: str | None = None
 
 
 class MockGRINEnrichmentClient(MockGRINClient):

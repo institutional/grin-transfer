@@ -10,16 +10,14 @@ Tests the atomic status tracking functionality including:
 
 import asyncio
 import json
-import tempfile
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import NamedTuple
-from unittest import IsolatedAsyncioTestCase
 
 import aiosqlite
 
-from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.collect_books.models import BookRecord
 from tests.test_utils.database_helpers import (
+    AsyncDatabaseTestCase,
+    StatusUpdate,
     get_all_barcodes_for_testing,
     get_books_with_latest_status_for_testing,
     get_latest_status_for_testing,
@@ -27,29 +25,8 @@ from tests.test_utils.database_helpers import (
 from tests.utils import batch_write_status_updates
 
 
-class StatusUpdate(NamedTuple):
-    """Status update tuple for collecting updates before writing."""
-
-    barcode: str
-    status_type: str
-    status_value: str
-    metadata: dict | None = None
-    session_id: str | None = None
-
-
-class TestStatusHistory(IsolatedAsyncioTestCase):
+class TestStatusHistory(AsyncDatabaseTestCase):
     """Test status history tracking functionality."""
-
-    async def asyncSetUp(self):
-        """Set up test database."""
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.db_path = Path(self.temp_dir.name) / "test_books.db"
-        self.tracker = SQLiteProgressTracker(str(self.db_path))
-        await self.tracker.init_db()
-
-    async def asyncTearDown(self):
-        """Clean up test database."""
-        self.temp_dir.cleanup()
 
     async def test_batch_status_change_basic(self):
         """Test basic batched status change recording."""

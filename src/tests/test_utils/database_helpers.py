@@ -3,7 +3,38 @@
 Database test helper functions
 """
 
+import tempfile
+from pathlib import Path
+from typing import NamedTuple
+from unittest import IsolatedAsyncioTestCase
+
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+
+
+class StatusUpdate(NamedTuple):
+    """Status update tuple for collecting updates before writing."""
+
+    barcode: str
+    status_type: str
+    status_value: str
+    metadata: dict | None = None
+    session_id: str | None = None
+
+
+class AsyncDatabaseTestCase(IsolatedAsyncioTestCase):
+    """Base class for tests that need an async database."""
+
+    async def asyncSetUp(self):
+        """Set up test database."""
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.db_path = Path(self.temp_dir.name) / "test_books.db"
+        self.tracker = SQLiteProgressTracker(str(self.db_path))
+        await self.tracker.init_db()
+
+    async def asyncTearDown(self):
+        """Clean up test database."""
+        await self.tracker.close()
+        self.temp_dir.cleanup()
 
 
 async def get_book_for_testing(tracker: SQLiteProgressTracker, barcode: str) -> BookRecord | None:

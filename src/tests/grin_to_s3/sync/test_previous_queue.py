@@ -7,29 +7,16 @@ books with PREVIOUSLY_DOWNLOADED status filtered by in_process and verified_unav
 """
 
 import asyncio
-import tempfile
-from pathlib import Path
-from typing import NamedTuple
-from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
 
-from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.collect_books.models import BookRecord
 from grin_to_s3.queue_utils import get_previous_queue_books
 from grin_to_s3.sync.pipeline import get_books_from_queue
+from tests.test_utils.database_helpers import AsyncDatabaseTestCase, StatusUpdate
 from tests.utils import batch_write_status_updates
 
 
-class StatusUpdate(NamedTuple):
-    """Status update tuple for collecting updates before writing."""
-
-    barcode: str
-    status_type: str
-    status_value: str
-    metadata: dict | None = None
-    session_id: str | None = None
-
-
-class TestPreviousQueue(IsolatedAsyncioTestCase):
+class TestPreviousQueue(AsyncDatabaseTestCase):
     """Test previous queue functionality."""
 
     def _create_async_return_value(self, value):
@@ -39,21 +26,13 @@ class TestPreviousQueue(IsolatedAsyncioTestCase):
         return future
 
     async def asyncSetUp(self):
-        """Set up test database and tracker."""
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.db_path = Path(self.temp_dir.name) / "test_books.db"
-        self.tracker = SQLiteProgressTracker(str(self.db_path))
-        await self.tracker.init_db()
+        """Set up test database and mocks."""
+        await super().asyncSetUp()
 
         # Mock GRIN client
         self.mock_grin_client = AsyncMock()
         # Configure fetch_resource to return a valid string response
         self.mock_grin_client.fetch_resource.return_value = ""
-
-    async def asyncTearDown(self):
-        """Clean up test database."""
-        await self.tracker.close()
-        self.temp_dir.cleanup()
 
     async def _add_book_with_grin_state(self, barcode: str, grin_state: str, sync_statuses: list[str] = None) -> None:
         """Helper to add a book with given GRIN state and optional sync statuses."""

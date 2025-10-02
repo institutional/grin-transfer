@@ -28,6 +28,7 @@ def temp_filesystem_manager():
         manager.get_encrypted_file_path = MagicMock(
             side_effect=lambda barcode: Path(temp_dir) / f"{barcode}.tar.gz.gpg"
         )
+        manager.check_disk_space = MagicMock(return_value=True)
         yield manager
 
 

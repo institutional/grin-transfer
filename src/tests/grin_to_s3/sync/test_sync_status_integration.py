@@ -5,14 +5,12 @@ Integration tests for sync pipeline with status history.
 Tests that the sync pipeline correctly works with the new status history system.
 """
 
-import tempfile
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import NamedTuple
-from unittest import IsolatedAsyncioTestCase
 
-from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_to_s3.collect_books.models import BookRecord
 from tests.test_utils.database_helpers import (
+    AsyncDatabaseTestCase,
+    StatusUpdate,
     get_all_barcodes_for_testing,
     get_barcodes_from_set_for_testing,
     get_barcodes_needing_sync_for_testing,
@@ -22,29 +20,8 @@ from tests.test_utils.database_helpers import (
 from tests.utils import batch_write_status_updates
 
 
-class StatusUpdate(NamedTuple):
-    """Status update tuple for collecting updates before writing."""
-
-    barcode: str
-    status_type: str
-    status_value: str
-    metadata: dict | None = None
-    session_id: str | None = None
-
-
-class TestSyncStatusIntegration(IsolatedAsyncioTestCase):
+class TestSyncStatusIntegration(AsyncDatabaseTestCase):
     """Test sync pipeline integration with status history."""
-
-    async def asyncSetUp(self):
-        """Set up test database."""
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.db_path = Path(self.temp_dir.name) / "test_books.db"
-        self.tracker = SQLiteProgressTracker(str(self.db_path))
-        await self.tracker.init_db()
-
-    async def asyncTearDown(self):
-        """Clean up test database."""
-        self.temp_dir.cleanup()
 
     async def test_get_books_for_sync_with_converted_status(self):
         """Test that books with 'converted' status are eligible for sync."""
