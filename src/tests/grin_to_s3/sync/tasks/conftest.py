@@ -14,6 +14,22 @@ from grin_to_s3.storage.staging import DirectoryManager
 
 
 @pytest.fixture
+def temp_filesystem_manager():
+    """Fixture providing a filesystem manager with real temporary directory."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        manager = MagicMock(spec=DirectoryManager)
+        manager.staging_path = Path(temp_dir)
+        manager.get_decrypted_file_path = MagicMock(side_effect=lambda barcode: Path(temp_dir) / f"{barcode}.tar.gz")
+        manager.get_extracted_directory_path = MagicMock(
+            side_effect=lambda barcode: Path(temp_dir) / f"{barcode}_extracted"
+        )
+        manager.get_encrypted_file_path = MagicMock(
+            side_effect=lambda barcode: Path(temp_dir) / f"{barcode}.tar.gz.gpg"
+        )
+        yield manager
+
+
+@pytest.fixture
 def mock_pipeline():
     """Mock SyncPipeline for task testing with common attributes."""
     with tempfile.TemporaryDirectory() as temp_dir:

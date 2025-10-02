@@ -132,13 +132,19 @@ def create_book_manager_mock(
     mock_book_manager.bucket_full = storage_config["config"].get("bucket_full")
     mock_book_manager.base_prefix = base_prefix
 
-    # Add path generation helper
+    # Add path generation helpers
     def meta_path(filename: str) -> str:
         if base_prefix:
             return f"{mock_book_manager.bucket_meta}/{base_prefix}/{filename}"
         return f"{mock_book_manager.bucket_meta}/{filename}"
 
+    def full_text_path(filename: str) -> str:
+        if base_prefix:
+            return f"{mock_book_manager.bucket_full}/{base_prefix}/{filename}"
+        return f"{mock_book_manager.bucket_full}/{filename}"
+
     mock_book_manager.meta_path = meta_path
+    mock_book_manager.full_text_path = MagicMock(side_effect=full_text_path)
 
     # BookManager methods delegate to the underlying storage
     # This reflects the real BookManager architecture where it wraps a Storage object

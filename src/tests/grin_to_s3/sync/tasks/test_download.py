@@ -103,20 +103,20 @@ class TestDownloadMain:
     @pytest.mark.asyncio
     async def test_main_creates_parent_directories(self, mock_pipeline):
         """Main download should create parent directories if they don't exist."""
-        with tempfile.TemporaryDirectory() as temp_dir:
-            nested_path = Path(temp_dir) / "deep" / "nested" / "TEST123.tar.gz.gpg"
-            mock_pipeline.filesystem_manager.get_encrypted_file_path.return_value = nested_path
+        staging_path = Path(mock_pipeline.filesystem_manager.staging_path)
+        nested_path = staging_path / "deep" / "nested" / "TEST123.tar.gz.gpg"
+        mock_pipeline.filesystem_manager.get_encrypted_file_path.return_value = nested_path
 
-            with patch("grin_to_s3.sync.tasks.download.download_book_to_filesystem") as mock_download:
-                mock_download.return_value = {
-                    "file_path": nested_path,
-                    "http_status_code": 200,
-                    "etag": "abc123",
-                    "file_size_bytes": 1024,
-                }
-                await download.main("TEST123", mock_pipeline)
+        with patch("grin_to_s3.sync.tasks.download.download_book_to_filesystem") as mock_download:
+            mock_download.return_value = {
+                "file_path": nested_path,
+                "http_status_code": 200,
+                "etag": "abc123",
+                "file_size_bytes": 1024,
+            }
+            await download.main("TEST123", mock_pipeline)
 
-                assert nested_path.parent.exists()
+            assert nested_path.parent.exists()
 
 
 class TestDownloadBookToFilesystem:

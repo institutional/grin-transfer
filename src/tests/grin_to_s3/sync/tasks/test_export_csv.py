@@ -3,42 +3,37 @@
 Tests for sync tasks export_csv module.
 """
 
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from grin_to_s3.storage.staging import DirectoryManager
 from grin_to_s3.sync.tasks import export_csv
 from grin_to_s3.sync.tasks.task_types import TaskAction, TaskType
 from tests.test_utils.unified_mocks import create_book_manager_mock, standard_storage_config
 
 
 @pytest.mark.asyncio
-async def test_export_csv_with_compression_enabled():
+async def test_export_csv_with_compression_enabled(temp_filesystem_manager):
     """CSV export should compress files when compression is enabled."""
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
         custom_config={"csv_paths": ("books_latest.csv.gz", "books_timestamped.csv.gz")},
     )
 
-    filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()
-    pipeline.filesystem_manager = filesystem_manager
+    pipeline.filesystem_manager = temp_filesystem_manager
     pipeline.book_manager = book_manager
     pipeline.config.storage_config = {"config": {"bucket_meta": "test-meta-bucket"}}
     pipeline.config.sync_compression_meta_enabled = True
     pipeline.uses_block_storage = True
 
+    staging_path = temp_filesystem_manager.staging_path
+
     with (
-        tempfile.TemporaryDirectory() as temp_dir,
         patch("grin_to_s3.sync.tasks.export_csv.upload_csv_to_storage") as mock_upload,
         patch("grin_to_s3.sync.tasks.export_csv.write_books_to_csv") as mock_write_csv,
     ):
-        staging_path = Path(temp_dir)
-        filesystem_manager.staging_path = staging_path
-
         # Mock CSV generation
         temp_csv = staging_path / "temp.csv"
         temp_csv.write_text("barcode,title\nTEST123,Test Book")
@@ -61,29 +56,26 @@ async def test_export_csv_with_compression_enabled():
 
 
 @pytest.mark.asyncio
-async def test_export_csv_with_compression_disabled():
+async def test_export_csv_with_compression_disabled(temp_filesystem_manager):
     """CSV export should not compress files when compression is disabled."""
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
         custom_config={"csv_paths": ("books_latest.csv", "books_timestamped.csv")},
     )
 
-    filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()
-    pipeline.filesystem_manager = filesystem_manager
+    pipeline.filesystem_manager = temp_filesystem_manager
     pipeline.book_manager = book_manager
     pipeline.config.storage_config = {"config": {"bucket_meta": "test-meta-bucket"}}
     pipeline.config.sync_compression_meta_enabled = False
     pipeline.uses_block_storage = True
 
+    staging_path = temp_filesystem_manager.staging_path
+
     with (
-        tempfile.TemporaryDirectory() as temp_dir,
         patch("grin_to_s3.sync.tasks.export_csv.upload_csv_to_storage") as mock_upload,
         patch("grin_to_s3.sync.tasks.export_csv.write_books_to_csv") as mock_write_csv,
     ):
-        staging_path = Path(temp_dir)
-        filesystem_manager.staging_path = staging_path
-
         # Mock CSV generation
         temp_csv = staging_path / "temp.csv"
         temp_csv.write_text("barcode,title\nTEST123,Test Book")
@@ -106,29 +98,26 @@ async def test_export_csv_with_compression_disabled():
 
 
 @pytest.mark.asyncio
-async def test_export_csv_local_storage():
+async def test_export_csv_local_storage(temp_filesystem_manager):
     """CSV export should work with local storage."""
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(storage_type="local", bucket_meta="meta"),
         custom_config={"csv_paths": ("books_latest.csv.gz", "books_timestamped.csv.gz")},
     )
 
-    filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()
-    pipeline.filesystem_manager = filesystem_manager
+    pipeline.filesystem_manager = temp_filesystem_manager
     pipeline.book_manager = book_manager
     pipeline.config.storage_config = {"config": {"base_path": "/tmp/output"}}
     pipeline.config.sync_compression_meta_enabled = True
     pipeline.uses_block_storage = False
 
+    staging_path = temp_filesystem_manager.staging_path
+
     with (
-        tempfile.TemporaryDirectory() as temp_dir,
         patch("grin_to_s3.sync.tasks.export_csv.upload_csv_to_storage") as mock_upload,
         patch("grin_to_s3.sync.tasks.export_csv.write_books_to_csv") as mock_write_csv,
     ):
-        staging_path = Path(temp_dir)
-        filesystem_manager.staging_path = staging_path
-
         # Mock CSV generation
         temp_csv = staging_path / "temp.csv"
         temp_csv.write_text("barcode,title\nTEST123,Test Book")
@@ -152,29 +141,26 @@ async def test_export_csv_local_storage():
 
 
 @pytest.mark.asyncio
-async def test_export_csv_with_sample_data():
+async def test_export_csv_with_sample_data(temp_filesystem_manager):
     """CSV export should handle sample data correctly."""
     book_manager = create_book_manager_mock(
         storage_config=standard_storage_config(bucket_meta="test-meta-bucket"),
         custom_config={"csv_paths": ("books_latest.csv", "books_timestamped.csv")},
     )
 
-    filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()
-    pipeline.filesystem_manager = filesystem_manager
+    pipeline.filesystem_manager = temp_filesystem_manager
     pipeline.book_manager = book_manager
     pipeline.config.storage_config = {"config": {"bucket_meta": "test-meta-bucket"}}
     pipeline.config.sync_compression_meta_enabled = False
     pipeline.uses_block_storage = True
 
+    staging_path = temp_filesystem_manager.staging_path
+
     with (
-        tempfile.TemporaryDirectory() as temp_dir,
         patch("grin_to_s3.sync.tasks.export_csv.upload_csv_to_storage") as mock_upload,
         patch("grin_to_s3.sync.tasks.export_csv.write_books_to_csv") as mock_write_csv,
     ):
-        staging_path = Path(temp_dir)
-        filesystem_manager.staging_path = staging_path
-
         # Mock CSV generation with sample data
         temp_csv = staging_path / "temp.csv"
         temp_csv.write_text("barcode,title\nTEST456,Another Book")

@@ -64,12 +64,10 @@ async def test_extract_ocr_creates_staging_file(mock_pipeline):
 
 
 @pytest.mark.asyncio
-async def test_extract_with_storage_config():
+async def test_extract_with_storage_config(temp_filesystem_manager):
     """Extract OCR should upload to storage when bucket configured."""
-
-    filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()
-    pipeline.filesystem_manager = filesystem_manager
+    pipeline.filesystem_manager = temp_filesystem_manager
     pipeline.storage.write_file = AsyncMock()
     pipeline.config.storage_config = {"config": {"bucket_full": "test-bucket"}}
     pipeline.config.sync_compression_full_enabled = True
@@ -80,25 +78,23 @@ async def test_extract_with_storage_config():
         "unpacked_path": Path("/tmp/TEST123"),
     }
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        staging_path = Path(temp_dir)
-        filesystem_manager.staging_path = staging_path
+    staging_path = temp_filesystem_manager.staging_path
 
-        with (
-            patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
-            patch("grin_to_s3.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
-        ):
-            mock_extract.return_value = 1
-            compressed_path = staging_path / "compressed.gz"
-            mock_compress.return_value.__aenter__.return_value = compressed_path
+    with (
+        patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
+        patch("grin_to_s3.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
+    ):
+        mock_extract.return_value = 1
+        compressed_path = staging_path / "compressed.gz"
+        mock_compress.return_value.__aenter__.return_value = compressed_path
 
-            result = await extract_ocr.main("TEST123", unpack_data, pipeline)
+        result = await extract_ocr.main("TEST123", unpack_data, pipeline)
 
-            assert result.action == TaskAction.COMPLETED
-            assert result.data
-            assert "TEST123_ocr.jsonl" in str(result.data["json_file_path"])
-            # Should use compression by default
-            mock_compress.assert_called_once()
+        assert result.action == TaskAction.COMPLETED
+        assert result.data
+        assert "TEST123_ocr.jsonl" in str(result.data["json_file_path"])
+        # Should use compression by default
+        mock_compress.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -165,11 +161,10 @@ async def test_extract_local_storage_moves_file_to_full_directory():
 
 
 @pytest.mark.asyncio
-async def test_extract_ocr_with_compression_enabled():
+async def test_extract_ocr_with_compression_enabled(temp_filesystem_manager):
     """Extract OCR should compress JSONL when compression is enabled."""
-    filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()
-    pipeline.filesystem_manager = filesystem_manager
+    pipeline.filesystem_manager = temp_filesystem_manager
     pipeline.storage.write_file = AsyncMock()
     pipeline.config.storage_config = {"config": {"bucket_full": "test-bucket"}}
     pipeline.config.sync_compression_full_enabled = True
@@ -181,32 +176,29 @@ async def test_extract_ocr_with_compression_enabled():
         "unpacked_path": Path("/tmp/TEST123"),
     }
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        staging_path = Path(temp_dir)
-        filesystem_manager.staging_path = staging_path
+    staging_path = temp_filesystem_manager.staging_path
 
-        with (
-            patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
-            patch("grin_to_s3.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
-        ):
-            mock_extract.return_value = 2
-            compressed_path = staging_path / "compressed.gz"
-            mock_compress.return_value.__aenter__.return_value = compressed_path
+    with (
+        patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
+        patch("grin_to_s3.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
+    ):
+        mock_extract.return_value = 2
+        compressed_path = staging_path / "compressed.gz"
+        mock_compress.return_value.__aenter__.return_value = compressed_path
 
-            result = await extract_ocr.main("TEST123", unpack_data, pipeline)
+        result = await extract_ocr.main("TEST123", unpack_data, pipeline)
 
-            # Should use compression
-            assert result.action == TaskAction.COMPLETED
-            assert "TEST123_ocr.jsonl" in str(result.data["json_file_path"])
-            mock_compress.assert_called_once()
+        # Should use compression
+        assert result.action == TaskAction.COMPLETED
+        assert "TEST123_ocr.jsonl" in str(result.data["json_file_path"])
+        mock_compress.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_extract_ocr_with_compression_disabled():
+async def test_extract_ocr_with_compression_disabled(temp_filesystem_manager):
     """Extract OCR should not compress JSONL when compression is disabled."""
-    filesystem_manager = MagicMock(spec=DirectoryManager)
     pipeline = MagicMock()
-    pipeline.filesystem_manager = filesystem_manager
+    pipeline.filesystem_manager = temp_filesystem_manager
     pipeline.storage.write_file = AsyncMock()
     pipeline.config.storage_config = {"config": {"bucket_full": "test-bucket"}}
     pipeline.config.sync_compression_full_enabled = False
@@ -218,31 +210,29 @@ async def test_extract_ocr_with_compression_disabled():
         "unpacked_path": Path("/tmp/TEST123"),
     }
 
-    with tempfile.TemporaryDirectory() as temp_dir:
-        staging_path = Path(temp_dir)
-        filesystem_manager.staging_path = staging_path
+    staging_path = temp_filesystem_manager.staging_path
 
-        # Create the JSONL file that extract_ocr_pages would create
-        jsonl_path = staging_path / "TEST123_ocr.jsonl"
-        jsonl_path.write_text("test content")
+    # Create the JSONL file that extract_ocr_pages would create
+    jsonl_path = staging_path / "TEST123_ocr.jsonl"
+    jsonl_path.write_text("test content")
 
-        with (
-            patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
-            patch("grin_to_s3.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
-        ):
-            mock_extract.return_value = 2
+    with (
+        patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
+        patch("grin_to_s3.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
+    ):
+        mock_extract.return_value = 2
 
-            result = await extract_ocr.main("TEST123", unpack_data, pipeline)
+        result = await extract_ocr.main("TEST123", unpack_data, pipeline)
 
-            # Should not use compression and create uncompressed file
-            assert result.action == TaskAction.COMPLETED
-            assert not str(result.data["json_file_path"]).endswith(".gz")
-            mock_compress.assert_not_called()
+        # Should not use compression and create uncompressed file
+        assert result.action == TaskAction.COMPLETED
+        assert not str(result.data["json_file_path"]).endswith(".gz")
+        mock_compress.assert_not_called()
 
-            # Should upload the original file
-            pipeline.storage.write_file.assert_called_once()
-            upload_call = pipeline.storage.write_file.call_args
-            assert upload_call[0][0] == "test-bucket/TEST123_ocr.jsonl"  # No .gz extension
+        # Should upload the original file
+        pipeline.storage.write_file.assert_called_once()
+        upload_call = pipeline.storage.write_file.call_args
+        assert upload_call[0][0] == "test-bucket/TEST123_ocr.jsonl"  # No .gz extension
 
 
 @pytest.mark.asyncio
