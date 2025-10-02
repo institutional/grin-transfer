@@ -371,42 +371,32 @@ async def test_multiple_queues_independent_processing():
 
 
 @pytest.mark.asyncio
-async def test_queue_specific_task_routing_behavior():
-    """Test that different queues trigger the correct task flows based on archive availability."""
+async def test_check_task_routing_for_available_and_unavailable_books():
+    """Test that CHECK task routes correctly based on archive availability."""
     from grin_to_s3.sync.tasks.task_types import CheckResult, TaskAction, TaskType
 
-    # Test the task routing logic that should differ between queue types
-
-    # Simulate "previous" queue behavior: CHECK fails with 404 → REQUEST_CONVERSION
-    previous_check_result = CheckResult(
-        barcode="PREV001",
+    # Book not available in GRIN (404) → CHECK fails, no next tasks
+    unavailable_result = CheckResult(
+        barcode="UNAVAIL001",
         task_type=TaskType.CHECK,
         action=TaskAction.FAILED,
         data={"etag": None, "file_size_bytes": None, "http_status_code": 404},
         reason="fail_archive_missing",
+        error="Archive not available in GRIN",
     )
 
-    # Simulate "converted" queue behavior: CHECK succeeds → DOWNLOAD pipeline
-    converted_check_result = CheckResult(
-        barcode="CONV001",
+    # Book available in GRIN → CHECK succeeds, continue to DOWNLOAD
+    available_result = CheckResult(
+        barcode="AVAIL001",
         task_type=TaskType.CHECK,
         action=TaskAction.COMPLETED,
         data={"etag": "abc123", "file_size_bytes": 1024, "http_status_code": 200},
         reason=None,
     )
 
-    # Verify different task flows
-    previous_next_tasks = previous_check_result.next_tasks()
-    converted_next_tasks = converted_check_result.next_tasks()
+    # Verify routing
+    assert unavailable_result.next_tasks() == [TaskType.REQUEST_CONVERSION]
+    assert not unavailable_result.should_continue_pipeline
 
-    # "previous" queue: failed CHECK should trigger REQUEST_CONVERSION
-    assert previous_next_tasks == [TaskType.REQUEST_CONVERSION]
-    assert not previous_check_result.should_continue_pipeline
-
-    # "converted" queue: successful CHECK should trigger DOWNLOAD pipeline
-    assert converted_next_tasks == [TaskType.DOWNLOAD]
-    assert converted_check_result.should_continue_pipeline
-
-    # Verify the routing correctly reflects queue purposes
-    # - Previous queue handles books that need conversion (CHECK fails → request conversion)
-    # - Converted queue handles books ready for download (CHECK succeeds → download pipeline)
+    assert available_result.next_tasks() == [TaskType.DOWNLOAD]
+    assert available_result.should_continue_pipeline

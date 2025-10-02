@@ -40,30 +40,16 @@ async def test_specific_barcode_triggers_conversion_request(mock_pipeline):
     # Test the CHECK task first
     check_result = await check.main(barcode, mock_pipeline)
 
-    # Verify CHECK task failed with the correct reason
+    # Verify CHECK task failed with archive missing
     assert check_result.task_type == TaskType.CHECK
     assert check_result.action == TaskAction.FAILED
     assert check_result.reason == "fail_archive_missing"
+    assert check_result.error == "Archive not available in GRIN"
     assert check_result.data["http_status_code"] == 404
 
-    # Verify that CHECK task indicates REQUEST_CONVERSION should run next
+    # Verify that CHECK task indicates no next tasks (failure means stop)
     next_tasks = check_result.next_tasks()
-    assert TaskType.REQUEST_CONVERSION in next_tasks
-
-    # Mock the grin_client.fetch_resource to simulate successful request
-    mock_pipeline.grin_client.fetch_resource.return_value = "Barcode\tStatus\n" + barcode + "\tSuccess"
-
-    # Test the REQUEST_CONVERSION task
-    conversion_result = await request_conversion.main(barcode, mock_pipeline)
-
-    # Verify conversion request was made
-    assert conversion_result.task_type == TaskType.REQUEST_CONVERSION
-    assert conversion_result.action == TaskAction.COMPLETED
-    assert conversion_result.reason == "success_conversion_requested"
-    assert conversion_result.data["conversion_status"] == "requested"
-
-    # Verify the grin_client.fetch_resource was called
-    mock_pipeline.grin_client.fetch_resource.assert_called_once_with("test_library", f"_process?barcodes={barcode}")
+    assert next_tasks == [TaskType.REQUEST_CONVERSION]
 
 
 @pytest.mark.asyncio
@@ -99,8 +85,9 @@ async def test_mixed_barcode_list_handles_available_and_missing(mock_pipeline):
     missing_result = await check.main(missing_barcode, mock_pipeline)
     assert missing_result.action == TaskAction.FAILED
     assert missing_result.reason == "fail_archive_missing"
+    assert missing_result.error == "Archive not available in GRIN"
     assert missing_result.data["http_status_code"] == 404
-    assert TaskType.REQUEST_CONVERSION in missing_result.next_tasks()
+    assert missing_result.next_tasks() == [TaskType.REQUEST_CONVERSION]
 
 
 @pytest.mark.asyncio
@@ -155,21 +142,27 @@ class TestSyncPipelineBarcodeValidation:
 
     @pytest.mark.asyncio
     async def test_specific_barcodes_validates_against_database(self, sync_pipeline):
-        """Test that specific barcodes are validated against the database."""
+        """Specific barcodes should validate against database and create entries for missing ones."""
         # Mock the barcode validation methods on the real pipeline
         sync_pipeline.db_tracker.check_barcodes_exist = AsyncMock(return_value=({"EXIST001"}, {"MISSING001"}))
         sync_pipeline.db_tracker.create_empty_book_entries = AsyncMock()
 
-        # Mock filter_and_print_barcodes to return barcodes (avoid early return)
-        with patch("grin_to_s3.sync.pipeline.filter_and_print_barcodes") as mock_filter:
-            mock_filter.return_value = ["EXIST001", "MISSING001"]
+        # Mock get_all_conversion_failed_books to avoid network call
+        with patch("grin_to_s3.sync.pipeline.get_all_conversion_failed_books") as mock_failed:
+            mock_failed.return_value = {}
 
-            # Mock process_books_with_queue to avoid actual processing
-            with patch("grin_to_s3.sync.pipeline.process_books_with_queue") as mock_process:
-                mock_process.return_value = {}
+            # Mock filter_and_print_barcodes to return barcodes (avoid early return)
+            with patch("grin_to_s3.sync.pipeline.filter_and_print_barcodes") as mock_filter:
+                mock_filter.return_value = ["EXIST001", "MISSING001"]
 
-                # Call setup_sync_loop with specific barcodes
-                await sync_pipeline.setup_sync_loop(queues=[], specific_barcodes=["EXIST001", "MISSING001"], limit=None)
+                # Mock process_books_with_queue to avoid actual processing
+                with patch("grin_to_s3.sync.pipeline.process_books_with_queue") as mock_process:
+                    mock_process.return_value = {}
+
+                    # Call setup_sync_loop with specific barcodes
+                    await sync_pipeline.setup_sync_loop(
+                        queues=[], specific_barcodes=["EXIST001", "MISSING001"], limit=None
+                    )
 
         # Verify check_barcodes_exist was called with the right barcodes
         sync_pipeline.db_tracker.check_barcodes_exist.assert_called_once_with(["EXIST001", "MISSING001"])
@@ -179,7 +172,7 @@ class TestSyncPipelineBarcodeValidation:
 
     @pytest.mark.asyncio
     async def test_dry_run_skips_database_entry_creation(self, sync_pipeline):
-        """Test that dry-run mode skips creating database entries for missing barcodes."""
+        """Dry-run mode should skip creating database entries for missing barcodes."""
         # Set dry_run mode
         sync_pipeline.dry_run = True
 
@@ -189,14 +182,18 @@ class TestSyncPipelineBarcodeValidation:
         )
         sync_pipeline.db_tracker.create_empty_book_entries = AsyncMock()
 
-        # Mock filter_and_print_barcodes to return the barcodes
-        with patch("grin_to_s3.sync.pipeline.filter_and_print_barcodes") as mock_filter:
-            mock_filter.return_value = ["EXIST001", "MISSING001", "MISSING002"]
+        # Mock get_all_conversion_failed_books to avoid network call
+        with patch("grin_to_s3.sync.pipeline.get_all_conversion_failed_books") as mock_failed:
+            mock_failed.return_value = {}
 
-            # Call setup_sync_loop with specific barcodes in dry-run mode
-            await sync_pipeline.setup_sync_loop(
-                queues=[], specific_barcodes=["EXIST001", "MISSING001", "MISSING002"], limit=None
-            )
+            # Mock filter_and_print_barcodes to return the barcodes
+            with patch("grin_to_s3.sync.pipeline.filter_and_print_barcodes") as mock_filter:
+                mock_filter.return_value = ["EXIST001", "MISSING001", "MISSING002"]
+
+                # Call setup_sync_loop with specific barcodes in dry-run mode
+                await sync_pipeline.setup_sync_loop(
+                    queues=[], specific_barcodes=["EXIST001", "MISSING001", "MISSING002"], limit=None
+                )
 
         # Verify check_barcodes_exist was still called
         sync_pipeline.db_tracker.check_barcodes_exist.assert_called_once_with(["EXIST001", "MISSING001", "MISSING002"])

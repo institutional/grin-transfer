@@ -9,12 +9,24 @@ filtered by in_process and verified_unavailable books.
 
 import tempfile
 from pathlib import Path
+from typing import NamedTuple
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import AsyncMock, patch
 
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.queue_utils import get_unconverted_books
 from grin_to_s3.sync.pipeline import get_books_from_queue
+from tests.utils import batch_write_status_updates
+
+
+class StatusUpdate(NamedTuple):
+    """Status update tuple for collecting updates before writing."""
+
+    barcode: str
+    status_type: str
+    status_value: str
+    metadata: dict | None = None
+    session_id: str | None = None
 
 
 class TestUnconvertedQueue(IsolatedAsyncioTestCase):
@@ -171,3 +183,24 @@ class TestUnconvertedQueue(IsolatedAsyncioTestCase):
 
         # No books should remain after filtering
         self.assertEqual(result, set())
+
+    async def test_get_unconverted_books_excludes_conversion_failed(self):
+        """get_unconverted_books should exclude books marked as conversion_failed."""
+        # Insert test books
+        await self._insert_book("book1")  # Should be included
+        await self._insert_book("book2")  # Should be excluded (conversion_failed)
+        await self._insert_book("book3")  # Should be excluded (unavailable)
+        await self._insert_book("book4")  # Should be included
+
+        # Mark book2 as conversion_failed and book3 as unavailable
+        status_updates = [
+            StatusUpdate("book2", "conversion", "conversion_failed"),
+            StatusUpdate("book3", "conversion", "unavailable"),
+        ]
+        await batch_write_status_updates(str(self.db_path), status_updates)
+
+        # Test the function
+        result = await get_unconverted_books(self.tracker)
+
+        # Only book1 and book4 should be returned (book2 and book3 excluded)
+        self.assertEqual(result, {"book1", "book4"})

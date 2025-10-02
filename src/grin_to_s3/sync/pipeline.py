@@ -20,6 +20,7 @@ from grin_to_s3.common import (
 )
 from grin_to_s3.constants import DEFAULT_MAX_SEQUENTIAL_FAILURES, GRIN_MAX_QUEUE_SIZE
 from grin_to_s3.queue_utils import (
+    get_all_conversion_failed_books,
     get_converted_books,
     get_in_process_set,
     get_previous_queue_books,
@@ -42,6 +43,7 @@ from grin_to_s3.sync.tasks import (
     extract_marc,
     extract_ocr,
     request_conversion,
+    track_conversion_failure,
     unpack,
     upload,
 )
@@ -55,7 +57,12 @@ from .utils import reset_bucket_cache
 logger = logging.getLogger(__name__)
 
 
-async def get_books_from_queue(grin_client, library_directory: str, queue_name: str, db_tracker) -> set[str]:
+async def get_books_from_queue(
+    grin_client,
+    library_directory: str,
+    queue_name: str,
+    db_tracker,
+) -> set[str]:
     """Get barcodes from specified queue.
 
     Args:
@@ -65,7 +72,7 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
         db_tracker: Database tracker instance
 
     Returns:
-        set: Set of barcodes for the specified queue
+        Set of barcodes to process
 
     Raises:
         aiohttp.ClientError: If there's a network error communicating with GRIN
@@ -86,18 +93,16 @@ async def get_books_from_queue(grin_client, library_directory: str, queue_name: 
         # Calculate intersections for detailed reporting
         in_process_from_queue = previously_downloaded & in_process
 
-        # Return filtered set (only need to filter by in_process now)
-        filtered_books = previously_downloaded - in_process
         logger.info(
             f"Previous queue: {len(previously_downloaded)} eligible books (already-requested and unavailable excluded), "
             f"filtered out {len(in_process_from_queue)} in_process, "
-            f"returning {len(filtered_books)} books"
+            f"returning {len(previously_downloaded - in_process)} books"
         )
         # Show queue status information
         available_space = GRIN_MAX_QUEUE_SIZE - len(in_process)
         print(f"   GRIN queue: {len(in_process):,} in process, {available_space:,} available space")
         print(f"   From this queue: {len(in_process_from_queue):,} already in process")
-        return filtered_books
+        return previously_downloaded - in_process
     elif queue_name == "unconverted":
         # Get books that have never been converted
         unconverted_books = await get_unconverted_books(db_tracker)
@@ -151,7 +156,7 @@ class SyncPipeline:
         Args:
             config: RunConfig containing all pipeline configuration
             process_summary_stage: Process summary stage for tracking
-            force: Force re-download even if ETags match
+            force: Force re-download even if ETags match; force re-requesting conversion even if reported failed
             dry_run: Show what would be processed without downloading or uploading
             skip_extract_ocr: Skip OCR text extraction
             skip_extract_marc: Skip MARC metadata extraction
@@ -254,6 +259,9 @@ class SyncPipeline:
         # Database update accumulator for atomic commits
         self.book_record_updates: dict[str, dict[str, Any]] = {}
 
+        # Store conversion failure metadata for tasks
+        self.conversion_failure_metadata: dict[str, dict[str, str]] = {}
+
         # Track active postprocessing tasks
         self._active_postprocessing_count = 0
 
@@ -291,6 +299,7 @@ class SyncPipeline:
             TaskType.EXTRACT_MARC: config.sync_task_extract_marc_concurrency,
             TaskType.EXTRACT_OCR: config.sync_task_extract_ocr_concurrency,
             TaskType.CLEANUP: config.sync_task_cleanup_concurrency,
+            TaskType.TRACK_CONVERSION_FAILURE: 100,  # Lightweight database write
         }
 
         # Apply CLI overrides if provided
@@ -409,10 +418,30 @@ class SyncPipeline:
                 logger.info(f"Preflight operation {operation} skipped")
 
         try:
-            # Define task functions and limits
+            # This data is used by CHECK task to identify known conversion failures
+            try:
+                self.conversion_failure_metadata = await get_all_conversion_failed_books(
+                    self.grin_client, self.library_directory
+                )
+                logger.info(f"Loaded {len(self.conversion_failure_metadata)} known conversion failures from GRIN")
+            except (aiohttp.ClientError, TimeoutError) as e:
+                error_type = type(e).__name__
+                error_msg = str(e) if str(e) else "No error message"
+                logger.warning(
+                    f"Failed to fetch GRIN conversion failures page: {error_type}: {error_msg}. "
+                    "Continuing with empty failure list - failed conversions will be retried."
+                )
+                print(
+                    f"⚠️  Warning: Could not reach GRIN's conversion failures page ({error_type}). "
+                    "Continuing without failure list - some barcodes may be retried unnecessarily."
+                )
+                self.conversion_failure_metadata = {}
+
+            # Define task functions
             task_funcs = {
                 TaskType.CHECK: check.main,
                 TaskType.REQUEST_CONVERSION: request_conversion.main,
+                TaskType.TRACK_CONVERSION_FAILURE: track_conversion_failure.main,
                 TaskType.DOWNLOAD: download.main,
                 TaskType.DECRYPT: decrypt.main,
                 TaskType.UPLOAD: upload.main,
@@ -504,7 +533,10 @@ class SyncPipeline:
 
                     try:
                         queue_books = await get_books_from_queue(
-                            self.grin_client, self.library_directory, queue_name, self.db_tracker
+                            self.grin_client,
+                            self.library_directory,
+                            queue_name,
+                            self.db_tracker,
                         )
                     except (aiohttp.ClientError, TimeoutError) as e:
                         error_type = type(e).__name__
@@ -703,7 +735,13 @@ class SyncPipeline:
         """Update process summary stage with book-level outcome metrics."""
         # Analyze book results to determine outcomes
         # Count book outcomes and update stage-specific counters
-        queue_outcomes = {"synced": 0, "skipped": 0, "conversion_requested": 0, "failed": 0}
+        queue_outcomes = {
+            "synced": 0,
+            "skipped": 0,
+            "conversion_requested": 0,
+            "conversion_failure_tracked": 0,
+            "failed": 0,
+        }
 
         for task_results in book_results.values():
             # Determine the overall outcome for this book and increment appropriate counter

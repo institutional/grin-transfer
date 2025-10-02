@@ -35,6 +35,7 @@ def mock_pipeline():
 
         # Conversion tracking
         pipeline.conversion_requests_made = 0
+        pipeline.conversion_failure_metadata = {}
 
         # Mock filesystem manager with temp directory paths
         pipeline.filesystem_manager = MagicMock(spec=DirectoryManager)

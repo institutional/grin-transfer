@@ -30,6 +30,7 @@ from .tasks.task_types import (
     TaskAction,
     TaskResult,
     TaskType,
+    TrackConversionFailureTaskFunc,
     UnpackTaskFunc,
     UploadTaskFunc,
 )
@@ -167,8 +168,11 @@ class TaskManager:
                     case TaskAction.SKIPPED:
                         self.stats[task_type]["skipped"] += 1
                     case TaskAction.FAILED:
-                        # Check if this is a CHECK task with archive missing (needs conversion)
-                        if task_type == TaskType.CHECK and result.reason == "fail_archive_missing":
+                        # CHECK failures that route to recovery tasks count as needs_conversion
+                        if task_type == TaskType.CHECK and result.reason in [
+                            "fail_archive_missing",
+                            "fail_known_conversion_failure",
+                        ]:
                             self.stats[task_type]["needs_conversion"] += 1
                         else:
                             self.stats[task_type]["failed"] += 1
@@ -222,7 +226,7 @@ async def process_download_phase(
     manager: TaskManager, barcode: Barcode, pipeline: "SyncPipeline", task_funcs: dict[TaskType, Callable]
 ) -> dict[TaskType, TaskResult]:
     """
-    Process the download phase only (CHECK and DOWNLOAD tasks).
+    Process the download phase (CHECK and DOWNLOAD tasks).
 
     Args:
         manager: Task manager for concurrency control
@@ -261,6 +265,18 @@ async def process_download_phase(
                 )
                 results[TaskType.REQUEST_CONVERSION] = request_result
                 return results  # End pipeline after conversion request
+
+            if TaskType.TRACK_CONVERSION_FAILURE in next_tasks and TaskType.TRACK_CONVERSION_FAILURE in task_funcs:
+                track_func = cast(TrackConversionFailureTaskFunc, task_funcs[TaskType.TRACK_CONVERSION_FAILURE])
+                track_result = await manager.run_task(
+                    TaskType.TRACK_CONVERSION_FAILURE,
+                    barcode,
+                    lambda: track_func(barcode, pipeline),
+                    pipeline,
+                    results,
+                )
+                results[TaskType.TRACK_CONVERSION_FAILURE] = track_result
+                return results  # End pipeline after tracking failure
 
             if not check_result.should_continue_pipeline:
                 return results
