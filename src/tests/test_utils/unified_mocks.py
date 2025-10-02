@@ -13,8 +13,10 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
@@ -246,6 +248,120 @@ def create_fresh_tracker():
     temp_dir = tempfile.mkdtemp()
     db_path = Path(temp_dir) / "fresh_test.db"
     return SQLiteProgressTracker(str(db_path))
+
+
+# =============================================================================
+# HTTP Response Mock Factories
+# =============================================================================
+
+
+def create_aiohttp_response(
+    status: int = 200,
+    headers: dict[str, str] | None = None,
+    content: bytes | list[bytes] | None = None,
+) -> MagicMock:
+    """
+    Create a mock aiohttp response with streaming support.
+
+    Args:
+        status: HTTP status code
+        headers: Response headers dict
+        content: Response body as bytes or list of byte chunks for streaming
+
+    Returns:
+        Mock response with status, headers, and iter_chunked support
+
+    Example:
+        # Simple response
+        response = create_aiohttp_response(status=200, headers={"ETag": "abc123"})
+
+        # Streaming response with multiple chunks
+        response = create_aiohttp_response(
+            content=[b"chunk1", b"chunk2"],
+            headers={"ETag": '"my-etag"'}
+        )
+    """
+    response = MagicMock()
+    response.status = status
+    response.headers = headers or {}
+
+    # Handle streaming content
+    chunks = content if isinstance(content, list) else [content or b""]
+
+    async def mock_iter_chunked(_size):
+        for chunk in chunks:
+            yield chunk
+
+    response.content.iter_chunked = mock_iter_chunked
+    return response
+
+
+def create_grin_head_response(etag: str, size: int) -> MagicMock:
+    """
+    Create a mock GRIN HEAD response.
+
+    Args:
+        etag: ETag value (will be quoted automatically if not already)
+        size: Content-Length in bytes
+
+    Returns:
+        Mock response with status 200, ETag, and Content-Length headers
+    """
+    quoted_etag = etag if etag.startswith('"') else f'"{etag}"'
+    return create_aiohttp_response(status=200, headers={"ETag": quoted_etag, "Content-Length": str(size)})
+
+
+def create_client_response_error(
+    status: int,
+    message: str = "",
+    request_url: str = "http://example.com/test",
+) -> aiohttp.ClientResponseError:
+    """
+    Create a mock aiohttp ClientResponseError.
+
+    Args:
+        status: HTTP status code (404, 429, 500, etc.)
+        message: Error message
+        request_url: URL for the request_info
+
+    Returns:
+        ClientResponseError with properly mocked request_info
+
+    Example:
+        error_404 = create_client_response_error(404, "Not Found")
+        error_500 = create_client_response_error(500, "Internal Server Error")
+    """
+    request_info = MagicMock()
+    request_info.real_url = request_url
+
+    error = aiohttp.ClientResponseError(
+        request_info=request_info,
+        history=(),
+        status=status,
+        message=message or f"HTTP {status}",
+    )
+    return error
+
+
+def create_storage_client_error(
+    error_code: str = "404",
+    operation: str = "HeadObject",
+) -> ClientError:
+    """
+    Create a mock boto3 ClientError.
+
+    Args:
+        error_code: AWS error code (typically "404" for not found)
+        operation: AWS operation name
+
+    Returns:
+        ClientError with proper error_response structure
+
+    Example:
+        not_found = create_storage_client_error("404", "HeadObject")
+        access_denied = create_storage_client_error("403", "GetObject")
+    """
+    return ClientError(error_response={"Error": {"Code": error_code}}, operation_name=operation)
 
 
 # =============================================================================

@@ -61,7 +61,6 @@ dev-dependencies = [
     "mypy-boto3-s3>=1.38.0",
     "types-aioboto3[essential]>=14.0.0",
     "moto[s3]>=5.0.0",
-    "aioresponses>=0.7.0",
     "pre-commit>=3.0.0",
 ]
 

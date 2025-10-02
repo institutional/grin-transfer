@@ -1,33 +1,17 @@
 #!/usr/bin/env python3
 """Tests for sync tasks check module."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
-import aiohttp
 import pytest
-from botocore.exceptions import ClientError
 
 from grin_to_s3.sync.tasks import check
 from grin_to_s3.sync.tasks.task_types import TaskAction
-
-
-# Test helpers
-def make_grin_response(etag: str, size: int) -> MagicMock:
-    """Create mock GRIN HEAD response."""
-    response = MagicMock()
-    response.status = 200
-    response.headers = {"ETag": f'"{etag}"', "Content-Length": str(size)}
-    return response
-
-
-def make_grin_404() -> aiohttp.ClientResponseError:
-    """Create mock GRIN 404 error."""
-    return aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=404, message="Not Found")
-
-
-def make_storage_404() -> ClientError:
-    """Create mock storage 404 error."""
-    return ClientError(error_response={"Error": {"Code": "404"}}, operation_name="HeadObject")
+from tests.test_utils.unified_mocks import (
+    create_client_response_error,
+    create_grin_head_response,
+    create_storage_client_error,
+)
 
 
 def setup_storage_metadata(mock_pipeline, etag: str | None) -> None:
@@ -49,7 +33,7 @@ def setup_storage_metadata(mock_pipeline, etag: str | None) -> None:
 @pytest.mark.asyncio
 async def test_main_needs_download(storage_etag, grin_etag, size, mock_pipeline):
     """Check task should complete when download is needed."""
-    mock_pipeline.grin_client.head_archive.return_value = make_grin_response(grin_etag, size)
+    mock_pipeline.grin_client.head_archive.return_value = create_grin_head_response(grin_etag, size)
     setup_storage_metadata(mock_pipeline, storage_etag)
 
     result = await check.main("TEST123", mock_pipeline)
@@ -62,8 +46,8 @@ async def test_main_needs_download(storage_etag, grin_etag, size, mock_pipeline)
 @pytest.mark.asyncio
 async def test_main_storage_404_grin_available(mock_pipeline):
     """Check task should complete when storage throws 404 but GRIN has the book."""
-    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(side_effect=make_storage_404())
-    mock_pipeline.grin_client.head_archive.return_value = make_grin_response("grin-etag", 2048)
+    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(side_effect=create_storage_client_error())
+    mock_pipeline.grin_client.head_archive.return_value = create_grin_head_response("grin-etag", 2048)
 
     result = await check.main("TEST123", mock_pipeline)
 
@@ -83,7 +67,7 @@ async def test_main_storage_404_grin_available(mock_pipeline):
 @pytest.mark.asyncio
 async def test_main_etag_match(force, expected_action, expected_reason, mock_pipeline):
     """Check task should skip on etag match unless force flag is set."""
-    mock_pipeline.grin_client.head_archive.return_value = make_grin_response("abc123", 1024)
+    mock_pipeline.grin_client.head_archive.return_value = create_grin_head_response("abc123", 1024)
     setup_storage_metadata(mock_pipeline, "abc123")
     mock_pipeline.force = force
 
@@ -96,7 +80,7 @@ async def test_main_etag_match(force, expected_action, expected_reason, mock_pip
 @pytest.mark.asyncio
 async def test_main_storage_exists_grin_404_skip(mock_pipeline):
     """Check task should skip when book exists in storage but GRIN returns 404."""
-    mock_pipeline.grin_client.head_archive.side_effect = make_grin_404()
+    mock_pipeline.grin_client.head_archive.side_effect = create_client_response_error(404, "Not Found")
     setup_storage_metadata(mock_pipeline, "stored-etag")
 
     result = await check.main("TEST123", mock_pipeline)
@@ -109,8 +93,8 @@ async def test_main_storage_exists_grin_404_skip(mock_pipeline):
 @pytest.mark.asyncio
 async def test_main_storage_404_grin_404_fail(mock_pipeline):
     """Check task should fail when both storage and GRIN return 404."""
-    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(side_effect=make_storage_404())
-    mock_pipeline.grin_client.head_archive.side_effect = make_grin_404()
+    mock_pipeline.book_manager.get_decrypted_archive_metadata = AsyncMock(side_effect=create_storage_client_error())
+    mock_pipeline.grin_client.head_archive.side_effect = create_client_response_error(404, "Not Found")
 
     result = await check.main("TEST123", mock_pipeline)
 
@@ -144,7 +128,7 @@ async def test_main_404_failure_reasons(has_known_failure, force, expected_reaso
         mock_pipeline.conversion_failure_metadata = {}
 
     mock_pipeline.force = force
-    mock_pipeline.grin_client.head_archive.side_effect = make_grin_404()
+    mock_pipeline.grin_client.head_archive.side_effect = create_client_response_error(404, "Not Found")
     setup_storage_metadata(mock_pipeline, None)
 
     result = await check.main("TEST123", mock_pipeline)

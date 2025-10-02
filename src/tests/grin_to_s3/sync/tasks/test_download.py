@@ -17,6 +17,7 @@ from grin_to_s3.storage.staging import DirectoryManager
 from grin_to_s3.sync.tasks import download
 from grin_to_s3.sync.tasks.task_types import TaskAction
 from tests.test_utils.parametrize_helpers import meaningful_storage_parametrize
+from tests.test_utils.unified_mocks import create_aiohttp_response, create_client_response_error
 
 
 @pytest.fixture
@@ -33,24 +34,6 @@ def filesystem_manager():
     manager = MagicMock(spec=DirectoryManager)
     manager.check_disk_space.return_value = True
     return manager
-
-
-@pytest.fixture
-def mock_response():
-    """Factory for creating mock HTTP responses."""
-
-    def _create_response(status=200, etag='"abc123"', content=b"test content"):
-        response = MagicMock()
-        response.status = status
-        response.headers = {"ETag": etag} if etag else {}
-
-        async def mock_iter_chunked(_size):
-            yield content
-
-        response.content.iter_chunked = mock_iter_chunked
-        return response
-
-    return _create_response
 
 
 def setup_download_mock(mock_grin_client, response=None, error=None):
@@ -123,10 +106,11 @@ class TestDownloadBookToFilesystem:
     """Test the core download_book_to_filesystem function."""
 
     @pytest.mark.asyncio
-    async def test_successful_download(self, temp_download_path, mock_grin_client, filesystem_manager, mock_response):
+    async def test_successful_download(self, temp_download_path, mock_grin_client, filesystem_manager):
         """Successful downloads should write file to disk and return metadata."""
         test_content = b"test archive content"
-        setup_download_mock(mock_grin_client, mock_response(content=test_content))
+        response = create_aiohttp_response(content=test_content, headers={"ETag": '"abc123"'})
+        setup_download_mock(mock_grin_client, response)
 
         result = await download.download_book_to_filesystem(
             "TEST123", temp_download_path, mock_grin_client, "TestLib", filesystem_manager
@@ -138,7 +122,7 @@ class TestDownloadBookToFilesystem:
     @pytest.mark.asyncio
     async def test_http_404_error_no_retry(self, temp_download_path, mock_grin_client, filesystem_manager):
         """404 errors should not be retried."""
-        error_404 = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=404, message="Not Found")
+        error_404 = create_client_response_error(404, "Not Found")
         setup_download_mock(mock_grin_client, error=error_404)
 
         with pytest.raises(aiohttp.ClientResponseError):
@@ -154,9 +138,7 @@ class TestDownloadBookToFilesystem:
         self, temp_download_path, mock_grin_client, filesystem_manager, fast_retry_download
     ):
         """500 errors should be retried with exponential backoff."""
-        error_500 = aiohttp.ClientResponseError(
-            request_info=MagicMock(), history=(), status=500, message="Internal Server Error"
-        )
+        error_500 = create_client_response_error(500, "Internal Server Error")
         setup_download_mock(mock_grin_client, error=error_500)
 
         with pytest.raises(aiohttp.ClientResponseError):
@@ -167,20 +149,14 @@ class TestDownloadBookToFilesystem:
         assert mock_grin_client.download_archive.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_disk_space_exhaustion_recovery(self, temp_download_path, mock_grin_client, mock_response):
+    async def test_disk_space_exhaustion_recovery(self, temp_download_path, mock_grin_client):
         """Downloads should pause and retry when disk space is exhausted."""
         filesystem_manager = MagicMock(spec=DirectoryManager)
         filesystem_manager.check_disk_space.side_effect = [False, True]
         filesystem_manager.wait_for_disk_space = AsyncMock()
 
         chunks = [b"x" * (30 * 1024 * 1024), b"x" * (30 * 1024 * 1024)]  # 30MB each
-        response = mock_response(content=chunks[0])
-
-        async def mock_iter_chunked(_size):
-            for chunk in chunks:
-                yield chunk
-
-        response.content.iter_chunked = mock_iter_chunked
+        response = create_aiohttp_response(content=chunks, headers={"ETag": '"abc123"'})
         setup_download_mock(mock_grin_client, response)
 
         result = await download.download_book_to_filesystem(
@@ -191,14 +167,15 @@ class TestDownloadBookToFilesystem:
         filesystem_manager.wait_for_disk_space.assert_called_once_with(check_interval=60)
 
     @pytest.mark.asyncio
-    async def test_disk_space_check_with_large_chunk(self, temp_download_path, mock_grin_client, mock_response):
+    async def test_disk_space_check_with_large_chunk(self, temp_download_path, mock_grin_client):
         """Disk space checks should trigger even with chunks larger than 50MB."""
         filesystem_manager = MagicMock(spec=DirectoryManager)
         filesystem_manager.check_disk_space.side_effect = [False, True]
         filesystem_manager.wait_for_disk_space = AsyncMock()
 
         large_chunk = b"x" * (51 * 1024 * 1024)  # 51MB chunk
-        setup_download_mock(mock_grin_client, mock_response(content=large_chunk))
+        response = create_aiohttp_response(content=large_chunk, headers={"ETag": '"abc123"'})
+        setup_download_mock(mock_grin_client, response)
 
         result = await download.download_book_to_filesystem(
             "TEST123", temp_download_path, mock_grin_client, "TestLib", filesystem_manager
@@ -210,10 +187,11 @@ class TestDownloadBookToFilesystem:
     @pytest.mark.asyncio
     @pytest.mark.slow
     async def test_file_size_verification(
-        self, temp_download_path, mock_grin_client, filesystem_manager, mock_response, fast_retry_download
+        self, temp_download_path, mock_grin_client, filesystem_manager, fast_retry_download
     ):
         """Download should verify file size matches bytes written and clean up on mismatch."""
-        setup_download_mock(mock_grin_client, mock_response())
+        response = create_aiohttp_response(headers={"ETag": '"abc123"'})
+        setup_download_mock(mock_grin_client, response)
 
         with (
             patch("aiofiles.open", create=True),
@@ -230,11 +208,10 @@ class TestDownloadBookToFilesystem:
             assert mock_unlink.call_count == 3  # Called 3 times due to retries
 
     @pytest.mark.asyncio
-    async def test_etag_handling_quoted_and_unquoted(
-        self, temp_download_path, mock_grin_client, filesystem_manager, mock_response
-    ):
+    async def test_etag_handling_quoted_and_unquoted(self, temp_download_path, mock_grin_client, filesystem_manager):
         """ETags should be stripped of quotes in download results."""
-        setup_download_mock(mock_grin_client, mock_response(etag='"quoted-etag"'))
+        response = create_aiohttp_response(headers={"ETag": '"quoted-etag"'})
+        setup_download_mock(mock_grin_client, response)
 
         result = await download.download_book_to_filesystem(
             "TEST123", temp_download_path, mock_grin_client, "TestLib", filesystem_manager
@@ -242,7 +219,8 @@ class TestDownloadBookToFilesystem:
         assert result["etag"] == "quoted-etag"
 
         temp_download_path.unlink(missing_ok=True)
-        setup_download_mock(mock_grin_client, mock_response(etag="unquoted-etag"))
+        response = create_aiohttp_response(headers={"ETag": "unquoted-etag"})
+        setup_download_mock(mock_grin_client, response)
 
         result = await download.download_book_to_filesystem(
             "TEST123", temp_download_path, mock_grin_client, "TestLib", filesystem_manager
@@ -252,10 +230,11 @@ class TestDownloadBookToFilesystem:
     @pytest.mark.asyncio
     @pytest.mark.slow
     async def test_missing_etag_header(
-        self, temp_download_path, mock_grin_client, filesystem_manager, mock_response, fast_retry_download
+        self, temp_download_path, mock_grin_client, filesystem_manager, fast_retry_download
     ):
         """Downloads should raise exception when ETag header is missing."""
-        setup_download_mock(mock_grin_client, mock_response(etag=None))
+        response = create_aiohttp_response(headers={})
+        setup_download_mock(mock_grin_client, response)
 
         with pytest.raises(Exception, match="Missing ETag header in download response"):
             await download.download_book_to_filesystem(
@@ -264,10 +243,11 @@ class TestDownloadBookToFilesystem:
 
     @pytest.mark.asyncio
     async def test_download_with_independent_retry_config(
-        self, temp_download_path, mock_grin_client, filesystem_manager, mock_response
+        self, temp_download_path, mock_grin_client, filesystem_manager
     ):
         """Downloads should use task-independent retry configuration."""
-        setup_download_mock(mock_grin_client, mock_response())
+        response = create_aiohttp_response(headers={"ETag": '"abc123"'})
+        setup_download_mock(mock_grin_client, response)
 
         result = await download.download_book_to_filesystem(
             "TEST123",
@@ -286,11 +266,12 @@ class TestDownloadStorageParametrization:
     @meaningful_storage_parametrize()
     @pytest.mark.asyncio
     async def test_download_with_storage_type_consistency(
-        self, storage_type, temp_download_path, mock_grin_client, filesystem_manager, mock_response
+        self, storage_type, temp_download_path, mock_grin_client, filesystem_manager
     ):
         """Download should work consistently across local and block storage types."""
         test_content = b"storage test content"
-        setup_download_mock(mock_grin_client, mock_response(content=test_content, etag='"storage-etag"'))
+        response = create_aiohttp_response(content=test_content, headers={"ETag": '"storage-etag"'})
+        setup_download_mock(mock_grin_client, response)
 
         result = await download.download_book_to_filesystem(
             "STORAGE123", temp_download_path, mock_grin_client, "TestLib", filesystem_manager
@@ -306,7 +287,7 @@ class TestDownloadStorageParametrization:
     @meaningful_storage_parametrize()
     @pytest.mark.asyncio
     async def test_main_task_result_consistency_across_storage(
-        self, storage_type, mock_grin_client, filesystem_manager, mock_response
+        self, storage_type, mock_grin_client, filesystem_manager
     ):
         """Main download task should return consistent results across storage types."""
         # Create a mock pipeline that represents the storage type
@@ -345,7 +326,7 @@ class TestDownloadStorageParametrization:
     @meaningful_storage_parametrize()
     @pytest.mark.asyncio
     async def test_download_consistent_file_path_behavior(
-        self, storage_type, temp_download_path, mock_grin_client, filesystem_manager, mock_response
+        self, storage_type, temp_download_path, mock_grin_client, filesystem_manager
     ):
         """Download should return the same file path regardless of storage type.
 
@@ -353,7 +334,8 @@ class TestDownloadStorageParametrization:
         regardless of final storage destination. Storage-specific behavior happens
         in later pipeline stages.
         """
-        setup_download_mock(mock_grin_client, mock_response())
+        response = create_aiohttp_response(headers={"ETag": '"abc123"'})
+        setup_download_mock(mock_grin_client, response)
 
         result = await download.download_book_to_filesystem(
             "EXPECT123", temp_download_path, mock_grin_client, "TestLib", filesystem_manager
