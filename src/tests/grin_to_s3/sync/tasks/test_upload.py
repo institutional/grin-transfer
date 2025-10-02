@@ -10,30 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from grin_to_s3.sync.tasks import upload
-from grin_to_s3.sync.tasks.task_types import DecryptData, DownloadData, TaskAction
-
-
-@pytest.fixture
-def sample_download_data():
-    """Sample download data for upload testing."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        original_path = Path(temp_dir) / "TEST123.tar.gz.gpg"
-        yield {
-            "file_path": original_path,
-            "etag": "test-download-etag",
-            "file_size_bytes": 2048,
-            "http_status_code": 200,
-        }
-
-
-@pytest.fixture
-def sample_decrypt_data():
-    """Sample decrypt data for upload testing."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        decrypted_path = Path(temp_dir) / "TEST123.tar.gz"
-        decrypted_path.write_bytes(b"test decrypted content")
-        original_path = Path(temp_dir) / "TEST123.tar.gz.gpg"
-        yield {"decrypted_path": decrypted_path, "original_path": original_path}
+from grin_to_s3.sync.tasks.task_types import TaskAction
 
 
 @pytest.fixture
@@ -50,7 +27,15 @@ def mock_book_manager():
 @pytest.mark.asyncio
 async def test_main_successful_upload(mock_pipeline, sample_download_data, sample_decrypt_data, mock_book_manager):
     """Upload task should complete successfully."""
-    result = await upload.main("TEST123", sample_download_data, sample_decrypt_data, mock_pipeline)
+    download_data = sample_download_data(etag="test-download-etag", file_size_bytes=2048)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        decrypted_path = Path(temp_dir) / "TEST123.tar.gz"
+        decrypted_path.write_bytes(b"test decrypted content")
+        decrypt_data = sample_decrypt_data(
+            decrypted_path=decrypted_path, original_path=Path(temp_dir) / "TEST123.tar.gz.gpg"
+        )
+
+        result = await upload.main("TEST123", download_data, decrypt_data, mock_pipeline)
 
     assert result.action == TaskAction.COMPLETED
     assert result.data
@@ -66,7 +51,9 @@ async def test_main_successful_upload(mock_pipeline, sample_download_data, sampl
     ],
 )
 @pytest.mark.asyncio
-async def test_upload_with_storage_types(storage_type, bucket_raw, base_path, expected_path):
+async def test_upload_with_storage_types(
+    storage_type, bucket_raw, base_path, expected_path, sample_download_data, sample_decrypt_data
+):
     """Upload should work with local and cloud storage types."""
     from tests.test_utils.unified_mocks import configure_pipeline_storage
 
@@ -82,16 +69,14 @@ async def test_upload_with_storage_types(storage_type, bucket_raw, base_path, ex
         decrypted_path = Path(temp_dir) / "TEST123.tar.gz"
         decrypted_path.write_bytes(b"test content")
 
-        decrypt_data: DecryptData = {
-            "decrypted_path": decrypted_path,
-            "original_path": Path(temp_dir) / "TEST123.tar.gz.gpg",
-        }
-        download_data: DownloadData = {
-            "file_path": Path(temp_dir) / "TEST123.tar.gz.gpg",
-            "etag": "test-etag",
-            "file_size_bytes": 1024,
-            "http_status_code": 200,
-        }
+        decrypt_data = sample_decrypt_data(
+            decrypted_path=decrypted_path,
+            original_path=Path(temp_dir) / "TEST123.tar.gz.gpg",
+        )
+        download_data = sample_download_data(
+            file_path=Path(temp_dir) / "TEST123.tar.gz.gpg",
+            etag="test-etag",
+        )
 
         # Mock book manager directly on pipeline since we now use pipeline.book_manager
         pipeline.book_manager = MagicMock()
@@ -126,7 +111,15 @@ async def test_upload_metadata_includes_etag_and_barcode(sample_download_data, s
     # Set up book_manager on the pipeline
     pipeline.book_manager = mock_manager
 
-    await upload.main("METADATA123", sample_download_data, sample_decrypt_data, pipeline)
+    download_data = sample_download_data(etag="test-download-etag", file_size_bytes=2048)
+    with tempfile.TemporaryDirectory() as temp_dir:
+        decrypted_path = Path(temp_dir) / "TEST123.tar.gz"
+        decrypted_path.write_bytes(b"test decrypted content")
+        decrypt_data = sample_decrypt_data(
+            decrypted_path=decrypted_path, original_path=Path(temp_dir) / "TEST123.tar.gz.gpg"
+        )
+
+        await upload.main("METADATA123", download_data, decrypt_data, pipeline)
 
     call_args = mock_manager.storage.write_file.call_args
     metadata = call_args[0][2]
@@ -138,19 +131,17 @@ async def test_upload_metadata_includes_etag_and_barcode(sample_download_data, s
 
 
 @pytest.mark.asyncio
-async def test_upload_requires_etag_and_decrypted_path(mock_pipeline):
+async def test_upload_requires_etag_and_decrypted_path(mock_pipeline, sample_download_data, sample_decrypt_data):
     """Upload should validate required data fields."""
-    bad_download_data: DownloadData = {
-        "file_path": Path("/test/path"),
-        "etag": None,
-        "file_size_bytes": 1024,
-        "http_status_code": 200,
-    }
+    bad_download_data = sample_download_data(
+        file_path=Path("/test/path"),
+        etag=None,
+    )
 
-    decrypt_data: DecryptData = {
-        "decrypted_path": Path("/test/decrypted.tar.gz"),
-        "original_path": Path("/test/original.tar.gz.gpg"),
-    }
+    decrypt_data = sample_decrypt_data(
+        decrypted_path=Path("/test/decrypted.tar.gz"),
+        original_path=Path("/test/original.tar.gz.gpg"),
+    )
 
     with pytest.raises(AssertionError):
         await upload.upload_book_from_filesystem("TEST123", decrypt_data, bad_download_data, MagicMock())

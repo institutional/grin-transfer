@@ -11,6 +11,7 @@ import pytest
 
 from grin_to_s3.client import GRINClient
 from grin_to_s3.storage.staging import DirectoryManager
+from grin_to_s3.sync.tasks.task_types import DecryptData, DownloadData, UnpackData
 from tests.test_utils.unified_mocks import configure_pipeline_storage
 
 
@@ -92,3 +93,73 @@ def mock_pipeline():
         # Mock stats and output functions (none needed currently)
 
         yield pipeline
+
+
+@pytest.fixture
+def sample_download_data():
+    """Factory fixture for creating DownloadData test instances.
+
+    Returns a function that creates DownloadData with customizable fields.
+    Default values represent a successful download scenario.
+    """
+
+    def _create_download_data(
+        file_path: Path | None = None,
+        etag: str | None = "abc123",
+        file_size_bytes: int = 1024,
+        http_status_code: int = 200,
+    ) -> DownloadData:
+        if file_path is None:
+            file_path = Path("/tmp/TEST123.tar.gz.gpg")
+        return {
+            "file_path": file_path,
+            "etag": etag,
+            "file_size_bytes": file_size_bytes,
+            "http_status_code": http_status_code,
+        }
+
+    return _create_download_data
+
+
+@pytest.fixture
+def sample_decrypt_data():
+    """Factory fixture for creating DecryptData test instances.
+
+    Returns a function that creates DecryptData with customizable fields.
+    Default values represent a successful decryption scenario.
+    """
+
+    def _create_decrypt_data(
+        decrypted_path: Path | None = None,
+        original_path: Path | None = None,
+    ) -> DecryptData:
+        if decrypted_path is None:
+            decrypted_path = Path("/tmp/TEST123.tar.gz")
+        if original_path is None:
+            original_path = Path("/tmp/TEST123.tar.gz.gpg")
+        return {
+            "decrypted_path": decrypted_path,
+            "original_path": original_path,
+        }
+
+    return _create_decrypt_data
+
+
+@pytest.fixture
+def sample_unpack_data():
+    """Factory fixture for creating UnpackData test instances.
+
+    Returns a function that creates UnpackData with customizable fields.
+    Default values represent a successful unpack scenario.
+    """
+
+    def _create_unpack_data(
+        unpacked_path: Path | None = None,
+    ) -> UnpackData:
+        if unpacked_path is None:
+            unpacked_path = Path("/tmp/TEST123")
+        return {
+            "unpacked_path": unpacked_path,
+        }
+
+    return _create_unpack_data

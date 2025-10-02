@@ -12,17 +12,15 @@ import pytest
 from grin_to_s3.constants import OUTPUT_DIR
 from grin_to_s3.storage.staging import DirectoryManager
 from grin_to_s3.sync.tasks import extract_ocr
-from grin_to_s3.sync.tasks.task_types import TaskAction, UnpackData
+from grin_to_s3.sync.tasks.task_types import TaskAction
 
 
 @pytest.mark.asyncio
-async def test_main_successful_extraction(mock_pipeline):
+async def test_main_successful_extraction(mock_pipeline, sample_unpack_data):
     """Extract OCR task should complete successfully."""
     from tests.test_utils.unified_mocks import mock_extract_ocr_operations
 
-    unpack_data: UnpackData = {
-        "unpacked_path": Path("/tmp/TEST123"),
-    }
+    unpack_data = sample_unpack_data()
 
     with mock_extract_ocr_operations(page_count=3) as mocks:
         compressed_path = Path(mock_pipeline.filesystem_manager.staging_path) / "compressed.gz"
@@ -38,13 +36,11 @@ async def test_main_successful_extraction(mock_pipeline):
 
 
 @pytest.mark.asyncio
-async def test_extract_ocr_creates_staging_file(mock_pipeline):
+async def test_extract_ocr_creates_staging_file(mock_pipeline, sample_unpack_data):
     """Extract OCR should create file in staging directory."""
     from tests.test_utils.unified_mocks import mock_extract_ocr_operations
 
-    unpack_data: UnpackData = {
-        "unpacked_path": Path("/tmp/TEST123"),
-    }
+    unpack_data = sample_unpack_data()
 
     staging_path = Path(mock_pipeline.filesystem_manager.staging_path)
 
@@ -60,7 +56,7 @@ async def test_extract_ocr_creates_staging_file(mock_pipeline):
 
 
 @pytest.mark.asyncio
-async def test_extract_with_storage_config(temp_filesystem_manager):
+async def test_extract_with_storage_config(temp_filesystem_manager, sample_unpack_data):
     """Extract OCR should upload to storage when bucket configured."""
     from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_extract_ocr_operations
 
@@ -76,9 +72,7 @@ async def test_extract_with_storage_config(temp_filesystem_manager):
     pipeline.book_manager = MagicMock()
     pipeline.book_manager.full_text_path = MagicMock(side_effect=lambda filename: f"test-bucket/{filename}")
 
-    unpack_data: UnpackData = {
-        "unpacked_path": Path("/tmp/TEST123"),
-    }
+    unpack_data = sample_unpack_data()
 
     staging_path = temp_filesystem_manager.staging_path
 
@@ -96,7 +90,7 @@ async def test_extract_with_storage_config(temp_filesystem_manager):
 
 
 @pytest.mark.asyncio
-async def test_extract_local_storage_moves_file_to_full_directory():
+async def test_extract_local_storage_moves_file_to_full_directory(sample_unpack_data):
     """Extract OCR should upload JSONL file to 'full' subdirectory for local storage."""
     from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_extract_ocr_operations
 
@@ -107,9 +101,7 @@ async def test_extract_local_storage_moves_file_to_full_directory():
     pipeline.storage.write_file = AsyncMock()
     pipeline.config = MagicMock()
 
-    unpack_data: UnpackData = {
-        "unpacked_path": Path("/tmp/TEST123"),
-    }
+    unpack_data = sample_unpack_data()
 
     with tempfile.TemporaryDirectory() as temp_dir:
         output_dir = Path(temp_dir) / OUTPUT_DIR
@@ -158,7 +150,7 @@ async def test_extract_local_storage_moves_file_to_full_directory():
 
 
 @pytest.mark.asyncio
-async def test_extract_ocr_with_compression_enabled(temp_filesystem_manager):
+async def test_extract_ocr_with_compression_enabled(temp_filesystem_manager, sample_unpack_data):
     """Extract OCR should compress JSONL when compression is enabled."""
     from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_extract_ocr_operations
 
@@ -174,9 +166,7 @@ async def test_extract_ocr_with_compression_enabled(temp_filesystem_manager):
     pipeline.book_manager = MagicMock()
     pipeline.book_manager.full_text_path = MagicMock(side_effect=lambda filename: f"test-bucket/{filename}")
 
-    unpack_data: UnpackData = {
-        "unpacked_path": Path("/tmp/TEST123"),
-    }
+    unpack_data = sample_unpack_data()
 
     staging_path = temp_filesystem_manager.staging_path
 
@@ -193,7 +183,7 @@ async def test_extract_ocr_with_compression_enabled(temp_filesystem_manager):
 
 
 @pytest.mark.asyncio
-async def test_extract_ocr_with_compression_disabled(temp_filesystem_manager):
+async def test_extract_ocr_with_compression_disabled(temp_filesystem_manager, sample_unpack_data):
     """Extract OCR should not compress JSONL when compression is disabled."""
     from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_extract_ocr_operations
 
@@ -209,9 +199,7 @@ async def test_extract_ocr_with_compression_disabled(temp_filesystem_manager):
     pipeline.book_manager = MagicMock()
     pipeline.book_manager.full_text_path = MagicMock(side_effect=lambda filename: f"test-bucket/{filename}")
 
-    unpack_data: UnpackData = {
-        "unpacked_path": Path("/tmp/TEST123"),
-    }
+    unpack_data = sample_unpack_data()
 
     staging_path = temp_filesystem_manager.staging_path
 
@@ -234,7 +222,7 @@ async def test_extract_ocr_with_compression_disabled(temp_filesystem_manager):
 
 
 @pytest.mark.asyncio
-async def test_extract_ocr_local_storage_with_compression_disabled():
+async def test_extract_ocr_local_storage_with_compression_disabled(sample_unpack_data):
     """Extract OCR should handle local storage without compression."""
     from tests.test_utils.unified_mocks import configure_pipeline_storage, mock_extract_ocr_operations
 
@@ -246,9 +234,7 @@ async def test_extract_ocr_local_storage_with_compression_disabled():
     pipeline.config = MagicMock()
     pipeline.config.sync_compression_full_enabled = False
 
-    unpack_data: UnpackData = {
-        "unpacked_path": Path("/tmp/TEST123"),
-    }
+    unpack_data = sample_unpack_data()
 
     with tempfile.TemporaryDirectory() as temp_dir:
         staging_path = Path(temp_dir) / "staging"
@@ -293,13 +279,11 @@ async def test_extract_ocr_local_storage_with_compression_disabled():
 
 
 @pytest.mark.asyncio
-async def test_extract_ocr_includes_extraction_time_ms(mock_pipeline):
+async def test_extract_ocr_includes_extraction_time_ms(mock_pipeline, sample_unpack_data):
     """Extract OCR task should include extraction_time_ms in result data."""
     from tests.test_utils.unified_mocks import mock_extract_ocr_operations
 
-    unpack_data: UnpackData = {
-        "unpacked_path": Path("/tmp/TEST123"),
-    }
+    unpack_data = sample_unpack_data()
 
     with mock_extract_ocr_operations(page_count=3) as mocks:
         compressed_path = Path(mock_pipeline.filesystem_manager.staging_path) / "compressed.gz"
