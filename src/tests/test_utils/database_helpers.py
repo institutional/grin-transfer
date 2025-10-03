@@ -3,7 +3,19 @@
 Database test helper functions
 """
 
+from typing import NamedTuple
+
 from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+
+
+class StatusUpdate(NamedTuple):
+    """Status update tuple for collecting updates before writing."""
+
+    barcode: str
+    status_type: str
+    status_value: str
+    metadata: dict | None = None
+    session_id: str | None = None
 
 
 async def get_book_for_testing(tracker: SQLiteProgressTracker, barcode: str) -> BookRecord | None:

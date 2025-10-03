@@ -10,16 +10,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from grin_to_s3.sync.tasks import unpack
-from grin_to_s3.sync.tasks.task_types import DecryptData, TaskAction
+from grin_to_s3.sync.tasks.task_types import TaskAction
 
 
 @pytest.mark.asyncio
-async def test_main_successful_unpack(mock_pipeline):
+async def test_main_successful_unpack(mock_pipeline, sample_decrypt_data):
     """Unpack task should complete successfully."""
-    decrypt_data: DecryptData = {
-        "decrypted_path": Path("/tmp/TEST123.tar.gz"),
-        "original_path": Path("/tmp/TEST123.tar.gz.gpg"),
-    }
+    decrypt_data = sample_decrypt_data()
 
     with (
         patch("grin_to_s3.sync.tasks.unpack.tarfile.open") as mock_tarfile,

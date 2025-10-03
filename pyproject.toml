@@ -61,7 +61,6 @@ dev-dependencies = [
     "mypy-boto3-s3>=1.38.0",
     "types-aioboto3[essential]>=14.0.0",
     "moto[s3]>=5.0.0",
-    "aioresponses>=0.7.0",
     "pre-commit>=3.0.0",
 ]
 
@@ -118,9 +117,6 @@ python_functions = ["test_*"]
 asyncio_mode = "auto"
 addopts = "-v --tb=short -n auto"
 log_level = "INFO"
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-]
 filterwarnings = [
     "ignore::DeprecationWarning",
     "ignore::PendingDeprecationWarning",

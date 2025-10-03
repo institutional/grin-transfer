@@ -5,7 +5,6 @@ GRIN enrichment tests
 
 import os
 import sys
-from typing import NamedTuple
 
 import pytest
 import pytest_asyncio
@@ -16,18 +15,8 @@ from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
 from grin_to_s3.metadata.grin_enrichment import GRINEnrichmentPipeline
 from grin_to_s3.metadata.tsv_parser import parse_grin_tsv
 from tests.mocks import MockGRINClient
-from tests.test_utils.database_helpers import get_book_for_testing
+from tests.test_utils.database_helpers import StatusUpdate, get_book_for_testing
 from tests.utils import batch_write_status_updates
-
-
-class StatusUpdate(NamedTuple):
-    """Status update tuple for collecting updates before writing."""
-
-    barcode: str
-    status_type: str
-    status_value: str
-    metadata: dict | None = None
-    session_id: str | None = None
 
 
 class MockGRINEnrichmentClient(MockGRINClient):
@@ -120,13 +109,11 @@ class TestTSVParser:
 
     def test_parse_basic_tsv(self):
         """TSV parser should handle basic valid data"""
-        tsv_data = (
+        result = parse_grin_tsv(
             "Barcode\tState\tViewability\tScannable\n"
             "TEST001\tACTIVE\tVIEW_FULL\ttrue\n"
             "TEST002\tINACTIVE\tVIEW_METADATA\tfalse"
         )
-
-        result = parse_grin_tsv(tsv_data)
 
         assert len(result) == 2
         assert result["TEST001"]["grin_state"] == "ACTIVE"
@@ -244,7 +231,6 @@ class TestGRINEnrichmentPipeline:
         assert total_long == len(long_barcodes)
 
     @pytest.mark.asyncio
-    @pytest.mark.slow
     async def test_retry_on_failure(self, mock_process_stage):
         """Test retry logic for GRIN API failures"""
         mock_client = MockGRINEnrichmentClient()

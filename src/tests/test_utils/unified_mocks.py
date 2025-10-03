@@ -13,8 +13,10 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import aiohttp
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from grin_to_s3.collect_books.models import SQLiteProgressTracker
@@ -132,13 +134,19 @@ def create_book_manager_mock(
     mock_book_manager.bucket_full = storage_config["config"].get("bucket_full")
     mock_book_manager.base_prefix = base_prefix
 
-    # Add path generation helper
+    # Add path generation helpers
     def meta_path(filename: str) -> str:
         if base_prefix:
             return f"{mock_book_manager.bucket_meta}/{base_prefix}/{filename}"
         return f"{mock_book_manager.bucket_meta}/{filename}"
 
+    def full_text_path(filename: str) -> str:
+        if base_prefix:
+            return f"{mock_book_manager.bucket_full}/{base_prefix}/{filename}"
+        return f"{mock_book_manager.bucket_full}/{filename}"
+
     mock_book_manager.meta_path = meta_path
+    mock_book_manager.full_text_path = MagicMock(side_effect=full_text_path)
 
     # BookManager methods delegate to the underlying storage
     # This reflects the real BookManager architecture where it wraps a Storage object
@@ -234,12 +242,214 @@ def create_progress_tracker_mock(db_path: str = "/tmp/test.db") -> MagicMock:
     return tracker
 
 
+def create_test_pipeline(
+    filesystem_manager: MagicMock | None = None,
+    book_manager: MagicMock | None = None,
+    storage_type: str = "s3",
+    bucket_raw: str = "test-raw",
+    bucket_full: str = "test-full",
+    bucket_meta: str = "test-meta",
+    base_path: str = "/tmp/output",
+    compression_meta_enabled: bool = True,
+    compression_full_enabled: bool = True,
+) -> MagicMock:
+    """
+    Create a configured test pipeline mock.
+
+    Args:
+        filesystem_manager: Filesystem manager (created if None)
+        book_manager: Book manager (created if None)
+        storage_type: Storage type (s3, local, r2, minio)
+        bucket_raw: Raw archive bucket name
+        bucket_full: Full text bucket name
+        bucket_meta: Metadata bucket name
+        base_path: Base path for local storage
+        compression_meta_enabled: Enable metadata compression
+        compression_full_enabled: Enable full-text compression
+
+    Returns:
+        Configured pipeline mock
+    """
+    pipeline = MagicMock()
+
+    # Set up filesystem manager
+    pipeline.filesystem_manager = filesystem_manager or create_staging_manager_mock()
+
+    # Set up book manager
+    pipeline.book_manager = book_manager or create_book_manager_mock()
+
+    # Set up config
+    pipeline.config = MagicMock()
+    pipeline.config.sync_compression_meta_enabled = compression_meta_enabled
+    pipeline.config.sync_compression_full_enabled = compression_full_enabled
+
+    # Configure storage
+    configure_pipeline_storage(
+        pipeline,
+        storage_type=storage_type,
+        bucket_raw=bucket_raw,
+        bucket_full=bucket_full,
+        bucket_meta=bucket_meta,
+        base_path=base_path,
+    )
+
+    return pipeline
+
+
+def configure_pipeline_storage(
+    pipeline: MagicMock,
+    storage_type: str = "s3",
+    bucket_raw: str = "test-raw",
+    bucket_full: str = "test-full",
+    bucket_meta: str = "test-meta",
+    base_path: str = "/tmp/output",
+) -> None:
+    """Configure pipeline storage settings.
+
+    Args:
+        pipeline: Mock pipeline to configure
+        storage_type: Storage type (s3, r2, local, etc.)
+        bucket_raw: Raw archive bucket name
+        bucket_full: Full text bucket name
+        bucket_meta: Metadata bucket name
+        base_path: Base path for local storage
+    """
+    pipeline.config.storage_config = {
+        "protocol": storage_type,
+        "type": storage_type,
+        "config": (
+            {"base_path": base_path}
+            if storage_type == "local"
+            else {"bucket_raw": bucket_raw, "bucket_full": bucket_full, "bucket_meta": bucket_meta}
+        ),
+    }
+
+    pipeline.uses_block_storage = storage_type != "local"
+
+    # Update uses_local_storage property
+    type(pipeline).uses_local_storage = property(lambda self: self.config.storage_config.get("protocol") == "local")
+
+
 def create_fresh_tracker():
     """Create a fresh tracker with empty database for testing."""
 
     temp_dir = tempfile.mkdtemp()
     db_path = Path(temp_dir) / "fresh_test.db"
     return SQLiteProgressTracker(str(db_path))
+
+
+# =============================================================================
+# HTTP Response Mock Factories
+# =============================================================================
+
+
+def create_aiohttp_response(
+    status: int = 200,
+    headers: dict[str, str] | None = None,
+    content: bytes | list[bytes] | None = None,
+) -> MagicMock:
+    """
+    Create a mock aiohttp response with streaming support.
+
+    Args:
+        status: HTTP status code
+        headers: Response headers dict
+        content: Response body as bytes or list of byte chunks for streaming
+
+    Returns:
+        Mock response with status, headers, and iter_chunked support
+
+    Example:
+        # Simple response
+        response = create_aiohttp_response(status=200, headers={"ETag": "abc123"})
+
+        # Streaming response with multiple chunks
+        response = create_aiohttp_response(
+            content=[b"chunk1", b"chunk2"],
+            headers={"ETag": '"my-etag"'}
+        )
+    """
+    response = MagicMock()
+    response.status = status
+    response.headers = headers or {}
+
+    # Handle streaming content
+    chunks = content if isinstance(content, list) else [content or b""]
+
+    async def mock_iter_chunked(_size):
+        for chunk in chunks:
+            yield chunk
+
+    response.content.iter_chunked = mock_iter_chunked
+    return response
+
+
+def create_grin_head_response(etag: str, size: int) -> MagicMock:
+    """
+    Create a mock GRIN HEAD response.
+
+    Args:
+        etag: ETag value (will be quoted automatically if not already)
+        size: Content-Length in bytes
+
+    Returns:
+        Mock response with status 200, ETag, and Content-Length headers
+    """
+    quoted_etag = etag if etag.startswith('"') else f'"{etag}"'
+    return create_aiohttp_response(status=200, headers={"ETag": quoted_etag, "Content-Length": str(size)})
+
+
+def create_client_response_error(
+    status: int,
+    message: str = "",
+    request_url: str = "http://example.com/test",
+) -> aiohttp.ClientResponseError:
+    """
+    Create a mock aiohttp ClientResponseError.
+
+    Args:
+        status: HTTP status code (404, 429, 500, etc.)
+        message: Error message
+        request_url: URL for the request_info
+
+    Returns:
+        ClientResponseError with properly mocked request_info
+
+    Example:
+        error_404 = create_client_response_error(404, "Not Found")
+        error_500 = create_client_response_error(500, "Internal Server Error")
+    """
+    request_info = MagicMock()
+    request_info.real_url = request_url
+
+    error = aiohttp.ClientResponseError(
+        request_info=request_info,
+        history=(),
+        status=status,
+        message=message or f"HTTP {status}",
+    )
+    return error
+
+
+def create_storage_client_error(
+    error_code: str = "404",
+    operation: str = "HeadObject",
+) -> ClientError:
+    """
+    Create a mock boto3 ClientError.
+
+    Args:
+        error_code: AWS error code (typically "404" for not found)
+        operation: AWS operation name
+
+    Returns:
+        ClientError with proper error_response structure
+
+    Example:
+        not_found = create_storage_client_error("404", "HeadObject")
+        access_denied = create_storage_client_error("403", "GetObject")
+    """
+    return ClientError(error_response={"Error": {"Code": error_code}}, operation_name=operation)
 
 
 # =============================================================================
@@ -438,6 +648,104 @@ def mock_minimal_upload():
         patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text"),
     ):
         yield
+
+
+@contextmanager
+def mock_extract_ocr_operations(page_count: int = 3, compression_enabled: bool = True):
+    """
+    Context manager for mocking OCR extraction task dependencies.
+
+    Args:
+        page_count: Number of pages to return from extraction
+        compression_enabled: Whether to mock compression operations
+
+    Yields:
+        MockBundle with extract_ocr_pages and compress_file_to_temp mocks
+    """
+    with (
+        patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
+        patch("grin_to_s3.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
+    ):
+        # Configure extraction mock
+        mock_extract.return_value = page_count
+
+        # Configure compression mock
+        if compression_enabled:
+            # Mock compress_file_to_temp as an async context manager
+            mock_compress.return_value.__aenter__ = AsyncMock()
+            mock_compress.return_value.__aexit__ = AsyncMock()
+
+        class MockBundle:
+            def __init__(self):
+                self.extract_ocr_pages = mock_extract
+                self.compress_file_to_temp = mock_compress
+
+        yield MockBundle()
+
+
+@contextmanager
+def mock_export_csv_operations(record_count: int = 0, csv_content: str = "barcode,title\n"):
+    """
+    Context manager for mocking CSV export task dependencies.
+
+    Args:
+        record_count: Number of records written to CSV
+        csv_content: Content to write to the temporary CSV file
+
+    Yields:
+        MockBundle with upload_csv_to_storage and write_books_to_csv mocks
+    """
+    with (
+        patch("grin_to_s3.sync.tasks.export_csv.upload_csv_to_storage") as mock_upload,
+        patch("grin_to_s3.sync.tasks.export_csv.write_books_to_csv") as mock_write_csv,
+    ):
+        # Configure write_csv mock - returns (Path, record_count)
+        mock_write_csv.return_value = (None, record_count)  # Path will be set by test
+
+        # Configure upload mock
+        mock_upload.return_value = None  # Path will be set by test
+
+        class MockBundle:
+            def __init__(self):
+                self.upload_csv_to_storage = mock_upload
+                self.write_books_to_csv = mock_write_csv
+
+        yield MockBundle()
+
+
+@contextmanager
+def mock_extract_marc_operations(
+    marc_metadata: dict[str, str] | None = None, normalized_metadata: dict[str, str] | None = None
+):
+    """
+    Context manager for mocking MARC extraction task dependencies.
+
+    Args:
+        marc_metadata: Raw MARC metadata to return from extraction
+        normalized_metadata: Normalized metadata for database storage
+
+    Yields:
+        MockBundle with extract_marc_metadata and convert_marc_keys_to_db_fields mocks
+    """
+    if marc_metadata is None:
+        marc_metadata = {"title": "Test Book", "author": "Test Author"}
+    if normalized_metadata is None:
+        normalized_metadata = {"title_display": "Test Book", "author_display": "Test Author"}
+
+    with (
+        patch("grin_to_s3.sync.tasks.extract_marc.extract_marc_metadata") as mock_extract,
+        patch("grin_to_s3.sync.tasks.extract_marc.convert_marc_keys_to_db_fields") as mock_convert,
+    ):
+        # Configure mocks
+        mock_extract.return_value = marc_metadata
+        mock_convert.return_value = normalized_metadata
+
+        class MockBundle:
+            def __init__(self):
+                self.extract_marc_metadata = mock_extract
+                self.convert_marc_keys_to_db_fields = mock_convert
+
+        yield MockBundle()
 
 
 # =============================================================================

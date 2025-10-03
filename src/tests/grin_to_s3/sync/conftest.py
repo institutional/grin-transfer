@@ -3,6 +3,8 @@
 Shared test fixtures for sync module testing.
 """
 
+from unittest.mock import patch
+
 import pytest
 
 from grin_to_s3.sync.pipeline import SyncPipeline
@@ -61,6 +63,7 @@ async def sync_pipeline(mock_run_config, mock_process_stage):
 
     This fixture automatically:
     - Disables CSV export, database backup, and staging cleanup for faster tests
+    - Mocks expensive filesystem checks in GRINAuth initialization
     - Provides proper cleanup after test completion
 
     Usage:
@@ -68,15 +71,17 @@ async def sync_pipeline(mock_run_config, mock_process_stage):
             # Use pipeline directly - cleanup is automatic
             result = await sync_pipeline.some_method()
     """
-    pipeline = SyncPipeline.from_run_config(
-        config=mock_run_config,
-        process_summary_stage=mock_process_stage,
-        skip_csv_export=True,  # Speed up tests
-        skip_database_backup=True,  # Speed up tests
-        skip_staging_cleanup=True,  # Prevent side effects
-    )
+    # Mock only the expensive filesystem checks in GRINAuth, not the whole auth
+    with patch("pathlib.Path.exists", return_value=False):
+        pipeline = SyncPipeline.from_run_config(
+            config=mock_run_config,
+            process_summary_stage=mock_process_stage,
+            skip_csv_export=True,  # Speed up tests
+            skip_database_backup=True,  # Speed up tests
+            skip_staging_cleanup=True,  # Prevent side effects
+        )
 
-    yield pipeline
+        yield pipeline
 
     # Cleanup: Ensure any resources are properly closed
     try:

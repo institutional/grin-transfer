@@ -22,12 +22,13 @@ from grin_to_s3.sync.db_updates import (
 )
 from grin_to_s3.sync.task_manager import TaskManager
 from grin_to_s3.sync.tasks.task_types import RequestConversionResult, TaskAction, TaskResult, TaskType
+from tests.test_utils.unified_mocks import create_test_pipeline
 
 
 @pytest.fixture
 def mock_pipeline():
     """Mock pipeline with database tracker."""
-    pipeline = MagicMock()
+    pipeline = create_test_pipeline()
     pipeline.config = MagicMock()
     pipeline.config.storage_config = {"protocol": "s3"}
     pipeline.current_etags = {"TEST123": "stored_etag_value"}
@@ -235,7 +236,7 @@ async def real_db_pipeline():
             await db.commit()
 
         # Create mock pipeline with real database tracker
-        pipeline = MagicMock()
+        pipeline = create_test_pipeline()
         pipeline.config = MagicMock()
         pipeline.config.storage_config = {"protocol": "s3"}
         pipeline.current_etags = {"TEST123": "real_etag_value"}

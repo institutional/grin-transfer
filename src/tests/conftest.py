@@ -4,12 +4,11 @@ import sqlite3
 import tempfile
 from pathlib import Path
 from typing import cast
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from grin_to_s3.run_config import RunConfig, StorageConfig, StorageConfigDict, SyncConfig
-from grin_to_s3.sync.tasks import download
 from tests.test_utils.unified_mocks import (
     create_book_manager_mock,
     create_progress_tracker_mock,
@@ -17,6 +16,40 @@ from tests.test_utils.unified_mocks import (
     create_storage_mock,
     mock_upload_operations,
 )
+
+
+def _no_sleep(seconds):
+    """Synchronous sleep stub used to short-circuit tenacity waits in tests."""
+    # Deliberately do nothing to avoid real delays during retry backoff.
+    return None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def disable_retry_delays():
+    """Disable retry delays globally for all tests to speed up test suite.
+
+    Retries will still happen (testing retry logic), but without wait times.
+    Only patches tenacity's internal sleep functions, not asyncio.sleep globally.
+    """
+    import tenacity
+
+    original_base_run_wait = tenacity.BaseRetrying._run_wait
+    original_async_run_wait = tenacity.AsyncRetrying._run_wait
+
+    def _zero_wait(self, retry_state):
+        """Invoke original wait logic but force the computed delay to zero."""
+        original_base_run_wait(self, retry_state)
+        retry_state.upcoming_sleep = 0.0
+
+    async def _zero_wait_async(self, retry_state):
+        """Async equivalent that still computes retry metadata without sleeping."""
+        await original_async_run_wait(self, retry_state)
+        retry_state.upcoming_sleep = 0.0
+
+    with patch("tenacity.nap.sleep", side_effect=_no_sleep):
+        with patch.object(tenacity.BaseRetrying, "_run_wait", _zero_wait):
+            with patch.object(tenacity.AsyncRetrying, "_run_wait", _zero_wait_async):
+                yield
 
 
 class ConfigBuilder:
@@ -271,26 +304,15 @@ def mock_grin_client():
 
 
 @pytest.fixture
-def fast_retry_download(monkeypatch):
-    """Mock the specific download function with fast retry for slow tests.
+async def db_tracker(temp_db):
+    """Create and initialize a progress tracker for async database testing.
 
-    This fixture can be used by tests that need to avoid retry delays.
-    Usage: add 'fast_retry_download' as a parameter to slow download tests.
+    This fixture replaces the AsyncDatabaseTestCase pattern, allowing
+    pytest-asyncio tests to use the centralized database setup.
     """
+    from grin_to_s3.collect_books.models import SQLiteProgressTracker
 
-    # Store the original function
-    original_func = download.download_book_to_filesystem
-
-    # Create wrapper that preserves the original logic but removes delays
-    async def fast_download_wrapper(*args, **kwargs):
-        try:
-            return await original_func.__wrapped__(*args, **kwargs)
-        except Exception:
-            # On first failure, try once more immediately
-            try:
-                return await original_func.__wrapped__(*args, **kwargs)
-            except Exception:
-                # Final attempt
-                return await original_func.__wrapped__(*args, **kwargs)
-
-    monkeypatch.setattr("grin_to_s3.sync.tasks.download.download_book_to_filesystem", fast_download_wrapper)
+    tracker = SQLiteProgressTracker(temp_db)
+    await tracker.init_db()
+    yield tracker
+    await tracker.close()
