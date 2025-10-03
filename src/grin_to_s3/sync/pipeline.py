@@ -62,6 +62,7 @@ async def get_books_from_queue(
     library_directory: str,
     queue_name: str,
     db_tracker,
+    limit: int | None = None,
 ) -> set[str]:
     """Get barcodes from specified queue.
 
@@ -70,6 +71,7 @@ async def get_books_from_queue(
         library_directory: Library directory name
         queue_name: Queue name (converted, previous, unconverted, changed)
         db_tracker: Database tracker instance
+        limit: Optional limit on number of books to fetch
 
     Returns:
         Set of barcodes to process
@@ -82,7 +84,7 @@ async def get_books_from_queue(
     await db_tracker.init_db()
 
     if queue_name == "converted":
-        return await get_converted_books(grin_client, library_directory)
+        return await get_converted_books(grin_client, library_directory, limit=limit)
     elif queue_name == "previous":
         # Get books from previous queue (PREVIOUSLY_DOWNLOADED, not yet requested, not unavailable)
         previously_downloaded = await get_previous_queue_books(db_tracker)
@@ -537,6 +539,7 @@ class SyncPipeline:
                             self.library_directory,
                             queue_name,
                             self.db_tracker,
+                            limit=limit,
                         )
                     except (aiohttp.ClientError, TimeoutError) as e:
                         error_type = type(e).__name__

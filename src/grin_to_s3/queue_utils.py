@@ -95,26 +95,52 @@ async def get_unconverted_books(db) -> set[str]:
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
-async def get_converted_books(grin_client: GRINClient, library_directory: str) -> set[str]:
+async def get_converted_books(
+    grin_client: GRINClient, library_directory: str, page_size: int = 50_000, limit: int | None = None
+) -> set[str]:
     """Get set of books that are converted and ready for download.
+
     Args:
         grin_client: GRIN client instance
         library_directory: Library directory name
+        page_size: Number of results per page
+        limit: Maximum number of books to fetch (stops pagination early)
+
     Returns:
         set: Set of converted book barcodes
     """
     try:
-        # Use streaming approach to avoid materializing large responses
-        converted_barcodes = {
-            line.strip().removesuffix(".tar.gz.gpg")
-            async for line in grin_client.stream_text_lines(library_directory, "_converted?format=text", timeout=240)
-            if line.strip() and ".tar.gz.gpg" in line
-        }
+        converted_barcodes = set()
+        page_count = 0
+
+        # Stream through all pages of the converted list
+        async for book_row, _ in grin_client.stream_book_list_html_prefetch(
+            directory=library_directory,
+            list_type="_converted",
+            page_size=page_size,
+            start_page=1,
+            sqlite_tracker=None,  # No need for SQLite tracking here
+        ):
+            if barcode := book_row.get("barcode", ""):
+                converted_barcodes.add(barcode)
+
+            # Stop early if we've hit the limit
+            if limit and len(converted_barcodes) >= limit:
+                logger.info(f"Reached limit of {limit:,} converted books, stopping pagination")
+                break
+
+            # Track progress for large lists
+            if len(converted_barcodes) % 50_000 == 0 and len(converted_barcodes) > 0:
+                page_count = len(converted_barcodes) // page_size + 1
+                logger.info(f"Fetched {len(converted_barcodes):,} converted books (page ~{page_count})")
+
+        logger.info(f"Loaded {len(converted_barcodes):,} converted books via HTML pagination")
         return converted_barcodes
+
     except Exception as e:
         error_type = type(e).__name__
         error_msg = str(e) if str(e) else "No error message"
-        logger.warning(f"Failed to get converted books: {error_type}: {error_msg}")
+        logger.warning(f"Failed to get converted books via HTML: {error_type}: {error_msg}")
         return set()
 
 
