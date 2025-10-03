@@ -19,23 +19,9 @@ diagrams=(
     collect-pipeline
     sync-pipeline
     lifecycle-summary
-<<<<<<< HEAD
-<<<<<<< HEAD
     check-conversion
     sync-detail
-<<<<<<< HEAD
-<<<<<<< HEAD
     upload-step
-=======
->>>>>>> 53cd8e3 (Move helper)
-=======
-    check-conversion
->>>>>>> 2c9898f (Consolidate pipeline fixtures)
-=======
->>>>>>> d2dba2b (Add barcode filtering test coverage)
-=======
-    upload-step
->>>>>>> 5289d1d (Reduce needless waiting)
 )
 
 render_diagram() {
@@ -45,10 +31,6 @@ render_diagram() {
 
     for extension in svg png; do
         local output="${base_output}.${extension}"
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> ba8ed86 (Centralize fixtures)
         local scale="1"
         if [[ "${extension}" == "png" ]]; then
             # Produce 3x size PNGs for higher resolution embeddings
@@ -56,12 +38,6 @@ render_diagram() {
         fi
 
         echo "  - ${name}.${extension} (scale ${scale})"
-<<<<<<< HEAD
-=======
-        echo "  - ${name}.${extension}"
->>>>>>> 53cd8e3 (Move helper)
-=======
->>>>>>> ba8ed86 (Centralize fixtures)
         mmdc \
             --input "${input}" \
             --output "${output}" \
@@ -70,27 +46,11 @@ render_diagram() {
             -b transparent \
             --width 900 \
             --height 550 \
-<<<<<<< HEAD
-<<<<<<< HEAD
             --scale "${scale}"
     done
 }
 
 echo "Generating pipeline diagrams (SVG + 3x PNG)..."
-=======
-            --scale 1.5
-    done
-}
-
-echo "Generating pipeline diagrams (SVG + PNG)..."
->>>>>>> 53cd8e3 (Move helper)
-=======
-            --scale "${scale}"
-    done
-}
-
-echo "Generating pipeline diagrams (SVG + 3x PNG)..."
->>>>>>> ba8ed86 (Centralize fixtures)
 
 for diagram in "${diagrams[@]}"; do
     render_diagram "${diagram}"
@@ -100,13 +60,5 @@ echo "Diagram generation complete!"
 echo "Files generated:"
 for diagram in "${diagrams[@]}"; do
     echo "  - docs/diagrams/${diagram}.svg"
-<<<<<<< HEAD
-<<<<<<< HEAD
     echo "  - docs/diagrams/${diagram}.png (3x scale)"
-=======
-    echo "  - docs/diagrams/${diagram}.png"
->>>>>>> 53cd8e3 (Move helper)
-=======
-    echo "  - docs/diagrams/${diagram}.png (3x scale)"
->>>>>>> ba8ed86 (Centralize fixtures)
 done
