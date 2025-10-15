@@ -27,6 +27,7 @@ wheels/
 MANIFEST
 
 # Virtual environments
+.venv/
 venv/
 env/
 ENV/
@@ -39,6 +40,9 @@ venv.bak/
 *.swp
 *.swo
 *~
+
+# Cache directories
+.cache/
 
 # OS generated files
 .DS_Store
@@ -58,6 +62,9 @@ logs/
 *.db-wal
 docker-data/
 dev-credentials/
+
+# Old project artifacts
+grin_to_s3.egg-info/
 
 # Staging and temporary files
 staging/
