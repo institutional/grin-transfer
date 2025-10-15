@@ -25,6 +25,15 @@ from ..run_config import (
 logger = logging.getLogger(__name__)
 
 
+def get_buckets(run_config) -> dict[str, str]:
+    """Get bucket names from run config."""
+    return {
+        "raw": run_config.storage_bucket_raw,
+        "meta": run_config.storage_bucket_meta,
+        "full": run_config.storage_bucket_full,
+    }
+
+
 def list_bucket_files(
     storage, bucket: str, prefix: str = "", fetch_all: bool = False
 ) -> tuple[list[tuple[str, int]], bool]:  # type: ignore
@@ -53,23 +62,18 @@ def list_bucket_files(
 
     paginator = s3_client.get_paginator("list_objects_v2")
     files = []
-    has_more = False
 
     for page in paginator.paginate(**list_kwargs):  # type: ignore
         contents = page.get("Contents", [])
         for obj in contents:
-            key = obj.get("Key")
-            size = obj.get("Size")
-            if key is not None and size is not None:
+            if (key := obj.get("Key")) is not None and (size := obj.get("Size")) is not None:
                 files.append((key, size))
 
         # If not fetching all, stop after first page
         if not fetch_all:
-            # Check if there are more results (page was full or IsTruncated flag)
-            has_more = page.get("IsTruncated", False)
-            break
+            return files, page.get("IsTruncated", False)
 
-    return files, has_more
+    return files, False
 
 
 def get_bucket_stats(storage, bucket: str, prefix: str = "", fetch_all: bool = False) -> tuple[int, int, bool]:
@@ -101,18 +105,17 @@ def delete_bucket_contents(
         endpoint_url=storage.config.endpoint_url,
     )
 
+    deleted_count = 0
+    failed_count = 0
+
     # Use provided file list or delete as we scan
     if files_to_delete is not None:
         # Predefined list - batch and delete
-        objects_to_delete = [filename for filename, _ in files_to_delete]
-
-        deleted_count = 0
-        failed_count = 0
         batch_size = 1000
 
-        for i in range(0, len(objects_to_delete), batch_size):
-            batch = objects_to_delete[i : i + batch_size]
-            delete_objects = [{"Key": filename} for filename in batch]
+        for i in range(0, len(files_to_delete), batch_size):
+            batch = files_to_delete[i : i + batch_size]
+            delete_objects = [{"Key": filename} for filename, _ in batch]
 
             try:
                 response = s3_client.delete_objects(Bucket=bucket, Delete={"Objects": delete_objects})  # type: ignore[typeddict-item]
@@ -120,8 +123,6 @@ def delete_bucket_contents(
                 failed_count += len(response.get("Errors", []))
             except Exception:
                 failed_count += len(batch)
-
-        return deleted_count, failed_count
     else:
         # Scan and delete page by page (pages are already ≤1000 items)
         print("\nDeleting objects...")
@@ -130,30 +131,20 @@ def delete_bucket_contents(
             list_kwargs["Prefix"] = prefix
 
         paginator = s3_client.get_paginator("list_objects_v2")
-        deleted_count = 0
-        failed_count = 0
 
         for page in paginator.paginate(**list_kwargs):  # type: ignore[arg-type]
-            contents = page.get("Contents", [])
-            if not contents:
-                continue
-
             # Delete this page (already ≤1000 items, the S3 delete limit)
-            delete_objects = [{"Key": obj["Key"]} for obj in contents if "Key" in obj]
+            if delete_objects := [{"Key": obj["Key"]} for obj in page.get("Contents", []) if "Key" in obj]:
+                try:
+                    response = s3_client.delete_objects(Bucket=bucket, Delete={"Objects": delete_objects})  # type: ignore[typeddict-item]
+                    deleted_count += len(response.get("Deleted", []))
+                    failed_count += len(response.get("Errors", []))
 
-            if not delete_objects:
-                continue
+                    # Show progress after each page
+                    print(f"  Deleted {deleted_count:,} objects...")
 
-            try:
-                response = s3_client.delete_objects(Bucket=bucket, Delete={"Objects": delete_objects})  # type: ignore[typeddict-item]
-                deleted_count += len(response.get("Deleted", []))
-                failed_count += len(response.get("Errors", []))
-
-                # Show progress after each page
-                print(f"  Deleted {deleted_count:,} objects...")
-
-            except Exception:
-                failed_count += len(delete_objects)
+                except Exception:
+                    failed_count += len(delete_objects)
 
     return deleted_count, failed_count
 
@@ -178,11 +169,7 @@ async def cmd_ls(args) -> None:
     storage_type = storage_config_dict["type"]
     storage = create_storage_from_config(run_config.storage_config)
     prefix = str(storage_config_dict.get("prefix", "") or "")
-    buckets = {
-        "raw": run_config.storage_bucket_raw,
-        "meta": run_config.storage_bucket_meta,
-        "full": run_config.storage_bucket_full,
-    }
+    buckets = get_buckets(run_config)
 
     print(f"\nStorage Listing for '{args.run_name}'")
     print("=" * 60)
@@ -273,11 +260,7 @@ async def cmd_cp(args) -> None:
     storage_type = storage_config_dict["type"]
     storage = create_storage_from_config(run_config.storage_config)
     prefix = str(storage_config_dict.get("prefix", "") or "")
-    buckets = {
-        "raw": run_config.storage_bucket_raw,
-        "meta": run_config.storage_bucket_meta,
-        "full": run_config.storage_bucket_full,
-    }
+    buckets = get_buckets(run_config)
 
     cp_bucket = buckets[args.bucket_name]
 
@@ -327,11 +310,7 @@ async def cmd_rm(args) -> None:
     storage_type = storage_config_dict["type"]
     storage = create_storage_from_config(run_config.storage_config)
     prefix = str(storage_config_dict.get("prefix", "") or "")
-    buckets = {
-        "raw": run_config.storage_bucket_raw,
-        "meta": run_config.storage_bucket_meta,
-        "full": run_config.storage_bucket_full,
-    }
+    buckets = get_buckets(run_config)
 
     bucket_name = args.bucket_name
     if bucket_name not in buckets:
@@ -384,9 +363,11 @@ async def cmd_rm(args) -> None:
         print("❌ Error: Bucket removal only supported for S3-compatible storage")
         sys.exit(1)
 
+    # Format count message for display
+    count_msg = f"{object_count:,}{'+' if has_more else ''}"
+
     # Handle dry-run mode
     if args.dry_run:
-        count_msg = f"{object_count:,}+" if has_more else f"{object_count:,}"
         print(f"\n📋 DRY RUN: Would delete {count_msg} objects from:")
         print(f"   Bucket: {bucket}")
         if prefix:
@@ -396,7 +377,6 @@ async def cmd_rm(args) -> None:
 
     # Confirm deletion
     if not args.yes:
-        count_msg = f"{object_count:,}+" if has_more else f"{object_count:,}"
         print(f"\n⚠️  WARNING: This will permanently delete {count_msg} objects from:")
         print(f"   Bucket: {bucket}")
         if prefix:
