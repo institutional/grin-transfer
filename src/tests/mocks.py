@@ -6,8 +6,8 @@ Shared mock classes for testing CSV export functionality without network calls
 import random
 from pathlib import Path
 
-from grin_to_s3.collect_books.collector import BookCollector
-from grin_to_s3.process_summary import ProcessStageMetrics
+from grin_transfer.collect_books.collector import BookCollector
+from grin_transfer.process_summary import ProcessStageMetrics
 
 
 def _generate_title(seed: int) -> str:
@@ -459,7 +459,7 @@ def get_large_html_test_data():
 
 def setup_mock_exporter(temp_dir, test_data=None, storage_config=None):
     """Create a properly mocked BookCollector for testing"""
-    from grin_to_s3.run_config import RunConfig, StorageConfig, SyncConfig
+    from grin_transfer.run_config import RunConfig, StorageConfig, SyncConfig
 
     if test_data is None:
         test_data = get_test_data()

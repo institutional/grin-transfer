@@ -2,7 +2,7 @@
 
 from typing_extensions import TypedDict
 
-from grin_to_s3.storage import get_storage_protocol
+from grin_transfer.storage import get_storage_protocol
 
 
 class TestStorageConfig(TypedDict):

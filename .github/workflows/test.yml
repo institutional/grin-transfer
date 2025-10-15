@@ -24,7 +24,7 @@ jobs:
       run: uv sync
     
     - name: Run type checking
-      run: uv run mypy src/grin_to_s3/ --explicit-package-bases
+      run: uv run mypy src/grin_transfer/ --explicit-package-bases
     
     - name: Run linting
       run: uv run ruff check .
@@ -60,9 +60,9 @@ jobs:
     - name: Create required directories and dummy credentials
       run: |
         mkdir -p docker-data/{data,output,logs,staging}
-        mkdir -p ~/.config/grin-to-s3
+        mkdir -p ~/.config/grin_transfer
         # Create dummy client secret file for Docker tests
-        cp examples/auth/client_secret.json ~/.config/grin-to-s3/client_secret.json
+        cp examples/auth/client_secret.json ~/.config/grin_transfer/client_secret.json
     
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -106,7 +106,7 @@ jobs:
         import asyncio
         import sys
         sys.path.append('/app/src')
-        from grin_to_s3.common import check_minio_connectivity
+        from grin_transfer.common import check_minio_connectivity
         
         async def test_connectivity():
             config = {
@@ -143,7 +143,7 @@ jobs:
         import asyncio
         import sys
         sys.path.append('/app/src')
-        from grin_to_s3.common import auto_configure_minio, check_minio_connectivity
+        from grin_transfer.common import auto_configure_minio, check_minio_connectivity
         
         async def test_minio_config():
             # Test auto-configuration
@@ -180,9 +180,9 @@ jobs:
         docker compose exec grin-to-s3 uv run python -c "
         import sys
         sys.path.append('/app/src')
-        from grin_to_s3.storage.factories import create_storage_from_config
-        from grin_to_s3.storage.book_manager import BookManager
-        from grin_to_s3.common import auto_configure_minio
+        from grin_transfer.storage.factories import create_storage_from_config
+        from grin_transfer.storage.book_manager import BookManager
+        from grin_transfer.common import auto_configure_minio
         
         def test_storage_factories():
             # Test storage factory with empty config (should auto-configure)

@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 
-from grin_to_s3.database.connections import connect_async
-from grin_to_s3.database.database_utils import retry_database_operation
+from grin_transfer.database.connections import connect_async
+from grin_transfer.database.database_utils import retry_database_operation
 
 
 def create_test_archive(pages: dict[str, str], temp_dir: Path, archive_name: str = "test_archive.tar.gz") -> Path:

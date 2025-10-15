@@ -54,7 +54,7 @@ COPY . .
 RUN uv sync --frozen --no-dev
 
 # Create data directories with permissions
-RUN mkdir -p /app/data /app/output /app/config /app/logs /app/staging /app/.gnupg /app/secrets /app/.config/grin-to-s3 && \
+RUN mkdir -p /app/data /app/output /app/config /app/logs /app/staging /app/.gnupg /app/secrets /app/.config/grin-transfer && \
     chown -R grin:grin /app
 
 # Set environment variables

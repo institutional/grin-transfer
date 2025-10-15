@@ -11,7 +11,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import aiohttp
 
-from grin_to_s3.auth import GRINAuth
+from grin_transfer.auth import GRINAuth
 
 
 async def test_credentials():

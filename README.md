@@ -38,7 +38,7 @@ In typical usage, you will **collect** a local copy of your library's Google Boo
 2. **GRIN Google Account**: You should have credentials for the Google account that was given to a Google partner manager for access to GRIN. This will be the same account that you use to log in to GRIN as a human.
 3. **GRIN archive decryption key**: Book archives stored in GRIN are encrypted. You'll need your GPG decryption passphrase from Google. It will be a short text file containing random words.
 
-Save this file as `gpg_passphrase.asc` in `~/.config/grin-to-s3/` (the tool will search this location automatically).
+Save this file as `gpg_passphrase.asc` in `~/.config/grin-transfer/` (the tool will search this location automatically).
 
 4. _(Optional)_ We recommend you set up S3-like cloud storage to extract large collections. GRIN-to-S3 will use those credentials to transfer decrypted book archives and metadata. For smaller collections, you can use any filesystem reachable from where you run this tool.
 
@@ -60,9 +60,9 @@ any name. Click 'Create'.
 your client secret' boxes. Ignore this, just click 'OK'.
 9. Click the 'download' button to the right of the credentials. The button is a
 down arrow with a line under it.
-10. Move that file into your home directory at `.config/grin-to-s3/client_secret.json`
+10. Move that file into your home directory at `.config/grin-transfer/client_secret.json`
 
-[↑ Back to the top](#grin-to-s3)
+[↑ Back to the top](#grin-transfer)
 
 ## Installation
 
@@ -116,14 +116,14 @@ uv run grin auth setup
 uv run grin auth setup --remote-auth
 
 # Then run a sample collection 
-uv run grin collect --run-name test_run --storage local --storage-path /tmp/grin-to-s3-storage --limit 10 --library-directory YOUR_LIBRARY_DIRECTORY
+uv run grin collect --run-name test_run --storage local --storage-path /tmp/grin-transfer-storage --limit 10 --library-directory YOUR_LIBRARY_DIRECTORY
 
 # And sync 10 files (assuming your collection has some available for download)
 uv run grin sync pipeline --run-name test_run --queue converted --limit 10
 
 ```
 
-[↑ Back to the top](#grin-to-s3)
+[↑ Back to the top](#grin-transfer)
 ## Pipeline concepts
 
 ### Runs
@@ -142,7 +142,7 @@ For block storage, the default configuration is to use three buckets:
 ### Staging
 During processing, book archives and metadata are saved in the **staging** area on your local filesystem until they are fully uploaded to storage. By default,  `staging/` is created in the repo directory, but can be overridden with `--sync-staging-dir`. To avoid running out of local disk space, `--sync-disk-space-threshold` is used to keep the staging area at capacity; when capacity is exceeded, downloads are paused and usually will resume once files are fully uploaded.
 
-[↑ Back to the top](#grin-to-s3)
+[↑ Back to the top](#grin-transfer)
    
 
 ## Pipeline steps
@@ -156,7 +156,7 @@ If the data is valuable to you, there is a command to **enrich** local metadata 
 
 Finally, there are utilities for managing your storage and gathering statistics about the run.
 
-[↑ Back to the top](#grin-to-s3) 
+[↑ Back to the top](#grin-transfer) 
 
 ## Core commands
 
@@ -244,7 +244,7 @@ Manage storage buckets with fast listing and deletion.
 - `rm`: Remove all contents from specified bucket (raw, meta, or full)
 - `cp`: Copy files from a bucket to your local filesystem
 
-[↑ Back to the top](#grin-to-s3)
+[↑ Back to the top](#grin-transfer)
 
 ## File outputs
 
@@ -464,7 +464,7 @@ In AWS, create three buckets for raw archives, full-text, and metadata. Create a
 }
 ```
 
-Then on the host running grin-to-s3, use an AWS credentials file:
+Then on the host running grin-transfer, use an AWS credentials file:
 
 ```bash
 mkdir -p ~/.aws
@@ -490,7 +490,7 @@ Any other boto-compatible access model should also work; for example if run on a
 For convenience, a sample configuration file has been provided where you can specify credentials and configuration.
 
 ```bash 
-cp examples/auth/r2-credentials-template.json ~/.config/grin-to-s3/r2_credentials.json
+cp examples/auth/r2-credentials-template.json ~/.config/grin-transfer/r2_credentials.json
 
 # Edit `r2_credentials.json` with your access information and bucket names, then test with:
 uv run grin collect --run-name "r2" --library-directory YOUR_LIBRARY_DIRECTORY --storage r2
@@ -521,7 +521,7 @@ uv run grin collect --run-name "gcs" --library-directory YOUR_LIBRARY_DIRECTORY 
 ```
 </details>
 
-[↑ Back to the top](#grin-to-s3)
+[↑ Back to the top](#grin-transfer)
 
 ## Development
 
@@ -539,7 +539,7 @@ uv sync
 uv run ruff check --fix && uv run ruff format
 
 # Run type checking
-uv run mypy src/grin_to_s3 --explicit-package-bases
+uv run mypy src/grin_transfer --explicit-package-bases
 
 # Run tests
 uv run python -m pytest
@@ -549,4 +549,4 @@ uv add package-name           # Runtime dependency
 uv add --dev package-name     # Development dependency
 ```
 
-[↑ Back to the top](#grin-to-s3)
+[↑ Back to the top](#grin-transfer)

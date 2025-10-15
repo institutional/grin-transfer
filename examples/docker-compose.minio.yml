@@ -29,7 +29,7 @@ version: '3.8'
 services:
   minio:
     image: minio/minio:latest
-    container_name: grin-to-s3-minio
+    container_name: grin-transfer-minio
     ports:
       - "9000:9000"  # MinIO API
       - "9001:9001"  # MinIO Console
@@ -39,14 +39,14 @@ services:
       MINIO_DEFAULT_BUCKETS: "grin-raw:none,grin-meta:none,grin-full:none"
     command: server /data --console-address ":9001"
     volumes:
-      - grin-to-s3-minio-data:/data
+      - grin-transfer-minio-data:/data
     networks:
-      - grin-to-s3-minio-network
+      - grin-transfer-minio-network
 
 
 volumes:
-  grin-to-s3-minio-data:
+  grin-transfer-minio-data:
 
 networks:
-  grin-to-s3-minio-network:
+  grin-transfer-minio-network:
     driver: bridge

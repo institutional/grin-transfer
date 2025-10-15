@@ -19,8 +19,8 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from grin_to_s3.collect_books.models import SQLiteProgressTracker
-from grin_to_s3.run_config import StorageConfig
+from grin_transfer.collect_books.models import SQLiteProgressTracker
+from grin_transfer.run_config import StorageConfig
 from tests.utils import create_test_archive
 
 # =============================================================================
@@ -512,12 +512,12 @@ def mock_upload_operations(
         SyncOperationMocks bundle
     """
     with (
-        patch("grin_to_s3.sync.operations.decrypt_gpg_file") as mock_decrypt,
-        patch("grin_to_s3.sync.operations.create_storage_from_config") as mock_create_storage,
-        patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text") as mock_extract_ocr,
-        patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
-        patch("grin_to_s3.sync.operations.extract_archive") as mock_extract_archive,
-        patch("grin_to_s3.sync.operations.BookManager") as mock_book_manager_class,
+        patch("grin_transfer.sync.operations.decrypt_gpg_file") as mock_decrypt,
+        patch("grin_transfer.sync.operations.create_storage_from_config") as mock_create_storage,
+        patch("grin_transfer.sync.operations.extract_and_upload_ocr_text") as mock_extract_ocr,
+        patch("grin_transfer.sync.operations.extract_and_update_marc_metadata") as mock_extract_marc,
+        patch("grin_transfer.sync.operations.extract_archive") as mock_extract_archive,
+        patch("grin_transfer.sync.operations.BookManager") as mock_book_manager_class,
     ):
         # Create storage mock first
         mock_storage = create_storage_mock(
@@ -644,8 +644,8 @@ def mock_minimal_upload():
     without full mock setup.
     """
     with (
-        patch("grin_to_s3.sync.operations.extract_and_update_marc_metadata"),
-        patch("grin_to_s3.sync.operations.extract_and_upload_ocr_text"),
+        patch("grin_transfer.sync.operations.extract_and_update_marc_metadata"),
+        patch("grin_transfer.sync.operations.extract_and_upload_ocr_text"),
     ):
         yield
 
@@ -663,8 +663,8 @@ def mock_extract_ocr_operations(page_count: int = 3, compression_enabled: bool =
         MockBundle with extract_ocr_pages and compress_file_to_temp mocks
     """
     with (
-        patch("grin_to_s3.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
-        patch("grin_to_s3.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
+        patch("grin_transfer.sync.tasks.extract_ocr.extract_ocr_pages") as mock_extract,
+        patch("grin_transfer.sync.tasks.extract_ocr.compress_file_to_temp") as mock_compress,
     ):
         # Configure extraction mock
         mock_extract.return_value = page_count
@@ -696,8 +696,8 @@ def mock_export_csv_operations(record_count: int = 0, csv_content: str = "barcod
         MockBundle with upload_csv_to_storage and write_books_to_csv mocks
     """
     with (
-        patch("grin_to_s3.sync.tasks.export_csv.upload_csv_to_storage") as mock_upload,
-        patch("grin_to_s3.sync.tasks.export_csv.write_books_to_csv") as mock_write_csv,
+        patch("grin_transfer.sync.tasks.export_csv.upload_csv_to_storage") as mock_upload,
+        patch("grin_transfer.sync.tasks.export_csv.write_books_to_csv") as mock_write_csv,
     ):
         # Configure write_csv mock - returns (Path, record_count)
         mock_write_csv.return_value = (None, record_count)  # Path will be set by test
@@ -733,8 +733,8 @@ def mock_extract_marc_operations(
         normalized_metadata = {"title_display": "Test Book", "author_display": "Test Author"}
 
     with (
-        patch("grin_to_s3.sync.tasks.extract_marc.extract_marc_metadata") as mock_extract,
-        patch("grin_to_s3.sync.tasks.extract_marc.convert_marc_keys_to_db_fields") as mock_convert,
+        patch("grin_transfer.sync.tasks.extract_marc.extract_marc_metadata") as mock_extract,
+        patch("grin_transfer.sync.tasks.extract_marc.convert_marc_keys_to_db_fields") as mock_convert,
     ):
         # Configure mocks
         mock_extract.return_value = marc_metadata

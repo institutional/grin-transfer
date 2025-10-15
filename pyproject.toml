@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "grin-to-s3"
+name = "grin-transfer"
 version = "2.0.0"
 description = "Pipeline for archiving Google Books data from GRIN to S3"
 readme = "README.md"
@@ -39,7 +39,7 @@ dependencies = [
 ]
 
 [project.scripts]
-grin = "grin_to_s3.cli:entry_point"
+grin = "grin_transfer.cli:entry_point"
 
 [project.urls]
 Homepage = "https://github.com/harvard-idi/grin-to-s3-wip"
@@ -65,7 +65,7 @@ dev-dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/grin_to_s3"]
+packages = ["src/grin_transfer"]
 
 [tool.ruff]
 line-length = 120

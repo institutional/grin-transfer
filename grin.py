@@ -24,16 +24,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 # Import all subcommand modules at startup to catch import errors early
-from grin_to_s3.auth import main as auth_main
-from grin_to_s3.collect_books.__main__ import main as collect_main
-from grin_to_s3.common import SessionLock
-from grin_to_s3.constants import OUTPUT_DIR
-from grin_to_s3.export import main as export_main
-from grin_to_s3.extract import main as extract_main
-from grin_to_s3.metadata.grin_enrichment import enrich_main
-from grin_to_s3.reports import main as reports_main
-from grin_to_s3.storage import main as storage_main
-from grin_to_s3.sync import main as sync_main
+from grin_transfer.auth import main as auth_main
+from grin_transfer.collect_books.__main__ import main as collect_main
+from grin_transfer.common import SessionLock
+from grin_transfer.constants import OUTPUT_DIR
+from grin_transfer.export import main as export_main
+from grin_transfer.extract import main as extract_main
+from grin_transfer.metadata.grin_enrichment import enrich_main
+from grin_transfer.reports import main as reports_main
+from grin_transfer.storage import main as storage_main
+from grin_transfer.sync import main as sync_main
 
 
 def create_parser():
