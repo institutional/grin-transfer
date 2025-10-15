@@ -101,58 +101,59 @@ def delete_bucket_contents(
         endpoint_url=storage.config.endpoint_url,
     )
 
-    # Use provided file list or fetch from bucket
+    # Use provided file list or delete as we scan
     if files_to_delete is not None:
+        # Predefined list - batch and delete
         objects_to_delete = [filename for filename, _ in files_to_delete]
+
+        deleted_count = 0
+        failed_count = 0
+        batch_size = 1000
+
+        for i in range(0, len(objects_to_delete), batch_size):
+            batch = objects_to_delete[i : i + batch_size]
+            delete_objects = [{"Key": filename} for filename in batch]
+
+            try:
+                response = s3_client.delete_objects(Bucket=bucket, Delete={"Objects": delete_objects})  # type: ignore[typeddict-item]
+                deleted_count += len(response.get("Deleted", []))
+                failed_count += len(response.get("Errors", []))
+            except Exception:
+                failed_count += len(batch)
+
+        return deleted_count, failed_count
     else:
+        # Scan and delete page by page (pages are already ≤1000 items)
+        print("\nDeleting objects...")
         list_kwargs = {"Bucket": bucket}
         if prefix:
             list_kwargs["Prefix"] = prefix
 
         paginator = s3_client.get_paginator("list_objects_v2")
-        objects_to_delete = []
+        deleted_count = 0
+        failed_count = 0
 
-        page_count = 0
-        for page in paginator.paginate(**list_kwargs):  # type: ignore
+        for page in paginator.paginate(**list_kwargs):  # type: ignore[arg-type]
             contents = page.get("Contents", [])
-            for obj in contents:
-                key = obj.get("Key")
-                if key is not None:
-                    objects_to_delete.append(key)
+            if not contents:
+                continue
 
-            page_count += 1
-            if page_count > 1:  # Show progress after first page
-                print(f"  Scanned {len(objects_to_delete):,} objects...")
+            # Delete this page (already ≤1000 items, the S3 delete limit)
+            delete_objects = [{"Key": obj["Key"]} for obj in contents if "Key" in obj]
 
-    if not objects_to_delete:
-        return 0, 0
+            if not delete_objects:
+                continue
 
-    # Delete in batches of 1000 (S3 API limit)
-    deleted_count = 0
-    failed_count = 0
-    batch_size = 1000
-    batch_num = 0
+            try:
+                response = s3_client.delete_objects(Bucket=bucket, Delete={"Objects": delete_objects})  # type: ignore[typeddict-item]
+                deleted_count += len(response.get("Deleted", []))
+                failed_count += len(response.get("Errors", []))
 
-    for i in range(0, len(objects_to_delete), batch_size):
-        batch = objects_to_delete[i : i + batch_size]
-        delete_objects = [{"Key": filename} for filename in batch]  # type: ignore
-
-        try:
-            response = s3_client.delete_objects(Bucket=bucket, Delete={"Objects": delete_objects})  # type: ignore
-
-            # Count successful deletions
-            deleted_count += len(response.get("Deleted", []))
-
-            # Count failures
-            failed_count += len(response.get("Errors", []))
-
-            # Show progress for large deletions
-            batch_num += 1
-            if batch_num > 1 or len(objects_to_delete) > batch_size:
+                # Show progress after each page
                 print(f"  Deleted {deleted_count:,} objects...")
 
-        except Exception:
-            failed_count += len(batch)
+            except Exception:
+                failed_count += len(delete_objects)
 
     return deleted_count, failed_count
 
@@ -408,8 +409,6 @@ async def cmd_rm(args) -> None:
             return
 
     # Perform deletion - let delete_bucket_contents do its own pagination with progress
-    print("\nDeleting objects...")
-
     deleted_count, failed_count = delete_bucket_contents(storage, bucket, prefix, files_to_delete=None)
 
     print("\nDeletion complete:")
