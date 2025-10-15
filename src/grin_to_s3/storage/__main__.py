@@ -25,8 +25,29 @@ from ..run_config import (
 logger = logging.getLogger(__name__)
 
 
-def list_bucket_files(storage, bucket: str, prefix: str = "") -> list[tuple[str, int]]:  # type: ignore
-    """List all files in bucket with sizes."""
+def get_buckets(run_config) -> dict[str, str]:
+    """Get bucket names from run config."""
+    return {
+        "raw": run_config.storage_bucket_raw,
+        "meta": run_config.storage_bucket_meta,
+        "full": run_config.storage_bucket_full,
+    }
+
+
+def list_bucket_files(
+    storage, bucket: str, prefix: str = "", fetch_all: bool = False
+) -> tuple[list[tuple[str, int]], bool]:  # type: ignore
+    """List files in bucket with sizes.
+
+    Args:
+        storage: Storage instance
+        bucket: Bucket name
+        prefix: Optional prefix filter
+        fetch_all: If False, only fetch first page (1000 items). If True, fetch all.
+
+    Returns:
+        Tuple of (files, has_more) where has_more indicates truncated results
+    """
 
     s3_client = boto3.client(
         "s3",
@@ -45,18 +66,31 @@ def list_bucket_files(storage, bucket: str, prefix: str = "") -> list[tuple[str,
     for page in paginator.paginate(**list_kwargs):  # type: ignore
         contents = page.get("Contents", [])
         for obj in contents:
-            key = obj.get("Key")
-            size = obj.get("Size")
-            if key is not None and size is not None:
+            if (key := obj.get("Key")) is not None and (size := obj.get("Size")) is not None:
                 files.append((key, size))
-    return files
+
+        # If not fetching all, stop after first page
+        if not fetch_all:
+            return files, page.get("IsTruncated", False)
+
+    return files, False
 
 
-def get_bucket_stats(storage, bucket: str, prefix: str = "") -> tuple[int, int]:
-    """Get bucket file count and total size."""
-    files = list_bucket_files(storage, bucket, prefix)
+def get_bucket_stats(storage, bucket: str, prefix: str = "", fetch_all: bool = False) -> tuple[int, int, bool]:
+    """Get bucket file count and total size.
+
+    Args:
+        storage: Storage instance
+        bucket: Bucket name
+        prefix: Optional prefix filter
+        fetch_all: If False, only fetch first page (1000 items). If True, fetch all.
+
+    Returns:
+        Tuple of (count, size, has_more) where has_more indicates truncated results
+    """
+    files, has_more = list_bucket_files(storage, bucket, prefix, fetch_all)
     total_size = sum(size for _, size in files)
-    return len(files), total_size
+    return len(files), total_size, has_more
 
 
 def delete_bucket_contents(
@@ -71,47 +105,46 @@ def delete_bucket_contents(
         endpoint_url=storage.config.endpoint_url,
     )
 
-    # Use provided file list or fetch from bucket
+    deleted_count = 0
+    failed_count = 0
+
+    # Use provided file list or delete as we scan
     if files_to_delete is not None:
-        objects_to_delete = [filename for filename, _ in files_to_delete]
+        # Predefined list - batch and delete
+        batch_size = 1000
+
+        for i in range(0, len(files_to_delete), batch_size):
+            batch = files_to_delete[i : i + batch_size]
+            delete_objects = [{"Key": filename} for filename, _ in batch]
+
+            try:
+                response = s3_client.delete_objects(Bucket=bucket, Delete={"Objects": delete_objects})  # type: ignore[typeddict-item]
+                deleted_count += len(response.get("Deleted", []))
+                failed_count += len(response.get("Errors", []))
+            except Exception:
+                failed_count += len(batch)
     else:
+        # Scan and delete page by page (pages are already ≤1000 items)
+        print("\nDeleting objects...")
         list_kwargs = {"Bucket": bucket}
         if prefix:
             list_kwargs["Prefix"] = prefix
 
         paginator = s3_client.get_paginator("list_objects_v2")
-        objects_to_delete = []
 
-        for page in paginator.paginate(**list_kwargs):  # type: ignore
-            contents = page.get("Contents", [])
-            for obj in contents:
-                key = obj.get("Key")
-                if key is not None:
-                    objects_to_delete.append(key)
+        for page in paginator.paginate(**list_kwargs):  # type: ignore[arg-type]
+            # Delete this page (already ≤1000 items, the S3 delete limit)
+            if delete_objects := [{"Key": obj["Key"]} for obj in page.get("Contents", []) if "Key" in obj]:
+                try:
+                    response = s3_client.delete_objects(Bucket=bucket, Delete={"Objects": delete_objects})  # type: ignore[typeddict-item]
+                    deleted_count += len(response.get("Deleted", []))
+                    failed_count += len(response.get("Errors", []))
 
-    if not objects_to_delete:
-        return 0, 0
+                    # Show progress after each page
+                    print(f"  Deleted {deleted_count:,} objects...")
 
-    # Delete in batches of 1000 (S3 API limit)
-    deleted_count = 0
-    failed_count = 0
-    batch_size = 1000
-
-    for i in range(0, len(objects_to_delete), batch_size):
-        batch = objects_to_delete[i : i + batch_size]
-        delete_objects = [{"Key": filename} for filename in batch]  # type: ignore
-
-        try:
-            response = s3_client.delete_objects(Bucket=bucket, Delete={"Objects": delete_objects})  # type: ignore
-
-            # Count successful deletions
-            deleted_count += len(response.get("Deleted", []))
-
-            # Count failures
-            failed_count += len(response.get("Errors", []))
-
-        except Exception:
-            failed_count += len(batch)
+                except Exception:
+                    failed_count += len(delete_objects)
 
     return deleted_count, failed_count
 
@@ -136,11 +169,7 @@ async def cmd_ls(args) -> None:
     storage_type = storage_config_dict["type"]
     storage = create_storage_from_config(run_config.storage_config)
     prefix = str(storage_config_dict.get("prefix", "") or "")
-    buckets = {
-        "raw": run_config.storage_bucket_raw,
-        "meta": run_config.storage_bucket_meta,
-        "full": run_config.storage_bucket_full,
-    }
+    buckets = get_buckets(run_config)
 
     print(f"\nStorage Listing for '{args.run_name}'")
     print("=" * 60)
@@ -163,7 +192,7 @@ async def cmd_ls(args) -> None:
             if args.long:
                 # Long listing format with files and sizes
                 if storage_type in ("r2", "s3", "minio"):
-                    files = list_bucket_files(storage, bucket, prefix)
+                    files, has_more = list_bucket_files(storage, bucket, prefix, fetch_all=args.all)
 
                     if not files:
                         print("  (empty)")
@@ -178,9 +207,14 @@ async def cmd_ls(args) -> None:
                             else:
                                 print(f"  {file_path:60}        0 B")
 
-                        print(f"  \nTotal: {len(files):,} files")
+                        # Calculate stats from files we already have instead of calling get_bucket_stats
+                        bucket_files = len(files)
+                        bucket_size = sum(size for _, size in files)
 
-                    bucket_files, bucket_size = get_bucket_stats(storage, bucket, prefix)
+                        print(f"  \nTotal: {bucket_files:,} files")
+                        if has_more:
+                            print("  (More files available - use --all to fetch all)")
+
                     total_files += bucket_files
                     total_size += bucket_size
                 else:
@@ -193,13 +227,17 @@ async def cmd_ls(args) -> None:
             else:
                 # Regular summary format
                 if storage_type in ("r2", "s3", "minio"):
-                    bucket_files, _ = get_bucket_stats(storage, bucket, prefix)
+                    bucket_files, bucket_size, has_more = get_bucket_stats(storage, bucket, prefix, fetch_all=args.all)
+                    total_files += bucket_files
+                    total_size += bucket_size
+                    print(f"  Total files: {bucket_files:,}")
+                    if has_more:
+                        print("  (More files available - use --all to fetch all)")
                 else:
                     objects = await storage.list_objects(f"{bucket}/{prefix}" if prefix else bucket)
                     bucket_files = len(objects)
-
-                total_files += bucket_files
-                print(f"  Total files: {bucket_files:,}")
+                    total_files += bucket_files
+                    print(f"  Total files: {bucket_files:,}")
 
         except Exception as e:
             print(f"  ❌ Error accessing bucket: {e}")
@@ -222,11 +260,7 @@ async def cmd_cp(args) -> None:
     storage_type = storage_config_dict["type"]
     storage = create_storage_from_config(run_config.storage_config)
     prefix = str(storage_config_dict.get("prefix", "") or "")
-    buckets = {
-        "raw": run_config.storage_bucket_raw,
-        "meta": run_config.storage_bucket_meta,
-        "full": run_config.storage_bucket_full,
-    }
+    buckets = get_buckets(run_config)
 
     cp_bucket = buckets[args.bucket_name]
 
@@ -276,11 +310,7 @@ async def cmd_rm(args) -> None:
     storage_type = storage_config_dict["type"]
     storage = create_storage_from_config(run_config.storage_config)
     prefix = str(storage_config_dict.get("prefix", "") or "")
-    buckets = {
-        "raw": run_config.storage_bucket_raw,
-        "meta": run_config.storage_bucket_meta,
-        "full": run_config.storage_bucket_full,
-    }
+    buckets = get_buckets(run_config)
 
     bucket_name = args.bucket_name
     if bucket_name not in buckets:
@@ -302,15 +332,21 @@ async def cmd_rm(args) -> None:
     # Check bucket contents
     print("Checking bucket contents...")
     if storage_type in ("r2", "s3", "minio"):
-        files = list_bucket_files(storage, bucket, prefix)
+        # Fetch first page to show samples and estimate count
+        files, has_more = list_bucket_files(storage, bucket, prefix, fetch_all=False)
         object_count = len(files)
 
         if object_count == 0:
             print("Bucket is already empty")
             return
 
-        print(f"Found {object_count:,} objects to delete")
+        # Display count (with + if more pages exist)
+        if has_more:
+            print(f"Found {object_count:,}+ objects to delete (scanning...)")
+        else:
+            print(f"Found {object_count:,} objects to delete")
 
+        # Show sample of files to be deleted
         if object_count <= 10:
             print("\nObjects to be deleted:")
             for i, (filename, _) in enumerate(files, 1):
@@ -319,14 +355,20 @@ async def cmd_rm(args) -> None:
             print("\nFirst 5 objects to be deleted:")
             for i, (filename, _) in enumerate(files[:5], 1):
                 print(f"  {i:2d}. {filename}")
-            print(f"  ... and {object_count - 5:,} more objects")
+            if has_more:
+                print("  ... and more (use Ctrl+C to cancel)")
+            else:
+                print(f"  ... and {object_count - 5:,} more objects")
     else:
         print("❌ Error: Bucket removal only supported for S3-compatible storage")
         sys.exit(1)
 
+    # Format count message for display
+    count_msg = f"{object_count:,}{'+' if has_more else ''}"
+
     # Handle dry-run mode
     if args.dry_run:
-        print(f"\n📋 DRY RUN: Would delete {object_count:,} objects from:")
+        print(f"\n📋 DRY RUN: Would delete {count_msg} objects from:")
         print(f"   Bucket: {bucket}")
         if prefix:
             print(f"   Prefix: {prefix}")
@@ -335,21 +377,19 @@ async def cmd_rm(args) -> None:
 
     # Confirm deletion
     if not args.yes:
-        print(f"\n⚠️  WARNING: This will permanently delete {object_count:,} objects from:")
+        print(f"\n⚠️  WARNING: This will permanently delete {count_msg} objects from:")
         print(f"   Bucket: {bucket}")
         if prefix:
             print(f"   Prefix: {prefix}")
         print("\nThis action CANNOT be undone!")
 
-        response = input(f"\nType 'DELETE' to confirm removal of {object_count:,} objects: ").strip()
+        response = input(f"\nType 'DELETE' to confirm removal of {count_msg} objects: ").strip()
         if response != "DELETE":
             print("Removal cancelled")
             return
 
-    # Perform deletion
-    print(f"\nDeleting {object_count:,} objects...")
-
-    deleted_count, failed_count = delete_bucket_contents(storage, bucket, prefix, files)
+    # Perform deletion - let delete_bucket_contents do its own pagination with progress
+    deleted_count, failed_count = delete_bucket_contents(storage, bucket, prefix, files_to_delete=None)
 
     print("\nDeletion complete:")
     print(f"  Successfully deleted: {deleted_count:,}")
@@ -394,6 +434,7 @@ Examples:
         "-l", "--long", action="store_true", help="Use long listing format with recursive file listing"
     )
     ls_parser.add_argument("--bucket-name", choices=["raw", "meta", "full"], help="Bucket to list (raw, meta, or full)")
+    ls_parser.add_argument("--all", action="store_true", help="Fetch all files (default: first 1000 only)")
 
     # Copy command
     cp_parser = subparsers.add_parser(
