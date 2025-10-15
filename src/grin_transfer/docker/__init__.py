@@ -1,5 +1,5 @@
 """
-Docker-specific utilities for grin-to-s3.
+Docker-specific utilities for grin_transfer.
 
 This module contains Docker environment detection and validation logic.
 """

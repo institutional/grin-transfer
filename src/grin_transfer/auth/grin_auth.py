@@ -21,8 +21,9 @@ from .exceptions import AuthError, CredentialsMissingError, GRINPermissionError
 
 logger = logging.getLogger(__name__)
 
-# Default credentials directory
-DEFAULT_CREDENTIALS_DIR = Path.home() / ".config" / "grin-to-s3"
+# Credential directory configuration
+CREDENTIALS_DIR_NAME = "grin-transfer"
+DEFAULT_CREDENTIALS_DIR = Path.home() / ".config" / CREDENTIALS_DIR_NAME
 
 
 def detect_remote_shell() -> bool:
@@ -161,8 +162,8 @@ class GRINAuth:
         search_paths.extend(
             [
                 # XDG config directory (Linux/Unix standard)
-                home / ".config" / "grin-to-s3" / "client_secret.json",
-                home / ".config" / "grin-to-s3" / "secrets.json",
+                home / ".config" / CREDENTIALS_DIR_NAME / "client_secret.json",
+                home / ".config" / CREDENTIALS_DIR_NAME / "secrets.json",
             ]
         )
 
@@ -171,7 +172,7 @@ class GRINAuth:
                 return path
 
         # Default to XDG config directory
-        default_path = home / ".config" / "grin-to-s3" / "client_secret.json"
+        default_path = home / ".config" / CREDENTIALS_DIR_NAME / "client_secret.json"
         return default_path
 
     def _find_credentials_file(self, credentials_file: Path | str | None, secrets_dir: Path | str | None) -> Path:
@@ -750,7 +751,7 @@ If you already have a client_secret.json file, """,
         end="",
     )
 
-    print("save it in your home directory at ~/.config/grin-to-s3/client_secret.json")
+    print(f"save it in your home directory at ~/.config/{CREDENTIALS_DIR_NAME}/client_secret.json")
 
     print("""
 If you don't have a client_secret.json file, follow these steps to create one:
@@ -763,7 +764,7 @@ If you don't have a client_secret.json file, follow these steps to create one:
 
     # Detect Docker environment and provide appropriate instructions
     if is_docker_environment():
-        print("   6. Save it in your home directory as ~/.config/grin-to-s3/client_secret.json")
+        print(f"   6. Save it in your home directory as ~/.config/{CREDENTIALS_DIR_NAME}/client_secret.json")
         print(f"   7. The file will be available inside the container at: {secrets_path}")
         print("   8. Tokens will be saved to a writable project directory for secure refresh")
     else:

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 from grin_transfer.docker import process_local_storage_path
 
-from ..auth.grin_auth import DEFAULT_CREDENTIALS_DIR, find_credential_file
+from ..auth.grin_auth import CREDENTIALS_DIR_NAME, DEFAULT_CREDENTIALS_DIR, find_credential_file
 from .base import BackendConfig, Storage
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ def load_r2_credentials() -> tuple[str, str] | None:
 
     if not credentials_file:
         logger.error(
-            "Missing R2 credentials file. Please ensure credentials are properly configured in ~/.config/grin-to-s3/r2_credentials.json"
+            f"Missing R2 credentials file. Please ensure credentials are properly configured in ~/.config/{CREDENTIALS_DIR_NAME}/r2_credentials.json"
         )
         return None
 

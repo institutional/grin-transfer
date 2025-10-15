@@ -1,7 +1,7 @@
-# MinIO Local Development Environment for GRIN-to-S3 Storage Testing
+# MinIO Local Development Environment for GRIN Transfer Storage Testing
 #
 # Purpose:
-# - Provides S3-compatible storage for local GRIN-to-S3 development and testing
+# - Provides S3-compatible storage for local GRIN Transfer development and testing
 # - Allows testing storage abstraction without cloud credentials
 # - Simulates production S3/R2 behavior in a local environment
 # - Used for developing and debugging storage operations before deployment
@@ -14,7 +14,7 @@
 # API: http://localhost:9000
 # Console: http://localhost:9001 (minioadmin/minioadmin123)
 #
-# GRIN-to-S3 Integration:
+# GRIN Transfer Integration:
 # python grin.py collect --run-name test --storage minio --library-directory <directory>
 # python grin.py sync pipeline --run-name test --storage minio
 # python grin.py sync catchup --run-name test --storage minio

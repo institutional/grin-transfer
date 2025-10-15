@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-End-to-end testing script for grin-to-s3
+End-to-end testing script for grin-transfer
 
 This script performs comprehensive testing across multiple configurations using real credentials:
 1. Checks out repo in temp directory
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 class E2ETestRunner:
-    """End-to-end test runner for grin-to-s3 pipeline."""
+    """End-to-end test runner for grin-transfer pipeline."""
 
     def __init__(self, run_name: str, limit: int = 20, cleanup: bool = True):
         self.run_name = run_name
@@ -138,7 +138,7 @@ class E2ETestRunner:
         logger.info(f"Created temporary directory: {self.temp_dir}")
 
         # Clone the local repository (including uncommitted changes)
-        repo_dir = self.temp_dir / "grin-to-s3"
+        repo_dir = self.temp_dir / "grin-transfer"
         self._run_command(["git", "clone", str(self.original_dir), str(repo_dir)], quiet=True)
 
         # Get current branch from original directory
@@ -169,7 +169,7 @@ class E2ETestRunner:
         """Verify that required credentials are available."""
         logger.info("Checking for required credentials...")
 
-        creds_dir = Path.home() / ".config" / "grin-to-s3"
+        creds_dir = Path.home() / ".config" / "grin-transfer"
         required_files = ["client_secret.json"]
 
         for file_name in required_files:
@@ -289,7 +289,7 @@ class E2ETestRunner:
 
         # Configuration 2: R2 storage (if credentials available)
         logger.info("=== Testing local machine with R2 storage ===")
-        r2_creds_file = Path.home() / ".config" / "grin-to-s3" / "r2_credentials.json"
+        r2_creds_file = Path.home() / ".config" / "grin-transfer" / "r2_credentials.json"
         if r2_creds_file.exists():
             # Collect with R2 storage (let it use user's config)
             self._run_command(
@@ -377,11 +377,11 @@ class E2ETestRunner:
             ["docker", "compose", "down", "--remove-orphans", "--volumes"], cwd=repo_dir, check=False, quiet=True
         )
 
-        # Also clean up any containers with grin-to-s3 names
+        # Also clean up any containers with grin-transfer names
         try:
-            # Stop and remove any containers with grin-to-s3 in the name
+            # Stop and remove any containers with grin-transfer in the name
             containers_result = subprocess.run(
-                ["docker", "ps", "-a", "--filter", "name=grin-to-s3", "-q"], capture_output=True, text=True
+                ["docker", "ps", "-a", "--filter", "name=grin-transfer", "-q"], capture_output=True, text=True
             )
 
             if containers_result.stdout.strip():
@@ -392,10 +392,10 @@ class E2ETestRunner:
         # Remove any existing images to ensure fresh build
         try:
             # Check if image exists first to avoid noisy error messages
-            result = subprocess.run(["docker", "images", "-q", "grin-to-s3:latest"], capture_output=True, text=True)
+            result = subprocess.run(["docker", "images", "-q", "grin-transfer:latest"], capture_output=True, text=True)
 
             if result.stdout.strip():  # Image exists
-                self._run_command(["docker", "rmi", "grin-to-s3:latest"], check=False)
+                self._run_command(["docker", "rmi", "grin-transfer:latest"], check=False)
         except subprocess.CalledProcessError:
             pass  # Expected if docker command fails
 
@@ -423,10 +423,10 @@ class E2ETestRunner:
             ["docker", "compose", "down", "--remove-orphans", "--volumes"], cwd=repo_dir, check=False, quiet=True
         )
 
-        # Remove any leftover grin-to-s3 containers
+        # Remove any leftover grin-transfer containers
         try:
             result = subprocess.run(
-                ["docker", "ps", "-aq", "--filter", "name=grin-to-s3"], capture_output=True, text=True
+                ["docker", "ps", "-aq", "--filter", "name=grin-transfer"], capture_output=True, text=True
             )
             if result.stdout.strip():
                 subprocess.run(["docker", "rm", "-f"] + result.stdout.strip().split(), check=False)
@@ -436,7 +436,7 @@ class E2ETestRunner:
         # Set up Docker credentials by copying from user's config
         logger.info("Setting up Docker credentials...")
         docker_creds_dir = repo_dir / "docker-data" / "credentials"
-        user_creds_dir = Path.home() / ".config" / "grin-to-s3"
+        user_creds_dir = Path.home() / ".config" / "grin-transfer"
 
         # Create docker credentials directory
         docker_creds_dir.mkdir(parents=True, exist_ok=True)
@@ -510,7 +510,7 @@ class E2ETestRunner:
 
         # Configuration 2: R2 storage in Docker (if credentials available)
         logger.info("=== Testing Docker with R2 storage ===")
-        r2_creds_file = Path.home() / ".config" / "grin-to-s3" / "r2_credentials.json"
+        r2_creds_file = Path.home() / ".config" / "grin-transfer" / "r2_credentials.json"
         if r2_creds_file.exists():
             # Collect with R2 storage in Docker (let it use user's config)
             self._run_command(
@@ -564,11 +564,11 @@ class E2ETestRunner:
         )
 
         # Also clean up any leftover containers that might conflict
-        self._run_command(["docker", "ps", "-aq", "--filter", "name=grin-to-s3"], check=False, quiet=True)
+        self._run_command(["docker", "ps", "-aq", "--filter", "name=grin-transfer"], check=False, quiet=True)
 
         try:
             result = subprocess.run(
-                ["docker", "ps", "-aq", "--filter", "name=grin-to-s3"], capture_output=True, text=True
+                ["docker", "ps", "-aq", "--filter", "name=grin-transfer"], capture_output=True, text=True
             )
             if result.stdout.strip():
                 subprocess.run(["docker", "rm", "-f"] + result.stdout.strip().split(), check=False)
@@ -610,7 +610,7 @@ class E2ETestRunner:
 
 def main():
     """Main entry point for E2E testing script."""
-    parser = argparse.ArgumentParser(description="End-to-end testing script for grin-to-s3")
+    parser = argparse.ArgumentParser(description="End-to-end testing script for grin-transfer")
     parser.add_argument("--run-name", default="e2e_test", help="Run name for the test pipeline (default: test)")
     parser.add_argument("--limit", type=int, default=20, help="Limit number of books to process (default: 20)")
     parser.add_argument("--no-cleanup", action="store_true", help="Don't clean up temporary directory after tests")

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Database utility functions for grin-to-s3.
+Database utility functions for grin_transfer.
 
 Contains shared database validation and utility functions to eliminate
 duplication and local imports across the codebase.

@@ -1,4 +1,4 @@
-# GRIN-to-S3
+# GRIN Transfer
 
 A pipeline for extracting page scans, metadata, and OCR from Google Books GRIN (Google Return Interface) by academic libraries who have partnered with Google Books. The tool will programmatically download and store book archives to local or S3-compatible storage. 
 
@@ -40,7 +40,7 @@ In typical usage, you will **collect** a local copy of your library's Google Boo
 
 Save this file as `gpg_passphrase.asc` in `~/.config/grin-transfer/` (the tool will search this location automatically).
 
-4. _(Optional)_ We recommend you set up S3-like cloud storage to extract large collections. GRIN-to-S3 will use those credentials to transfer decrypted book archives and metadata. For smaller collections, you can use any filesystem reachable from where you run this tool.
+4. _(Optional)_ We recommend you set up S3-like cloud storage to extract large collections. GRIN Transfer will use those credentials to transfer decrypted book archives and metadata. For smaller collections, you can use any filesystem reachable from where you run this tool.
 
 ### Set up OAuth2 client credentials
 
@@ -66,7 +66,7 @@ down arrow with a line under it.
 
 ## Installation
 
-The GRIN-to-S3 pipeline can be installed via docker, or directly on a target Linux-like or MacOS machine.
+The GRIN Transfer pipeline can be installed via docker, or directly on a target Linux-like or MacOS machine.
 
 ### Quick start with docker (recommended)
 

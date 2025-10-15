@@ -1,5 +1,5 @@
 """
-Unified mock architecture for grin-to-s3 tests.
+Unified mock architecture for grin_transfer tests.
 
 This module provides:
 - Context managers for complex patching scenarios

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared test utilities for grin-to-s3 test suite."""
+"""Shared test utilities for grin_transfer test suite."""
 
 import json
 import tarfile

@@ -1,5 +1,5 @@
 """
-GRIN-to-S3 Implementation
+GRIN Transfer Implementation
 
 Simplified, async-first pipeline for extracting Google Books data.
 """

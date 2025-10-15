@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GRIN-to-S3 Command Line Interface
+GRIN Transfer Command Line Interface
 
 A unified tool for archiving Google Books data from GRIN to S3-compatible storage.
 
@@ -40,7 +40,7 @@ def create_parser():
     """Create the main argument parser with subcommands."""
     parser = argparse.ArgumentParser(
         prog="grin",
-        description="GRIN-to-S3: Archive Google Books data from GRIN to S3-compatible storage",
+        description="GRIN Transfer: Archive Google Books data from GRIN to S3-compatible storage",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

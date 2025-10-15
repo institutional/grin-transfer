@@ -42,9 +42,9 @@ dependencies = [
 grin = "grin_transfer.cli:entry_point"
 
 [project.urls]
-Homepage = "https://github.com/harvard-idi/grin-to-s3-wip"
-Repository = "https://github.com/harvard-idi/grin-to-s3-wip.git"
-Issues = "https://github.com/harvard-idi/grin-to-s3-wip/issues"
+Homepage = "https://github.com/institutional/grin-transfer"
+Repository = "https://github.com/institutional/grin-transfer.git"
+Issues = "https://github.com/institutional/grin-transfer/issues"
 
 [tool.uv]
 dev-dependencies = [

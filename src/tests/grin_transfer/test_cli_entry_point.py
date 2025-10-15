@@ -21,7 +21,7 @@ class TestCLIEntryPoint:
 
             assert await main() == 0
             captured = capsys.readouterr()
-            assert "GRIN-to-S3" in captured.out
+            assert "GRIN Transfer" in captured.out
             assert "Available commands" in captured.out or "Commands:" in captured.out
 
     @pytest.mark.asyncio
@@ -34,7 +34,7 @@ class TestCLIEntryPoint:
 
             assert await main() == 1
             captured = capsys.readouterr()
-            assert "GRIN-to-S3" in captured.out or "usage:" in captured.out
+            assert "GRIN Transfer" in captured.out or "usage:" in captured.out
 
     @pytest.mark.asyncio
     async def test_unknown_command_shows_error(self, capsys):

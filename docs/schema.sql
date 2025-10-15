@@ -1,4 +1,4 @@
--- GRIN-to-S3 Database Schema
+-- GRIN Transfer Database Schema
 -- SQLite schema for book collection, enrichment, and sync tracking
 
 -- Books table: Core repository for all book metadata and sync tracking

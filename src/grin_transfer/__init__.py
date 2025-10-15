@@ -1,5 +1,5 @@
 """
-GRIN-to-S3 Library
+GRIN Transfer Library
 
 A Python library for archiving Google Books data from GRIN (Google Return Interface)
 to S3-compatible storage systems.

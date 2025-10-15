@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Constants for grin-to-s3 application.
+Constants for grin_transfer application.
 
 Centralized constants to eliminate duplication across the codebase.
 """

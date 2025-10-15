@@ -22,7 +22,7 @@ import aiohttp
 from grin_transfer.docker import is_docker_environment
 from grin_transfer.run_config import StorageConfigDict
 
-from .auth.grin_auth import find_credential_file
+from .auth.grin_auth import DEFAULT_CREDENTIALS_DIR, find_credential_file
 
 logger = logging.getLogger(__name__)
 
@@ -302,7 +302,7 @@ def get_gpg_passphrase_file_path(secrets_dir: str | None = None) -> str | None:
     else:
         # Search common locations in home directory
         home = Path.home()
-        search_paths.extend([home / ".config" / "grin-to-s3", home, home / ".grin", home / ".config"])
+        search_paths.extend([DEFAULT_CREDENTIALS_DIR, home, home / ".grin", home / ".config"])
 
     # Look for gpg_passphrase.asc file
     for search_path in search_paths:

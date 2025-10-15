@@ -1,4 +1,4 @@
-"""CLI entry point for grin-to-s3."""
+"""CLI entry point for grin_transfer."""
 
 import sys
 from pathlib import Path
