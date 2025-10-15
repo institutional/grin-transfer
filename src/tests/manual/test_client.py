@@ -9,7 +9,7 @@ import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from grin_to_s3.client import GRINClient
+from grin_transfer.client import GRINClient
 
 
 async def test_fetch_resource():

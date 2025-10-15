@@ -16,7 +16,7 @@ Comprehensive end-to-end testing script that validates the entire pipeline with 
 - Runs `./grin-docker sync pipeline --queue converted --limit 20` in Docker
 
 **Requirements:**
-- Real GRIN credentials in `~/.config/grin-to-s3/client_secret.json`
+- Real GRIN credentials in `~/.config/grin-transfer/client_secret.json`
 - Docker installed and running
 - Active internet connection
 - Storage backend configured

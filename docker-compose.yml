@@ -1,8 +1,8 @@
 services:
-  # Main grin-to-s3 application
-  grin-to-s3:
+  # Main grin-transfer application
+  grin-transfer:
     build: .
-    container_name: ${GRIN_CONTAINER_PREFIX:-grin-to-s3}-${GRIN_INSTANCE_ID:-dev}
+    container_name: ${GRIN_CONTAINER_PREFIX:-grin-transfer}-${GRIN_INSTANCE_ID:-dev}
     restart: unless-stopped
     
     # OAuth2 server port forwarding (configurable)
@@ -29,10 +29,10 @@ services:
       - ./docs:/app/docs
       
       # Read-only credential directory (for existing user credentials)
-      - ~/.config/grin-to-s3:/app/.config/grin-to-s3-read:ro
+      - ~/.config/grin-transfer:/app/.config/grin-transfer-read:ro
       
       # Writable credential directory (for OAuth tokens and generated credentials)
-      - ./docker-data/credentials:/app/.config/grin-to-s3-write
+      - ./docker-data/credentials:/app/.config/grin-transfer-write
       
       # GPG keyring for archive decryption (read-only source)
       - ~/.gnupg:/app/.gnupg-readonly:ro
@@ -47,8 +47,8 @@ services:
       - GRIN_STAGING_DIR=/app/staging
       
       # Credential directory paths
-      - GRIN_CREDENTIALS_DIR=/app/.config/grin-to-s3-read
-      - GRIN_WRITABLE_CREDENTIALS_DIR=/app/.config/grin-to-s3-write
+      - GRIN_CREDENTIALS_DIR=/app/.config/grin-transfer-read
+      - GRIN_WRITABLE_CREDENTIALS_DIR=/app/.config/grin-transfer-write
       - GRIN_OAUTH_PORT=${GRIN_OAUTH_PORT:-58432}
       
       # Development settings
@@ -75,7 +75,7 @@ services:
   # MinIO for local S3-compatible storage (optional - use with --profile minio)
   minio:
     image: minio/minio:latest
-    container_name: ${GRIN_CONTAINER_PREFIX:-grin-to-s3}-minio-${GRIN_INSTANCE_ID:-dev}
+    container_name: ${GRIN_CONTAINER_PREFIX:-grin-transfer}-minio-${GRIN_INSTANCE_ID:-dev}
     profiles: ["minio"]
     ports:
       - "9000:9000"  # MinIO API
@@ -97,7 +97,7 @@ services:
   # MinIO client for bucket setup (optional - use with --profile minio)
   minio-client:
     image: minio/mc:latest
-    container_name: ${GRIN_CONTAINER_PREFIX:-grin-to-s3}-minio-client-${GRIN_INSTANCE_ID:-dev}
+    container_name: ${GRIN_CONTAINER_PREFIX:-grin-transfer}-minio-client-${GRIN_INSTANCE_ID:-dev}
     profiles: ["minio"]
     networks:
       - grin-dev-network
@@ -132,11 +132,11 @@ services:
 # Named volumes for development
 volumes:
   minio-data:
-    name: ${GRIN_CONTAINER_PREFIX:-grin-to-s3}-minio-data-${GRIN_INSTANCE_ID:-dev}
+    name: ${GRIN_CONTAINER_PREFIX:-grin-transfer}-minio-data-${GRIN_INSTANCE_ID:-dev}
     driver: local
 
 # Network configuration
 networks:
   grin-dev-network:
-    name: ${GRIN_CONTAINER_PREFIX:-grin-to-s3}-network-${GRIN_INSTANCE_ID:-dev}
+    name: ${GRIN_CONTAINER_PREFIX:-grin-transfer}-network-${GRIN_INSTANCE_ID:-dev}
     driver: bridge

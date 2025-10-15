@@ -10,7 +10,7 @@ repos:
 
       - id: mypy
         name: mypy type checking
-        entry: uv run mypy src/grin_to_s3/ --explicit-package-bases
+        entry: uv run mypy src/grin_transfer/ --explicit-package-bases
         language: system
         pass_filenames: false
         always_run: true

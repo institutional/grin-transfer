@@ -1,10 +1,10 @@
 """
-GRIN-to-S3 Implementation
+GRIN Transfer Implementation
 
 Simplified, async-first pipeline for extracting Google Books data.
 """
 
-from src.grin_to_s3.auth import AuthError, CredentialsMissingError, GRINAuth, GRINPermissionError
+from src.grin_transfer.auth import AuthError, CredentialsMissingError, GRINAuth, GRINPermissionError
 
 __all__ = [
     "GRINAuth",

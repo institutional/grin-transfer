@@ -1,7 +1,7 @@
 #!/bin/bash
-# grin-docker - Docker wrapper for grin-to-s3 CLI tool
+# grin-docker - Docker wrapper for grin-transfer CLI tool
 #
-# This script provides a convenient way to run grin-to-s3 commands inside Docker
+# This script provides a convenient way to run grin-transfer commands inside Docker
 # while maintaining the same CLI interface as the native tool.
 #
 # Usage:
@@ -11,7 +11,7 @@
 #
 # Environment variables:
 #   COMPOSE_FILE - Docker Compose file to use (default: docker-compose.yml)
-#   SERVICE_NAME - Service name to execute commands in (default: grin-to-s3)
+#   SERVICE_NAME - Service name to execute commands in (default: grin-transfer)
 
 set -e
 
@@ -20,10 +20,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Allow environment variable overrides
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
-SERVICE_NAME="${SERVICE_NAME:-grin-to-s3}"
+SERVICE_NAME="${SERVICE_NAME:-grin-transfer}"
 
 # Set container prefix and instance ID if not provided
-export GRIN_CONTAINER_PREFIX="${GRIN_CONTAINER_PREFIX:-grin-to-s3}"
+export GRIN_CONTAINER_PREFIX="${GRIN_CONTAINER_PREFIX:-grin-transfer}"
 export GRIN_INSTANCE_ID="${GRIN_INSTANCE_ID:-dev}"
 
 # Full path to compose file
@@ -41,7 +41,7 @@ if [ "$1" = "auth" ] && [ "$2" = "setup" ]; then
     echo "Setting up authentication credentials..."
     
     # Create credentials directory if it doesn't exist
-    CREDS_DIR="$HOME/.config/grin-to-s3"
+    CREDS_DIR="$HOME/.config/grin-transfer"
     if [ ! -d "$CREDS_DIR" ]; then
         echo "Credentials directory doesn't exist: $CREDS_DIR"
         read -p "Create it now? (y/N): " -r
@@ -102,7 +102,7 @@ fi
 PROFILES="--profile minio"
 
 # Check for missing GPG passphrase file and warn
-CREDS_DIR="$HOME/.config/grin-to-s3"
+CREDS_DIR="$HOME/.config/grin-transfer"
 if [ ! -f "$CREDS_DIR/gpg_passphrase.asc" ]; then
     echo ""
     echo "⚠️  WARNING: GPG passphrase file not found!"

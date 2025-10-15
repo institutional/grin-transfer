@@ -5,7 +5,7 @@ Database test helper functions
 
 from typing import NamedTuple
 
-from grin_to_s3.collect_books.models import BookRecord, SQLiteProgressTracker
+from grin_transfer.collect_books.models import BookRecord, SQLiteProgressTracker
 
 
 class StatusUpdate(NamedTuple):

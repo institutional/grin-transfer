@@ -24,7 +24,7 @@ jobs:
       run: uv sync
     
     - name: Run type checking
-      run: uv run mypy src/grin_to_s3/ --explicit-package-bases
+      run: uv run mypy src/grin_transfer/ --explicit-package-bases
     
     - name: Run linting
       run: uv run ruff check .
@@ -60,9 +60,9 @@ jobs:
     - name: Create required directories and dummy credentials
       run: |
         mkdir -p docker-data/{data,output,logs,staging}
-        mkdir -p ~/.config/grin-to-s3
+        mkdir -p ~/.config/grin-transfer
         # Create dummy client secret file for Docker tests
-        cp examples/auth/client_secret.json ~/.config/grin-to-s3/client_secret.json
+        cp examples/auth/client_secret.json ~/.config/grin-transfer/client_secret.json
     
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
@@ -72,16 +72,16 @@ jobs:
       with:
         context: .
         push: false
-        tags: grin-to-s3:test
+        tags: grin-transfer:test
         cache-from: type=gha
         cache-to: type=gha,mode=max
     
     - name: Test Docker Compose (basic service)
       run: |
-        docker compose up -d grin-to-s3
+        docker compose up -d grin-transfer
         # Wait for service to be ready
         sleep 10
-        docker compose ps | grep -q "grin-to-s3"
+        docker compose ps | grep -q "grin-transfer"
         docker compose down
     
     - name: Test Docker Compose (MinIO profile)
@@ -102,11 +102,11 @@ jobs:
         docker compose ps | grep -q "minio.*Up"
         
         # Verify connectivity using application's MinIO check
-        docker compose exec grin-to-s3 uv run python -c "
+        docker compose exec grin-transfer uv run python -c "
         import asyncio
         import sys
         sys.path.append('/app/src')
-        from grin_to_s3.common import check_minio_connectivity
+        from grin_transfer.common import check_minio_connectivity
         
         async def test_connectivity():
             config = {
@@ -125,7 +125,7 @@ jobs:
     - name: Test grin-docker wrapper script basic functionality
       run: |
         chmod +x grin-docker
-        ./grin-docker python grin.py --help | grep -q "GRIN-to-S3"
+        ./grin-docker python grin.py --help | grep -q "GRIN Transfer"
     
     - name: Test MinIO configuration functions
       run: |
@@ -139,11 +139,11 @@ jobs:
         done
 
         # Test that MinIO connectivity check works
-        docker compose exec grin-to-s3 uv run python -c "
+        docker compose exec grin-transfer uv run python -c "
         import asyncio
         import sys
         sys.path.append('/app/src')
-        from grin_to_s3.common import auto_configure_minio, check_minio_connectivity
+        from grin_transfer.common import auto_configure_minio, check_minio_connectivity
         
         async def test_minio_config():
             # Test auto-configuration
@@ -177,12 +177,12 @@ jobs:
         done
         
         # Test that storage factories work with MinIO auto-configuration
-        docker compose exec grin-to-s3 uv run python -c "
+        docker compose exec grin-transfer uv run python -c "
         import sys
         sys.path.append('/app/src')
-        from grin_to_s3.storage.factories import create_storage_from_config
-        from grin_to_s3.storage.book_manager import BookManager
-        from grin_to_s3.common import auto_configure_minio
+        from grin_transfer.storage.factories import create_storage_from_config
+        from grin_transfer.storage.book_manager import BookManager
+        from grin_transfer.common import auto_configure_minio
         
         def test_storage_factories():
             # Test storage factory with empty config (should auto-configure)

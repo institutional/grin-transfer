@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from grin_to_s3.run_config import RunConfig, StorageConfig, StorageConfigDict, SyncConfig
+from grin_transfer.run_config import RunConfig, StorageConfig, StorageConfigDict, SyncConfig
 from tests.test_utils.unified_mocks import (
     create_book_manager_mock,
     create_progress_tracker_mock,
@@ -310,7 +310,7 @@ async def db_tracker(temp_db):
     This fixture replaces the AsyncDatabaseTestCase pattern, allowing
     pytest-asyncio tests to use the centralized database setup.
     """
-    from grin_to_s3.collect_books.models import SQLiteProgressTracker
+    from grin_transfer.collect_books.models import SQLiteProgressTracker
 
     tracker = SQLiteProgressTracker(temp_db)
     await tracker.init_db()

@@ -1,7 +1,7 @@
-# MinIO Local Development Environment for GRIN-to-S3 Storage Testing
+# MinIO Local Development Environment for GRIN Transfer Storage Testing
 #
 # Purpose:
-# - Provides S3-compatible storage for local GRIN-to-S3 development and testing
+# - Provides S3-compatible storage for local GRIN Transfer development and testing
 # - Allows testing storage abstraction without cloud credentials
 # - Simulates production S3/R2 behavior in a local environment
 # - Used for developing and debugging storage operations before deployment
@@ -14,7 +14,7 @@
 # API: http://localhost:9000
 # Console: http://localhost:9001 (minioadmin/minioadmin123)
 #
-# GRIN-to-S3 Integration:
+# GRIN Transfer Integration:
 # python grin.py collect --run-name test --storage minio --library-directory <directory>
 # python grin.py sync pipeline --run-name test --storage minio
 # python grin.py sync catchup --run-name test --storage minio
@@ -29,7 +29,7 @@ version: '3.8'
 services:
   minio:
     image: minio/minio:latest
-    container_name: grin-to-s3-minio
+    container_name: grin-transfer-minio
     ports:
       - "9000:9000"  # MinIO API
       - "9001:9001"  # MinIO Console
@@ -39,14 +39,14 @@ services:
       MINIO_DEFAULT_BUCKETS: "grin-raw:none,grin-meta:none,grin-full:none"
     command: server /data --console-address ":9001"
     volumes:
-      - grin-to-s3-minio-data:/data
+      - grin-transfer-minio-data:/data
     networks:
-      - grin-to-s3-minio-network
+      - grin-transfer-minio-network
 
 
 volumes:
-  grin-to-s3-minio-data:
+  grin-transfer-minio-data:
 
 networks:
-  grin-to-s3-minio-network:
+  grin-transfer-minio-network:
     driver: bridge
