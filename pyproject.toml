@@ -4,18 +4,18 @@ build-backend = "hatchling.build"
 
 [project]
 name = "grin-transfer"
-version = "2.0.0"
-description = "Pipeline for archiving Google Books data from GRIN to S3"
+version = "1.0.0"
+description = "A production-ready tool for libraries to retrieve their digital copies from Google Books."
 readme = "README.md"
 requires-python = ">=3.12,<4.0"
-license = {text = "MIT"}
+license = {text = "AGPL-3.0-or-later"}
 authors = [
-    {name = "Harvard Institutional Data Initiative"}
+    {name = "Institutional Data Initiative at Harvard Law School Library"}
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
