@@ -1,6 +1,7 @@
 .flowchart {
   background-color: transparent !important;
   background: transparent !important;
+  font-size: 24px !important;
 }
 
 .labelBkg {
@@ -9,6 +10,7 @@
 
 .edgeLabel {
   background-color: white !important;
+  font-size: 24px !important;
 }
 
 .edgeLabel rect {
@@ -28,4 +30,19 @@ svg {
 /* Decision nodes need white backgrounds so lines don't show through */
 .decision > * {
   fill: white !important;
+}
+
+/* Increase stroke width for all paths and lines */
+.flowchart path, .flowchart line {
+  stroke-width: 4px !important;
+}
+
+/* Increase stroke width for node borders */
+.flowchart .node rect, .flowchart .node circle, .flowchart .node ellipse, .flowchart .node polygon, .flowchart .node path {
+  stroke-width: 4px !important;
+}
+
+/* Increase font size for all text elements */
+.flowchart text, .nodeLabel, .edgeLabel, .label {
+  font-size: 24px !important;
 }

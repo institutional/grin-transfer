@@ -1,8 +1,8 @@
 %%{init: {"theme": "base", "themeVariables": {"primaryTextColor": "#1e293b", "primaryBorderColor": "#475569", "lineColor": "#64748b", "background": "transparent", "mainBkg": "transparent", "secondBkg": "transparent"}, "flowchart": {"defaultRenderer": "elk", "elk": {"elk.direction": "RIGHT"}}}}%%
 flowchart LR
-classDef terminal fill:none,stroke:#6b7280,stroke-width:2px,color:#374151
-classDef process fill:none,stroke:#3b82f6,stroke-width:2px,color:#1e40af
-classDef decision fill:none,stroke:#f97316,stroke-width:2px,color:#7c2d12
+classDef terminal fill:none,stroke:#6b7280,stroke-width:4px,color:#374151
+classDef process fill:none,stroke:#3b82f6,stroke-width:4px,color:#1e40af
+classDef decision fill:none,stroke:#f97316,stroke-width:4px,color:#7c2d12
 
 Start(["Begin volume intake<br/>from sync queue"]):::terminal --> HeadGRIN["HEAD request to GRIN file package URL"]:::process
 HeadGRIN --> Response{"GRIN response status"}:::decision
