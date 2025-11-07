@@ -16,6 +16,12 @@
     "titleColor": "#1e293b",
     "edgeLabelBackground": "transparent",
     "nodeTextColor": "#1e293b",
-    "labelBackgroundColor": "transparent"
+    "labelBackgroundColor": "transparent",
+    "fontSize": "24px",
+    "fontFamily": "arial, helvetica, sans-serif"
+  },
+  "flowchart": {
+    "curve": "basis",
+    "padding": 20
   }
 }
