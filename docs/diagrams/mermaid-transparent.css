@@ -34,12 +34,12 @@ svg {
 
 /* Increase stroke width for all paths and lines */
 .flowchart path, .flowchart line {
-  stroke-width: 3px !important;
+  stroke-width: 4px !important;
 }
 
 /* Increase stroke width for node borders */
 .flowchart .node rect, .flowchart .node circle, .flowchart .node ellipse, .flowchart .node polygon, .flowchart .node path {
-  stroke-width: 3px !important;
+  stroke-width: 4px !important;
 }
 
 /* Increase font size for all text elements */
