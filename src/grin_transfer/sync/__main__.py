@@ -159,6 +159,8 @@ async def cmd_pipeline(args) -> None:
     if hasattr(args, "queue") and args.queue:
         sync_stage.set_command_arg("queues", args.queue)
 
+    pipeline = None  # Initialize for safe access in finally block
+
     try:
         # Parse and validate barcodes
         specific_barcodes = _parse_and_validate_barcodes(args, sync_stage)
@@ -200,11 +202,20 @@ async def cmd_pipeline(args) -> None:
     finally:
         # Always finalize process summary regardless of success/failure/interruption
         run_summary.end_stage("sync")
+
+        upload_success = True
         if not args.dry_run:
-            await save_process_summary(run_summary, book_manager)
+            upload_success = await save_process_summary(run_summary, book_manager)
+            if not upload_success:
+                print("Process summary upload failed (see logs for details)")
 
         # Display completion summary
         display_step_summary(run_summary, "sync")
+
+        # Exit non-zero if teardown or upload failed
+        teardown_failed = pipeline.teardown_failed if pipeline else False
+        if teardown_failed or not upload_success:
+            sys.exit(1)
 
 
 async def main() -> None:

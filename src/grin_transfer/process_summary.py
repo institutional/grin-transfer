@@ -507,8 +507,12 @@ class RunSummaryManager:
         self._storage_upload_enabled = True
         self._book_manager = book_manager
 
-    async def save_summary(self, summary: RunSummary) -> None:
-        """Save run summary to file and optionally upload to storage."""
+    async def save_summary(self, summary: RunSummary) -> bool:
+        """Save run summary to file and optionally upload to storage.
+
+        Returns:
+            True if all operations succeeded, False if upload failed.
+        """
         try:
             # Ensure directory exists
             self.summary_file.parent.mkdir(parents=True, exist_ok=True)
@@ -522,16 +526,21 @@ class RunSummaryManager:
 
             # Upload to storage if enabled
             if self._storage_upload_enabled and self._book_manager:
-                await self._upload_to_storage()
+                return await self._upload_to_storage()
+
+            return True
 
         except Exception as e:
             logger.error(f"Failed to save run summary: {e}")
+            return False
 
-    async def _upload_to_storage(self) -> None:
-        """Upload compressed process summary to metadata bucket."""
-        if not self._book_manager:
-            logger.warning("Storage upload requested but no book storage configured")
-            return
+    async def _upload_to_storage(self) -> bool:
+        """Upload compressed process summary to metadata bucket.
+
+        Returns:
+            True if upload succeeded, False otherwise.
+        """
+        assert self._book_manager is not None
 
         try:
             # Generate storage path for compressed process summary
@@ -556,10 +565,11 @@ class RunSummaryManager:
 
             # Clean up storage resources to prevent unclosed session warnings
             await self._book_manager.storage.close()
+            return True
 
         except Exception as e:
             logger.error(f"Failed to upload process summary to storage: {e}")
-            # Don't raise - storage upload failure shouldn't break local summary saving
+            return False
 
     async def _summary_file_exists(self) -> bool:
         """Check if summary file exists."""
@@ -662,15 +672,19 @@ async def create_process_summary(run_name: str, process_name: str, book_manager=
     return summary
 
 
-async def save_process_summary(summary: RunSummary, book_manager=None) -> None:
-    """Save a run summary."""
+async def save_process_summary(summary: RunSummary, book_manager=None) -> bool:
+    """Save a run summary.
+
+    Returns:
+        True if all operations succeeded, False if upload failed.
+    """
     manager = RunSummaryManager(summary.run_name)
 
     # Enable storage upload if book_manager is provided
     if book_manager is not None:
         manager.enable_storage_upload(book_manager)
 
-    await manager.save_summary(summary)
+    return await manager.save_summary(summary)
 
 
 # For accessing the current stage in the summary
