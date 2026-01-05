@@ -47,7 +47,7 @@ from grin_transfer.sync.tasks import (
     unpack,
     upload,
 )
-from grin_transfer.sync.tasks.task_types import TaskType
+from grin_transfer.sync.tasks.task_types import TaskAction, TaskType
 
 from .barcode_filtering import filter_and_print_barcodes
 from .preflight import run_preflight_operations
@@ -257,6 +257,7 @@ class SyncPipeline:
         # Concurrency control
         self._shutdown_requested = False
         self._fatal_error: str | None = None  # Store fatal errors that should stop the pipeline
+        self.teardown_failed = False  # Track if teardown operations failed
 
         # Database update accumulator for atomic commits
         self.book_record_updates: dict[str, dict[str, Any]] = {}
@@ -662,7 +663,20 @@ class SyncPipeline:
             if not self.dry_run:
                 print()
                 print("Running teardown and final cleanup...")
-                await run_teardown_operations(self)
+                teardown_results = await run_teardown_operations(self)
+
+                # Check for failures and surface them
+                failures = [
+                    (name, result.error)
+                    for name, result in teardown_results.items()
+                    if result.action == TaskAction.FAILED
+                ]
+                if failures:
+                    self.teardown_failed = True
+                    print()
+                    print("Teardown completed with errors:")
+                    for name, error in failures:
+                        print(f"  x {name}: {error}")
 
     def _should_exit_for_failure_limit(self) -> bool:
         """Check if pipeline should exit due to sequential failure limit."""
