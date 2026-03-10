@@ -188,7 +188,10 @@ async def cmd_pipeline(args) -> None:
             # Execute the sync pipeline
             sync_stage.add_progress_update("Starting sync pipeline")
             await pipeline.setup_sync_loop(
-                queues=args.queue or [], specific_barcodes=specific_barcodes or [], limit=args.limit
+                queues=args.queue or [],
+                specific_barcodes=specific_barcodes or [],
+                limit=args.limit,
+                skip_barcodes=set(args.skip),
             )
             sync_stage.add_progress_update("Sync pipeline completed successfully")
         finally:
@@ -266,6 +269,9 @@ Examples:
   python grin.py sync pipeline --run-name harvard_2024 --barcodes-file my_books.txt
 
 
+  # Skip specific problematic barcodes
+  python grin.py sync pipeline --run-name harvard_2024 --queue converted --skip ABC123 --skip DEF456
+
   # Sync with limit and force overwrite
   python grin.py sync pipeline --run-name harvard_2024 --queue converted --limit 100 --force
 
@@ -307,6 +313,13 @@ Examples:
     pipeline_parser.add_argument(
         "--barcodes-file",
         help="Path to a text file containing barcodes to sync (one per line, supports comments with #)",
+    )
+    pipeline_parser.add_argument(
+        "--skip",
+        action="append",
+        default=[],
+        metavar="BARCODE",
+        help="Barcode to skip (repeatable, e.g. --skip ABC123 --skip DEF456)",
     )
     pipeline_parser.add_argument("--force", action="store_true", help="Force download and overwrite existing files")
     pipeline_parser.add_argument(

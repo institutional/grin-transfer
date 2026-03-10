@@ -367,6 +367,7 @@ class SyncPipeline:
         queues: list[str],
         specific_barcodes: list[str],
         limit: int | None = None,
+        skip_barcodes: set[str] | frozenset[str] = frozenset(),
     ) -> None:
         """Run the complete sync pipeline.
 
@@ -374,7 +375,13 @@ class SyncPipeline:
             limit: Optional limit on number of books to sync
             specific_barcodes: Optional list of specific barcodes to sync
             queues: List of queue types to process (converted, previous, changed)
+            skip_barcodes: Optional set of barcodes to exclude from processing
         """
+
+        if skip_barcodes:
+            print(
+                f"Skipping {len(skip_barcodes)} {pluralize(len(skip_barcodes), 'barcode')}: {', '.join(sorted(skip_barcodes))}"
+            )
 
         if self.dry_run:
             print("🔍 DRY RUN MODE: No files will be downloaded or uploaded\n")
@@ -482,6 +489,7 @@ class SyncPipeline:
                     books_already_synced=set(),
                     limit=limit,
                     queue_name=None,
+                    skip_barcodes=skip_barcodes,
                 )
 
                 if not books_to_process:
@@ -601,6 +609,7 @@ class SyncPipeline:
                         books_already_synced=books_already_synced,
                         limit=limit,
                         queue_name=queue_name,
+                        skip_barcodes=skip_barcodes,
                     )
 
                     if not books_to_process:

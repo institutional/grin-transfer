@@ -10,6 +10,7 @@ def filter_and_print_barcodes(
     books_already_synced: set[str],
     limit: int | None,
     queue_name: str | None = None,
+    skip_barcodes: set[str] | frozenset[str] = frozenset(),
 ) -> list[str]:
     """Filter barcodes and print summary. Returns list of books to process."""
 
@@ -38,6 +39,12 @@ def filter_and_print_barcodes(
         books_needing_sync = list(books_from_source - books_already_synced)
         already_synced_count = len(books_from_source) - len(books_needing_sync)
 
+    # Remove explicitly skipped barcodes
+    count_before_skip = len(books_needing_sync)
+    if skip_barcodes:
+        books_needing_sync = [b for b in books_needing_sync if b not in skip_barcodes]
+    skipped_count = count_before_skip - len(books_needing_sync)
+
     # Apply limit
     if limit and limit < len(books_needing_sync):
         books_to_process = books_needing_sync[:limit]
@@ -53,17 +60,17 @@ def filter_and_print_barcodes(
 
     if using_specific:
         print("  2. Sync filter: Skipped (using specific barcodes)")
-        print(f"     -> {len(books_needing_sync):,} {pluralize(len(books_needing_sync), 'book')} to process")
+        print(f"     -> {count_before_skip:,} {pluralize(count_before_skip, 'book')} to process")
     elif already_synced_count > 0:
         print(f"  2. Sync filter: Removed {already_synced_count:,} already synced")
-        print(
-            f"     -> {len(books_needing_sync):,} {pluralize(len(books_needing_sync), 'book')} will be processed by this queue"
-        )
+        print(f"     -> {count_before_skip:,} {pluralize(count_before_skip, 'book')} will be processed by this queue")
     else:
         print("  2. Sync filter: No books already synced")
-        print(
-            f"     -> {len(books_needing_sync):,} {pluralize(len(books_needing_sync), 'book')} will be processed by this queue"
-        )
+        print(f"     -> {count_before_skip:,} {pluralize(count_before_skip, 'book')} will be processed by this queue")
+
+    if skipped_count > 0:
+        print(f"  2a. Skip filter: Removed {skipped_count:,} explicitly skipped")
+        print(f"      -> {len(books_needing_sync):,} {pluralize(len(books_needing_sync), 'book')} remaining")
 
     if limit_applied:
         print(f"  3. Limit: Applied limit of {limit_applied:,}")
