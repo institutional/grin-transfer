@@ -222,6 +222,7 @@ One of these must be specified
 - `--limit`: Limit number of books to sync
 - `--force`: Overwrite existing files even if checks think the versions are identical; also retry conversion requests for books that previously failed
 - `--dry-run`: Show what would happen in a sync with the provided options, but do no work
+- `--skip BARCODE`: Exclude a specific barcode from processing (repeatable, e.g. `--skip ABC123 --skip DEF456`)
 
 #### Conversion failure handling
 

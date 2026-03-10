@@ -161,3 +161,46 @@ def test_limit_scenarios(count, limit, expected_count):
     )
 
     assert len(result) == expected_count
+
+
+def test_skip_barcodes_removed_from_queue():
+    """filter_and_print_barcodes should exclude skip_barcodes from queue results."""
+    queue_books = {"A", "B", "C", "D"}
+
+    result = filter_and_print_barcodes(
+        specific_barcodes=None,
+        queue_books=queue_books,
+        books_already_synced=set(),
+        limit=None,
+        skip_barcodes={"B", "D"},
+    )
+
+    assert set(result) == {"A", "C"}
+
+
+def test_skip_barcodes_removed_from_specific():
+    """filter_and_print_barcodes should exclude skip_barcodes from specific barcodes."""
+    result = filter_and_print_barcodes(
+        specific_barcodes=["A", "B", "C"],
+        queue_books=None,
+        books_already_synced=set(),
+        limit=None,
+        skip_barcodes={"B"},
+    )
+
+    assert set(result) == {"A", "C"}
+
+
+def test_skip_barcodes_not_in_source_is_harmless():
+    """filter_and_print_barcodes should ignore skip_barcodes not present in source."""
+    queue_books = {"A", "B"}
+
+    result = filter_and_print_barcodes(
+        specific_barcodes=None,
+        queue_books=queue_books,
+        books_already_synced=set(),
+        limit=None,
+        skip_barcodes={"Z"},
+    )
+
+    assert set(result) == {"A", "B"}
